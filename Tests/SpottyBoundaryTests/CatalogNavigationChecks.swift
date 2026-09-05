@@ -20,4 +20,15 @@ struct CatalogNavigationTests {
         #expect(playlistTrack.artists == mapped.artists)
         #expect(playlistTrack.albumItem == mapped.albumItem)
     }
+    @Test func incompleteArtistDestinationsPreserveAllCredits() throws {
+        let data = Data(
+            #"{"uri":"spotify:track:track","name":"Song","artists":{"items":[{"uri":"spotify:artist:first","profile":{"name":"First"}},{"profile":{"name":"Second"}}]},"albumOfTrack":{"name":"Album"}}"#
+                .utf8)
+        let track = try JSONDecoder().decode(PathfinderTrack.self, from: data)
+        let mapped = try #require(CatalogMapping.searchTrack(from: track))
+        #expect(mapped.artists.isEmpty)
+        #expect(mapped.artist.contains("First"))
+        #expect(mapped.artist.contains("Second"))
+    }
+
 }

@@ -33,6 +33,7 @@ nonisolated enum CatalogProviderCapabilityError: Error {
 }
 
 extension CatalogProviding {
+    /// Flat fallback for providers without folder support; PartnerAPI supplies the full hierarchy.
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
         try await libraryPlaylists().compactMap(CatalogMapping.item(from:)).map(PlaylistLibraryNode.init(playlist:))
     }

@@ -334,6 +334,7 @@ private struct QueueTrackRow: View {
                     .disabled(!canPlay)
                     .pointingHandCursor(enabled: canPlay)
                     .opacity(isHovering ? 1 : 0)
+                    .allowsHitTesting(isHovering)
                     .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(title)")
                 }
             VStack(alignment: .leading, spacing: 2) {

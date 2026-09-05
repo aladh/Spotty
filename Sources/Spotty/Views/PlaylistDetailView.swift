@@ -255,7 +255,7 @@ struct PlaylistDetailView: View {
     }
 
     private var playlistMetadataText: String? {
-        guard showsPlaylistMetadata, !matchingTracks.isEmpty else { return nil }
+        guard showsPlaylistMetadata else { return nil }
         let duration = matchingTracks.reduce(0.0) { $0 + Double(roundedCatalogDurationSeconds($1.duration)) }
         return [songCountText, formatPlaylistDuration(duration)].joined(separator: " · ")
     }

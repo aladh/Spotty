@@ -414,8 +414,8 @@ final class AccountStore {
             onReady?()
             return .ready
         }
-        SpottyLog.account.error("Engine initialization failed; code=\(result.rawValue, privacy: .public)")
         if reportFailure {
+            SpottyLog.account.error("Engine initialization failed; code=\(result.rawValue, privacy: .public)")
             phase = .failed("Spotty Connect could not start (\(result.rawValue))")
         }
         return .transientFailure

@@ -78,7 +78,9 @@ nonisolated enum CatalogMapping {
     }
 
     static func item(from playlist: PathfinderPlaylist) -> CatalogItem? {
-        guard playlist.id != nil, let uri = playlist.uri, !uri.isEmpty else { return nil }
+        guard playlist.id != nil, let uri = playlist.uri, SpotifyURI.id(from: uri, kind: "playlist") != nil else {
+            return nil
+        }
         return CatalogItem(
             id: uri,
             uri: uri,
@@ -174,12 +176,14 @@ nonisolated enum CatalogMapping {
     }
 
     private static func artistItems(_ artists: PathfinderArtistList?) -> [CatalogItem] {
-        (artists?.items ?? []).compactMap { artist in
+        let entries = artists?.items ?? []
+        let mapped: [CatalogItem] = entries.compactMap { artist in
             guard let uri = artist.uri, SpotifyURI.id(from: uri, kind: "artist") != nil,
                 let name = artist.name
             else { return nil }
             return CatalogItem(id: uri, uri: uri, title: name, subtitle: "Artist", artworkURL: nil, kind: .artist)
         }
+        return mapped.count == entries.count ? mapped : []
     }
 
     private static func albumItem(uri: String?, name: String?) -> CatalogItem? {

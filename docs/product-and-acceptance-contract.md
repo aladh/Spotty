@@ -130,7 +130,7 @@ baselines.
 - Upcoming queue rows use a native selectable list. Delete/Backspace and **Remove from Queue**
   remove only selected *upcoming* occurrences by queue identity (Connect occurrence uid when
   present), never by track URI. Duplicate URIs or duplicate UIDs that cannot be proven fail
-  closed. The now-playing row and History tab are not removable queue entries. Play from the queue
+  closed. The now-playing row and Recently played tab are not removable queue entries. Play from the queue
   remains a deliberate primary action (Return/double-click), not a single-click.
 - Queue replacement calls Spotify Connect `set_queue` with remaining protocol `next_tracks`, current
   `prev_tracks`, and the exact incoming ProvidedTrack metadata map (`metadata`, `uid`, `provider`,

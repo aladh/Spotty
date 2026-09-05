@@ -62,7 +62,7 @@ struct RootView: View {
             resetMediaSelection()
         }
         .onChange(of: mediaSelectionRawValue) {
-            SpottyLog.ui.info("Sidebar selection changed: \(mediaSelection.diagnosticLabel, privacy: .public)")
+            SpottyLog.ui.info("Navigation state updated: \(mediaSelection.diagnosticLabel, privacy: .public)")
         }
         // Window-close artwork purging lives in SpottyAppDelegate, which observes
         // NSWindow.willCloseNotification; adding a purge here would only duplicate it.

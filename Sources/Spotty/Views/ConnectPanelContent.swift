@@ -45,7 +45,7 @@ struct ConnectPanelContent: View {
                             ConnectDeviceRow(device: device, name: deviceName(device)) {
                                 player.transferPlayback(to: device)
                             }
-                            .disabled(!player.isConnected || player.isPlaybackCommandPending)
+                            .disabled(!player.canStartPlayback || player.isPlaybackCommandPending)
                         }
                     }
 

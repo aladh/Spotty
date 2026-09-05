@@ -18,4 +18,4 @@ Run the two thermo review passes as foreground native tasks in parallel, then sy
 4. Pass each subagent the same scoped diff/file context and ask it to return prioritized findings with file references and evidence.
 5. After both finish, synthesize the results with findings first, deduplicated across reviewers. Weight overlapping findings more heavily, resolve disagreements with your own judgment, and keep summaries brief.
 
-If individual background summaries are already visible to the user, do not restate them wholesale. Surface the unified verdict, the highest-signal findings, and any remaining uncertainty.
+If individual task summaries are already visible to the user, do not restate them wholesale. Surface the unified verdict, the highest-signal findings, and any remaining uncertainty.

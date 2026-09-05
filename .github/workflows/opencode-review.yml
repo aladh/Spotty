@@ -36,16 +36,17 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Select eligible PR and skip automatic repeats
-        id: previous
+        id: eligibility
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "PR number must be a positive integer" >&2; exit 1; }
           pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
           if ! jq -e --arg repo "$GITHUB_REPOSITORY" \
             '.state == "open" and .draft == false and .head.repo.full_name == $repo' <<< "$pr" > /dev/null; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo 'Skipping: PR is closed, draft, or from a fork'
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
@@ -54,12 +55,13 @@ jobs:
             found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
               --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- spotty-thermos-review -->")) | .id')
             if [ -n "$found" ]; then
-              echo 'exists=true' >> "$GITHUB_OUTPUT"
+              echo 'Skipping: automatic review already published'
+              echo 'skip=true' >> "$GITHUB_OUTPUT"
             fi
           fi
 
       - name: Checkout trusted reviewer configuration
-        if: steps.previous.outputs.exists != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -68,11 +70,11 @@ jobs:
           path: reviewer
 
       - name: Install OpenCode
-        if: steps.previous.outputs.exists != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         run: npm install --prefix "$RUNNER_TEMP/thermos-cli" opencode-ai@1.18.29
 
       - name: Checkout PR source and history
-        if: steps.previous.outputs.exists != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.HEAD_SHA }}
@@ -81,7 +83,7 @@ jobs:
           persist-credentials: false
 
       - name: Review and comment
-        if: steps.previous.outputs.exists != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         working-directory: source
         env:
           GH_TOKEN: ${{ github.token }}

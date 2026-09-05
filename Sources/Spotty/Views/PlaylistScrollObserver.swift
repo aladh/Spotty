@@ -23,6 +23,7 @@ struct PlaylistScrollObserver: NSViewRepresentable {
         var onChange: ((Bool) -> Void)?
         private weak var clipView: NSClipView?
         private var lastValue: Bool?
+        private var previouslyPostedBoundsChanges = false
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -41,6 +42,7 @@ struct PlaylistScrollObserver: NSViewRepresentable {
             if clipView !== clip {
                 detach()
                 clipView = clip
+                previouslyPostedBoundsChanges = clip.postsBoundsChangedNotifications
                 clip.postsBoundsChangedNotifications = true
                 NotificationCenter.default.addObserver(
                     self, selector: #selector(boundsChanged), name: NSView.boundsDidChangeNotification, object: clip)
@@ -51,6 +53,7 @@ struct PlaylistScrollObserver: NSViewRepresentable {
 
         func detach() {
             NotificationCenter.default.removeObserver(self)
+            clipView?.postsBoundsChangedNotifications = previouslyPostedBoundsChanges
             clipView = nil
         }
 

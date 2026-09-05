@@ -296,6 +296,7 @@ private struct QueueUpcomingRow: View {
             artists: metadata.knownTrack(for: entry.uri)?.artists ?? [],
             onSelect: onSelect,
             artworkURL: metadata.knownTrack(for: entry.uri)?.artworkURL,
+            duration: metadata.knownTrack(for: entry.uri)?.duration,
             isCurrent: false,
             showsPause: false,
             canPlay: player.canStartPlayback,
@@ -310,6 +311,7 @@ private struct QueueTrackRow: View {
     let artists: [CatalogItem]
     let onSelect: (CatalogItem) -> Void
     let artworkURL: URL?
+    let duration: TimeInterval?
     let isCurrent: Bool
     let showsPause: Bool
     let canPlay: Bool
@@ -357,6 +359,7 @@ private struct QueueTrackRow: View {
         .pointingHandCursor(isHovering: $isHovering)
         .onDisappear { isHovering = false }
         .accessibilityElement(children: .contain)
+        .accessibilityValue(duration.map(formatCatalogDuration) ?? "")
     }
 }
 
@@ -418,6 +421,7 @@ private struct CurrentTrackRow: View {
             artists: metadata.knownTrack(for: player.trackURI)?.artists ?? [],
             onSelect: onSelect,
             artworkURL: player.displayedArtworkURL,
+            duration: player.duration,
             isCurrent: true,
             showsPause: player.showsPauseControl,
             canPlay: player.canTogglePlayback,

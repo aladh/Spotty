@@ -292,8 +292,18 @@ struct TrackTable: View {
                 Button {
                     sortPlaylistColumn(4)
                 } label: {
-                    Image(systemName: "clock").font(.system(size: 16))
-                        .frame(width: 80, alignment: .center)
+                    HStack(spacing: 8) {
+                        Image(systemName: "clock").font(.system(size: 16))
+                        if let comparator = sortOrder.first, comparator.keyPath == \TrackTableRow.duration {
+                            Image(
+                                systemName: comparator.order == .forward
+                                    ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill"
+                            )
+                            .font(.system(size: 8))
+                            .foregroundStyle(SpottyPalette.mediaGreen)
+                        }
+                    }
+                    .frame(width: 80, alignment: .center)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Sort by duration")

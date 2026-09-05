@@ -228,7 +228,6 @@ final class HomeLibraryStore {
                     self.playlists = nodes.flatMap(\.playlists)
                     self.updateLibraryItemCache()
                 case let .items(items):
-                    if section == .playlists { self.playlists = items }
                     if section == .albums { self.albums = items }
                     if section == .artists { self.artists = items }
                     self.updateLibraryItemCache()

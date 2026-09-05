@@ -108,5 +108,5 @@ jobs:
           allowUpdates: false
           replacesArtifacts: false
           immutableCreate: true
-          prerelease: true
+          prerelease: false
           makeLatest: false

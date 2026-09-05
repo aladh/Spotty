@@ -64,6 +64,9 @@ public enum PlaybackReducer {
             } else {
                 supersedeOptimisticPlayTargetIfNeeded(incomingURI: incomingURI, in: &candidate)
                 let previousURI = candidate.currentTrack?.uri
+                if let context = snapshot.contextURI {
+                    candidate.playbackContextURI = playbackTrackURI(context)
+                }
                 reconcileSeekTiming(
                     snapshot.timing,
                     incomingTrackURI: incomingURI,

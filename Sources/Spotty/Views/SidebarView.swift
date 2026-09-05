@@ -1,94 +1,146 @@
+import AppKit
 import SpottyDomain
 import SwiftUI
 
 struct SidebarView: View {
     @Binding var selection: SidebarSelection?
-    let playlists: [CatalogItem]
-    @State private var sidebarWidth: CGFloat = 0
+    let library: [PlaylistLibraryNode]
+    let playback: CatalogPlaybackAccess
+    @State private var expandedFolders: Set<String> = []
 
     var body: some View {
-        List(selection: $selection) {
-            Section {
-                sidebarDestination("Home", systemImage: "house.fill", destination: .home)
-                    .tag(SidebarSelection.destination(.home))
-                sidebarDestination("Search", systemImage: "magnifyingglass", destination: .search)
-                    .tag(SidebarSelection.destination(.search))
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Playlists")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(SpottyPalette.textPrimary)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
+                .accessibilityAddTraits(.isHeader)
 
-            Section("Your Library") {
-                sidebarDestination("Liked Songs", systemImage: "heart.fill", destination: .liked)
-                    .tag(SidebarSelection.destination(.liked))
-                sidebarDestination("Albums", systemImage: "square.stack.fill", destination: .albums)
-                    .tag(SidebarSelection.destination(.albums))
-                sidebarDestination("Artists", systemImage: "music.mic", destination: .artists)
-                    .tag(SidebarSelection.destination(.artists))
-                sidebarDestination("Playlists", systemImage: "music.note.list", destination: .playlists)
-                    .tag(SidebarSelection.destination(.playlists))
-            }
-
-            if !playlists.isEmpty {
-                Section("Playlists") {
-                    ForEach(playlists.prefix(3)) { playlist in
-                        playlistRow(
-                            playlist,
-                            showsSubtitle: sidebarWidth >= CatalogLayout.sidebarCompactSubtitleThreshold
-                        )
-                        .tag(SidebarSelection.playlist(playlist.uri))
+            List(selection: $selection) {
+                ForEach(PlaylistLibraryNode.visibleRows(library, expanded: expandedFolders)) { row in
+                    Group {
+                        if let playlist = row.node.playlist {
+                            SidebarPlaylistRow(
+                                playlist: playlist, isSelected: selection == .playlist(playlist.uri), playback: playback
+                            )
+                            .tag(SidebarSelection.playlist(playlist.uri))
+                        } else {
+                            SidebarFolderRow(node: row.node, isExpanded: expandedFolders.contains(row.id)) {
+                                if !expandedFolders.insert(row.id).inserted { expandedFolders.remove(row.id) }
+                            }
+                            .selectionDisabled()
+                        }
                     }
+                    .padding(.leading, CGFloat(row.depth) * 16)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+                    .listRowSeparator(.hidden)
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 64)
+            .accessibilityLabel("Playlists")
         }
-        .listStyle(.sidebar)
-        .listRowInsets(EdgeInsets(top: 3, leading: 10, bottom: 3, trailing: 10))
-        .environment(\.defaultMinListRowHeight, 34)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { newWidth in
-            guard newWidth > 0 else { return }
-            sidebarWidth = newWidth
+        .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+    }
+}
+
+private struct SidebarFolderRow: View {
+    let node: PlaylistLibraryNode
+    let isExpanded: Bool
+    let toggle: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 12) {
+                Image(systemName: "folder")
+                    .font(.system(size: 24))
+                    .foregroundStyle(SpottyPalette.textSecondary)
+                    .frame(width: 48, height: 48)
+                    .background(SpottyPalette.navigationControl, in: RoundedRectangle(cornerRadius: 4))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(node.title).font(.system(size: 16)).lineLimit(1)
+                    Text(node.folderSummary).font(.system(size: 14))
+                        .foregroundStyle(SpottyPalette.textSecondary).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(SpottyPalette.textSecondary)
+            }
+            .padding(8)
+            .contentShape(Rectangle())
+            .background(isHovering ? SpottyPalette.navigationControl : .clear, in: RoundedRectangle(cornerRadius: 4))
         }
+        .buttonStyle(.plain)
+        .pointingHandCursor(isHovering: $isHovering)
+        .onDisappear { isHovering = false }
+        .accessibilityLabel("\(isExpanded ? "Collapse" : "Expand") \(node.title)")
+        .accessibilityValue(node.folderSummary)
     }
+}
 
-    private func sidebarDestination(
-        _ title: String,
-        systemImage: String,
-        destination: SidebarDestination
-    ) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.body.weight(selection == .destination(destination) ? .semibold : .regular))
-            .accessibilityAddTraits(selection == .destination(destination) ? .isSelected : [])
-    }
+private struct SidebarPlaylistRow: View {
+    let playlist: CatalogItem
+    let isSelected: Bool
+    let playback: CatalogPlaybackAccess
+    @State private var isHovering = false
 
-    private func playlistRow(_ playlist: CatalogItem, showsSubtitle: Bool) -> some View {
-        HStack(spacing: 10) {
+    var body: some View {
+        HStack(spacing: 12) {
             RemoteArtwork(
                 url: playlist.artworkURL,
                 kind: .playlist,
-                cornerRadius: 5,
-                pointSize: 34
+                cornerRadius: 4,
+                pointSize: 48
             )
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(playlist.title)
-                    .font(.body.weight(selection == .playlist(playlist.uri) ? .semibold : .regular))
-                    .lineLimit(1)
-
-                if showsSubtitle {
-                    Text(playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+            .frame(width: 48, height: 48)
+            .overlay {
+                Button {
+                    playback.playPlaylist(playlist)
+                } label: {
+                    ZStack {
+                        Color.black.opacity(0.5)
+                        TransportSymbol(kind: .play)
+                            .frame(width: 16, height: 16)
+                            .foregroundStyle(.white)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
+                .buttonStyle(.plain)
+                .disabled(!playback.canStartPlayback)
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+                .pointingHandCursor(enabled: playback.canStartPlayback)
+                .accessibilityLabel("Play \(playlist.title)")
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(playlist.title)
+                    .font(.system(size: 16))
+                    .lineLimit(1)
+                Text(playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle)
+                    .font(.system(size: 14))
+                    .foregroundStyle(SpottyPalette.textSecondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(selection == .playlist(playlist.uri) ? .isSelected : [])
-        .accessibilityLabel(playlist.title)
-        .accessibilityValue(
-            showsSubtitle ? (playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle) : ""
+        .padding(8)
+        .background(
+            isSelected ? Color(white: 0.157) : (isHovering ? Color(white: 0.122) : .clear),
+            in: RoundedRectangle(cornerRadius: 4)
         )
+        .background { PlaylistSelectionAppearance() }
+        .contentShape(Rectangle())
+        .pointingHandCursor(isHovering: $isHovering)
+        .onDisappear { isHovering = false }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityLabel(playlist.title)
+        .accessibilityValue(playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle)
+        .help(playlist.title)
     }
 }

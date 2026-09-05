@@ -12,6 +12,7 @@ nonisolated struct RustPlaybackState: Sendable {
     let isPlaying: Bool
     let isPaused: Bool
     let trackURI: String
+    let contextURI: String?
     let positionMS: Int64
     let durationMS: Int64
     let timestampMS: Int64
@@ -38,13 +39,15 @@ nonisolated struct RustPlaybackState: Sendable {
         repeatTrack: Bool,
         repeatContext: Bool,
         trackUnavailable: Bool = false,
-        isActiveDevice: Bool = false
+        isActiveDevice: Bool = false,
+        contextURI: String? = nil
     ) {
         self.revision = revision
         self.sessionGeneration = sessionGeneration
         self.isPlaying = isPlaying
         self.isPaused = isPaused
         self.trackURI = trackURI
+        self.contextURI = contextURI
         self.positionMS = positionMS
         self.durationMS = durationMS
         self.timestampMS = timestampMS

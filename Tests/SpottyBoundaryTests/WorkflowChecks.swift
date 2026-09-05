@@ -65,6 +65,11 @@ private actor SuspendedWebQueue: WebQueueClient {
         continuation?.resume(returning: tracks)
         continuation = nil
     }
+
+    func fail() {
+        continuation?.resume(throwing: SpotifyWebPlayerAPIError.requestFailed(429))
+        continuation = nil
+    }
 }
 
 private actor ReorderedWebQueue: WebQueueClient {
@@ -463,6 +468,33 @@ private struct WorkflowCatalog: CatalogProviding {
 
 @Suite("Workflow")
 struct WorkflowTests {
+    @Test
+    @MainActor
+    func queueBootstrapKeepsConnectOrderingDuringWebFallback() async {
+        let web = SuspendedWebQueue()
+        let service = QueueService(webQueue: web, metadata: TrackMetadataService(remote: RecordingRemoteClient()))
+        await service.reset(accountEpoch: 1)
+        let refresh = Task {
+            await service.refresh(fallbackEntries: [], currentTrackURI: "spotify:track:current", accountEpoch: 1)
+        }
+        #expect(await waitUntil { await web.requestCount == 1 })
+        let upcoming = QueueEntry(uri: "spotify:track:next", provider: "queue", occurrence: 0, uid: "next-occurrence")
+        _ = await service.acceptConnect(
+            [upcoming], accountEpoch: 1, sourceRevision: 1, contextURI: "spotify:track:current"
+        )
+        await web.fail()
+        let result = await refresh.value
+        #expect(
+            result?.entries == [upcoming],
+            "startup's empty fallback cannot erase the Connect queue that arrived while Web was suspended")
+        #expect(result?.tracks.map(\.uri) == [upcoming.uri], "the newly arrived upcoming tracks are hydrated")
+
+        let later = await service.refresh(
+            fallbackEntries: [], currentTrackURI: "spotify:track:current", accountEpoch: 1
+        )
+        #expect(later?.entries == [upcoming], "a stale caller projection cannot replace accepted Connect order")
+    }
+
     @Test
     @MainActor
     func testWorkflow() async {

@@ -12,6 +12,7 @@ import Foundation
 @Observable
 final class CatalogMetadataRepository {
     enum TrackSource: Int, CaseIterable {
+        case nowPlaying
         case queue
         case search
         case playlist
@@ -79,7 +80,7 @@ final class CatalogMetadataRepository {
             }
         }
         tracksBySource[source] = replacement
-        promoteRetainedTracks(replacement.values, excluding: source)
+        if source != .nowPlaying { promoteRetainedTracks(replacement.values, excluding: source) }
         contentRevision &+= 1
     }
 
@@ -90,7 +91,7 @@ final class CatalogMetadataRepository {
             updated[track.uri] = track
         }
         tracksBySource[source] = updated
-        promoteRetainedTracks(tracks, excluding: source)
+        if source != .nowPlaying { promoteRetainedTracks(tracks, excluding: source) }
         contentRevision &+= 1
     }
 

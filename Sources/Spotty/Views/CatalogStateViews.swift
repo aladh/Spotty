@@ -8,7 +8,7 @@ struct LoadingState: View {
             ProgressView()
                 .controlSize(.small)
             Text(label)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SpottyPalette.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 180)
         .accessibilityElement(children: .combine)

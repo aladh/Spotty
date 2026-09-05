@@ -1428,3 +1428,41 @@ struct PlaybackReducerTests {
         }
     }
 }
+
+@Test func queuePlaylistContextFollowsAcceptedPlayback() {
+    var state = PlaybackState(accountEpoch: 1)
+    func event(_ context: String?, trackURI: String? = "spotify:track:current") -> PlaybackEvent {
+        .enginePlayback(
+            EnginePlaybackSnapshot(
+                transport: .paused, trackURI: trackURI,
+                timing: PlaybackTiming(anchoredAt: traceDate), contextURI: context
+            ))
+    }
+    #expect(
+        PlaybackReducer.reduce(
+            &state, envelope: envelope(source: .enginePlayback, revision: 2, event: event("spotify:playlist:one"))))
+    #expect(state.playbackContextURI == "spotify:playlist:one")
+    #expect(
+        !PlaybackReducer.reduce(
+            &state, envelope: envelope(source: .enginePlayback, revision: 1, event: event("spotify:playlist:stale"))))
+    #expect(state.playbackContextURI == "spotify:playlist:one")
+    #expect(PlaybackReducer.reduce(&state, envelope: envelope(source: .enginePlayback, revision: 3, event: event(nil))))
+    #expect(state.playbackContextURI == "spotify:playlist:one", "local timing samples omit context")
+    #expect(PlaybackReducer.reduce(&state, envelope: envelope(source: .enginePlayback, revision: 4, event: event(""))))
+    #expect(state.playbackContextURI == nil, "an explicit empty remote context clears the playlist link")
+    #expect(
+        PlaybackReducer.reduce(
+            &state,
+            envelope: envelope(
+                source: .enginePlayback, revision: 5,
+                event: event("spotify:playlist:two", trackURI: nil))))
+    #expect(state.playbackContextURI == "spotify:playlist:two")
+    #expect(
+        PlaybackReducer.reduce(
+            &state,
+            envelope: envelope(
+                source: .enginePlayback, revision: 6,
+                event: event(nil, trackURI: nil))))
+    #expect(state.playbackContextURI == "spotify:playlist:two", "trackless samples cannot clear omitted context")
+
+}

@@ -6,6 +6,64 @@ import Testing
 @Suite("Account Reauthentication Persistence")
 struct AccountReauthenticationPersistenceTests {
     @Test @MainActor
+    func testRestoreRecoversFromTransientStartupFailuresWithoutBrowserAuthorization() async {
+        let account = ReauthenticationAccount(marker: false)
+        let engine = ReauthenticationEngine(results: [.error, .error, .ok])
+        let remote = ReauthenticationRemote()
+        let environment = ReauthenticationEnvironment.make(account: account, engine: engine, remote: remote)
+        let store = AccountStore(
+            environment: environment, coordinator: PlaybackCoordinator(local: engine, remote: remote))
+
+        await store.restore()
+
+        #expect(store.phase == .ready)
+        #expect(engine.initializeCount == 3)
+        #expect(account.authorizeCount == 0)
+        #expect(!account.marker)
+        #expect(account.clearCount == 0)
+    }
+
+    @Test @MainActor
+    func testRestoreRetryBudgetExhaustsWithoutDiscardingSavedGrant() async {
+        let account = ReauthenticationAccount(marker: false)
+        let engine = ReauthenticationEngine(results: Array(repeating: .error, count: 6))
+        let remote = ReauthenticationRemote()
+        let environment = ReauthenticationEnvironment.make(account: account, engine: engine, remote: remote)
+        let store = AccountStore(
+            environment: environment, coordinator: PlaybackCoordinator(local: engine, remote: remote))
+
+        await store.restore()
+
+        #expect(store.phase == .failed("Spotty Connect could not start (-1)"))
+        #expect(engine.initializeCount == 6)
+        #expect(account.authorizeCount == 0)
+        #expect(!account.marker)
+        #expect(account.clearCount == 0)
+    }
+
+    @Test @MainActor
+    func testLogoutCancelsPendingRestoreRetry() async {
+        let account = ReauthenticationAccount(marker: false)
+        let engine = ReauthenticationEngine(results: [.error, .ok])
+        let remote = ReauthenticationRemote()
+        let clock = CooperativeParkedClock()
+        let environment = ReauthenticationEnvironment.make(
+            account: account, engine: engine, remote: remote, clock: clock)
+        let store = AccountStore(
+            environment: environment, coordinator: PlaybackCoordinator(local: engine, remote: remote))
+        let restoration = Task { await store.restore() }
+        #expect(await waitUntil { clock.waiterCount == 1 })
+
+        await store.logout()
+        await restoration.value
+
+        #expect(store.phase == .signedOut)
+        #expect(engine.initializeCount == 1)
+        #expect(clock.waiterCount == 0)
+        #expect(account.clearCount == 1)
+    }
+
+    @Test @MainActor
     func testMarkerRoundTripsAndFreshAdoptionClearsIt() async {
         let store = ReauthenticationGrantStore()
         let initial = reauthenticationTokens(access: "access-a", refresh: "refresh-a")
@@ -389,7 +447,8 @@ private enum ReauthenticationEnvironment {
     static func make(
         account: any AccountSession,
         engine: any LocalPlaybackEngine,
-        remote: any RemotePlaybackClient
+        remote: any RemotePlaybackClient,
+        clock: any PlaybackClock = ReauthenticationClock()
     ) -> PlaybackEnvironment {
         PlaybackEnvironment(
             remote: remote,
@@ -399,7 +458,7 @@ private enum ReauthenticationEnvironment {
             audioOutput: ReauthenticationAudio(),
             preferences: ReauthenticationPreferences(),
             lifecycle: ReauthenticationLifecycle(),
-            clock: ReauthenticationClock(),
+            clock: clock,
             catalog: ReauthenticationCatalog(),
             playlistMutations: UnavailablePlaylistMutations(),
             trackAttributes: ReauthenticationAttributes()

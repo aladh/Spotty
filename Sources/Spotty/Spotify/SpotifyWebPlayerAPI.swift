@@ -88,13 +88,14 @@ private nonisolated struct QueueResponse: Decodable, Sendable {
     let queue: [Item]
 
     struct Item: Decodable, Sendable {
-        struct Artist: Decodable, Sendable { let name: String }
+        struct Artist: Decodable, Sendable { let name: String; let uri: String? }
         struct Image: Decodable, Sendable {
             let url: URL
             let width: Int?
             let height: Int?
         }
         struct Album: Decodable, Sendable {
+            let uri: String?
             let name: String?
             let images: [Image]?
         }
@@ -132,7 +133,17 @@ private nonisolated struct QueueResponse: Decodable, Sendable {
                 album: album?.name ?? show?.name ?? "",
                 duration: TimeInterval(durationMS ?? 0) / 1_000,
                 artworkURL: artworkURL,
-                addedAt: nil
+                addedAt: nil,
+                artists: (artists ?? []).compactMap { artist in
+                    guard let uri = artist.uri else { return nil }
+                    return CatalogItem(
+                        id: uri, uri: uri, title: artist.name, subtitle: "Artist", artworkURL: nil, kind: .artist)
+                },
+                albumItem: album?.uri.map { uri in
+                    CatalogItem(
+                        id: uri, uri: uri, title: album?.name ?? "Album", subtitle: "Album", artworkURL: artworkURL,
+                        kind: .album)
+                }
             )
         }
     }

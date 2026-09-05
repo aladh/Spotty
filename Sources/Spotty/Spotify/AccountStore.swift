@@ -275,10 +275,10 @@ final class AccountStore {
     }
 
     private func restoreGrant(generation: UInt64, epoch: UInt64) async {
-        switch await initializePlayer(generation: generation, epoch: epoch, reportFailure: false) {
-        case .ready, .credentialsRejected:
+        switch await initializeRestoredPlayer(generation: generation, epoch: epoch, reportFailure: false) {
+        case .ready, .credentialsRejected, .failed:
             return
-        case .failed:
+        case .transientFailure:
             break
         }
         guard isCurrent(generation: generation, epoch: epoch) else { return }
@@ -301,18 +301,45 @@ final class AccountStore {
                 return
             }
             guard code == 0 else {
+                SpottyLog.account.error("Streaming authorization failed; code=\(code, privacy: .public)")
                 phase = .failed(LiveSpotifyError.streamingAuthorization(code).localizedDescription)
                 return
             }
             await coordinator.cleanupEngine()
             guard isCurrent(generation: generation, epoch: epoch) else { return }
-            _ = await initializePlayer(generation: generation, epoch: epoch, reportFailure: true)
+            _ = await initializeRestoredPlayer(generation: generation, epoch: epoch, reportFailure: true)
         } catch is CancellationError {
             return
         } catch {
             guard isCurrent(generation: generation, epoch: epoch) else { return }
+            SpottyLog.account.error(
+                "Saved session restoration failed; domain=\((error as NSError).domain, privacy: .public); code=\((error as NSError).code, privacy: .public)"
+            )
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    private func initializeRestoredPlayer(
+        generation: UInt64,
+        epoch: UInt64,
+        reportFailure: Bool
+    ) async -> PlayerInitializationOutcome {
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                do {
+                    try await environment.clock.sleep(seconds: attempt == 1 ? 1 : 3)
+                } catch {
+                    return .failed
+                }
+                guard isCurrent(generation: generation, epoch: epoch) else { return .failed }
+            }
+            let outcome = await initializePlayer(
+                generation: generation, epoch: epoch, reportFailure: reportFailure && attempt == 2
+            )
+            guard case .transientFailure = outcome else { return outcome }
+            guard isCurrent(generation: generation, epoch: epoch), !requiresReauthentication else { return .failed }
+        }
+        return .transientFailure
     }
 
     private func performInteractiveConnect(generation: UInt64, epoch: UInt64) async {
@@ -382,14 +409,16 @@ final class AccountStore {
             return .ready
         }
         if reportFailure {
+            SpottyLog.account.error("Engine initialization failed; code=\(result.rawValue, privacy: .public)")
             phase = .failed("Spotty Connect could not start (\(result.rawValue))")
         }
-        return .failed
+        return .transientFailure
     }
 
     private enum PlayerInitializationOutcome {
         case ready
         case failed
+        case transientFailure
         case credentialsRejected
     }
 

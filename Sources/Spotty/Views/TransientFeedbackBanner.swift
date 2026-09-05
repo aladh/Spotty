@@ -33,7 +33,7 @@ struct TransientFeedbackBanner: View {
                 .accessibilityHidden(true)
             Text(message.text)
                 .font(.callout)
-                .foregroundStyle(.primary)
+                .foregroundStyle(SpottyPalette.textPrimary)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
         }

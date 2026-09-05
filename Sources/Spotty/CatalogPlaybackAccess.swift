@@ -14,6 +14,10 @@ struct CatalogPlaybackAccess {
 
     var isConnected: Bool { player.isConnected }
     var accountEpoch: UInt64 { player.accountEpoch }
+    var isShuffleEnabled: Bool { player.isShuffleEnabled }
+
+    func toggleShuffle() { player.toggleShuffle() }
+
     var canStartPlayback: Bool { player.canStartPlayback }
     var currentTrackIndicator: CurrentTrackIndicator { player.currentTrackIndicator }
     var statusText: String { player.statusText }

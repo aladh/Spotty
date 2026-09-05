@@ -52,6 +52,12 @@ struct EnginePayloadContractTests {
         let missing = withUnsafePointer(to: &snapshot) { PlaybackCore.playbackState(from: $0) }
         #expect((missing?.trackURI) == (""), "a missing playback track maps to an empty identity")
         #expect((missing?.trackUnavailable) == (false), "an ordinary playback snapshot is not unavailable")
+        #expect(missing?.contextURI == nil, "a null context pointer omits context")
+        writeCString("", to: track)
+        snapshot.context_uri = UnsafePointer(track)
+        let cleared = withUnsafePointer(to: &snapshot) { PlaybackCore.playbackState(from: $0) }
+        #expect(cleared?.contextURI == "", "an empty C string remains an explicit context clear")
+
     }
 
     @Test

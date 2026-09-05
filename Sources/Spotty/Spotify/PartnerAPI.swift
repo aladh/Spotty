@@ -287,12 +287,44 @@ nonisolated struct PartnerAPI: Sendable {
 
     /// The user's saved playlists, walked to the end.
     ///
-    /// Pages can hold **folders** as well as playlists — a library entry the app has no screen
-    /// for — so decoded entities can be fewer than what the pages carried. See
+    /// Decoded entities can be fewer than what the pages carried. See
     /// `PathfinderLibraryPage`, and `Pagination` for why walks advance by page entries rather
     /// than by decoded entities.
     func libraryPlaylists() async throws -> [PathfinderPlaylist] {
         try await libraryEntities(filter: LibraryFilter.playlists)
+    }
+
+    func playlistLibrary() async throws -> [PlaylistLibraryNode] {
+        try await playlistLibrary(folderURI: nil, ancestors: [])
+    }
+
+    private func playlistLibrary(folderURI: String?, ancestors: Set<String>) async throws -> [PlaylistLibraryNode] {
+        try Task.checkCancellation()
+        guard ancestors.count < 32 else { throw PartnerAPIError.emptyPayload }
+        let entities: [PathfinderPlaylist] = try await paginate { offset in
+            let response: PathfinderLibraryResponse<PathfinderPlaylist> = try await query(
+                .libraryV3,
+                variables: PathfinderLibraryVariables(
+                    filters: [LibraryFilter.playlists], offset: offset,
+                    order: "Custom Order", flatten: false, folderUri: folderURI
+                )
+            )
+            guard let page = response.page else { throw PartnerAPIError.emptyPayload }
+            return Pagination.Page(
+                items: page.entities, pageEntryCount: page.items?.count ?? 0, totalCount: page.totalCount)
+        }
+        var nodes: [PlaylistLibraryNode] = []
+        for entity in entities {
+            try Task.checkCancellation()
+            if let item = CatalogMapping.item(from: entity) {
+                nodes.append(PlaylistLibraryNode(playlist: item))
+            } else if let uri = entity.uri, uri.contains(":folder:") {
+                guard !ancestors.contains(uri) else { throw PartnerAPIError.emptyPayload }
+                let children = try await playlistLibrary(folderURI: uri, ancestors: ancestors.union([uri]))
+                nodes.append(PlaylistLibraryNode(folderURI: uri, title: entity.name ?? "Folder", children: children))
+            }
+        }
+        return nodes
     }
 
     func libraryAlbums() async throws -> [PathfinderAlbum] {
@@ -502,7 +534,6 @@ nonisolated struct PartnerAPI: Sendable {
         debugLog("PartnerAPI", "[POST] \(Self.endpoint.absoluteString) \(operation.name)")
 
         let (data, response) = try await credentials.transport(request)
-
         guard let http = response as? HTTPURLResponse else {
             throw PartnerAPIError.emptyPayload
         }

@@ -77,7 +77,8 @@ extension PlaybackStore {
             trackUnavailable: state.trackUnavailable,
             isInitialSnapshot: isInitialSnapshot,
             isActiveDevice: snapshotIsActiveDevice,
-            receivedAt: receivedAt
+            receivedAt: receivedAt,
+            contextURI: state.contextURI
         )
         let accepted = send(
             .enginePlayback(snapshot),
@@ -262,6 +263,13 @@ extension PlaybackStore {
                         engineEpoch: capturedEngineEpoch
                     )
                     guard accepted else { return }
+                    self.catalog.metadata.replaceTracks(
+                        [
+                            CatalogTrack(
+                                id: uri, uri: uri, title: metadata.title, artist: metadata.artist,
+                                album: "", duration: metadata.duration, artworkURL: metadata.artworkURL,
+                                addedAt: nil, artists: metadata.artists)
+                        ], from: .nowPlaying)
                     self.history.applyMetadata(
                         uri: uri,
                         title: metadata.title,

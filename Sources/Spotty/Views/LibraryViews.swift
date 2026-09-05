@@ -83,7 +83,7 @@ struct SearchView: View {
                         }
                         if !store.tracks.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text("Tracks").font(.title3.bold())
+                                Text("Tracks").font(.system(size: 24, weight: .bold))
                                 TrackTable(
                                     tracks: store.trackCollection,
                                     metadata: metadata,
@@ -98,7 +98,6 @@ struct SearchView: View {
                 }
             }
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Artists, albums, playlists, and tracks")
         .navigationTitle("Search")
         .task(
             id: SearchLoadIdentity(
@@ -118,7 +117,7 @@ struct SearchView: View {
                 "Some results couldn't load: \(failedSectionNames)",
                 systemImage: "exclamationmark.triangle"
             )
-            .foregroundStyle(.secondary)
+            .foregroundStyle(SpottyPalette.textSecondary)
 
             Spacer()
 
@@ -155,7 +154,7 @@ struct LibraryView: View {
                         EmptyState(
                             icon: "person.crop.circle.badge.plus",
                             title: "Connect Spotify",
-                            message: "Your Spotify library will appear here after you connect.",
+                            message: playback.statusText,
                             actionTitle: playback.connectionActionTitle,
                             actionSystemImage: "link"
                         ) {
@@ -183,7 +182,7 @@ struct LibraryView: View {
             } else {
                 VStack(alignment: .leading, spacing: 20) {
                     Text(title)
-                        .font(.largeTitle.bold())
+                        .font(.system(size: 32, weight: .bold))
 
                     LazyVGrid(
                         columns: MediaGridLayout.columns,
@@ -224,11 +223,11 @@ struct TrackCollectionView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.largeTitle.bold())
+                    .font(.system(size: 32, weight: .bold))
                     .lineLimit(2)
                 Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(SpottyPalette.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(CatalogLayout.contentPadding)

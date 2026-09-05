@@ -257,10 +257,11 @@ nonisolated struct SpotifyConnectTrackMetadata: Sendable {
     let artist: String
     let artworkURL: URL?
     let duration: TimeInterval
+    var artists: [CatalogItem] = []
 }
 
 private nonisolated struct SpotifyConnectTrackResponse: Decodable, Sendable {
-    struct Artist: Decodable, Sendable { let name: String? }
+    struct Artist: Decodable, Sendable { let name: String?; let gid: String? }
     struct Album: Decodable, Sendable {
         struct CoverGroup: Decodable, Sendable {
             struct Image: Decodable, Sendable {
@@ -356,7 +357,14 @@ nonisolated struct SpotifyConnectAPI: Sendable {
             title: title,
             artist: response.artist?.compactMap(\.name).joined(separator: ", ") ?? "Unknown artist",
             artworkURL: artworkURL,
-            duration: TimeInterval(response.duration ?? 0) / 1_000
+            duration: TimeInterval(response.duration ?? 0) / 1_000,
+            artists: (response.artist ?? []).compactMap { artist in
+                guard let name = artist.name, let gid = artist.gid,
+                    let id = SpotifyConnectGID.base62(fromHex: gid)
+                else { return nil }
+                let uri = "spotify:artist:\(id)"
+                return CatalogItem(id: uri, uri: uri, title: name, subtitle: "Artist", artworkURL: nil, kind: .artist)
+            }
         )
     }
 
@@ -394,6 +402,27 @@ nonisolated struct SpotifyConnectAPI: Sendable {
 
 private nonisolated enum SpotifyConnectGID {
     private static let alphabet = Array("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+    static func base62(fromHex hex: String) -> String? {
+        guard hex.count == 32 else { return nil }
+        let chars = Array(hex)
+        var bytes: [Int] = []
+        for index in stride(from: 0, to: 32, by: 2) {
+            guard let byte = UInt8(String(chars[index...index + 1]), radix: 16) else { return nil }
+            bytes.append(Int(byte))
+        }
+        var result = ""
+        repeat {
+            var remainder = 0
+            for index in bytes.indices {
+                let value = remainder * 256 + bytes[index]
+                bytes[index] = value / 62
+                remainder = value % 62
+            }
+            result.insert(alphabet[remainder], at: result.startIndex)
+        } while bytes.contains(where: { $0 != 0 })
+        return String(repeating: "0", count: max(0, 22 - result.count)) + result
+    }
 
     static func hex(fromBase62 id: String) -> String? {
         guard !id.isEmpty, id.count <= 22 else { return nil }

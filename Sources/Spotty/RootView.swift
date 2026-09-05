@@ -7,40 +7,62 @@ struct RootView: View {
     let catalog: CatalogStore
     let feedback: TransientFeedbackPresenter
 
-    @SceneStorage("sidebarSelection") private var mediaSelectionRawValue = MediaSelectionModel().rawValue
+    @State private var mediaSelectionRawValue = MediaSelectionModel().rawValue
     @State private var searchText = ""
+    @State private var backHistory: [String] = []
+    @State private var forwardHistory: [String] = []
     @SceneStorage("showsPlaybackInspector") private var showsSidePanel = false
+    @SceneStorage("playbackInspectorPanel") private var playbackPanel = PlaybackPanel.queue
 
     var body: some View {
         VStack(spacing: 0) {
-            NavigationSplitView {
-                SidebarView(selection: selectionBinding, playlists: catalog.homeLibrary.playlists)
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 208, max: 260)
-            } detail: {
+            NavigationBar(
+                searchText: $searchText,
+                isHome: selection == .destination(.home),
+                canGoBack: !backHistory.isEmpty,
+                canGoForward: !forwardHistory.isEmpty,
+                goBack: goBack,
+                goForward: goForward,
+                goHome: { updateMediaSelection { $0.updateSelection(.destination(.home)) } },
+                showSearch: { updateMediaSelection { $0.updateSelection(.destination(.search)) } }
+            )
+            HSplitView {
+                SidebarView(
+                    selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary, playback: catalogPlayback
+                )
+                .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
+                .frame(maxHeight: .infinity)
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
             }
-            .navigationSplitViewStyle(.balanced)
             .inspector(isPresented: $showsSidePanel) {
                 SidePanelView(
                     metadata: catalog.metadata,
                     player: player,
+                    panel: playbackPanel,
+                    onSelect: select,
                     onClose: { showsSidePanel = false }
                 )
-                .inspectorColumnWidth(min: 200, ideal: 208, max: 280)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .background(.black)
+                .inspectorColumnWidth(min: 260, ideal: 280, max: 360)
             }
             .overlay(alignment: .bottom) {
                 TransientFeedbackBanner(feedback: feedback)
             }
 
-            NowPlayingBar(player: player, showsSidePanel: $showsSidePanel)
+            NowPlayingBar(player: player, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel)
         }
+        .foregroundStyle(SpottyPalette.textPrimary)
+        .ignoresSafeArea(.container, edges: .top)
         .onChange(of: player.accountEpoch) {
             resetMediaSelection()
         }
         .onChange(of: mediaSelectionRawValue) {
-            SpottyLog.ui.info("Sidebar selection changed: \(mediaSelection.diagnosticLabel, privacy: .public)")
+            SpottyLog.ui.info("Navigation state updated: \(mediaSelection.diagnosticLabel, privacy: .public)")
         }
         // Window-close artwork purging lives in SpottyAppDelegate, which observes
         // NSWindow.willCloseNotification; adding a purge here would only duplicate it.
@@ -58,7 +80,8 @@ struct RootView: View {
                     store: catalog.playlistStore,
                     metadata: catalog.metadata,
                     playback: catalogPlayback,
-                    playlistActions: playlistActions(removingFrom: item)
+                    playlistActions: playlistActions(removingFrom: item),
+                    onSelect: select
                 )
             } else if catalog.homeLibrary.isLoading(.playlists) {
                 LoadingState(label: "Loading playlist")
@@ -74,7 +97,7 @@ struct RootView: View {
                 }
                 .padding(30)
             } else {
-                unavailableMedia("Playlist", destination: .playlists)
+                unavailableMedia("Playlist", destination: .home)
             }
         case let .album(uri):
             if let item = selectedItem(uri: uri, kind: .album) {
@@ -105,7 +128,7 @@ struct RootView: View {
     @ViewBuilder
     private func destinationView(_ destination: SidebarDestination) -> some View {
         switch destination {
-        case .home:
+        case .home, .playlists:
             HomeView(store: catalog.homeLibrary, playback: catalogPlayback, onSelect: select)
         case .search:
             SearchView(
@@ -157,16 +180,6 @@ struct RootView: View {
                 playback: catalogPlayback,
                 onSelect: select
             )
-        case .playlists:
-            LibraryView(
-                title: "Playlists",
-                items: catalog.homeLibrary.playlists,
-                isLoading: catalog.homeLibrary.isLoading(.playlists),
-                error: catalog.homeLibrary.error(for: .playlists),
-                reload: { await catalog.homeLibrary.loadPlaylists() },
-                playback: catalogPlayback,
-                onSelect: select
-            )
         }
     }
 
@@ -174,7 +187,7 @@ struct RootView: View {
         var model = mediaSelection
         switch model.select(item) {
         case .navigate:
-            mediaSelectionRawValue = model.rawValue
+            navigate(to: model)
         case let .play(uri):
             catalogPlayback.playURI(uri)
         }
@@ -251,10 +264,36 @@ struct RootView: View {
     private func updateMediaSelection(_ update: (inout MediaSelectionModel) -> Void) {
         var model = mediaSelection
         update(&model)
+        navigate(to: model)
+    }
+
+    private func navigate(to model: MediaSelectionModel) {
+        guard model.selection != selection else {
+            mediaSelectionRawValue = model.rawValue
+            return
+        }
+        backHistory.append(mediaSelectionRawValue)
+        if backHistory.count > 100 { backHistory.removeFirst() }
+        forwardHistory.removeAll()
         mediaSelectionRawValue = model.rawValue
     }
 
+    private func goBack() {
+        guard let previous = backHistory.popLast() else { return }
+        forwardHistory.append(mediaSelectionRawValue)
+        mediaSelectionRawValue = previous
+    }
+
+    private func goForward() {
+        guard let next = forwardHistory.popLast() else { return }
+        backHistory.append(mediaSelectionRawValue)
+        mediaSelectionRawValue = next
+    }
+
     private func resetMediaSelection() {
-        updateMediaSelection { $0.reset() }
+        backHistory.removeAll()
+        forwardHistory.removeAll()
+        searchText = ""
+        mediaSelectionRawValue = MediaSelectionModel().rawValue
     }
 }

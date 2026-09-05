@@ -48,3 +48,12 @@ func formatPlaylistDuration(_ interval: TimeInterval) -> String {
     }
     return "\(minutes) min \(seconds) sec"
 }
+
+func formatPlaylistDateAdded(_ date: Date?, now: Date = .now) -> String {
+    guard let date else { return "—" }
+    let age = now.timeIntervalSince(date)
+    guard age >= 0, age < 7 * 24 * 60 * 60 else { return formatDateAdded(date) }
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .full
+    return formatter.localizedString(for: date, relativeTo: now)
+}

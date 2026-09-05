@@ -15,6 +15,8 @@ public struct CatalogTrack: Identifiable, Equatable, Sendable {
     public let duration: TimeInterval
     public let artworkURL: URL?
     public let addedAt: Date?
+    public let artists: [CatalogItem]
+    public let albumItem: CatalogItem?
 
     public init(
         id: String,
@@ -24,7 +26,9 @@ public struct CatalogTrack: Identifiable, Equatable, Sendable {
         album: String,
         duration: TimeInterval,
         artworkURL: URL?,
-        addedAt: Date?
+        addedAt: Date?,
+        artists: [CatalogItem] = [],
+        albumItem: CatalogItem? = nil
     ) {
         self.id = id
         self.uri = uri
@@ -34,6 +38,8 @@ public struct CatalogTrack: Identifiable, Equatable, Sendable {
         self.duration = duration
         self.artworkURL = artworkURL
         self.addedAt = addedAt
+        self.artists = artists
+        self.albumItem = albumItem
     }
 
     /// A nonoptional key gives SwiftUI's native Table header a sortable date column.

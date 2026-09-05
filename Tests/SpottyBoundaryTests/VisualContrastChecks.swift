@@ -11,11 +11,14 @@ struct VisualContrastTests {
     func testVisualContrast() {
         do {
             #expect(
+                contrastRatio(SpottyPalette.progressTrack, .black) >= 2.4,
+                "the intentionally subdued unfilled rail retains Spotify-like contrast over black")
+            #expect(
                 (contrastRatio(SpottyPalette.dataText, SpottyPalette.catalogCanvas) >= 4.5) == true,
                 "data column text clears WCAG AA normal-text contrast on the catalog canvas")
             #expect(
-                (contrastRatio(SpottyPalette.progressTrack, SpottyPalette.playerShelf) >= 3.0) == true,
-                "the unfilled progress rail clears WCAG AA non-text contrast on the player shelf")
+                (contrastRatio(SpottyPalette.playerPrimary, SpottyPalette.progressTrack) >= 3.0) == true,
+                "the played portion remains distinct from the unfilled progress rail")
             #expect(
                 (contrastRatio(SpottyPalette.remotePlaybackForeground, SpottyPalette.mediaGreen) >= 4.5) == true,
                 "remote playback footer text clears WCAG AA normal-text contrast on the media green banner")

@@ -4,10 +4,10 @@ struct NowPlayingTrackIdentity: View {
     let player: PlaybackStore
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 14) {
             Group {
                 if player.hasCurrentTrack {
-                    RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 3, pointSize: 44)
+                    RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 3, pointSize: 56)
                 } else {
                     ZStack {
                         RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.quaternary)
@@ -19,15 +19,15 @@ struct NowPlayingTrackIdentity: View {
                     .accessibilityHidden(true)
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 56, height: 56)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(player.displayedTrackTitle)
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 14))
                     .foregroundStyle(SpottyPalette.playerPrimary)
                     .lineLimit(1)
                 Text(player.displayedArtistName)
-                    .font(.caption2)
+                    .font(.system(size: 12))
                     .foregroundStyle(SpottyPalette.playerSecondary)
                     .lineLimit(1)
             }
@@ -55,6 +55,11 @@ struct NowPlayingProgress: View {
                     if player.hasCurrentTrack {
                         Capsule().fill(isHovering ? SpottyPalette.mediaGreen : SpottyPalette.playerPrimary)
                             .frame(width: proxy.size.width * fraction(at: timeline.date), height: height)
+                        Circle().fill(SpottyPalette.playerPrimary)
+                            .frame(width: 12, height: 12)
+                            .offset(x: proxy.size.width * fraction(at: timeline.date) - 6)
+                            .opacity(isHovering ? 1 : 0)
+                            .allowsHitTesting(false)
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -65,7 +70,11 @@ struct NowPlayingProgress: View {
                 }
             }
         }
-        .onHover { isHovering = $0 }
+        .pointingHandCursor(
+            enabled: player.canStartPlayback && player.hasCurrentTrack && player.duration > 0,
+            isHovering: $isHovering
+        )
+        .onDisappear { isHovering = false }
         .accessibilityElement()
         .accessibilityHidden(!player.hasCurrentTrack)
         .accessibilityLabel("Playback position")
@@ -75,7 +84,7 @@ struct NowPlayingProgress: View {
         .animationIfAllowed(.snappy(duration: 0.2), value: isHovering, reduceMotion: reduceMotion)
     }
 
-    private var height: CGFloat { isHovering && player.hasCurrentTrack ? 4 : 3 }
+    private var height: CGFloat { 4 }
     private func fraction(at date: Date) -> Double {
         guard player.hasCurrentTrack, player.duration > 0 else { return 0 }
         return min(max(player.displayedPosition(at: date) / player.duration, 0), 1)
@@ -99,16 +108,16 @@ struct NowPlayingTransportControls: View {
     let player: PlaybackStore
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 8) {
             optionButton(
-                symbol: "shuffle",
+                symbol: .shuffle,
                 active: player.isShuffleEnabled,
                 label: player.isShuffleEnabled ? "Shuffle on, fewer repeats" : "Shuffle off",
                 help: player.isShuffleEnabled ? "Fewer repeats shuffle is on" : "Turn on fewer repeats shuffle",
                 action: player.toggleShuffle
             )
             TransportIconButton(
-                symbol: "backward.end.fill", label: "Previous", disabled: !player.canSkipTrack, action: player.previous)
+                symbol: .previous, label: "Previous", disabled: !player.canSkipTrack, action: player.previous)
             Button(action: player.togglePlayback) {
                 ZStack {
                     Circle().fill(
@@ -116,28 +125,28 @@ struct NowPlayingTransportControls: View {
                             ? SpottyPalette.playerPrimary
                             : SpottyPalette.playerDisabledControl
                     )
-                    Image(systemName: player.showsPauseControl ? "pause.fill" : "play.fill")
-                        .contentTransition(.symbolEffect(.replace))
-                        .symbolRenderingMode(.monochrome)
-                        .font(.caption.weight(.bold))
+                    TransportSymbol(kind: player.showsPauseControl ? .pause : .play)
+                        .frame(width: 16, height: 16)
                         .foregroundStyle(
                             player.canTogglePlayback
                                 ? SpottyPalette.playerButtonForeground
                                 : SpottyPalette.playerDisabledForeground
                         )
-                        .offset(x: player.showsPauseControl ? 0 : 1)
+
                 }
-                .frame(width: 28, height: 28)
+                .frame(width: 32, height: 32)
                 .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .padding(.horizontal, 8)
             .disabled(!player.canTogglePlayback)
+            .pointingHandCursor(enabled: player.canTogglePlayback)
             .help(player.hasCurrentTrack ? (player.showsPauseControl ? "Pause" : "Play") : "Choose music to begin")
             .accessibilityLabel(player.showsPauseControl ? "Pause" : "Play")
             TransportIconButton(
-                symbol: "forward.end.fill", label: "Next", disabled: !player.canSkipTrack, action: player.next)
+                symbol: .next, label: "Next", disabled: !player.canSkipTrack, action: player.next)
             optionButton(
-                symbol: player.repeatMode.symbolName,
+                symbol: player.repeatMode == .track ? .repeatOne : .repeatAll,
                 active: player.repeatMode != .off,
                 label: player.repeatMode.accessibilityLabel,
                 help: player.repeatMode.accessibilityLabel,
@@ -147,118 +156,106 @@ struct NowPlayingTransportControls: View {
     }
 
     private func optionButton(
-        symbol: String,
+        symbol: TransportSymbol.Kind,
         active: Bool,
         label: String,
         help: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.caption.weight(.semibold))
+            TransportSymbol(kind: symbol)
+                .frame(width: 16, height: 16)
                 .foregroundStyle(
                     active ? SpottyPalette.mediaGreen : SpottyPalette.playerSecondary
                 )
-                .frame(width: 26, height: 26)
+                .frame(width: 32, height: 32)
                 .overlay(alignment: .bottom) {
                     if active {
-                        Circle().fill(SpottyPalette.mediaGreen).frame(width: 3, height: 3)
+                        Circle().fill(SpottyPalette.mediaGreen).frame(width: 4, height: 4)
                     }
                 }
         }
         .buttonStyle(.plain)
         .disabled(!player.canStartPlayback)
+        .pointingHandCursor(enabled: player.canStartPlayback)
         .help(help)
         .accessibilityLabel(label)
     }
 }
 
+enum PlaybackPanel: String {
+    case queue, connect
+}
+
 struct NowPlayingTimeControls: View {
     let player: PlaybackStore
     @Binding var showsSidePanel: Bool
+    @Binding var playbackPanel: PlaybackPanel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var queueIsOpen: Bool { showsSidePanel && playbackPanel == .queue }
+    private var connectIsOpen: Bool { showsSidePanel && playbackPanel == .connect }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
             Button {
-                if reduceMotion {
-                    showsSidePanel.toggle()
-                } else {
-                    withAnimation(.snappy(duration: 0.2)) {
-                        showsSidePanel.toggle()
-                    }
-                }
+                toggle(.queue)
             } label: {
-                Image(systemName: "list.bullet")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(
-                        showsSidePanel ? SpottyPalette.playerPrimary : SpottyPalette.playerSecondary
-                    )
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                PlayerUtilityIcon(kind: .queue, isOpen: queueIsOpen)
             }
             .buttonStyle(.plain)
-            .help(showsSidePanel ? "Hide queue and history" : "Show queue and history")
-            .accessibilityLabel(showsSidePanel ? "Hide queue and history panel" : "Show queue and history panel")
-            devicesMenu
+            .pointingHandCursor()
+            .help(queueIsOpen ? "Hide queue and history" : "Show queue and history")
+            .accessibilityLabel(queueIsOpen ? "Hide queue and history panel" : "Show queue and history panel")
+            .accessibilityValue(queueIsOpen ? "Open" : "Closed")
+
+            Button {
+                toggle(.connect)
+            } label: {
+                PlayerUtilityIcon(
+                    kind: player.activeRemoteDevice?.type.lowercased() == "computer" ? .computer : .devices,
+                    isOpen: connectIsOpen
+                )
+            }
+            .buttonStyle(.plain)
+            .pointingHandCursor()
+            .help("Connect to a device")
+            .accessibilityLabel("Playback devices")
+            .accessibilityValue(connectIsOpen ? "Open" : "Closed")
         }
-        .font(.caption2.monospacedDigit())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Playback devices and queue controls")
     }
 
-    private var devicesMenu: some View {
-        Menu {
-            Section("Spotify Connect") {
-                ForEach(player.connectDevices) { device in
-                    Button {
-                        player.transferPlayback(to: device)
-                    } label: {
-                        Label(deviceName(device), systemImage: device.symbolName)
-                    }
-                    .disabled(device.isActive || device.id == player.activeRemoteDevice?.id)
-                }
-                if player.connectDevices.isEmpty { Text("No devices found") }
+    private func toggle(_ panel: PlaybackPanel) {
+        let update = {
+            if showsSidePanel && playbackPanel == panel {
+                showsSidePanel = false
+            } else {
+                playbackPanel = panel
+                showsSidePanel = true
             }
-        } label: {
-            Image(systemName: "display.2")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(
-                    player.isActiveDevice ? SpottyPalette.mediaGreen : SpottyPalette.playerSecondary
-                )
-                .frame(width: 28, height: 28)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .disabled(player.connectDevices.isEmpty && !player.isConnected)
-        .help("Choose playback device")
-        .accessibilityLabel("Playback devices")
-    }
-
-    private func deviceName(_ device: ConnectDevice) -> String {
-        if device.id == player.activeRemoteDevice?.id {
-            return "\(device.name) (\(player.isPlaying ? "Playing" : "Paused"))"
-        }
-        return device.displayName(localDeviceID: player.localDeviceID)
+        if reduceMotion { update() } else { withAnimation(.snappy(duration: 0.2), update) }
     }
 }
 
 private struct TransportIconButton: View {
-    let symbol: String
+    let symbol: TransportSymbol.Kind
     let label: String
     let disabled: Bool
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.caption.weight(.semibold))
+            TransportSymbol(kind: symbol)
+                .frame(width: 16, height: 16)
                 .foregroundStyle(SpottyPalette.playerSecondary)
-                .frame(width: 26, height: 26)
+                .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+        .pointingHandCursor(enabled: !disabled)
         .help(label)
         .accessibilityLabel(label)
     }

@@ -279,6 +279,8 @@ actor QueueService {
             }
         }
 
+        guard !Task.isCancelled, requestedEpoch == accountEpoch, requestedContext == contextURI else { return nil }
+        let fallbackEntries = acceptedConnectOrdering(for: requestedContext)?.entries ?? fallbackEntries
         let wantedURIs = uniqueTrackURIs(in: fallbackEntries)
         let wantedSet = Set(wantedURIs)
         var hydrated = Dictionary(
@@ -289,7 +291,6 @@ actor QueueService {
             let initial = updateFallbackSnapshot(
                 entries: fallbackEntries,
                 tracks: Array(hydrated.values),
-                wantedCount: wantedURIs.count,
                 requestedEpoch: requestedEpoch,
                 requestedContext: requestedContext
             )
@@ -305,9 +306,12 @@ actor QueueService {
         defer { SpottyLog.queueSignposter.endInterval("Queue metadata hydration", hydrationInterval) }
         let maximumConcurrentRequests = 8
         await withTaskGroup(of: SpotifyConnectTrackMetadata?.self) { group in
-            var iterator = missing.makeIterator()
+            var pending = missing
+            var scheduled = Set(missing)
+            var nextRequest = 0
             for _ in 0..<min(maximumConcurrentRequests, missing.count) {
-                guard let uri = iterator.next() else { break }
+                let uri = pending[nextRequest]
+                nextRequest += 1
                 group.addTask { [metadata] in try? await metadata.metadata(for: uri) }
             }
 
@@ -324,14 +328,20 @@ actor QueueService {
                     if let update = updateFallbackSnapshot(
                         entries: fallbackEntries,
                         tracks: Array(hydrated.values),
-                        wantedCount: wantedURIs.count,
                         requestedEpoch: requestedEpoch,
                         requestedContext: requestedContext
                     ) {
                         await onUpdate(update)
                     }
                 }
-                if let uri = iterator.next() {
+                let latestEntries = acceptedConnectOrdering(for: requestedContext)?.entries ?? fallbackEntries
+                for uri in uniqueTrackURIs(in: latestEntries)
+                where hydrated[uri] == nil && scheduled.insert(uri).inserted {
+                    pending.append(uri)
+                }
+                if nextRequest < pending.count {
+                    let uri = pending[nextRequest]
+                    nextRequest += 1
                     group.addTask { [metadata] in try? await metadata.metadata(for: uri) }
                 }
             }
@@ -357,23 +367,34 @@ actor QueueService {
         }
     }
 
+    private func acceptedConnectOrdering(for context: String?) -> ProvenanceQueueSnapshot? {
+        guard let mutation, !mutation.provisional,
+            let snapshot, snapshot.source == .connect, snapshot.contextURI == context
+        else { return nil }
+        return snapshot
+    }
+
     private func updateFallbackSnapshot(
         entries: [QueueEntry],
         tracks: [CatalogTrack],
-        wantedCount: Int,
         requestedEpoch: UInt64,
         requestedContext: String?
     ) -> ProvenanceQueueSnapshot? {
-        guard requestedEpoch == accountEpoch, requestedContext == contextURI else { return nil }
+        guard !Task.isCancelled, requestedEpoch == accountEpoch, requestedContext == contextURI else { return nil }
+        // Hydration can finish after a newer Connect event. It enriches metadata, not ordering.
+        let ordering = acceptedConnectOrdering(for: requestedContext)
+        let currentEntries = ordering?.entries ?? entries
+        let knownURIs = Set(tracks.map(\.uri)).union(ordering?.tracks.map(\.uri) ?? [])
+        let isHydrated = uniqueTrackURIs(in: currentEntries).allSatisfy { knownURIs.contains($0) }
         revision &+= 1
         let incoming = ProvenanceQueueSnapshot(
             accountEpoch: accountEpoch,
             revision: revision,
             source: .connect,
-            completeness: tracks.count == wantedCount ? .complete : .partial,
+            completeness: ordering?.completeness ?? (isHydrated ? .complete : .partial),
             receivedAt: clock.now(),
             contextURI: requestedContext,
-            entries: entries,
+            entries: ordering?.entries ?? entries,
             tracks: tracks
         )
         snapshot = mergeQueueSnapshots(current: snapshot, incoming: incoming)
@@ -389,7 +410,8 @@ actor QueueService {
             album: "",
             duration: metadata.duration,
             artworkURL: metadata.artworkURL,
-            addedAt: nil
+            addedAt: nil,
+            artists: metadata.artists
         )
     }
 

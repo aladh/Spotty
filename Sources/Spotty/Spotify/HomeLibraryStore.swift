@@ -26,6 +26,7 @@ final class HomeLibraryStore {
     var profileURI: String?
     var homeSections: [CatalogSection] = []
     var playlists: [CatalogItem] = []
+    private(set) var playlistLibrary: [PlaylistLibraryNode] = []
     var albums: [CatalogItem] = []
     var artists: [CatalogItem] = []
     private(set) var likedTrackCollection = CatalogTrackCollection()
@@ -80,6 +81,7 @@ final class HomeLibraryStore {
         profileURI = nil
         homeSections = []
         playlists = []
+        playlistLibrary = []
         albums = []
         artists = []
         likedTrackCollection.replace([])
@@ -146,7 +148,7 @@ final class HomeLibraryStore {
 
     func loadPlaylists(force: Bool = false) async {
         await loadSection(.playlists, force: force) { [provider] in
-            .items(try await provider.libraryPlaylists().compactMap(CatalogMapping.item(from:)))
+            .playlistLibrary(try await provider.playlistLibrary())
         }
     }
 
@@ -175,6 +177,7 @@ final class HomeLibraryStore {
         case home(greeting: String, sections: [CatalogSection])
         case profile(name: String, uri: String?)
         case items([CatalogItem])
+        case playlistLibrary([PlaylistLibraryNode])
         case tracks([CatalogTrack])
     }
 
@@ -220,8 +223,11 @@ final class HomeLibraryStore {
                 case let .profile(name, uri):
                     self.profileName = name
                     self.profileURI = uri
+                case let .playlistLibrary(nodes):
+                    self.playlistLibrary = nodes
+                    self.playlists = nodes.flatMap(\.playlists)
+                    self.updateLibraryItemCache()
                 case let .items(items):
-                    if section == .playlists { self.playlists = items }
                     if section == .albums { self.albums = items }
                     if section == .artists { self.artists = items }
                     self.updateLibraryItemCache()

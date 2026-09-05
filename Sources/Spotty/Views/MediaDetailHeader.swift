@@ -45,10 +45,8 @@ struct MediaDetailHeader: View {
                 availableWidth = newWidth
             }
             .padding(.horizontal, CatalogLayout.contentPadding)
-            .padding(.vertical, style == .playlist ? 20 : 0)
-            .padding(.top, style == .standard ? 20 : 0)
-            .padding(.bottom, style == .standard ? 16 : 0)
-            .frame(minHeight: style == .playlist ? 230 : nil, alignment: .center)
+            .padding(.top, style == .playlist ? 64 : 20)
+            .padding(.bottom, style == .playlist ? 24 : 16)
             .background {
                 if style == .playlist {
                     LinearGradient(
@@ -75,14 +73,14 @@ struct MediaDetailHeader: View {
     @ViewBuilder
     private func playlistHeader(width: CGFloat) -> some View {
         if width >= 600 {
-            HStack(alignment: .center, spacing: 24) {
-                artwork(size: 170)
+            HStack(alignment: .bottom, spacing: 24) {
+                artwork(size: width >= 1000 ? 232 : 192)
                 detailColumn(width: width)
                 Spacer(minLength: 0)
             }
         } else {
             VStack(alignment: .leading, spacing: 16) {
-                artwork(size: min(150, max(128, width - (CatalogLayout.contentPadding * 2))))
+                artwork(size: min(192, max(128, width - (CatalogLayout.contentPadding * 2))))
                 detailColumn(width: width)
             }
         }
@@ -143,10 +141,9 @@ struct MediaDetailHeader: View {
     @ViewBuilder
     private func detailColumn(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(item.kind.rawValue.uppercased())
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
+            Text(item.kind.rawValue)
+                .font(.system(size: 14))
+                .foregroundStyle(SpottyPalette.textSecondary)
 
             Text(item.title)
                 .font(titleFont(for: width))
@@ -158,15 +155,15 @@ struct MediaDetailHeader: View {
 
             if !description.isEmpty {
                 Text(description)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(SpottyPalette.textSecondary)
                     .lineLimit(2)
             }
 
             if !supportingText.isEmpty {
                 Text(supportingText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(SpottyPalette.textSecondary)
                     .lineLimit(2)
             }
 
@@ -180,14 +177,14 @@ struct MediaDetailHeader: View {
     }
 
     private func titleFont(for width: CGFloat) -> Font {
-        guard style == .playlist else { return .largeTitle.bold() }
+        guard style == .playlist else { return .system(size: 48, weight: .heavy) }
         let size: CGFloat =
             switch width {
-            case ..<620: 34
-            case ..<840: 44
-            default: 64
+            case ..<620: 40
+            case ..<840: 64
+            default: 96
             }
-        return .custom("SF Pro Display", size: size, relativeTo: .largeTitle).weight(.bold)
+        return .system(size: size, weight: .heavy)
     }
 
     private var supportingText: String {

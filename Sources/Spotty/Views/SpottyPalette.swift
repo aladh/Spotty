@@ -6,6 +6,9 @@ import SwiftUI
 /// fixed media green is reserved for actions and the current-track indicator, so it never becomes
 /// a second global accent or selection system.
 enum SpottyPalette {
+    static let textPrimary = Color.white
+    static let textSecondary = Color(white: 0.7)
+    static let navigationControl = Color(white: 0.122)
     static let mediaGreen = Color(red: 0.118, green: 0.843, blue: 0.376)
     // Spotify-familiar elevations: canvas, resting card, and hovered card.
     static let catalogCanvas = Color(red: 0.071, green: 0.071, blue: 0.071)
@@ -20,8 +23,8 @@ enum SpottyPalette {
     // The player is a distinct, near-black anchor rather than another raised media card.
     static let playerShelf = Color(red: 0.035, green: 0.035, blue: 0.035)
     static let playerDivider = Color.primary.opacity(0.10)
-    static let playerPrimary = Color.primary.opacity(0.92)
-    static let playerSecondary = Color.secondary.opacity(0.92)
+    static let playerPrimary = textPrimary
+    static let playerSecondary = textSecondary
     static let playerDisabledControl = Color.primary.opacity(0.20)
     static let playerDisabledForeground = Color.secondary.opacity(0.55)
     static let playerButtonForeground = Color.black
@@ -29,9 +32,9 @@ enum SpottyPalette {
     /// Data columns (BPM, key, time signature, popularity, duration, relative times). Measures
     /// ≥4.5:1 against `catalogCanvas`, meeting WCAG AA for normal text.
     static let dataText = Color(white: 0.64)
-    /// The unfilled progress rail on `playerShelf`. Measures ≥3:1 against `playerShelf`, meeting
-    /// WCAG AA for non-text UI components.
-    static let progressTrack = Color(white: 0.40)
+    /// Spotify's #ffffff4d rail over black intentionally retains its subdued ~2.48:1 contrast.
+    /// The white played portion and hover thumb provide the higher-contrast progress indicator.
+    static let progressTrack = Color(white: 77.0 / 255)
 
     static func mediaCardSurface(isHovering: Bool) -> Color {
         isHovering ? mediaSurfaceHover : .clear

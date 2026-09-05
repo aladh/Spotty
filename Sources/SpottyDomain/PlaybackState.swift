@@ -6,6 +6,7 @@ public struct PlaybackState: Equatable, Sendable {
     public var owner: PlaybackOwner
     public var transport: PlaybackTransportState
     public var currentTrack: CurrentTrack?
+    public internal(set) var playbackContextURI: String?
     public var timing: PlaybackTiming
     public var options: PlaybackOptions
     public var queue: PlaybackQueueSnapshot
@@ -22,6 +23,7 @@ public struct PlaybackState: Equatable, Sendable {
         owner: PlaybackOwner = .none,
         transport: PlaybackTransportState = .stopped,
         currentTrack: CurrentTrack? = nil,
+        playbackContextURI: String? = nil,
         timing: PlaybackTiming = PlaybackTiming(),
         options: PlaybackOptions = PlaybackOptions(),
         queue: PlaybackQueueSnapshot = PlaybackQueueSnapshot(),
@@ -37,6 +39,7 @@ public struct PlaybackState: Equatable, Sendable {
         self.owner = owner
         self.transport = transport
         self.currentTrack = currentTrack
+        self.playbackContextURI = playbackContextURI
         self.timing = timing
         self.options = options
         self.queue = queue

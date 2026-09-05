@@ -55,7 +55,7 @@ struct RemoteArtwork: View {
             )
             Image(systemName: symbol)
                 .font(.title2.weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SpottyPalette.textSecondary)
         }
     }
 

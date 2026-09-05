@@ -4,6 +4,7 @@ import SwiftUI
 struct NowPlayingBar: View {
     let player: PlaybackStore
     @Binding var showsSidePanel: Bool
+    @Binding var playbackPanel: PlaybackPanel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -14,39 +15,42 @@ struct NowPlayingBar: View {
                 }
             }
 
-            HStack(spacing: 18) {
-                NowPlayingTrackIdentity(player: player)
-                    .frame(minWidth: 190, maxWidth: .infinity, alignment: .leading)
+            GeometryReader { geometry in
+                HStack(spacing: 18) {
+                    NowPlayingTrackIdentity(player: player)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                VStack(spacing: 5) {
-                    NowPlayingTransportControls(player: player)
+                    VStack(spacing: 8) {
+                        NowPlayingTransportControls(player: player)
 
-                    HStack(spacing: 8) {
-                        playerTimeLabel(
-                            player.hasCurrentTrack ? formatDuration(player.position) : "—:—",
-                            alignment: .trailing
-                        )
+                        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                            HStack(spacing: 8) {
+                                playerTimeLabel(
+                                    player.hasCurrentTrack
+                                        ? formatDuration(player.displayedPosition(at: timeline.date)) : "—:—",
+                                    alignment: .trailing
+                                )
 
-                        NowPlayingProgress(player: player)
+                                NowPlayingProgress(player: player)
 
-                        playerTimeLabel(remainingTime, alignment: .leading)
+                                playerTimeLabel(remainingTime(at: timeline.date), alignment: .leading)
+                            }
+                            .font(.system(size: 12).monospacedDigit())
+                        }
                     }
-                    .font(.caption2.monospacedDigit())
+                    .frame(width: min(722, geometry.size.width * 0.4))
+
+                    NowPlayingTimeControls(
+                        player: player, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel
+                    )
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .frame(minWidth: 500, maxWidth: 520)
-
-                NowPlayingTimeControls(player: player, showsSidePanel: $showsSidePanel)
-                    .frame(minWidth: 190, maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 16)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 12)
-            .frame(height: player.hasCurrentTrack ? 64 : 60)
-            .background {
-                Rectangle()
-                    .fill(SpottyPalette.playerShelf)
-                    .overlay(alignment: .top) {
-                        Rectangle().fill(SpottyPalette.playerDivider).frame(height: 1)
-                    }
-            }
+            .frame(height: 80)
+            .background(.black)
 
             if let banner = player.remotePlaybackBanner {
                 RemotePlaybackBanner(device: banner.device, isPlaying: banner.isPlaying)
@@ -72,9 +76,9 @@ struct NowPlayingBar: View {
         }
     }
 
-    private var remainingTime: String {
+    private func remainingTime(at date: Date) -> String {
         guard player.hasCurrentTrack, player.duration > 0 else { return "—:—" }
-        return "−\(formatDuration(max(0, player.duration - player.position)))"
+        return "−\(formatDuration(max(0, player.duration - player.displayedPosition(at: date))))"
     }
 
     private func playerTimeLabel(_ value: String, alignment: Alignment) -> some View {
@@ -92,19 +96,24 @@ private struct RemotePlaybackBanner: View {
     let isPlaying: Bool
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 8) {
             Spacer(minLength: 0)
-            Image(systemName: "airplayaudio")
-                .font(.caption2.weight(.bold))
+            PlaybackUtilitySymbol(kind: device.type.lowercased() == "computer" ? .computer : .devices)
+                .fill(style: FillStyle(eoFill: true))
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
             Text("\(isPlaying ? "Playing" : "Paused") on \(device.name)")
                 .lineLimit(1)
         }
-        .font(.caption2.weight(.semibold))
+        .font(.system(size: 12, weight: .bold))
         .foregroundStyle(SpottyPalette.remotePlaybackForeground)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
-        .frame(height: 20)
-        .background(SpottyPalette.mediaGreen)
+        .frame(height: 24)
+        .background(SpottyPalette.mediaGreen, in: RoundedRectangle(cornerRadius: 4))
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+        .background(.black)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(isPlaying ? "Playing" : "Paused") on \(device.name)")
     }

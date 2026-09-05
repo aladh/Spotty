@@ -20,6 +20,8 @@ struct SidePanelQueueRefreshIdentity: Equatable {
 struct SidePanelView: View {
     let metadata: CatalogMetadataRepository
     let player: PlaybackStore
+    let panel: PlaybackPanel
+    let onSelect: (CatalogItem) -> Void
     let onClose: () -> Void
 
     @State private var tab: Tab = .queue
@@ -27,27 +29,31 @@ struct SidePanelView: View {
 
     enum Tab: String, CaseIterable {
         case queue = "Queue"
-        case history = "History"
+        case history = "Recently played"
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             Group {
-                switch tab {
-                case .queue:
-                    queueList
-                case .history:
-                    historyList
+                if panel == .connect {
+                    ConnectPanelContent(player: player)
+                } else {
+                    switch tab {
+                    case .queue: queueList
+                    case .history: historyList
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(.bar)
+        .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
         .task(id: queueRefreshIdentity) {
-            guard player.isConnected else { return }
+            guard player.isConnected && panel == .queue else {
+                player.cancelQueueRefresh()
+                return
+            }
             player.refreshQueue()
         }
         .onDisappear { player.cancelQueueRefresh() }
@@ -55,37 +61,53 @@ struct SidePanelView: View {
 
     private var queueRefreshIdentity: SidePanelQueueRefreshIdentity {
         SidePanelQueueRefreshIdentity(
-            isConnected: player.isConnected,
+            isConnected: player.isConnected && panel == .queue,
             currentTrackURI: player.trackURI,
             connectOrderingVersion: player.queueInspectorOrderingVersion
         )
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Picker("Panel", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
+        HStack(spacing: 16) {
+            if panel == .connect {
+                Text("Connect")
+                    .font(.system(size: 16, weight: .bold))
+                    .accessibilityAddTraits(.isHeader)
+            } else {
+                ForEach(Tab.allCases, id: \.self) { item in
+                    Button {
+                        tab = item
+                    } label: {
+                        Text(item.rawValue)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(tab == item ? SpottyPalette.textPrimary : SpottyPalette.textSecondary)
+                            .fixedSize()
+                            .padding(.vertical, 12)
+                            .overlay(alignment: .bottom) {
+                                if tab == item {
+                                    Rectangle().fill(SpottyPalette.mediaGreen).frame(height: 2)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(tab == item ? .isSelected : [])
                 }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .font(.caption)
-            .frame(width: 136)
 
+            }
             Spacer(minLength: 0)
 
-            Button("Close Inspector", systemImage: "xmark") {
+            Button("Close sidebar", systemImage: "xmark") {
                 onClose()
             }
             .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .help("Close inspector")
+            .buttonStyle(.plain)
+            .font(.system(size: 16))
+            .foregroundStyle(Color(white: 0.7))
+            .frame(width: 32, height: 32)
+            .help("Close sidebar")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .frame(minHeight: 36)
+        .padding(.horizontal, 16)
+        .frame(height: 64)
     }
 
     // MARK: - Queue
@@ -101,27 +123,34 @@ struct SidePanelView: View {
         } else {
             List(selection: $upcomingSelection) {
                 if player.hasCurrentTrack {
-                    Section {
-                        CurrentTrackRow(player: player)
-                    } header: {
-                        railSectionHeader("Now playing")
-                    }
+                    railSectionHeader("Now playing")
+                    CurrentTrackRow(player: player, metadata: metadata, onSelect: onSelect)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
                 }
 
                 if !player.queueNextEntries.isEmpty {
-                    Section {
-                        ForEach(player.queueNextEntries) { entry in
-                            QueueUpcomingRow(entry: entry, metadata: metadata)
-                                .tag(entry.id)
+                    ForEach(Array(player.queueNextEntries.enumerated()), id: \.element.id) { index, entry in
+                        if index == 0 || queueHeading(entry) != queueHeading(player.queueNextEntries[index - 1]) {
+                            if queueHeading(entry) == "Next up", let playlist = queuePlaylist {
+                                railSectionHeader {
+                                    QueuePlaylistHeading(playlist: playlist, action: { onSelect(playlist) })
+                                }
+                            } else {
+                                railSectionHeader(queueHeading(entry))
+                            }
                         }
-                    } header: {
-                        railSectionHeader("Next up")
+                        QueueUpcomingRow(entry: entry, metadata: metadata, player: player, onSelect: onSelect)
+                            .tag(entry.id)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .listRowSeparator(.hidden)
                     }
                 }
             }
             .listStyle(.plain)
-            .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
-            .environment(\.defaultMinListRowHeight, 46)
+            .scrollContentBackground(.hidden)
+            .listRowSeparator(.hidden)
+            .environment(\.defaultMinListRowHeight, 0)
             .contextMenu(forSelectionType: QueueEntry.ID.self) { selectedIDs in
                 let selected = QueueMutationSelection.orderedUpcoming(
                     selectedIDs: selectedIDs,
@@ -171,11 +200,35 @@ struct SidePanelView: View {
         }
     }
 
+    private func queueHeading(_ entry: QueueEntry) -> String {
+        if entry.provider.contains("queue") { return "Next in queue" }
+        if entry.provider.contains("autoplay") { return "Recommended" }
+        return "Next up"
+    }
+
     private func railSectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+        railSectionHeader { Text(title) }
+    }
+
+    private var queuePlaylist: CatalogItem? {
+        guard let uri = player.state.playbackContextURI,
+            let item = metadata.knownItem(for: uri), item.kind == .playlist
+        else { return nil }
+        return item
+    }
+
+    private func railSectionHeader<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .accessibilityElement(children: .contain)
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(SpottyPalette.textPrimary)
             .textCase(nil)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+            .listRowBackground(SpottyPalette.catalogCanvas)
+            .listRowInsets(EdgeInsets(top: 16, leading: 8, bottom: 8, trailing: 8))
+            .listRowSeparator(.hidden)
+            .environment(\.defaultMinListRowHeight, 0)
     }
 
     // MARK: - History
@@ -190,59 +243,123 @@ struct SidePanelView: View {
             )
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(player.history.entries) { entry in
                         HistoryRow(entry: entry) {
                             player.play(uri: entry.uri)
                         }
                     }
                 }
-                .padding(12)
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
             }
         }
     }
 }
 
+private struct QueuePlaylistHeading: View {
+    let playlist: CatalogItem
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text("Next from:").fixedSize()
+            Button(action: action) {
+                Text(playlist.title)
+                    .underline(isHovering)
+                    .lineLimit(1)
+            }
+            .buttonStyle(.plain)
+            .pointingHandCursor(isHovering: $isHovering)
+            .onDisappear { isHovering = false }
+            .accessibilityAddTraits(.isLink)
+            .help("Open \(playlist.title)")
+        }
+    }
+}
+
 /// One selectable upcoming queue row. Playback is Return/double-click via the list
-/// primary action, not a single click, so selection and removal stay distinct.
+/// primary action or the explicit artwork button; clicking the row still selects it.
 private struct QueueUpcomingRow: View {
     let entry: QueueEntry
     let metadata: CatalogMetadataRepository
+    let player: PlaybackStore
+    let onSelect: (CatalogItem) -> Void
 
     var body: some View {
-        let displayInfo = metadata.displayInfo(for: entry.uri)
-        let subtitle = displayInfo.title == "Unknown track" ? entry.sourceLabel : displayInfo.artist
-        let track = metadata.knownTrack(for: entry.uri)
-        let durationText = track.flatMap { $0.duration > 0 ? formatDuration($0.duration) : nil }
-
-        HStack(spacing: 10) {
-            RemoteArtwork(url: track?.artworkURL, kind: .track, cornerRadius: 5, pointSize: 34)
-                .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(displayInfo.title)
-                    .font(.callout)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 4)
-
-            if let durationText {
-                Text(durationText)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(SpottyPalette.dataText)
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            [displayInfo.title, subtitle, durationText].compactMap { $0 }.joined(separator: ", ")
+        let info = metadata.displayInfo(for: entry.uri)
+        QueueTrackRow(
+            title: info.title,
+            artist: metadata.knownTrack(for: entry.uri) == nil && metadata.knownItem(for: entry.uri) == nil
+                ? entry.sourceLabel : info.artist,
+            artists: metadata.knownTrack(for: entry.uri)?.artists ?? [],
+            onSelect: onSelect,
+            artworkURL: metadata.knownTrack(for: entry.uri)?.artworkURL,
+            duration: metadata.knownTrack(for: entry.uri)?.duration,
+            isCurrent: false,
+            showsPause: false,
+            canPlay: player.canStartPlayback,
+            play: { player.play(uri: entry.uri) }
         )
+    }
+}
+
+private struct QueueTrackRow: View {
+    let title: String
+    let artist: String
+    let artists: [CatalogItem]
+    let onSelect: (CatalogItem) -> Void
+    let artworkURL: URL?
+    let duration: TimeInterval?
+    let isCurrent: Bool
+    let showsPause: Bool
+    let canPlay: Bool
+    let play: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            RemoteArtwork(url: artworkURL, kind: .track, cornerRadius: 4, pointSize: 48)
+                .frame(width: 48, height: 48)
+                .overlay {
+                    Button(action: play) {
+                        ZStack {
+                            Color.black.opacity(0.5)
+                            Image(systemName: showsPause ? "pause.fill" : "play.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canPlay)
+                    .pointingHandCursor(enabled: canPlay)
+                    .opacity(isHovering ? 1 : 0)
+                    .allowsHitTesting(isHovering)
+                    .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(title)")
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 16))
+                    .foregroundStyle(isCurrent ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary)
+                    .lineLimit(1)
+                CatalogArtistLinks(
+                    artists: artists, fallback: artist,
+                    color: isHovering ? SpottyPalette.textPrimary : SpottyPalette.textSecondary, onSelect: onSelect
+                )
+                .font(.system(size: 14))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        }
+        .padding(8)
+        .contentShape(Rectangle())
+        .background(isHovering ? Color.white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 4))
+        .pointingHandCursor(isHovering: $isHovering)
+        .onDisappear { isHovering = false }
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(duration.map(formatPlaylistDuration) ?? "")
     }
 }
 
@@ -258,28 +375,24 @@ private struct HistoryRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                RemoteArtwork(url: entry.artworkURL, kind: .track, cornerRadius: 5, pointSize: 40)
-                    .frame(width: 40, height: 40)
+            HStack(spacing: 12) {
+                RemoteArtwork(url: entry.artworkURL, kind: .track, cornerRadius: 4, pointSize: 48)
+                    .frame(width: 48, height: 48)
 
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(entry.title)
-                        .font(.callout)
+                        .font(.system(size: 16))
                         .lineLimit(1)
                     Text(entry.artist)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 14))
+                        .foregroundStyle(SpottyPalette.textSecondary)
                         .lineLimit(1)
                 }
 
                 Spacer(minLength: 0)
 
-                Text(relativeTime)
-                    .font(.caption2)
-                    .foregroundStyle(SpottyPalette.dataText)
-                    .lineLimit(1)
             }
-            .padding(4)
+            .padding(8)
             .contentShape(Rectangle())
             .background(
                 SpottyPalette.historySurface(isHovering: isHovering),
@@ -298,48 +411,21 @@ private struct HistoryRow: View {
 /// The current track card at the top of the queue tab.
 private struct CurrentTrackRow: View {
     let player: PlaybackStore
+    let metadata: CatalogMetadataRepository
+    let onSelect: (CatalogItem) -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 5, pointSize: 34)
-                .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(player.displayedTrackTitle)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(SpottyPalette.mediaGreen)
-                    .lineLimit(1)
-                Text(player.displayedArtistName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-
-            VStack(alignment: .trailing, spacing: 3) {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(SpottyPalette.mediaGreen)
-                if player.duration > 0 {
-                    Text(formatDuration(player.duration))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(SpottyPalette.dataText)
-                }
-            }
-        }
-        .padding(.vertical, 3)
-        .background(
-            SpottyPalette.mediaGreen.opacity(0.05),
-            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+        QueueTrackRow(
+            title: player.displayedTrackTitle,
+            artist: player.displayedArtistName,
+            artists: metadata.knownTrack(for: player.trackURI)?.artists ?? [],
+            onSelect: onSelect,
+            artworkURL: player.displayedArtworkURL,
+            duration: player.duration,
+            isCurrent: true,
+            showsPause: player.showsPauseControl,
+            canPlay: player.canTogglePlayback,
+            play: player.togglePlayback
         )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(currentTrackAccessibilityLabel)
-    }
-
-    private var currentTrackAccessibilityLabel: String {
-        let identity = "Now playing \(player.displayedTrackTitle) by \(player.displayedArtistName)"
-        guard player.duration > 0 else { return identity }
-        return "\(identity), \(formatDuration(player.duration))"
     }
 }

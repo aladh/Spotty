@@ -189,4 +189,18 @@ struct PlaybackSnapshotProjectionTests {
             #expect((emptyUnavailable.trackUnavailable) == false, "an empty URI cannot become a failure notice")
         }
     }
+    @Test func preservesExplicitContextForBothDeviceRoles() {
+        for active in [true, false] {
+            for context: String? in [nil, "", "spotify:playlist:one"] {
+                let snapshot = PlaybackSnapshotProjection.snapshot(
+                    isPlaying: true, isPaused: false, trackURI: "spotify:track:one",
+                    positionMilliseconds: 0, durationMilliseconds: 120000,
+                    timestampMilliseconds: nil, shuffle: false, repeatContext: false,
+                    repeatTrack: false, isInitialSnapshot: false, isActiveDevice: active,
+                    receivedAt: Date(timeIntervalSince1970: 0), contextURI: context)
+                #expect(snapshot.contextURI == context)
+            }
+        }
+    }
+
 }

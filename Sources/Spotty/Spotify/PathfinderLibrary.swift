@@ -44,8 +44,8 @@ nonisolated struct PathfinderLibraryPage<Entity: Decodable & Sendable>: Decodabl
     ///
     /// **Decoding is not a filter.** A playlist *folder* decodes as a `PathfinderPlaylist`
     /// perfectly well — it carries a `uri` and a `name` — so nothing here rejects it, and the
-    /// kinds the app cannot show are excluded by not asking for them (`flatten`, and no
-    /// `Audiobooks` filter) and by the kind check in `PathfinderPlaylist.id`.
+    /// flat catalog reads exclude folders through `flatten` and `PathfinderPlaylist.id`.
+    /// The playlist-library reader retains folder entities and loads their children.
     var entities: [Entity] {
         (items ?? []).compactMap(\.item?.data)
     }
@@ -186,19 +186,8 @@ nonisolated struct PathfinderLibraryMembershipResponse: Decodable, Sendable {
 /// saved instead of an error. Measured by sending `PROBE_INVALID_MEMBER`, which answered HTTP 200
 /// with no errors and a full library. Hence `LibraryFilter` — the strings are not spelled at any
 /// call site.
-/// **`flatten` decides whether folders exist**, and the default here is the one that matches
-/// what the app can show. Measured on 2026-08-13 against an account with four folders:
-///
-/// | `flatten` | `includeFoldersWhenFlattening` | result |
-/// | --- | --- | --- |
-/// | `false` | either | 14 items: 10 playlists and 4 folders, folder contents hidden |
-/// | `true` | `true` | 38 items: 34 playlists and 4 folders |
-/// | `true` | `false` | **34 items: every playlist, no folders** |
-///
-/// The last row is what `/me/playlists` returned — a flat list including playlists nested in
-/// folders, with no folder ever appearing — so the app's existing flat list is a variable pair
-/// rather than a feature away. Leaving `flatten` false showed four
-/// broken folder rows *and* hide the 24 playlists inside them.
+/// Flat catalog reads use the defaults. The playlist sidebar requests `Custom Order` (including the space), disables
+/// flattening, and pages each `folderUri` to retain Spotify's hierarchy and sibling order.
 nonisolated struct PathfinderLibraryVariables: Encodable, Sendable {
     var filters: [String]
     var offset: Int = 0

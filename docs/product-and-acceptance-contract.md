@@ -18,7 +18,7 @@ integration may violate Spotify's terms. See [ADRs](architecture-decisions.md) f
   target. Prefer SwiftUI and AppKit over custom chrome, and do not add a WebView, Chromium runtime,
   or second UI framework.
 - Use a Spotify-familiar composition without copying Spotify pixels: artwork-led headers, dense
-  track tables, a right queue/history rail, and a full-width player shelf. The app is dark-only,
+  track tables, a right Queue/Connect rail, and a full-width player shelf. The app is dark-only,
   with a near-black canvas and no appearance mode or theme system. Preserve macOS inactive-window,
   focus, and selection behavior. Fixed green denotes media actions and current playback only.
 - Keep the surface small: no in-app volume control, manual refresh, Settings scene, or custom
@@ -28,19 +28,48 @@ integration may violate Spotify's terms. See [ADRs](architecture-decisions.md) f
 
 ## Window and navigation behavior
 
-- The main window has a native, resizable sidebar and inspector. Both begin near 208 points; the
-  sidebar remains 180–260 points and the inspector 200–280. Compact playlist shortcuts retain
-  artwork and title but hide secondary metadata. Native commands can show or hide either panel.
-- The sidebar uses native navigation symbols and at most three playlist shortcuts with optional
-  artwork/metadata and text-only fallbacks. Playlists remains the full library browser. Do not add
-  an app logo or app-name header to the content area.
-- The inspector presents Queue and History under a stable segmented header. Queue rows may show
-  compact artwork and available duration, with text-only fallbacks; VoiceOver uses the same
-  catalog-enriched title, artist, and duration. History may show artwork.
+- New windows start on Home with search unfocused. Navigation selection is not restored across
+  launches. Playlists open from the sidebar; there is no separate playlist grid destination.
+- The main window has a native, resizable sidebar and inspector. The sidebar begins near 208 points and the
+  inspector near 280; their ranges are 180–260 and 260–360 points respectively. The library stays visible; a native
+  command can show or hide the inspector.
+- A black top bar shares the window-control row and contains back/forward history, Home, and a persistent rounded search field.
+  Home and Search live in that bar; the library sidebar uses an opaque neutral near-black surface.
+  Navigation history clears when the account changes. Command-[ and Command-] navigate history;
+  Command-L focuses search.
+- The sidebar reads Spotify’s saved custom playlist order and folder hierarchy. Folder rows
+  expand and collapse locally, including nested folders, without changing the Spotify library.
+  Sibling order follows the service across pagination; folder failures preserve the previous
+  complete library rather than publishing a partial tree. The flat playlist catalog remains
+  available for detail navigation and playlist actions.
+  Rows use 48-point artwork, a 16-point title, and a muted 14-point owner or fallback label, with
+  native keyboard selection and scrolling. Sidebar rows use a pointing-hand cursor and reveal
+  a play button over playlist artwork on hover; clicking the rest of the row opens its details.
+  Selection uses an inset, rounded charcoal highlight;
+  hover uses a darker surface. Home and Search remain in the top bar; the sidebar
+  has no separate Your Library destinations or app-name header.
+- The near-black inspector presents Queue and Recently played as text tabs with a green active
+  underline. Rows use 48-point artwork beside title and artist; available duration and history
+  timestamps remain in accessibility descriptions without narrowing the visible title column.
+  Playlist-sourced upcoming tracks show “Next from:” with the known playlist name as a link
+  to its detail view. The link follows accepted playback context and never starts playback.
+  Queue artist credits and playlist artist/album names navigate to their catalog pages. Each
+  known artist is a separate link; links underline and turn white on hover, with a pointing-hand
+  cursor. Missing destination metadata stays plain text. Queue row hover also uses the pointer.
+  Playlist table cells retain the arrow except for links; playback buttons and the seek bar use
+  a pointer when enabled. Hovering the seek bar reveals a white handle and green played portion.
+  Current and upcoming queue rows show an inset rounded highlight and dimmed artwork with a
+  play/pause button on hover. Row clicks still select; the artwork
+  button, Return, or double-click invokes playback.
+  Queue ordering and history content retain their existing playback-owned sources.
 - Closing the main window purges presentation caches but does not quit Spotty. The app remains in the
   Dock and reopens through the Dock icon or the standard macOS Window command.
 - Sign Out stays in the macOS **Spotty** menu, including while connecting or after a session
   failure. Teardown drains accepted authorization persistence before clearing the grant.
+- Launch restoration retries transient engine startup failures after one and three seconds,
+  both with cached streaming credentials and after refreshing them from the saved grant.
+  Retries stay within the account connection lifetime; sign-out cancels them and definitive
+  credential rejection stops them. Exhaustion shows the connection failure without deleting the grant.
 
 ## Playback presentation and ownership
 
@@ -57,6 +86,18 @@ integration may violate Spotify's terms. See [ADRs](architecture-decisions.md) f
   active but a current track remains, a remembered last remote device stays an uncertain remote
   candidate so commands remain remote-routable; a missing or stale fallback never becomes local.
 ### Transport and progress
+
+- The black player shelf is 88 points tall, with 56-point artwork, 14-point track titles,
+  12-point artist/time labels, and a 32-point play button. The centered progress area scales
+  with window width; the remote-owner strip remains separate. Queue and device-chooser icons
+  use 16-point filled glyphs in adjacent 32-point targets, with 70% white at rest and white on hover.
+  Open controls use #1db954 with a 4-point dot and brighten to #1ed760 on hover. Connect shows a
+  computer glyph for a remote computer owner and the device/speaker glyph otherwise.
+  Queue and Connect share one inspector: selecting the other icon switches its contents, selecting
+  the active icon closes it, and the header close button clears the active indicator. Queue retains
+  its Recently played tab when switching to Connect. Connect shows the current device in a dark
+  card and available devices in 56-point rows, with this computer first. Selecting an available
+  device invokes the existing explicit transfer action and keeps the sidebar open.
 
 - With no current track, Play is disabled. Pause appears only for observed playing state.
 - If the active local engine cannot load its current requested track, show an actionable playback
@@ -86,12 +127,15 @@ integration may violate Spotify's terms. See [ADRs](architecture-decisions.md) f
   mode and both-true flags; unrelated newer authoritative repeat state is left intact.
 ### Queue
 
+- A queue refresh started before the first Connect snapshot must preserve and hydrate the newer
+  Connect ordering when it arrives, including when the Web request fails. Metadata hydration cannot
+  replace that ordering with its captured startup fallback.
 - Playback is the queue's ordering authority. Catalog and Web API metadata may enrich names but
   cannot reorder it; resolvable entries progressively replace fallback `Unknown` labels.
 - Upcoming queue rows use a native selectable list. Delete/Backspace and **Remove from Queue**
   remove only selected *upcoming* occurrences by queue identity (Connect occurrence uid when
   present), never by track URI. Duplicate URIs or duplicate UIDs that cannot be proven fail
-  closed. The now-playing row and History tab are not removable queue entries. Play from the queue
+  closed. The now-playing row and Recently played tab are not removable queue entries. Play from the queue
   remains a deliberate primary action (Return/double-click), not a single-click.
 - Queue replacement calls Spotify Connect `set_queue` with remaining protocol `next_tracks`, current
   `prev_tracks`, and the exact incoming ProvidedTrack metadata map (`metadata`, `uid`, `provider`,
@@ -115,13 +159,21 @@ integration may violate Spotify's terms. See [ADRs](architecture-decisions.md) f
 
 - The playlist hero starts near the content edge on a roughly 230-point dark blue-gray gradient,
   with roughly 170-point artwork and a responsive title. At roughly 840 points wide and above it uses the
-  64-point title treatment, while preserving compact breakpoints and long-title scaling. It shows
+  96-point heavy title treatment, while preserving compact breakpoints and long-title scaling. It shows
   the loaded plain-text description and known owner, song count, and aggregate duration without
-  inferring visibility. Its thin action strip has only the existing Play action; foregrounds remain
-  readable in inactive windows.
+  inferring visibility. Its action strip has a 56-point green Play button, the existing shuffle
+  toggle, and an expandable local playlist search at the right. Search matches title, artist, or
+  album without changing source order or occurrence identities; hidden selections are cleared.
+  Matches are highlighted; result ordinals and hero count/duration reflect the filtered rows.
+  Clear retains focus; Escape clears a query, then collapses an empty field. Empty search also
+  collapses when focus leaves.
+  The hero and action strip scroll with the tracks. Once they leave the viewport, a 64-point
+  compact playlist title and green Play button pin above the column headings; scrolling back
+  restores the expanded header without resetting track selection or order.
+  Foregrounds remain readable in inactive windows.
 - The owner, song count, and total duration share the metadata line beside the artwork when the
   current playlist snapshot is authoritative. Song count does not belong in the track table.
-- Playlist rows use native Spotify-familiar columns: `#`, `Title` (30–32-point artwork beside
+- Playlist rows use native Spotify-familiar columns: `#`, `Title` (40-point artwork beside
   stacked Artist), `Album`, `Date Added`, and `Duration`. Artwork stays in Title. `#` shows the
   one-based display position and becomes a speaker only for a playing current URI. A paused current
   URI keeps its green ordinal; selected rows retain native selection foregrounds. Accessibility
@@ -132,10 +184,9 @@ integration may violate Spotify's terms. See [ADRs](architecture-decisions.md) f
   Shared search, library, and album tables retain their separate Artist, Popularity, BPM, Key, and
   Time columns.
 - Playlist tables initially show newest Date Added first, matching Spotify's Recently added view.
-  This local display projection never changes source order. **Restore Playlist Order** clears it,
-  restores authoritative order, and is disabled when already in source order. Clicking **Date
-  Added** sorts directly and reverses on the next click through native sorting; it never opens a
-  picker or menu. Clearing table sorting restores playlist order.
+  Rows have a 56-point minimum height, no row separators, and a quiet 36-point header with a
+  clock for Duration and a green sort indicator. Aligned header buttons handle local sorting; rows retain native list selection and context menus, with rounded neutral-gray hover and selected backgrounds instead of the system blue highlight. This local display projection never changes source order. Clicking **Date Added** sorts directly and reverses on the next click through native sorting; it never opens a
+  picker or menu.
 - Track tables use native multi-selection. **Add to Playlist** is a context-menu command listing
   library playlists whose owner URI matches the signed-in profile. The selected rows are batched
   as one mutation, preserving duplicate track URIs from distinct occurrences and ignoring repeated

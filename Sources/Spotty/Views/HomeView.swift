@@ -24,7 +24,7 @@ struct HomeView: View {
                     EmptyState(
                         icon: "music.note.house",
                         title: "Your music will appear here",
-                        message: "Connect a Spotify Premium account to load Home and your library.",
+                        message: playback.statusText,
                         actionTitle: playback.connectionActionTitle,
                         actionSystemImage: "link"
                     ) {
@@ -51,7 +51,7 @@ struct HomeView: View {
                 } else {
                     HStack {
                         Text(store.greeting)
-                            .font(.largeTitle.bold())
+                            .font(.system(size: 32, weight: .bold))
                         Spacer()
                         if store.isLoading(.home) {
                             ProgressView()
@@ -90,7 +90,7 @@ struct QuickAccessShelf: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(section.title)
-                .font(.title3.weight(.bold))
+                .font(.system(size: 24, weight: .bold))
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                 ForEach(section.items.prefix(8)) { item in
@@ -118,15 +118,15 @@ private struct QuickAccessCard: View {
                 .frame(width: 56, height: 56)
 
                 Text(item.title)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(SpottyPalette.textPrimary)
                     .lineLimit(2)
 
                 Spacer(minLength: 4)
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SpottyPalette.textSecondary)
                     .opacity(isHovering ? 1 : 0)
                     .accessibilityHidden(true)
             }
@@ -153,7 +153,7 @@ struct MediaShelf: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(section.title)
-                .font(.title3.weight(.bold))
+                .font(.system(size: 24, weight: .bold))
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
@@ -186,13 +186,13 @@ struct MediaCard: View {
                 .shadow(color: .black.opacity(isHovering ? 0.18 : 0.08), radius: isHovering ? 10 : 5, y: 4)
 
                 Text(item.title)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 16))
+                    .foregroundStyle(SpottyPalette.textPrimary)
                     .lineLimit(1)
 
                 Text(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundStyle(SpottyPalette.textSecondary)
                     .lineLimit(2)
                     .frame(minHeight: 30, alignment: .topLeading)
             }

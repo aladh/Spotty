@@ -60,13 +60,19 @@ extension View {
     }
 }
 
+private extension EnvironmentValues {
+    @Entry var containingPointingHand = false
+}
+
 private struct PointingHandCursor: ViewModifier {
     let enabled: Bool
     let isHovering: Binding<Bool>?
     @State private var cursorIsInside = false
+    @Environment(\.containingPointingHand) private var containingPointingHand
 
     func body(content: Content) -> some View {
         content
+            .environment(\.containingPointingHand, containingPointingHand || (enabled && cursorIsInside))
             .onContinuousHover { phase in
                 switch phase {
                 case .active:
@@ -79,14 +85,16 @@ private struct PointingHandCursor: ViewModifier {
             }
             .onChange(of: enabled) { _, enabled in
                 guard cursorIsInside else { return }
-                (enabled ? NSCursor.pointingHand : NSCursor.arrow).set()
+                ((enabled || containingPointingHand) ? NSCursor.pointingHand : NSCursor.arrow).set()
                 isHovering?.wrappedValue = enabled
             }
             .onDisappear { resetCursor() }
     }
 
     private func resetCursor() {
-        if cursorIsInside && enabled { NSCursor.arrow.set() }
+        if cursorIsInside && enabled {
+            (containingPointingHand ? NSCursor.pointingHand : NSCursor.arrow).set()
+        }
         cursorIsInside = false
         isHovering?.wrappedValue = false
     }

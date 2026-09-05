@@ -63,10 +63,13 @@ extension View {
 @MainActor
 private final class PointingHandRegion {
     var parent: PointingHandRegion?
+    weak var hoveredChild: PointingHandRegion?
     var isInside = false
     var points = false
 
-    var hasPointingCursor: Bool { points || (parent?.hasPointingCursor ?? false) }
+    private var root: PointingHandRegion { parent?.root ?? self }
+    private var subtreePoints: Bool { points || (hoveredChild?.subtreePoints ?? false) }
+    var hasPointingCursor: Bool { root.subtreePoints }
 }
 
 private extension EnvironmentValues {
@@ -86,6 +89,7 @@ private struct PointingHandCursor: ViewModifier {
                 switch phase {
                 case .active:
                     region.parent = containingPointingHand
+                    containingPointingHand?.hoveredChild = region
                     region.isInside = true
                     region.points = enabled
                     if region.hasPointingCursor { NSCursor.pointingHand.set() }
@@ -107,6 +111,7 @@ private struct PointingHandCursor: ViewModifier {
         let wasInside = region.isInside
         region.isInside = false
         region.points = false
+        if region.parent?.hoveredChild === region { region.parent?.hoveredChild = nil }
         if wasInside {
             (region.hasPointingCursor ? NSCursor.pointingHand : NSCursor.arrow).set()
         }

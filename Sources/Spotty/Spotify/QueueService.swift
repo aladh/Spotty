@@ -391,7 +391,7 @@ actor QueueService {
             accountEpoch: accountEpoch,
             revision: revision,
             source: .connect,
-            completeness: isHydrated ? .complete : .partial,
+            completeness: ordering?.completeness ?? (isHydrated ? .complete : .partial),
             receivedAt: clock.now(),
             contextURI: requestedContext,
             entries: ordering?.entries ?? entries,

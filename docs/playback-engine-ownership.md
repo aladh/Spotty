@@ -69,8 +69,8 @@ inventory](architecture-enforcement.md).
   Swift derives ownership from that fact instead of depending on connection and playback callback
   arrival order.
 - The retained snapshot ABI is represented in the checked-in C header and Rust `repr(C)` types, with
-  symbol/signature fixtures and a C-consumer layout probe. Boundary strings normalize missing,
-  empty, and interior-NUL values before Swift consumes a callback.
+  symbol/signature fixtures and a C-consumer layout probe. Boundary strings normalize missing and interior-NUL values before Swift consumes a callback.
+  Empty strings also normalize to null except for playback context, where empty means clear.
 
 ## FFI surface
 
@@ -82,9 +82,10 @@ Control observations for connection, playback, devices, and queue are typed C sn
 - `SpottyPlaybackSnapshot`: protocol playing/paused flags, track URI, authoritative context URI, timing,
   shuffle/repeat options, the active-device fact needed for coherent transport projection, and a
   one-observation `track_unavailable` flag for a failed current local load. Ordinary snapshots
-  clear the flag. A null context omits an update, while an empty context explicitly clears it;
-  local timing events always omit context. Rust filters request identity and preload failures, while Swift owns the
+  clear the flag; Rust filters request identity and preload failures, while Swift owns the
   actionable notice and its accepted-lifetime/optimistic-target presentation policy.
+- Playback `context_uri`: null omits an update; empty explicitly clears it. Local timing events
+  always omit context. Sticky context is available only through the resume getter.
 - `SpottyDevicesSnapshot`: protocol members (`id`, `name`, type name) plus `active_device_id`.
 - `SpottyQueueSnapshot`: unfiltered protocol rows, slim current-track identity, `queue_revision`,
   and replacement-disallow flags.

@@ -246,7 +246,7 @@ pub(crate) fn send_playback_snapshot(
     let context_uri = observation
         .context_uri
         .as_deref()
-        .and_then(|value| CString::new(value).ok());
+        .and_then(c_string_from_text);
     let snapshot = SpottyPlaybackSnapshot {
         revision: stamp.revision,
         session_generation: stamp.session_generation,

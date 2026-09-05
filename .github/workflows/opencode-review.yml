@@ -22,13 +22,14 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Skip an already published review
         id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
@@ -52,6 +53,7 @@ jobs:
       - name: Review and comment
         if: steps.previous.outputs.exists != 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           OPENCODE_DISABLE_PROJECT_CONFIG: 'true'
           OPENCODE_DISABLE_AUTOUPDATE: 'true'
         run: |

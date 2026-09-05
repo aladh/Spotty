@@ -10,8 +10,15 @@ consolidates their findings into one ordinary PR comment with source links. The
 original Cursor Thermos rubrics and MIT license are preserved in
 [.github/review/thermos](../.github/review/thermos), recovered verbatim from
 [PR #291](https://github.com/aladh/Spotty/pull/291). The prompt adapts Cursor's background
-orchestration to OpenCode foreground tasks launched together. This mimics the review
-method, not Cursor's model or a guarantee of equivalent findings.
+orchestration to OpenCode foreground tasks launched together; the vendored orchestration
+file is reference material, not part of the live prompt. The correctness task uses MCP
+for its post-audit discussion lookup. This mimics the review method, not Cursor's model
+or a guarantee of equivalent findings.
+
+The correctness and quality files are loaded directly into agent prompts using
+OpenCode's `{file:...}` configuration substitution. They are not discoverable skills:
+no `.agents/skills` installation or `skill` tool invocation is needed for this fixed
+workflow.
 
 The workflow uses OpenCode 1.18.29, GitHub MCP 1.12.0, and
 `opencode/muse-spark-1.3-contributor-free` with `xhigh` reasoning. The contributor-free
@@ -29,3 +36,8 @@ and the single-comment instruction rely on the agent. Actions logs hold run outp
 This is not a required check or an approval gate. It starts serving new eligible PRs
 once the workflow is on the default branch. Fork PRs are skipped. A PR changing while
 the review runs may receive no comment; subsequent pushes do not retry it.
+
+A push between the final model read and comment creation can still leave a review of
+an older revision. Comments identify the reviewed SHA; the once-per-PR marker still
+suppresses later reviews. A timeout is reported by Actions and can be rerun manually
+when no comment was published. Automatic retries and fallback models are not configured.

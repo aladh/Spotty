@@ -20,56 +20,25 @@
   "agent": {
     "thermos": {
       "mode": "primary",
-      "description": "Coordinate the two Thermos audits and publish one comment.",
+      "description": "Coordinate Thermos audits and publish findings with a brief summary.",
       "prompt": "{file:thermos/orchestration.md}",
       "permission": {
-        "*": "deny",
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "bash": "allow",
         "task": {
           "*": "deny",
           "thermos-correctness": "allow",
           "thermos-quality": "allow"
-        },
-        "websearch": "allow",
-        "webfetch": "allow",
-        "external_directory": "allow",
-        "edit": "allow"
+        }
       }
     },
     "thermos-correctness": {
       "mode": "subagent",
       "description": "Independent Thermos correctness audit.",
-      "prompt": "{file:thermos/correctness.md}",
-      "permission": {
-        "*": "deny",
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "bash": "allow",
-        "websearch": "allow",
-        "webfetch": "allow",
-        "external_directory": "allow",
-        "edit": "allow"
-      }
+      "prompt": "{file:thermos/correctness.md}"
     },
     "thermos-quality": {
       "mode": "subagent",
       "description": "Independent Thermos quality audit.",
-      "prompt": "{file:thermos/quality.md}",
-      "permission": {
-        "*": "deny",
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "bash": "allow",
-        "websearch": "allow",
-        "webfetch": "allow",
-        "external_directory": "allow",
-        "edit": "allow"
-      }
+      "prompt": "{file:thermos/quality.md}"
     }
   }
 }

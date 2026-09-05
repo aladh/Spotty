@@ -103,4 +103,4 @@ jobs:
           export OPENCODE_CONFIG="$RUNNER_TEMP/thermos/opencode.json"
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent thermos --variant xhigh \
-            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. GitHub CLI (gh) is available and authenticated. Post actionable findings as inline comments where appropriate, with a brief summary starting with <!-- spotty-thermos-review -->."
+            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. GitHub CLI (gh) is available and authenticated. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->."

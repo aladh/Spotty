@@ -4,8 +4,9 @@ The advisory Actions workflow reviews same-repository PRs when opened ready, or 
 marked ready after draft creation. Pushes do not trigger reviews. An existing bot
 comment with the review marker skips later ready events and reruns of automatic jobs.
 
-One OpenCode run launches independent correctness and quality subagents, then posts
-one synthesized PR comment through `gh`. Git and filesystem tools provide source and
+One OpenCode run launches independent correctness and quality subagents. The parent
+posts inline findings where appropriate and a marked issue-comment summary through `gh`.
+Git and filesystem tools provide source and
 diff context from a full-history PR checkout; `gh` also reads PR discussion.
 
 The original Cursor Thermos correctness and quality rubrics and MIT license are in
@@ -53,9 +54,7 @@ read and publication can leave a comment about an older SHA. Automatic reviews r
 once per PR. The job times out after 20 minutes; failed runs can be retried manually.
 Automatic retries are not configured.
 
-## Research and comments
-
-The runner supplies ripgrep. All three agents can use websearch/webfetch for upstream
+The workflow uses runner ripgrep when available and installs it with apt otherwise. All three agents can use websearch/webfetch for upstream
 research and write files anywhere in the ephemeral runner VM.
 Native edit/external-directory permissions are unrestricted. Web content is untrusted review data.
 The workflow explicitly enables websearch with `OPENCODE_ENABLE_EXA=1`; no additional

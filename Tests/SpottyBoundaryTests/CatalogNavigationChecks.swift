@@ -27,8 +27,7 @@ struct CatalogNavigationTests {
         let track = try JSONDecoder().decode(PathfinderTrack.self, from: data)
         let mapped = try #require(CatalogMapping.searchTrack(from: track))
         #expect(mapped.artists.isEmpty)
-        #expect(mapped.artist.contains("First"))
-        #expect(mapped.artist.contains("Second"))
+        #expect(mapped.artist == "First, Second")
     }
 
 }

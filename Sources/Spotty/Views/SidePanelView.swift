@@ -359,7 +359,7 @@ private struct QueueTrackRow: View {
         .pointingHandCursor(isHovering: $isHovering)
         .onDisappear { isHovering = false }
         .accessibilityElement(children: .contain)
-        .accessibilityValue(duration.map(formatCatalogDuration) ?? "")
+        .accessibilityValue(duration.map(formatPlaylistDuration) ?? "")
     }
 }
 

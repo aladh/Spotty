@@ -1,10 +1,9 @@
 # Product and acceptance contract
 
-This document preserves product behavior that refactors can obscure and defines safe testing with
-a real Spotify account. Spotty is unofficial and independent, with no affiliation, endorsement,
-or sponsorship from Spotify AB; its private integration may violate Spotify's terms. ADRs own
-architecture decisions; [playback engine ownership](playback-engine-ownership.md) owns measured
-baselines.
+This contract defines product behavior and safe live-account testing. Spotty is unofficial and
+independent, with no affiliation, endorsement, or sponsorship from Spotify AB; its private
+integration may violate Spotify's terms. See [ADRs](architecture-decisions.md) for architecture and
+[playback engine ownership](playback-engine-ownership.md) for measured baselines.
 
 ## Product direction
 
@@ -25,10 +24,9 @@ baselines.
 - The main window has a native, resizable sidebar and inspector. Both begin near 208 points; the
   sidebar remains 180–260 points and the inspector 200–280. Compact playlist shortcuts retain
   artwork and title but hide secondary metadata. Native commands can show or hide either panel.
-- The sidebar has native navigation symbols for primary destinations and at most three playlist
-  shortcuts. Those shortcuts may show compact artwork and metadata, with a text-only fallback. The
-  full Playlists destination remains the library browser. Do not add a redundant app logo or
-  app-name header to the content area.
+- The sidebar uses native navigation symbols and at most three playlist shortcuts with optional
+  artwork/metadata and text-only fallbacks. Playlists remains the full library browser. Do not add
+  an app logo or app-name header to the content area.
 - The inspector presents Queue and History under a stable segmented header. Queue rows may show
   compact artwork and available duration, with text-only fallbacks; VoiceOver uses the same
   catalog-enriched title, artist, and duration. History may show artwork.
@@ -39,9 +37,8 @@ baselines.
 
 ## Playback presentation and ownership
 
-- The pinned Rust/librespot engine exclusively owns the Spotify session, Connect, streaming,
-  decryption, decoding, and playback protocol. Swift owns policy and presentation; decoded PCM
-  reaches AVFoundation through the narrow playback adapter.
+- Follow [engine ownership](playback-engine-ownership.md): Rust/librespot owns the playback protocol,
+  Swift owns policy/presentation, and AVFoundation renders decoded PCM through the narrow adapter.
 - Spotty mirrors the active Spotify Connect device automatically, including a device owned by a
   different computer. The now-playing title, artist, artwork, position, play/pause state, queue,
   and available controls must follow that owner without requiring a manual refresh.
@@ -68,8 +65,8 @@ baselines.
   right of Next.
 - Interpolate progress smoothly between authoritative playing snapshots. New snapshots, seeks,
   pauses, track changes, and ownership changes re-anchor it.
-- Shuffle is a single on/off control backed by Spotty's persistent fewer-repeats policy. Spotify
-  Connect does not expose a shuffle-style parameter, so no shuffle-style picker is presented.
+- Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
+  style picker because Connect exposes no shuffle-style parameter.
 - Repeat cycles off → queue → track → off. Each step sends only the Connect flags that change,
   planned from the reducer's raw context/track pair rather than the display mode. Ordinary
   track-repeat (context off, track on) → off is one mutation; a both-true track snapshot → off
@@ -143,10 +140,9 @@ baselines.
   `TransientFeedbackPresenter`. Failed, cancelled, and stale account/session writes leave
   presentation unchanged. A committed write remains successful if refresh fails: retain prior rows,
   mark them possibly stale, and let Retry reload without repeating the mutation.
-- Dragging selected tracks onto playlist rows is omitted. A native SwiftUI Table transfer
-  representation serializes the dragged row rather than the occurrence-aware multi-selection;
-  disabled drop targeting for non-editable rows could not be demonstrated without private
-  hit-testing or pixel coordinates. The context-menu command is the keyboard-accessible add path.
+- No playlist drag-and-drop: SwiftUI Table serializes the dragged row, not occurrence-aware
+  multi-selection, and disabled drop targeting was not verified without private hit-testing or pixel
+  coordinates. Use the keyboard-accessible context-menu command.
 
 ## Transient mutation feedback
 

@@ -1,14 +1,8 @@
 # Architecture enforcement inventory
 
-This routing table names each hard rule's decision owner and strongest available proof. It also
-marks rules that require semantic review instead of mechanical enforcement. ADRs explain the
-architectural choices; current responsibilities, behavior requirements, and scoped constraints live
-in the ownership document, product contract, and agent instructions.
-
-In this document, **semantic agent review** means
-inspection of the affected code, tests, diff, and canonical decisions by the implementing agent and
-available automated reviewers. It is evidence, but it is weaker than compiler, deterministic test,
-ABI, or focused source enforcement and must never be described as machine proof.
+This inventory maps rules to their canonical owners and strongest available proof.
+**Semantic agent review** means inspection of code, tests, diffs, and decisions by the implementing
+agent and available automated reviewers. It is not compiler, test, ABI, or source-check proof.
 
 PR readiness follows the [acceptance criteria](../CONTRIBUTING.md#pr-acceptance).
 Semantic agent review does not add a human-review requirement beyond repository settings or a manual
@@ -133,30 +127,24 @@ review under `DOC-CI-001` and `DOC-REL-001`.
 
 ## Source-reading proof audit (issues 187–188)
 
-Repository source and Markdown are not runtime fixtures. The cleanup keeps each assertion at the
-boundary it can actually observe; deleting a spelling check does not turn a review obligation into
-automated behavior coverage.
+Source and Markdown checks prove lexical boundaries, not runtime behavior. The audit in issues
+187–188 removed spelling assertions; their remaining coverage and review limits are:
 
-| Former check or subject | Current proof and limits |
+| Subject | Current proof and limits |
 | --- | --- |
-| Domain store-state writer/projection scanners | Real reducer and store behavior suites plus compiler access probes. A private setter blocks external mutation; it does not prove that every method inside the owner routes through the reducer. That remains an ownership review obligation. |
-| Historical `PlaybackCommandEffectSpike` | The experimental runner duplicated production coordination. Current domain lifecycle/follow-up policy and real-store command failure, lifecycle parity, and event outcome suites own the assertions. |
-| Account epoch source order and assignment counters | `AccountEpochOwnershipChecks` exercises revoke, replacement, teardown, and stale work; compiler probes reject writes to the store's epoch projection. Exact internal statement order is reviewed, not inferred from substring positions. |
-| Connect name setter-before-init text order | `ConnectDeviceIdentityChecks` exercises name formatting; Rust tests exercise configured names through the FFI. Swift native initialization call order remains boundary review, not claimed as runtime-tested by a text offset. |
-| Renderer allocator-name presence | PCM wait/backpressure behavior remains tested. Matching Core Foundation allocation, Core Media ownership transfer, and failure cleanup require semantic memory-ownership review; the removed token conjunction never exercised these paths. |
-| Keymaster storage wiring and signing prose | Durable write ordering, typed failures, stale-grant behavior, and grant decoding remain executable tests. `SRC-KEY-001` owns the narrow forbidden API references; default production storage wiring and signing policy remain reviewed. |
-| Visual style source fragments, control counts, RGB values, VoiceOver prose, and animation spellings | Retain Home section and remote-banner behavior assertions in `VisualStyleContractChecks`. Layout, native controls, accessibility wiring, and Reduce Motion remain product/semantic review; source-token presence was not UI execution evidence. |
-| Playback keyboard shortcut spelling | Native text-field navigation and shortcut interaction remain product/semantic review. The removed exact `.keyboardShortcut` strings neither dispatched a command nor exercised a text field. |
-| Engine intake token conjunction | `EnginePayloadContractChecks` now constructs typed C playback/connection snapshots, converts them, mutates borrowed strings, and checks copied values and absent fields. Domain projection and store event suites retain session/presentation behavior; owned-string freeing remains FFI ownership review. |
-| Playlist/catalog source topology and product-contract prose | Playlist mutation suites retain occurrence-UID writes, stale-account rejection, mutation success versus reload failure, and retry behavior. `TrackTableDisplayCacheChecks` retains collection-version/cache behavior; existing `SRC-DEP-001` and `SRC-DUP-004` own dependency and unsupported drag API boundaries. Native menus, stale-warning UI wiring, protocol responsibility, and prose stay semantic review. |
-| Queue management UI/coordinator/callback spelling | Queue management and event outcome suites exercise occurrence identity, remote removal, generation stamps, cancellation, and stale callbacks. Native selection wiring and the lack of a local queue-mutation capability remain boundary/product review. |
-| Repeat transport helper-name absence | `RepeatTransitionChecks` exercises pending state, rollback, reconciliation, duplicate refusal, and lifetime cancellation; absence of old helper names added no behavior proof. |
-| Transient feedback UI/composition spelling | Presenter and injected workflow tests retain feedback replacement/lifetime and mutation-result behavior. Hit testing, focus, VoiceOver announcement wiring, and Reduce Motion remain semantic UI review. |
-| Rust C export entry-point scanner | Retained as `SRC-RUST-FFI-001`; named entry wrappers and direct runtime-call placement are lexical. Panic sentinel and nested-runtime behavior have separate executable tests. |
-| Rust playing-state writer scanner | Retained as `SRC-RUST-PLAY-001`; player-event tests exercise Playing, Paused, Stopped, EndOfTrack, and cleanup. Text location alone cannot prove control flow. |
-| Rust ABI signature fixture and generated C consumer probe | Retained ABI evidence, not source/prose snapshots. Parser helper fixtures remain only to exercise the retained lexical scans. |
-| Test fixture and persistence file reads | Retained when loading synthetic payloads or checking durable writes. These read data under test, not implementation spelling. |
+| State/projection writers | Reducer/store suites and compiler access probes. Internal mutation routing still requires review. |
+| Command effects and repeat | Lifecycle/follow-up, failure, parity, event-outcome, and `RepeatTransitionChecks` suites cover acceptance, rollback, reconciliation, cancellation, and duplicate refusal. The historical `PlaybackCommandEffectSpike` adds no production proof. |
+| Account epochs | `AccountEpochOwnershipChecks` covers revoke, replacement, teardown, and stale work; compiler probes reject projection writes. Exact statement order requires review. |
+| Connect identity | `ConnectDeviceIdentityChecks` and Rust FFI tests cover naming. Native initialization order requires review. |
+| Renderer | PCM backpressure tests cover behavior; allocation pairing, Core Media ownership transfer, and failure cleanup require memory-ownership review. |
+| Credentials/signing | Persistence/failure/grant suites and `SRC-KEY-001` cover durable behavior and forbidden APIs. Production wiring and signing semantics require review. |
+| Native UI | `VisualStyleContractChecks` covers Home and remote-banner behavior. Layout, controls, accessibility, Reduce Motion, keyboard dispatch, and text-field interaction require UI review. |
+| Engine intake | `EnginePayloadContractChecks` constructs typed C snapshots and checks conversion, copied borrowed strings, and absent fields. Domain/store suites cover presentation; owned-string freeing requires FFI review. |
+| Playlist/catalog | Mutation suites cover occurrence UIDs, stale accounts, write-versus-refresh failure, and retry. `TrackTableDisplayCacheChecks`, `SRC-DEP-001`, and `SRC-DUP-004` cover cache versions and topology. Menus, stale warnings, and protocol ownership require review. |
+| Queue mutation | Management/event-outcome suites cover occurrence identity, remote removal, generations, cancellation, and stale callbacks. Native selection and local-removal capability remain review obligations. |
+| Transient feedback | Presenter/workflow suites cover replacement and lifetime. Hit testing, focus, VoiceOver, and Reduce Motion require UI review. |
+| Rust lexical guards | `SRC-RUST-FFI-001` and `SRC-RUST-PLAY-001` constrain wrapper/write locations. Panic, nested-runtime, and player-event tests separately cover behavior; text location does not prove ordering. |
+| ABI and fixtures | Signature/layout probes remain ABI evidence. Parser fixtures exercise retained scanners; synthetic payload and persistence reads test data, not implementation spelling. |
 
-The Rust lexical guards stay with the Rust suite invoked by `Scripts/check.sh`; duplicating their
-scanner in shell would add an enforcement owner without stronger proof. Changing any Rust test
-source also changes the engine artifact identity, so this audit leaves that source and pin intact.
+Rust lexical guards remain in the Rust suite invoked by `Scripts/check.sh`; do not duplicate their
+scanner in shell. Rust test-source changes also change the engine artifact identity.

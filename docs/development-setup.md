@@ -1,9 +1,7 @@
 # Development setup
 
-This repository is the complete source of truth needed to resume Spotty development. A previous
-checkout, generated static library, app bundle, signing certificate, Spotify response capture,
-Spotifly checkout, or separate librespot checkout is neither required nor expected. Ordinary app builds
-download the pinned playback binary; the Rust source remains available for engine development.
+A fresh clone contains the source needed to resume development. Ordinary app builds download the
+pinned playback binary; engine development uses the included Rust source.
 
 ## Fresh clone
 
@@ -37,10 +35,9 @@ swift build --product Spotty
 SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 ```
 
-SwiftPM downloads the checksum-pinned macOS ARM64 playback XCFramework on first resolution and
-caches it. The artifact includes the matching C headers and static library. App compilation, Swift
-tests, and packaging do not require Cargo, rustc, or cbindgen. The Apple SDK and Clang remain necessary
-for the C import and native link. No Spotify sign-in or playback occurs in the verification gate.
+SwiftPM caches the checksum-pinned ARM64 XCFramework, including matching headers and library.
+App builds, Swift tests, and packaging need the Apple SDK and Clang but no Rust tools. Verification
+does not sign in or start playback.
 
 For an authenticated launch, sign in to Xcode with an Apple Account and create an Apple Development
 certificate under its free Personal Team; paid membership is unnecessary for local personal use. If
@@ -69,13 +66,10 @@ keychain under `.build/spotty-signing/`. It is local-only, unsuitable for distri
 `build_and_run.sh` fails before terminating or launching Spotty when no Apple-issued Team identity
 is available. Never install the generated identity in the login keychain or commit it.
 
-`Scripts/package-app.sh` compiles the native Icon Composer source at `Assets/Spotty.icon` into an
-ignored `.build/spotty-icon/<configuration>/Assets.car`. Packaging therefore requires the full
-Xcode installation that provides `actool`; when the active developer directory is not Xcode, select
-it with `xcode-select -s` or set `DEVELOPER_DIR`. `CFBundleIconName=Spotty` selects the catalog,
-including compiler-generated compatibility renditions on macOS 15. The bundle retains
-`Assets/Spotty.icns` for icon-file consumers; its presence does not force macOS 15 to select that
-artwork instead of the catalog.
+Packaging compiles `Assets/Spotty.icon` into `.build/spotty-icon/<configuration>/Assets.car` using
+Xcode's `actool`; select full Xcode with `xcode-select -s` or `DEVELOPER_DIR`.
+`CFBundleIconName=Spotty` selects the catalog, including macOS 15 compatibility renditions.
+`Assets/Spotty.icns` remains available to icon-file consumers.
 
 Sandboxed development tools may need permission for the packaging or launch script to invoke
 `security` and `codesign`. Apple Development signing can require private-key access once; Spotty
@@ -129,6 +123,5 @@ compile the native catalog. Icon Composer embeds a copy; changing the master PNG
 that copy automatically. Commit the source PNG, generated `Assets/Spotty.icns`, and updated
 `Assets/Spotty.icon` document together.
 
-To recover from an uncertain local state, a fresh clone is the preferred reset. Do not copy build
-products or signing material from an older checkout. SwiftPM resolves the pinned playback artifact.
-For source engine work, Cargo resolves the pinned librespot revision from `Cargo.lock`.
+Prefer a fresh clone for uncertain local state; do not copy old build products or signing material.
+SwiftPM resolves the pinned artifact, and Cargo resolves engine dependencies from `Cargo.lock`.

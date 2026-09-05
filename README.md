@@ -40,10 +40,6 @@ indication of affiliation.
 - **macOS integration:** native navigation, tables, menus, inspector, keyboard commands, and
   accessibility. Selection and focus follow the system accent; playback actions use Spotty green.
 
-App builds download a checksum-pinned playback XCFramework through SwiftPM; Rust is needed only
-when changing the engine. The complete engine source stays in this repository, while generated
-binaries stay out of Git. See the [setup guide](docs/development-setup.md#fresh-clone).
-
 ## Getting started
 
 You need a Spotify Premium account to use Spotty. Building from source is the intended way to run
@@ -59,16 +55,13 @@ cd Spotty
 ./script/build_and_run.sh
 ```
 
-The first build downloads the pinned playback XCFramework and takes longer than subsequent builds. The launch
-script replaces any running development copy; see the
-[build-and-run details](CONTRIBUTING.md#build-and-run). On first launch, choose **Connect** and
-complete Spotify authorization in the browser.
+SwiftPM downloads the checksum-pinned playback XCFramework; ordinary app builds need no Rust tools.
+The launch script replaces any running development copy. On first launch, choose **Connect** and
+complete Spotify authorization in the browser. See [build modes](CONTRIBUTING.md#build-and-run).
 
-The app bundle is generated locally and ignored by Git. Explicit engine-development builds create
-ignored Rust archives; ordinary app builds use the pinned XCFramework. App version tags also
-publish experimental GitHub prereleases. Until Developer ID and notarization credentials are
-configured, those artifacts use a hardened-runtime, ad-hoc signature and are not automatically
-trusted by macOS.
+Generated binaries stay out of Git. Version tags publish experimental prereleases; until Developer
+ID and notarization credentials are configured, their hardened-runtime ad-hoc signatures are not
+automatically trusted by macOS.
 
 ## Privacy and security
 

@@ -193,6 +193,7 @@ pub(crate) struct PlaybackObservation {
     /// false; Swift owns the presentation of the actionable notice.
     pub track_unavailable: bool,
     pub track_uri: String,
+    pub context_uri: Option<String>,
     pub position_ms: i64,
     pub duration_ms: i64,
     pub shuffle: bool,
@@ -204,7 +205,7 @@ pub(crate) struct PlaybackObservation {
 
 /// Playback observation. `track_uri` is valid only for the callback;
 /// Swift must copy it before returning. Null means missing; outbound empty strings and
-/// strings containing an interior NUL are also delivered as null fields. Flags are 0 or 1.
+/// strings containing an interior NUL are also delivered as null track fields. Flags are 0 or 1.
 ///
 /// `is_active_device` is the protocol active-member fact captured with this observation;
 /// it is independent of the arrival order of the connection callback.
@@ -227,6 +228,9 @@ pub struct SpottyPlaybackSnapshot {
     pub repeat_context: u8,
     pub is_active_device: u8,
     pub track_uri: SpottyNullableCString,
+    /// Null omits context (local timing events); empty explicitly clears protocol context.
+    /// Non-null strings are borrowed for this callback only. Interior NUL is omitted.
+    pub context_uri: SpottyNullableCString,
 }
 
 /// Callback function type for playback state updates. Receives a typed snapshot; string
@@ -239,6 +243,10 @@ pub(crate) fn send_playback_snapshot(
     observation: &PlaybackObservation,
 ) {
     let track_uri = optional_callback_c_string(Some(observation.track_uri.as_str()));
+    let context_uri = observation
+        .context_uri
+        .as_deref()
+        .and_then(|value| CString::new(value).ok());
     let snapshot = SpottyPlaybackSnapshot {
         revision: stamp.revision,
         session_generation: stamp.session_generation,
@@ -253,6 +261,10 @@ pub(crate) fn send_playback_snapshot(
         repeat_context: u8::from(observation.repeat_context),
         is_active_device: u8::from(observation.is_active_device),
         track_uri: track_uri
+            .as_ref()
+            .map(|value| value.as_ptr())
+            .unwrap_or(std::ptr::null()),
+        context_uri: context_uri
             .as_ref()
             .map(|value| value.as_ptr())
             .unwrap_or(std::ptr::null()),

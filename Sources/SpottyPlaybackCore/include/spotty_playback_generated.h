@@ -69,7 +69,7 @@ typedef void (*DevicesCallback)(const struct SpottyDevicesSnapshot*);
 
 // Playback observation. `track_uri` is valid only for the callback;
 // Swift must copy it before returning. Null means missing; outbound empty strings and
-// strings containing an interior NUL are also delivered as null fields. Flags are 0 or 1.
+// strings containing an interior NUL are also delivered as null track fields. Flags are 0 or 1.
 //
 // `is_active_device` is the protocol active-member fact captured with this observation;
 // it is independent of the arrival order of the connection callback.
@@ -91,6 +91,9 @@ typedef struct SpottyPlaybackSnapshot {
   uint8_t repeat_context;
   uint8_t is_active_device;
   SpottyNullableCString track_uri;
+  // Null omits context (local timing events); empty explicitly clears protocol context.
+  // Non-null strings are borrowed for this callback only. Interior NUL is omitted.
+  SpottyNullableCString context_uri;
 } SpottyPlaybackSnapshot;
 
 // Callback function type for playback state updates. Receives a typed snapshot; string

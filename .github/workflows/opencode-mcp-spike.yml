@@ -1,0 +1,75 @@
+name: OpenCode native MCP trial
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-mcp-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  OPENCODE_VERSION: '1.18.29'
+  OPENCODE_SHA256: ea800b7ff56226b70952126c9fc1e2517ca4c4b5682fd9d3f9e87449697a1194
+  GITHUB_MCP_VERSION: '1.12.0'
+  GITHUB_MCP_SHA256: f34de295acd8f1012c7f2c0e3b909d87361d0993b9489b57ee92ac72b85d7cca
+  MODEL: opencode/muse-spark-1.3-contributor-free
+  VARIANT: xhigh
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  review:
+    # Explicit owner-controlled experiment; this is not trusted fork orchestration.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/opencode-review-spike'
+    name: Native audits and direct GitHub MCP review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout trial implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test review boundaries
+        run: python3 -B -m unittest discover -s .github/review -p 'test_*.py'
+
+      - name: Install pinned OpenCode and GitHub MCP binaries
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/opencode-mcp-bin"
+          cd "$RUNNER_TEMP/opencode-mcp-bin"
+          curl --fail --silent --show-error --location --retry 2 --max-time 120 \
+            "https://github.com/anomalyco/opencode/releases/download/v$OPENCODE_VERSION/opencode-linux-x64.tar.gz" \
+            -o opencode.tar.gz
+          printf '%s  opencode.tar.gz\n' "$OPENCODE_SHA256" | sha256sum --check
+          tar -xzf opencode.tar.gz
+          curl --fail --silent --show-error --location --retry 2 --max-time 120 \
+            "https://github.com/github/github-mcp-server/releases/download/v$GITHUB_MCP_VERSION/github-mcp-server_Linux_x86_64.tar.gz" \
+            -o github-mcp.tar.gz
+          printf '%s  github-mcp.tar.gz\n' "$GITHUB_MCP_SHA256" | sha256sum --check
+          tar -xzf github-mcp.tar.gz
+
+      - name: Let native reviewers investigate and publish through MCP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENCODE_MODELS_PATH: ${{ github.workspace }}/.github/review/models.json
+        run: |
+          python3 .github/review/mcp_trial.py "$RUNNER_TEMP/opencode-mcp-trial" \
+            "$RUNNER_TEMP/opencode-mcp-bin/opencode" "$RUNNER_TEMP/opencode-mcp-bin/github-mcp-server"
+
+      - name: Save experiment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: opencode-mcp-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/opencode-mcp-trial/output/
+          if-no-files-found: warn
+          retention-days: 7

@@ -72,8 +72,15 @@ private final class PointingHandRegion {
     var hasPointingCursor: Bool { root.subtreePoints }
 }
 
+private struct PointingHandRegionKey: EnvironmentKey {
+    static var defaultValue: PointingHandRegion? { nil }
+}
+
 private extension EnvironmentValues {
-    @Entry var containingPointingHand: PointingHandRegion? = nil
+    var containingPointingHand: PointingHandRegion? {
+        get { self[PointingHandRegionKey.self] }
+        set { self[PointingHandRegionKey.self] = newValue }
+    }
 }
 
 private struct PointingHandCursor: ViewModifier {

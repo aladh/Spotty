@@ -380,7 +380,7 @@ struct TrackTable: View {
     }
 
     private func playlistColumnHeader<Value>(
-        _ title: String, index: Int, keyPath: KeyPath<TrackTableRow, Value>
+        _ title: String, index: Int, keyPath: KeyPath<TrackTableRow, Value> & Sendable
     ) -> some View {
         Button {
             sortPlaylistColumn(index)

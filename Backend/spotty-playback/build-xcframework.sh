@@ -183,7 +183,7 @@ fi
 mkdir -p "${archive_path:h}"
 
 # Normalize timestamps and omit Finder metadata so a repeated build from identical inputs has a
-# stable archive checksum suitable for the manifest pin.
+# stable archive checksum suitable for the package pin.
 find "$output_path" -exec touch -t 200001010000 {} +
 (
     cd "${output_path:h}"

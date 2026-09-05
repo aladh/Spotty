@@ -5,10 +5,10 @@ Status: accepted on 2026-09-04. Supersedes [ADR 004](ADR-004-swift-owned-playbac
 
 ## Context
 
-Spotty has a working Rust/librespot leaf for private Spotify session, Connect, streaming, decryption,
-decoding, and reconnection. A Swift playback experiment introduced a second implementation and
-additional cross-language lifetimes without an established product or reliability benefit.
-Rewriting the engine would transfer private-protocol maintenance to Spotty rather than remove it.
+The working Rust/librespot leaf handles private Spotify sessions, Connect, streaming, decryption,
+decoding, and reconnection. A Swift experiment added a second implementation and cross-language
+lifetimes without demonstrated benefit; replacing librespot would transfer protocol maintenance
+to Spotty.
 
 ## Decision
 
@@ -33,13 +33,10 @@ and [ADR 003](ADR-003-playback-command-effects.md) continue to govern applicatio
   in exchange for the working implementation. Dependency updates require protocol and license
   review, not routine version bumps.
 
-Rust tooling remains necessary for engine development and source CI. Under
-[ADR 006](ADR-006-prebuilt-playback-engine.md), ordinary app builds consume a prebuilt artifact and
-need no Rust installation. This changes distribution, not engine ownership.
-
-Current responsibilities and retained-engine guarantees live in
-[playback engine ownership](playback-engine-ownership.md). Live-account testing remains governed by
-the [safe acceptance contract](product-and-acceptance-contract.md#safe-acceptance-testing).
+[ADR 006](ADR-006-prebuilt-playback-engine.md) removes Rust tooling from ordinary app builds,
+not engine development or source CI. See [engine ownership](playback-engine-ownership.md) for current
+responsibilities and guarantees, and the
+[safe acceptance contract](product-and-acceptance-contract.md#safe-acceptance-testing) for live tests.
 
 ## Revisit trigger
 

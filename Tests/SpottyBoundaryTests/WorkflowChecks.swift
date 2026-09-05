@@ -27,7 +27,6 @@ private final class RecordingLocalEngine: LocalPlaybackEngine, @unchecked Sendab
     }
     func positionMilliseconds() -> UInt32 { 0 }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() {}
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
     func clearStreamingCredentials() {}
@@ -308,7 +307,6 @@ private final class WorkflowEngine: LocalPlaybackEngine, @unchecked Sendable {
     func resumeContextURI() -> String? { "spotify:playlist:ctx" }
     func resumeTrackURI() -> String? { "spotify:track:one" }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() { record("configure") }
     func shutdown() -> PlaybackEngineResult { record("shutdown"); return .ok }
     func cleanup() { record("cleanup") }
     func clearStreamingCredentials() { record("clearCredentials") }

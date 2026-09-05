@@ -22,22 +22,14 @@ by ADR 005. Consult it for historical reasoning, not current work instructions.
 
 | Need | Owner |
 | --- | --- |
-| Current Swift/Rust responsibilities and retained-engine guarantees | [Playback engine ownership](playback-engine-ownership.md) |
-| Rules, checks, and known verification limits | [Enforcement inventory](architecture-enforcement.md) |
-| Product behavior and live-account acceptance | [Product contract](product-and-acceptance-contract.md) |
-| Build, verification, packaging, and publication commands | [Agent operations](../CONTRIBUTING.md) |
-| Environment setup and signing recovery | [Development setup](development-setup.md) |
+| Canonical product, ownership, verification, setup, and operations docs | [Repository guide](../AGENTS.md#canonical-documents) |
 | Private extended-metadata protocol notes | [Extended metadata](extended-metadata.md) |
 
 ## Maintaining the decision log
 
-- Record choices whose reasoning cannot be recovered easily from code: context, decision,
-  alternatives, and meaningful consequences. Add a revisit trigger when it helps.
-- Correct facts, links, and implementation references in place. Clarifications and implementation
-  refinements do not need another numbered record when the underlying decision is unchanged.
-- For a significant reversal, add a record with the next number, explain what it replaces, and mark
-  the old record superseded. Keep a short historical explanation and reciprocal links.
-- State whether a record is proposed, accepted, rejected, or superseded. Reflect current and
-  historical status in this index.
-- Keep commands, field inventories, exact behavior cases, and delivery progress in their existing
-  owners. Link to them rather than copying them into an ADR.
+- Record consequential context, decisions, alternatives, tradeoffs, and useful revisit triggers.
+- Correct facts and references in place; unchanged decisions do not need a new record.
+- For reversals, add the next numbered record, explain what it replaces, mark the old one superseded,
+  and link both ways.
+- State each record's status (proposed, accepted, rejected, or superseded) and keep this index current.
+- Link to canonical owners for commands, fields, and behavior cases; omit delivery progress.

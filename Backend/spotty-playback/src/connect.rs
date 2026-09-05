@@ -480,11 +480,10 @@ pub(crate) fn notify_devices(
 
 /// Creates the standard ConnectConfig for Spirc.
 pub(crate) fn create_connect_config(device_name: &str) -> ConnectConfig {
-    let initial_volume = INITIAL_VOLUME_SETTING.load(Ordering::SeqCst);
     ConnectConfig {
         name: device_name.to_string(),
         device_type: DeviceType::Computer,
-        initial_volume,
+        initial_volume: u16::MAX,
         emit_set_queue_events: true,
         ..Default::default()
     }

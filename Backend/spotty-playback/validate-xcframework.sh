@@ -3,13 +3,13 @@ set -euo pipefail
 
 backend_root="${0:A:h}"
 project_root="${backend_root:h:h}"
-manifest_path=""
+published=false
 xcframework_path=""
 archive_path=""
 for_publish=false
 
 usage() {
-    print -u2 "usage: $0 XCFRAMEWORK [--archive ZIP] [--manifest PATH] [--for-publish]"
+    print -u2 "usage: $0 XCFRAMEWORK [--archive ZIP] [--published] [--for-publish]"
     exit 2
 }
 
@@ -25,10 +25,9 @@ while (( $# > 0 )); do
             archive_path="$2"
             shift 2
             ;;
-        --manifest)
-            (( $# >= 2 )) || usage
-            manifest_path="$2"
-            shift 2
+        --published)
+            published=true
+            shift
             ;;
         --for-publish)
             for_publish=true
@@ -41,9 +40,6 @@ while (( $# > 0 )); do
 done
 
 xcframework_path="${xcframework_path:A}"
-if [[ -n "$manifest_path" ]]; then
-    manifest_path="${manifest_path:A}"
-fi
 if [[ -n "$archive_path" ]]; then
     archive_path="${archive_path:A}"
 fi
@@ -58,20 +54,11 @@ fail() {
 info_plist="$xcframework_path/Info.plist"
 [[ -f "$info_plist" ]] || fail "XCFramework Info.plist is missing"
 plutil -lint "$info_plist" >/dev/null || fail "XCFramework Info.plist is invalid"
-if [[ -n "$manifest_path" ]]; then
-    [[ -f "$manifest_path" ]] || fail "artifact manifest is missing: $manifest_path"
-    plutil -convert xml1 -o /dev/null "$manifest_path" >/dev/null 2>&1 || fail "artifact manifest is invalid"
-fi
 
 plist_value() {
     local key="$1"
     local plist="$2"
     plutil -extract "$key" raw -o - "$plist" 2>/dev/null
-}
-manifest_value() {
-    local key="$1"
-    [[ -n "$manifest_path" ]] || fail "manifest is required to read $key"
-    plist_value "$key" "$manifest_path" || fail "manifest is missing $key"
 }
 require_equal() {
     local label="$1"
@@ -119,11 +106,19 @@ headers_path="$xcframework_path/$library_identifier/$headers_relative_path"
 [[ "$(lipo -archs "$library_path")" == arm64 ]] || fail "static library must contain only arm64"
 
 canonical_include="$project_root/Sources/SpottyPlaybackCore/include"
+# Consumer builds validate the released header/library pair against their pin. Source builds
+# and publication additionally prove that pair was produced from the current engine checkout.
+check_source=false
+if [[ "$published" == false || "$for_publish" == true ]]; then
+    check_source=true
+fi
 for header_name in spotty_playback.h spotty_playback_generated.h spotty_playback_annotations.h module.modulemap; do
-    [[ -f "$canonical_include/$header_name" ]] || fail "canonical header is missing: $header_name"
     [[ -f "$headers_path/$header_name" ]] || fail "artifact header is missing: $header_name"
-    cmp -s "$canonical_include/$header_name" "$headers_path/$header_name" || \
-        fail "artifact header differs from canonical $header_name"
+    if [[ "$check_source" == true ]]; then
+        [[ -f "$canonical_include/$header_name" ]] || fail "canonical header is missing: $header_name"
+        cmp -s "$canonical_include/$header_name" "$headers_path/$header_name" || \
+            fail "artifact header differs from canonical $header_name"
+    fi
 done
 
 # Validate the load-command minimum OS in the static archive. The XCFramework plist is metadata;
@@ -162,7 +157,11 @@ provenance_value() {
         fail "embedded provenance is missing $key"
 }
 
-source_digest="$("$backend_root/source-input-digest.sh")"
+if [[ "$check_source" == true ]]; then
+    source_digest="$("$backend_root/source-input-digest.sh")"
+else
+    source_digest="$(provenance_value source.engineInputDigest)"
+fi
 require_equal "provenance source input digest" "$source_digest" "$(provenance_value source.engineInputDigest)"
 require_equal "provenance target" aarch64-apple-darwin "$(provenance_value target)"
 require_equal "library filename input digest" "$source_digest" "$library_engine_digest"
@@ -174,15 +173,9 @@ require_equal "provenance library type" static "$(provenance_value libraryType)"
 
 header_digest="$({
     for header_name in spotty_playback.h spotty_playback_generated.h spotty_playback_annotations.h module.modulemap; do
-        print -r -- "$header_name $(shasum -a 256 "$canonical_include/$header_name" | awk '{print $1}')"
+        print -r -- "$header_name $(shasum -a 256 "$headers_path/$header_name" | awk '{print $1}')"
     done
 } | shasum -a 256 | awk '{print $1}')"
-if [[ -n "$manifest_path" ]]; then
-    require_equal "manifest source input digest" "$source_digest" "$(manifest_value source.engineInputDigest)"
-    require_equal "manifest target" aarch64-apple-darwin "$(manifest_value source.target)"
-    require_equal "manifest canonical header digest" "$header_digest" "$(manifest_value source.canonicalHeadersSHA256)"
-    require_equal "manifest library name" "$library_relative_path" "$(manifest_value module.library)"
-fi
 require_equal "provenance canonical header digest" "$header_digest" "$(provenance_value source.canonicalHeadersSHA256)"
 
 library_digest="$(shasum -a 256 "$library_path" | awk '{print $1}')"
@@ -260,28 +253,6 @@ if [[ -n "$archive_path" ]]; then
         cmp -s "$xcframework_path/$relative_file" "$archive_xcframework_path/$relative_file" || \
             fail "archive file differs from selected XCFramework: ${relative_file#./}"
     done <<< "$selected_files"
-    archive_digest="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
-    if [[ -n "$manifest_path" ]]; then
-        require_equal "manifest archive checksum" "$archive_digest" "$(manifest_value artifact.checksum)"
-    fi
-fi
-
-if [[ -n "$manifest_path" ]]; then
-    artifact_url="$(manifest_value artifact.url)"
-    if [[ "$artifact_url" != https://* || "$artifact_url" == *\?* || "$artifact_url" == *#* ]]; then
-        fail "artifact URL must be immutable HTTPS without query or fragment"
-    fi
-    artifact_checksum="$(manifest_value artifact.checksum)"
-    [[ "$artifact_checksum" =~ ^[0-9a-fA-F]{64}$ ]] || fail "artifact checksum is not SHA-256"
-    [[ "$artifact_checksum" != "$(printf '%064d' 0)" ]] || fail "artifact checksum is not pinned"
-    require_equal "manifest archive name" "${artifact_url##*/}" "$(manifest_value artifact.archive)"
-    require_equal "manifest source revision" \
-        "$(provenance_value source.sourceRevision)" "$(manifest_value source.sourceRevision)"
-    require_equal "manifest source dirty flag" \
-        "$(provenance_value source.sourceDirty)" "$(manifest_value source.sourceDirty)"
-    if [[ "$artifact_url" != *"$(manifest_value source.engineInputDigest)"* ]]; then
-        fail "artifact URL must be keyed by the engine input digest"
-    fi
 fi
 
 if [[ "$for_publish" == true ]]; then

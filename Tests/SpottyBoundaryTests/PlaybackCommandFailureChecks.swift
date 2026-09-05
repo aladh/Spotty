@@ -53,7 +53,6 @@ private final class ScriptedLocalEngine: LocalPlaybackEngine, @unchecked Sendabl
     func resumeContextURI() -> String? { storedResumeContextURI }
     func resumeTrackURI() -> String? { storedResumeTrackURI }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() {}
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
     func clearStreamingCredentials() {}
@@ -108,7 +107,6 @@ private final class GatedLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
     }
     func positionMilliseconds() -> UInt32 { 0 }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() {}
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
     func clearStreamingCredentials() {}

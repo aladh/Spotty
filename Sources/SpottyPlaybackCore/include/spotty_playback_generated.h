@@ -67,8 +67,8 @@ typedef struct SpottyDevicesSnapshot {
 // array are valid only for the callback invocation.
 typedef void (*DevicesCallback)(const struct SpottyDevicesSnapshot*);
 
-// Playback observation. `track_uri` and `context_uri` are valid only for the callback;
-// Swift must copy them before returning. Null means missing; outbound empty strings and
+// Playback observation. `track_uri` is valid only for the callback;
+// Swift must copy it before returning. Null means missing; outbound empty strings and
 // strings containing an interior NUL are also delivered as null fields. Flags are 0 or 1.
 //
 // `is_active_device` is the protocol active-member fact captured with this observation;
@@ -91,7 +91,6 @@ typedef struct SpottyPlaybackSnapshot {
   uint8_t repeat_context;
   uint8_t is_active_device;
   SpottyNullableCString track_uri;
-  SpottyNullableCString context_uri;
 } SpottyPlaybackSnapshot;
 
 // Callback function type for playback state updates. Receives a typed snapshot; string
@@ -306,8 +305,7 @@ SpottyPlaybackResult spotty_playback_play_tracks(const char *track_uris_json);
 //
 // # Parameters
 // - `uri_or_url`: Spotify URI or URL (for example, "spotify:album:xxx").
-// - `track_index`: Track index to start at (-1 = from beginning, 0+ = specific track).
-SpottyPlaybackResult spotty_playback_play_uri(const char *uri_or_url, int32_t track_index);
+SpottyPlaybackResult spotty_playback_play_uri(const char *uri_or_url);
 
 // Skips to the previous track in the queue.
 // Returns 0 on success, -1 on error, -2 if channel closed (needs reinit).
@@ -350,23 +348,10 @@ SpottyPlaybackResult spotty_playback_resume(void);
 // Returns 0 on success, -1 on error, -2 if channel closed (needs reinit).
 SpottyPlaybackResult spotty_playback_seek(uint32_t position_ms);
 
-// Sets the streaming bitrate.
-// 0 = 96 kbps, 1 = 160 kbps (default), 2 = 320 kbps
-// Note: Takes effect on next player initialization (restart playback to apply).
-void spotty_playback_set_bitrate(uint8_t bitrate);
-
 // Sets the user-facing device name advertised to Spotify Connect. Must be called before
 // `spotty_playback_init_player` to affect the next Spirc instance. The string is copied during
 // this call.
 void spotty_playback_set_device_name(const char *device_name);
-
-// Sets gapless playback (true = enabled, false = disabled).
-// Enabled by default. Takes effect on next player initialization (restart playback to apply).
-void spotty_playback_set_gapless(bool enabled);
-
-// Sets the initial volume (0-65535) used when registering with Spotify Connect.
-// Must be called before spotty_playback_init_player() to take effect.
-void spotty_playback_set_initial_volume(uint16_t volume);
 
 // Repeats the current playback context (repeat the whole queue).
 SpottyPlaybackResult spotty_playback_set_repeat_context(bool enabled);

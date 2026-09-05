@@ -1,135 +1,87 @@
 # Agent operations for Spotty
 
-This conventional filename is retained for repository tooling and links. Start with
-[AGENTS.md](AGENTS.md), then load only the procedure needed for the task.
-
-Prerequisites, toolchain pins, signing setup, and generated local state are in the
-[development setup guide](docs/development-setup.md#fresh-clone).
+Start with [AGENTS.md](AGENTS.md). Prerequisites, toolchain pins, signing, and local state are in
+[development setup](docs/development-setup.md).
 
 ## Build and run
 
-From the repository root:
+For an authorized launch, from the repository root:
 
 ```bash
 ./script/build_and_run.sh
 ```
 
-The script resolves the pinned playback XCFramework, runs the Swift verification gate, builds the
-SwiftPM executable, creates and signs a local `Spotty.app`, terminates any running development copy,
-and launches the replacement. It does not require Rust tools. Because this can disturb an
-authenticated session, use it only when the request authorizes launch or interactive
-acceptance; do not use it as a compile check. The path-specific contract is
-[`script/AGENTS.md`](script/AGENTS.md).
-
-Useful modes:
-
-```bash
-./script/build_and_run.sh --verify
-./script/build_and_run.sh --release
-./script/build_and_run.sh --verify-release
-./script/build_and_run.sh --telemetry
-```
-
-Authenticated launches require an Apple Development identity with a stable Team ID. When exactly one
-is available, the script selects it; otherwise set `SPOTTY_DEVELOPMENT_SIGNING_IDENTITY` to the
-exact name reported by `security find-identity -p codesigning -v`. See the setup guide for creating
-an identity and for Keychain recovery.
+This verifies, builds, signs, and replaces the running app; do not use it as a compile check.
+Modes include `--verify`, `--release`, `--verify-release`, and `--telemetry`.
+See [launch constraints](script/AGENTS.md) and
+[signing setup](docs/development-setup.md#fresh-clone) before authenticated launches.
 
 ## Normal verification
 
-Follow the local-verification policy in [AGENTS.md](AGENTS.md#local-verification). The complete
-verification gate is:
+Use the smallest focused check per [AGENTS.md](AGENTS.md#local-verification). Available gate scopes:
 
 ```bash
 ./Scripts/check.sh
+SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
+SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ```
 
-The complete gate requires the engine toolchain. App-only development uses
-`SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh`, which resolves the binary dependency and never invokes
-Cargo, rustc, or cbindgen. Packaging uses this app-only gate.
-
-The complete gate checks tracked Swift formatting, Rust formatting, warning-clean Clippy, locked
-Rust tests, the pinned cbindgen output against the checked-in header, Rust/C export and header
-parity, Swift builds with project-owned warnings as errors, deterministic Swift tests, architecture
-contracts, CI policy, and packaging metadata. It does not sign in or initiate playback.
+The full and Rust scopes require the [engine toolchain](docs/development-setup.md#engine-development).
+The Swift scope and packaging use the pinned binary without Rust tools. Checks do not sign in or
+initiate playback. See the [enforcement inventory](docs/architecture-enforcement.md) for coverage.
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
-header. `--check` verifies reproducibility without modifying it. cbindgen is pinned in the
-[engine setup guide](docs/development-setup.md#engine-development); set `SPOTTY_CBINDGEN` when it is not on `PATH`. The
-wrapper validates its version and export set without installing tools.
+header. `--check` verifies reproducibility; set `SPOTTY_CBINDGEN` if the pinned tool is not on `PATH`.
 
 `Backend/spotty-playback/cbindgen.toml` generates
 `Sources/SpottyPlaybackCore/include/spotty_playback_generated.h`. Edit the Rust declarations and
 their ownership documentation, then regenerate; never edit the generated header. Keep Swift-specific
 nullable-pointer and open-enum annotations in `spotty_playback_annotations.h`. Do not enable
 cbindgen's global nullable-pointer annotation: it would make required callback pointers nullable.
-The umbrella include remains `spotty_playback.h`.
 
-`Scripts/check-c-header-imports.sh` compile-checks Swift imports, including nullable-pointer failures,
-without linking or running playback. Extend it for a new pointer shape. The full gate separately
-checks C/Rust layouts, signatures, exports, and callback lifetimes.
+Extend `Scripts/check-c-header-imports.sh` when adding a pointer shape; it compile-checks Swift
+imports and nullability without running playback.
 
-Swift formatting uses the selected Swift 6.3 toolchain's `swift-format`:
+Swift formatting:
 
 ```bash
 ./Scripts/format-swift.sh --check
 ./Scripts/format-swift.sh --write
 ```
 
-`Scripts/format-swift-self-test.sh` protects wrapper discovery and failure behavior and runs inside
-`check.sh` before the real formatting check.
-
-The two non-shipping Swift Testing targets are:
-
-- `SpottyDomainTests`: pure `SpottyDomain` state, policy, parsing, and deterministic playback traces.
-- `SpottyBoundaryTests`: concrete codecs, fixtures, stores, coordinators, queue flows, and other
-  injected SpottyCore boundaries.
-
-Their sources live under `Tests/SpottyDomainTests/` and `Tests/SpottyBoundaryTests/`.
-
-Use standard SwiftPM filtering for focused iteration:
+Tests live in `Tests/SpottyDomainTests/` and `Tests/SpottyBoundaryTests/`. Discover names with
+`swift test list`, then filter for focused iteration:
 
 ```bash
 swift test --disable-sandbox --filter ProtobufTests/testProtobuf
 swift test --disable-sandbox --no-parallel --filter AuthFlowTests/testAuthFlow
 ```
 
-`swift test list` shows the discovered test names. No-argument execution runs all tests, and
-`check.sh` never passes a test-name filter beyond selecting its domain or boundary target.
-
-CI may partition the gate with:
-
-```bash
-SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
-SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
-```
-
-The required `Debug quality gate` aggregates Rust verification, Swift/architecture verification, and
-the release compile. CI uses the [documented toolchain](docs/development-setup.md#fresh-clone),
-content-keyed engine artifacts, and configuration-safe SwiftPM caches; cache hits may reduce latency
-but never coverage. App lanes deliberately block Rust executables to detect accidental source-build
-fallbacks.
-
-After building the Debug boundary target, `Scripts/check-playback-projection-access.sh` type-checks
-reads and expected-failing writes against the actual `SpottyCore` module. The full/Swift gate runs
-it after boundary tests; it does not link or launch playback. The [enforcement inventory](docs/architecture-enforcement.md#source-reading-proof-audit-issues-187188)
-records which former source/prose assertions are now compiler checks, behavior tests, or semantic
-review obligations.
+CI's required `Debug quality gate` aggregates Rust, Swift/architecture, and Release compilation.
 
 Use `SPOTTY_CHECK_REPEATS=N ./Scripts/check.sh` with `N` from 1 through 25 when concurrency or
 lifetime work merits stress.
 
 ## Playback binary artifacts
 
-The artifact pin lives in `Backend/spotty-playback/artifact-manifest.json` and a generated
-declaration in `Package.swift`. The pin updater changes both together. Literal package declarations
-make pin changes visible to SwiftPM's manifest cache. They pin an immutable engine ZIP by URL and
-SHA-256. The artifact contains one macOS ARM64 static-library slice, its matching C headers/module
-map, provenance, and dependency notices. Ordinary SwiftPM builds resolve that dependency without
-Cargo or cbindgen. Never overwrite an existing published asset.
+App releases use `vMAJOR.MINOR.PATCH`; playback releases use `playback-vMAJOR.MINOR.PATCH` in the
+same repository. Engine publication takes a version such as `0.1.0`, independent of the app version.
+Versions have three numeric components without leading zeroes; existing tags and releases cannot
+be reused. Hashes remain internal artifact/cache identities and integrity checks.
 
-For engine development, install the pinned Rust and cbindgen tools and build an explicit local
-artifact:
+`Package.swift` is the single dependency pin: a hardcoded release URL and SHA-256 checksum for
+the SwiftPM binary target. SwiftPM
+fetches that exact versioned release asset, rather than resolving prefixed Git tags as package
+versions. Update the pin with the updater below. The artifact bundles the ARM64 library, matching
+headers/module map, provenance, and dependency notices. Never overwrite a published asset.
+
+The Swift package and Rust crate are independent projects in this repository. App builds and Swift
+checks consume the pinned artifact and its bundled headers, even when engine source has changed.
+Rust checks own source/header generation; candidate Swift checks exercise the new engine. Updating
+the app pin is the explicit integration step. The existing source layout remains unchanged.
+
+For engine development, install the [artifact tools](docs/development-setup.md#engine-development)
+and build a local artifact:
 
 ```bash
 ./Backend/spotty-playback/build-xcframework.sh
@@ -139,61 +91,66 @@ SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 ./Scripts/compile-release-spotty.sh
 ```
 
-Rebuild that artifact and refresh the override after changing any engine input. Its default
-directory carries the engine digest, and the library filename carries both engine-input and binary
-digests. This changes the linker input when the engine changes; replacing a same-named static
-archive alone can leave a cached executable linked to old code in SwiftPM. The local override
-selects a binary; it does not arrange an implicit Cargo build. Unset it to return to the published
-dependency. Full Rust verification remains `SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh`.
+Rebuild and refresh the override after every engine-input change. Preserve digest-bearing paths
+and library names so SwiftPM relinks changed engines. The override selects a binary without building
+Rust; unset it to return to the published dependency. Run the Rust gate separately.
 
-Artifact production requires the additional tools in the
-[engine setup guide](docs/development-setup.md#engine-development). Embedded notices travel into
-packaged apps without regeneration.
+CI diffs engine build inputs against the app's pinned `playback-vMAJOR.MINOR.PATCH` tag. It builds
+and tests a candidate only when those inputs differ, including shared headers, packaging scripts,
+and license inputs. Comparing with the pinned release also catches unpublished engine changes from
+earlier commits. Until the legacy pin is replaced with a versioned release, every run builds a
+candidate to bootstrap publication. Rust source checks and published-artifact Swift checks remain
+required; content digests still identify build caches and artifact provenance.
 
-The artifact publication workflow builds the selected source revision with read-only repository
-permissions. The workflow itself runs from main, but `source_ref` can select a reviewed, unmerged
-engine PR commit; publish its artifact and update that PR’s pin before merging. A separate publisher
-uploads versioned assets without running candidate build code with release credentials. The
-resulting pin is updated in a reviewed source change; app and engine releases have separate
-identities. Verify the downloaded artifact with its checksum and source input digest before updating
-the manifest. Keep source revision, Cargo lock identity, headers, library, and required
-license/source material traceable together.
+Publication promotes the exact candidate ZIP from a completed CI run, without rebuilding it. Run
+the publisher from main after Rust and candidate Swift Debug/Release succeed. Published-pin jobs
+continue to test the app against its selected release; they fail if app changes require a newer ABI. The selected source must be a
+merged commit covered by a main-branch push CI run and an ancestor of the publisher checkout.
+PR and fork candidates cannot be published. The tested main commit becomes the release target.
 
-To publish an explicitly authorized, reviewed engine commit:
+The publisher verifies the CI definition matches its trusted checkout, the source ancestry on main,
+successful jobs from the same run attempt, artifact identity/checksum, and embedded provenance and
+notices. It never executes candidate code and keeps release credentials in a separate Linux job.
+Expired artifacts or candidates from an older CI definition require a fresh CI run. Keep app and
+engine release identities separate; published playback releases are never overwritten.
+
+Use the completed main push CI run's head SHA and run ID to promote an explicitly authorized
+candidate (use `-f dry_run=true` to validate without publishing):
 
 ```bash
-gh workflow run playback-artifact.yml --ref main -f source_ref="$reviewed_source_sha"
+gh workflow run playback-artifact.yml --ref main \
+  -f version="0.1.0" \
+  -f source_ref="$reviewed_source_sha" -f candidate_run_id="$candidate_ci_run_id"
 ```
 
-Download the resulting release ZIP, then update both pin declarations from its embedded provenance:
+Download the release ZIP and update the package pin; the updater validates the bundled artifact
+and computes its checksum without requiring current engine source to match:
 
 ```bash
-./Backend/spotty-playback/update-artifact-manifest.sh \
+./Backend/spotty-playback/update-artifact-pin.sh \
   --archive /absolute/path/SpottyPlaybackCore.xcframework.zip \
-  --url "$published_artifact_url"
+  --version "0.1.0"
 unset SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK
 SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 ./Scripts/compile-release-spotty.sh
 ```
 
-Commit the pin update in a PR. Publication rejects dirty source and existing release identities;
-normal app builds fail clearly when the pinned artifact is unavailable rather than compiling Rust.
+Commit the pin update in a PR. Publication rejects dirty source and existing release identities.
+The existing hash-based pin remains supported during migration; the updater only writes versioned
+pins. Publish the first version and adopt its pin before removing any legacy release assets that
+current checkouts still reference.
 
 ## Clean and risk-specific verification
 
-The clean-room gate is:
+For clean-build changes or diagnosis requiring a rebuild:
 
 ```bash
 ./Scripts/check-clean.sh
 ```
 
-It removes generated Swift build products, rebuilds the local engine artifact, then verifies Debug
-and Release. Do not run
-destructive cleanup over unrelated work. `./Scripts/compile-release-spotty.sh` remains the local
-compile-only release command.
-
-Prefer behavior tests over source-text snapshots; regex is not the owner of concurrency, epochs,
-queue provenance, lifecycle, rollback, or payload correctness.
+This removes generated Swift build products, rebuilds the engine artifact, and verifies Debug and
+Release. Preserve unrelated work. Use `./Scripts/compile-release-spotty.sh` for compile-only Release
+verification.
 
 ## Package, sign, and notarize
 
@@ -223,19 +180,16 @@ SPOTTY_NOTARY_PROFILE="spotty-notary" \
 
 `validate-app.sh --distribution` requires a Developer ID signature, a valid notarization ticket, and
 Gatekeeper acceptance. Signing proves artifact integrity; it does not make the private Spotify
-integration supported or policy-compliant. Engine artifact publication generates and inspects the complete transitive license set from
-`Cargo.lock`; app packaging copies that material from the pinned artifact.
+integration supported or policy-compliant. Engine publication generates and inspects transitive
+licenses from `Cargo.lock`; app packaging copies them from the pinned artifact.
 
 ## Tagged releases
 
-A matching `vX.Y.Z` tag runs the ARM64 release workflow. It compares the numeric tag with
-`CFBundleShortVersionString` in `Packaging/Info.plist`, runs the app verification gate against the pinned engine, validates an ARM64-only
-app, creates a ZIP and SHA-256 checksum, and publishes an experimental prerelease. Until Developer ID
-and notarization credentials are configured, artifacts use a hardened-runtime ad-hoc signature and
-release notes must state that macOS will not automatically trust them.
-
-Renovate owns dependency updates; GitHub Actions remain SHA-pinned with readable version comments;
-librespot updates receive protocol and license review rather than routine bump treatment.
+An authorized `vX.Y.Z` tag must match `CFBundleShortVersionString` in `Packaging/Info.plist`. The
+release workflow verifies the app against the pinned engine and publishes an ARM64 experimental
+prerelease ZIP and SHA-256 checksum. Until Developer ID and notarization credentials are configured,
+artifacts use hardened-runtime ad-hoc signing; release notes must state that macOS will not
+automatically trust them. Renovate owns dependency updates.
 
 ## Diagnostics
 
@@ -267,8 +221,8 @@ blocking review state must be cleared through the reviewer’s normal workflow; 
 repository protections.
 
 Manual app testing is not a PR acceptance gate, and no human review is required beyond repository
-settings. Report any limits of automated
-coverage honestly; separately requested manual verification may happen after merge. Live-account
-work still follows the [safe acceptance contract](docs/product-and-acceptance-contract.md#safe-acceptance-testing).
+settings. Report automated coverage limits honestly; separately requested manual verification may
+happen after merge. Live-account work still follows the
+[safe acceptance contract](docs/product-and-acceptance-contract.md#safe-acceptance-testing).
 Meeting these criteria establishes readiness, not permission to merge: merge authorization remains
 separate as described above.

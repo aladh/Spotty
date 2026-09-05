@@ -6,22 +6,24 @@ playback and Connect leaf. No WebView, Chromium shell, cross-platform UI, or sup
 fallback. Keep the experimental and no-affiliation warnings prominent in public material.
 
 Prioritize account/privacy/session safety, then playback and lifetime correctness, then native macOS
-behavior and truthful state. Keep the product surface small; optimize measured, user-visible costs.
+behavior and truthful state. Keep the product surface small; apply the
+[80/20 product principle](docs/product-and-acceptance-contract.md#product-direction) when choosing
+features, and optimize measured, user-visible costs.
 
 ## Working in this repository
 
 - Check `git status --short` and preserve unrelated work.
 - Before editing, read the applicable `AGENTS.md` chain. Discover tracked instruction files with
   `git ls-files | rg '(^|/)AGENTS\.md$'` from the repository root.
-- Load only the documents relevant to the task, and inspect the affected implementation, checks,
-  and recent history. Use the canonical owners below rather than duplicating their rules.
-- Reviews, explanations, diagnoses, and plans are read-only unless the request also asks for changes.
-  For changes, complete the in-scope work and non-destructive validation without routine approval.
-- Spotty is maintained exclusively by agents. Complete agent-operable work rather than assigning it
-  to an imagined human maintainer; report any unperformed acceptance steps honestly.
-- PR requests authorize branch/commit/push, opening the PR, and addressing its automated review as
-  described in [agent operations](CONTRIBUTING.md#pull-request-execution). They do not authorize
-  merging, tagging, releases, repository settings, or unrelated issue mutations.
+- Load only relevant documents; inspect the affected implementation, checks, and recent history,
+  using the canonical owners below rather than duplicating their rules.
+- Reviews, explanations, diagnoses, and plans are read-only unless changes are requested.
+  For changes, complete in-scope work and non-destructive validation without routine approval.
+- Spotty is maintained exclusively by agents: complete agent-operable work and report unperformed
+  acceptance steps honestly.
+- PR requests authorize branch/commit/push, opening the PR, and addressing automated review per
+  [agent operations](CONTRIBUTING.md#pull-request-execution). They do not authorize merging,
+  tagging, releases, repository settings, or unrelated issue mutations.
 - Use the [PR acceptance criteria](CONTRIBUTING.md#pr-acceptance) to determine
   readiness; do not add a manual review or app-testing gate.
 - Signing/keychain changes, destructive cleanup, new production dependencies, external publication,
@@ -57,8 +59,11 @@ or interactive acceptance.
   meaningful duplication.
 - Tests must catch plausible behavioral failures, not mirror implementation or duplicate coverage.
 - Skip obvious comments and production hooks added solely to test trivial code.
-- Keep docs concise and actionable; update the canonical owner instead of adding duplicate guides,
-  implementation narration, or task-history summaries.
+- Before adding documentation, check the canonical owner. Update or replace existing guidance
+  rather than appending another explanation. Keep details that affect decisions, safe execution,
+  or verification; omit task history, obvious code narration, and repeated rationale. Link to
+  existing rules, and remove wording made redundant by the change. Use judgment: brevity must not
+  erase useful constraints or tradeoffs.
 
 ## Local verification
 

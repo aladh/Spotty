@@ -31,7 +31,6 @@ private final class QueueLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
     }
     func positionMilliseconds() -> UInt32 { 0 }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() {}
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
     func clearStreamingCredentials() {}

@@ -4,18 +4,20 @@ Status: accepted on 2026-09-04.
 
 ## Context
 
-Retaining Rust/librespot does not require every app developer to maintain its toolchain. The previous
-static archive also lived outside SwiftPM's dependency graph, leaving callers responsible for
-freshness and relinking.
+The previous static archive lived outside SwiftPM's dependency graph, leaving callers responsible
+for freshness, relinking, and Rust tooling even during app-only work.
 
 ## Decision
 
 Distribute the existing engine as a macOS ARM64 static XCFramework through a SwiftPM binary target.
-Pin an immutable HTTPS archive by SHA-256 and package the library with its matching generated C
+Release engine versions as `playback-vMAJOR.MINOR.PATCH`, separately from the app's `vMAJOR.MINOR.PATCH`
+tags in the same repository. Pin the versioned immutable HTTPS archive by SHA-256 and package the
+library with its matching generated C
 headers, module map, provenance, and dependency notices. Keep the Swift adapter in source.
 
 Ordinary app compilation and packaging do not invoke Rust tools or silently fall back to a source
-build. Engine development uses an explicit local artifact override. Rust source and its locked
+build. Engine development uses an explicit local artifact override. Versioned release URLs select the
+binary directly; this does not use SwiftPM Git-package semantic-version resolution. Rust source and its locked
 dependency graph remain in the repository; generated binaries stay out of Git.
 
 Two measured SwiftPM behaviors shape the pin: literal URL/checksum declarations make changes visible
@@ -24,19 +26,17 @@ Replacing an archive under the same name was insufficient in the tested toolchai
 
 ## Alternatives and tradeoffs
 
-Source-only integration keeps distribution simple but imposes Rust tooling on ordinary Swift work.
-Checking binaries into Git would grow repository history without providing SwiftPM's remote artifact
-resolution. The binary target removes that build dependency while retaining the existing C ABI.
-Keeping the Swift adapter in source avoids compiled Swift-module compatibility requirements.
+Source-only integration simplifies distribution but requires Rust tooling for Swift work. Committing
+engine binaries grows Git history without remote artifact resolution. A binary target retains the
+C ABI; keeping the Swift adapter in source avoids compiled Swift-module compatibility requirements.
 
 Artifact availability, checksums, provenance, and license material become part of the build contract.
-Engine changes require a validated artifact and pin update; Rust debugging still needs the source
-toolchain. Apple SDK and signing requirements are unchanged.
+App validation compares the selected artifact with the app's pin, not the evolving Rust source or
+producer headers. Source-built candidates and publication still validate against current engine
+inputs. Adopting an engine change in the app requires a validated artifact and explicit pin update;
+Rust debugging still needs the source toolchain. Apple SDK and signing requirements are unchanged.
 
-CI verifies source-built candidates before publication and the published dependency before merge,
-with Rust blocked in app lanes. [Agent operations](../CONTRIBUTING.md#playback-binary-artifacts) owns
-build, publication, and pin-update commands; the [enforcement inventory](architecture-enforcement.md)
-owns the coverage map.
-
-This decision changes build distribution, not [ADR 005](ADR-005-retain-librespot.md)'s engine choice
-or runtime ownership.
+CI verifies source-built candidates before publication and published artifacts before merge, with
+Rust blocked in app lanes. See [agent operations](../CONTRIBUTING.md#playback-binary-artifacts) for
+commands and the [enforcement inventory](architecture-enforcement.md) for coverage.
+[ADR 005](ADR-005-retain-librespot.md) still owns engine choice and runtime ownership.

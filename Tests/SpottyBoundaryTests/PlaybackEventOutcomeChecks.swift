@@ -31,7 +31,6 @@ private final class GatedPositionEngine: LocalPlaybackEngine, @unchecked Sendabl
         return milliseconds
     }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() {}
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
     func clearStreamingCredentials() {}
@@ -72,7 +71,6 @@ private final class GatedQueueSnapshotEngine: LocalPlaybackEngine, @unchecked Se
         defer { lock.unlock() }
         return snapshot
     }
-    func configureHighQualityPlayback() {}
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
     func clearStreamingCredentials() {}
@@ -96,7 +94,6 @@ private final class IdleLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
     func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { .ok }
     func positionMilliseconds() -> UInt32 { 0 }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() {}
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
     func clearStreamingCredentials() {}

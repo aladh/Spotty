@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Prints the SHA-256 identity of every input that can change the playback XCFramework. The
-# artifact manifest is intentionally excluded so changing the pin cannot create a digest cycle.
+# app package pin is intentionally excluded so adopting a release cannot change engine identity.
 backend_root="${0:A:h}"
 project_root="${backend_root:h:h}"
 

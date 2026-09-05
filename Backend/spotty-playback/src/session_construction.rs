@@ -1,21 +1,9 @@
 use super::*;
 /// Builds librespot's own Player, decoding in-process and delivering PCM through `proxy_sink.rs`.
 fn create_librespot_player(session: &Session) -> Arc<Player> {
-    let (bitrate, bitrate_kbps) = match BITRATE_SETTING.load(Ordering::SeqCst) {
-        0 => (Bitrate::Bitrate96, 96),
-        2 => (Bitrate::Bitrate320, 320),
-        _ => (Bitrate::Bitrate160, 160),
-    };
-    let gapless = GAPLESS_SETTING.load(Ordering::SeqCst);
-
-    debug!(
-        "Player initialized: bitrate={}kbps, gapless={}",
-        bitrate_kbps, gapless
-    );
-
     let player_config = PlayerConfig {
-        bitrate,
-        gapless,
+        bitrate: Bitrate::Bitrate320,
+        gapless: true,
         position_update_interval: Some(Duration::from_millis(200)),
         ..PlayerConfig::default()
     };

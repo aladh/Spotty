@@ -4,6 +4,20 @@
 # artifact lookup here so build, verification, packaging, and size reporting inspect the same
 # binary/header pair. This file is sourced by the entry-point scripts.
 
+# Read the two literal dependency declarations without evaluating the Swift package.
+spotty_playback_pin_value() {
+    case "$1" in
+        url) pin_name=generatedPlaybackArtifactURL ;;
+        checksum) pin_name=generatedPlaybackArtifactChecksum ;;
+        *) return 1 ;;
+    esac
+    PIN_NAME="$pin_name" perl -0777 -ne '
+        my @values = /private\s+let\s+\Q$ENV{PIN_NAME}\E\s*=\s*"([^"]+)"/g;
+        die "Expected one playback pin declaration\n" unless @values == 1;
+        print "$values[0]\n";
+    ' "$project_root/Package.swift"
+}
+
 spotty_playback_resolve_xcframework() {
     if [ -z "${project_root:-}" ]; then
         echo "project_root must be set before resolving SpottyPlaybackCore" >&2
@@ -28,7 +42,7 @@ spotty_playback_resolve_xcframework() {
     fi
 
     # Remote binary targets are downloaded by SwiftPM. Resolve on every lookup so a changed
-    # manifest pin cannot leave an old workspace-state path selected; do not guess from the
+    # package pin cannot leave an old workspace-state path selected; do not guess from the
     # ignored local producer directory.
     local_workspace_state="$project_root/.build/workspace-state.json"
     if ! swift package resolve --package-path "$project_root" >&2; then
@@ -44,7 +58,7 @@ spotty_playback_resolve_xcframework() {
     # array with plutil so app-only checks require the Apple toolchain alone. Select exactly the
     # SpottyPlaybackCore remote entry and its recorded path; never accept another artifact or a
     # local producer path left under this checkout. The URL/checksum comparison below also rejects
-    # a state entry that belongs to an older manifest pin.
+    # a state entry that belongs to an older package pin.
     local_resolved_path=""
     local_resolved_count=0
     local_resolved_index=""
@@ -90,25 +104,17 @@ spotty_playback_resolve_xcframework() {
         return 1
     fi
 
-    # SwiftPM can retain an old downloaded artifact path when a package pin file changes. The
-    # workspace state's remote URL and checksum are the authoritative selected target; compare
-    # both to the checked-in manifest before accepting the path, rather than trusting a recursive
-    # path search or the generated Package.swift constants alone.
-    local_playback_manifest="$project_root/Backend/spotty-playback/artifact-manifest.json"
-    if [ ! -f "$local_playback_manifest" ]; then
-        echo "Published playback artifact manifest is missing: $local_playback_manifest" >&2
-        return 1
-    fi
-    manifest_url="$(plutil -extract artifact.url raw -o - "$local_playback_manifest" 2>/dev/null || true)"
-    manifest_checksum="$(plutil -extract artifact.checksum raw -o - "$local_playback_manifest" 2>/dev/null || true)"
+    # Reject a stale resolved artifact after a Package.swift pin change.
+    manifest_url="$(spotty_playback_pin_value url)" || return 1
+    manifest_checksum="$(spotty_playback_pin_value checksum)" || return 1
     state_url="$(plutil -extract "object.artifacts.$local_resolved_index.source.url" raw -o - "$local_workspace_state" 2>/dev/null || true)"
     state_checksum="$(plutil -extract "object.artifacts.$local_resolved_index.source.checksum" raw -o - "$local_workspace_state" 2>/dev/null || true)"
     if [ -z "$manifest_url" ] || [ -z "$manifest_checksum" ] || [ -z "$state_url" ] || [ -z "$state_checksum" ]; then
-        echo "SwiftPM SpottyPlaybackCore state or artifact manifest is missing its remote URL/checksum" >&2
+        echo "SwiftPM SpottyPlaybackCore state or package pin is missing its remote URL/checksum" >&2
         return 1
     fi
     if [ "$state_url" != "$manifest_url" ] || [ "$(printf '%s' "$state_checksum" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$manifest_checksum" | tr '[:upper:]' '[:lower:]')" ]; then
-        echo "SwiftPM SpottyPlaybackCore state does not match artifact-manifest.json" >&2
+        echo "SwiftPM SpottyPlaybackCore state does not match Package.swift" >&2
         return 1
     fi
     printf '%s\n' "$local_resolved_path"
@@ -178,11 +184,6 @@ spotty_playback_validate_xcframework() {
         # A source-built local artifact intentionally differs from the published remote pin.
         "$local_playback_validator" "$local_playback_path"
     else
-        local_playback_manifest="${project_root:-}/Backend/spotty-playback/artifact-manifest.json"
-        if [ ! -f "$local_playback_manifest" ]; then
-            echo "Published playback artifact manifest is missing: $local_playback_manifest" >&2
-            return 1
-        fi
-        "$local_playback_validator" "$local_playback_path" --manifest "$local_playback_manifest"
+        "$local_playback_validator" "$local_playback_path" --published
     fi
 }

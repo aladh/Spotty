@@ -183,7 +183,7 @@ pub(crate) fn send_connection_snapshot(
     callback(&snapshot);
 }
 
-/// Protocol playing/paused flags, URIs, timing, and options. Transport presentation
+/// Protocol playing/paused flags, track identity, timing, and options. Transport presentation
 /// is Swift-owned. Not a JSON DTO.
 pub(crate) struct PlaybackObservation {
     pub is_playing: bool,
@@ -193,7 +193,6 @@ pub(crate) struct PlaybackObservation {
     /// false; Swift owns the presentation of the actionable notice.
     pub track_unavailable: bool,
     pub track_uri: String,
-    pub context_uri: String,
     pub position_ms: i64,
     pub duration_ms: i64,
     pub shuffle: bool,
@@ -203,8 +202,8 @@ pub(crate) struct PlaybackObservation {
     pub timestamp_ms: i64,
 }
 
-/// Playback observation. `track_uri` and `context_uri` are valid only for the callback;
-/// Swift must copy them before returning. Null means missing; outbound empty strings and
+/// Playback observation. `track_uri` is valid only for the callback;
+/// Swift must copy it before returning. Null means missing; outbound empty strings and
 /// strings containing an interior NUL are also delivered as null fields. Flags are 0 or 1.
 ///
 /// `is_active_device` is the protocol active-member fact captured with this observation;
@@ -228,7 +227,6 @@ pub struct SpottyPlaybackSnapshot {
     pub repeat_context: u8,
     pub is_active_device: u8,
     pub track_uri: SpottyNullableCString,
-    pub context_uri: SpottyNullableCString,
 }
 
 /// Callback function type for playback state updates. Receives a typed snapshot; string
@@ -241,7 +239,6 @@ pub(crate) fn send_playback_snapshot(
     observation: &PlaybackObservation,
 ) {
     let track_uri = optional_callback_c_string(Some(observation.track_uri.as_str()));
-    let context_uri = optional_callback_c_string(Some(observation.context_uri.as_str()));
     let snapshot = SpottyPlaybackSnapshot {
         revision: stamp.revision,
         session_generation: stamp.session_generation,
@@ -256,10 +253,6 @@ pub(crate) fn send_playback_snapshot(
         repeat_context: u8::from(observation.repeat_context),
         is_active_device: u8::from(observation.is_active_device),
         track_uri: track_uri
-            .as_ref()
-            .map(|value| value.as_ptr())
-            .unwrap_or(std::ptr::null()),
-        context_uri: context_uri
             .as_ref()
             .map(|value| value.as_ptr())
             .unwrap_or(std::ptr::null()),

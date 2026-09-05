@@ -67,7 +67,6 @@ nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Send
     func resumeContextURI() -> String? { PlaybackCore.resumeContextURI() }
     func resumeTrackURI() -> String? { PlaybackCore.resumeTrackURI() }
     func queueSnapshot() -> RustQueueState? { PlaybackCore.queueSnapshot() }
-    func configureHighQualityPlayback() { PlaybackCore.configureHighQualityPlayback() }
     func shutdown() -> PlaybackEngineResult {
         engineResult(PlaybackCore.shutdown())
     }

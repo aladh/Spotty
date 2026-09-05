@@ -4,16 +4,14 @@ Status: accepted on 2026-08-27.
 
 ## Context
 
-The playback reducer decides whether a result may change state. Asynchronous commands still need
-an owner for task lifetimes, cancellation, and follow-up work. That does not by itself require a
-second state-management framework.
+Reducer acceptance does not own asynchronous task lifetimes, cancellation, or follow-ups. Those
+need an owner, but not necessarily another state-management framework.
 
 ## Decision
 
-Keep the store-level `PlaybackEffectRegistry`. The store starts and owns tasks; reducer acceptance
-and the shared command-follow-up policy determine what their results may do. Reuse that policy at
-new command sites rather than creating another runner. Callback identity remains separate from
-command-effect ownership.
+Keep `PlaybackEffectRegistry`; the store starts and owns tasks. Reducer acceptance and shared
+command-follow-up policy govern results. Reuse that policy at new command sites rather than adding
+another runner. Keep callback identity separate from command-effect ownership.
 
 Do not adopt The Composable Architecture (TCA) or introduce a generic `Effect` abstraction for the
 current playback architecture.
@@ -29,10 +27,9 @@ current playback architecture.
   needs; its cancellation model would also need adaptation to Spotty's refusal of a second
   in-flight command of the same kind.
 
-Exact acceptance, reconciliation, rollback, and reconnect behavior belongs in the command lifecycle,
-presentation, failure, registry, and session tests. The [enforcement inventory](architecture-enforcement.md)
-indexes command lifecycle coverage under `TST-CMD-001`, Rust reconnect generation checks under
-`TST-LIF-001`, and generation/cancellation checks under `TST-EPC-001`.
+The [enforcement inventory](architecture-enforcement.md) maps command lifecycle, reconciliation,
+and rollback to `TST-CMD-001`, Rust reconnect generations to `TST-LIF-001`, and
+generation/cancellation to `TST-EPC-001`.
 
 ## Revisit trigger
 

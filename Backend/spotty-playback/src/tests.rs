@@ -792,8 +792,8 @@ fn exported_c_function_signatures() -> Vec<ExportedCFunctionSignature> {
     );
     signature!(
         spotty_playback_play_uri,
-        extern "C" fn(*const c_char, i32) -> i32,
-        "SpottyPlaybackResult (const char *, int32_t)"
+        extern "C" fn(*const c_char) -> i32,
+        "SpottyPlaybackResult (const char *)"
     );
     signature!(
         spotty_playback_previous,
@@ -844,21 +844,6 @@ fn exported_c_function_signatures() -> Vec<ExportedCFunctionSignature> {
         spotty_playback_set_device_name,
         extern "C" fn(*const c_char),
         "void (const char *)"
-    );
-    signature!(
-        spotty_playback_set_bitrate,
-        extern "C" fn(u8),
-        "void (uint8_t)"
-    );
-    signature!(
-        spotty_playback_set_gapless,
-        extern "C" fn(bool),
-        "void (_Bool)"
-    );
-    signature!(
-        spotty_playback_set_initial_volume,
-        extern "C" fn(u16),
-        "void (uint16_t)"
     );
     signature!(
         spotty_playback_set_repeat_context,
@@ -926,7 +911,7 @@ fn parse_abi_signature_fixture(fixture: &str) -> Vec<ExportedCFunctionSignature>
 #[test]
 fn exported_c_function_signatures_are_stable() {
     let signatures = exported_c_function_signatures();
-    assert_eq!(signatures.len(), 38);
+    assert_eq!(signatures.len(), 35);
 }
 
 /// The checked-in C fixture is compared to the header by `Scripts/check.sh`; this Rust-side
@@ -1054,7 +1039,6 @@ int main(void) {
     EMIT_FIELD(SpottyPlaybackSnapshot, repeat_context);
     EMIT_FIELD(SpottyPlaybackSnapshot, is_active_device);
     EMIT_FIELD(SpottyPlaybackSnapshot, track_uri);
-    EMIT_FIELD(SpottyPlaybackSnapshot, context_uri);
 
     EMIT_TYPE(SpottyProtocolDevice);
     EMIT_FIELD(SpottyProtocolDevice, id);
@@ -1235,8 +1219,7 @@ int main(void) {
         repeat_track,
         repeat_context,
         is_active_device,
-        track_uri,
-        context_uri
+        track_uri
     );
     rust_layout!(
         "SpottyProtocolDevice",
@@ -1438,13 +1421,6 @@ fn playback_snapshot_callback_copies_nullable_fields() {
                 .unwrap(),
             "spotify:track:fixtureNow"
         );
-        assert!(!snapshot.context_uri.is_null());
-        assert_eq!(
-            unsafe { CStr::from_ptr(snapshot.context_uri) }
-                .to_str()
-                .unwrap(),
-            "spotify:playlist:fixtureContext"
-        );
     }
 
     send_playback_snapshot(
@@ -1458,7 +1434,6 @@ fn playback_snapshot_callback_copies_nullable_fields() {
             is_paused: false,
             track_unavailable: false,
             track_uri: "spotify:track:fixtureNow".to_string(),
-            context_uri: "spotify:playlist:fixtureContext".to_string(),
             position_ms: 1_250,
             duration_ms: 180_000,
             shuffle: true,
@@ -1487,7 +1462,6 @@ fn playback_snapshot_callback_copies_nullable_fields() {
             is_paused: true,
             track_unavailable: true,
             track_uri: "spotify:track:fixtureUnavailable".to_string(),
-            context_uri: String::new(),
             position_ms: 0,
             duration_ms: 0,
             shuffle: false,
@@ -1501,34 +1475,34 @@ fn playback_snapshot_callback_copies_nullable_fields() {
     extern "C" fn capture_empty_and_nul(snapshot: *const SpottyPlaybackSnapshot) {
         let snapshot = unsafe { &*snapshot };
         assert!(snapshot.track_uri.is_null());
-        assert!(snapshot.context_uri.is_null());
         assert_eq!(snapshot.is_playing, 0);
         assert_eq!(snapshot.is_paused, 0);
         assert_eq!(snapshot.track_unavailable, 0);
         assert_eq!(snapshot.is_active_device, 0);
     }
 
-    send_playback_snapshot(
-        capture_empty_and_nul,
-        SnapshotStamp {
-            revision: 1,
-            session_generation: 1,
-        },
-        &PlaybackObservation {
-            is_playing: false,
-            is_paused: false,
-            track_unavailable: false,
-            track_uri: String::new(),
-            context_uri: "ctx\0uri".to_string(),
-            position_ms: 0,
-            duration_ms: 0,
-            shuffle: false,
-            repeat_track: false,
-            repeat_context: false,
-            is_active_device: false,
-            timestamp_ms: 0,
-        },
-    );
+    for track_uri in ["", "track\0uri"] {
+        send_playback_snapshot(
+            capture_empty_and_nul,
+            SnapshotStamp {
+                revision: 1,
+                session_generation: 1,
+            },
+            &PlaybackObservation {
+                is_playing: false,
+                is_paused: false,
+                track_unavailable: false,
+                track_uri: track_uri.to_string(),
+                position_ms: 0,
+                duration_ms: 0,
+                shuffle: false,
+                repeat_track: false,
+                repeat_context: false,
+                is_active_device: false,
+                timestamp_ms: 0,
+            },
+        );
+    }
 }
 
 #[test]

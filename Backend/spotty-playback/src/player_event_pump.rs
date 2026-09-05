@@ -613,6 +613,7 @@ fn apply_player_event_locked(
 #[cfg(test)]
 mod player_event_pump_policy {
     use super::*;
+    use std::sync::atomic::AtomicU8;
 
     fn sample_event() -> PlayerEvent {
         PlayerEvent::VolumeChanged { volume: 1 }

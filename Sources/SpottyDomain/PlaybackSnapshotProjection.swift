@@ -82,7 +82,7 @@ public enum PlaybackSnapshotProjection: Sendable {
             shuffle: shuffle,
             repeatMode: RepeatMode(context: flags.context, track: flags.track),
             repeatFlags: flags,
-            contextURI: isActiveDevice && contextURI == "" ? nil : contextURI
+            contextURI: contextURI
         )
     }
 }

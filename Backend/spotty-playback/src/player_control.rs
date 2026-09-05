@@ -104,12 +104,8 @@ pub extern "C" fn spotty_playback_play_tracks(
 ///
 /// # Parameters
 /// - `uri_or_url`: Spotify URI or URL (for example, "spotify:album:xxx").
-/// - `track_index`: Track index to start at (-1 = from beginning, 0+ = specific track).
 #[no_mangle]
-pub extern "C" fn spotty_playback_play_uri(
-    uri_or_url: *const c_char,
-    track_index: i32,
-) -> SpottyPlaybackResult {
+pub extern "C" fn spotty_playback_play_uri(uri_or_url: *const c_char) -> SpottyPlaybackResult {
     ffi_command("spotty_playback_play_uri", || {
         let Some(input_str) = (unsafe { c_string_arg(uri_or_url) }) else {
             debug!("Play error: uri_or_url is null or not valid UTF-8");
@@ -118,10 +114,7 @@ pub extern "C" fn spotty_playback_play_uri(
 
         // Convert URL to URI if needed
         let uri_str = url_to_uri(&input_str);
-        debug!(
-            "spotty_playback_play_uri called: uri={}, track_index={}",
-            uri_str, track_index
-        );
+        debug!("spotty_playback_play_uri called: uri={}", uri_str);
 
         if let Err(e) = require_session_connected() {
             return e;
@@ -137,13 +130,6 @@ pub extern "C" fn spotty_playback_play_uri(
             return e;
         }
 
-        // Determine playing_track option based on track_index
-        let playing_track = if track_index >= 0 {
-            Some(PlayingTrack::Index(track_index as u32))
-        } else {
-            None
-        };
-
         // Create LoadRequest - use from_context_uri for albums/playlists/artists,
         // from_tracks for a single track URI.
         let load_request = if uri_str.starts_with("spotify:track:") {
@@ -157,17 +143,13 @@ pub extern "C" fn spotty_playback_play_uri(
                 },
             )
         } else {
-            // Context-based playback with optional starting track
-            debug!(
-                "Spirc.load(LoadRequest::from_context_uri({}, playing_track={:?}))",
-                uri_str, playing_track
-            );
+            // Context-based playback from the beginning
+            debug!("Spirc.load(LoadRequest::from_context_uri({}))", uri_str);
             LoadRequest::from_context_uri(
                 uri_str.clone(),
                 LoadRequestOptions {
                     start_playing: true,
                     seek_to: 0,
-                    playing_track,
                     ..Default::default()
                 },
             )
@@ -539,52 +521,6 @@ pub extern "C" fn spotty_playback_set_repeat_track(enabled: bool) -> SpottyPlayb
             return e;
         }
         spirc_command("Set repeat track", |spirc| spirc.repeat_track(enabled))
-    })
-}
-
-/// Sets the streaming bitrate.
-/// 0 = 96 kbps, 1 = 160 kbps (default), 2 = 320 kbps
-/// Note: Takes effect on next player initialization (restart playback to apply).
-#[no_mangle]
-pub extern "C" fn spotty_playback_set_bitrate(bitrate: u8) {
-    ffi_void("spotty_playback_set_bitrate", || {
-        let value = bitrate.min(2); // Clamp to valid range
-        let old_value = BITRATE_SETTING.swap(value, Ordering::SeqCst);
-        if old_value != value {
-            let _kbps = match value {
-                0 => 96,
-                2 => 320,
-                _ => 160,
-            };
-            debug!(
-                "Bitrate changed to {}kbps (restart playback to apply)",
-                _kbps
-            );
-        }
-    })
-}
-
-/// Sets gapless playback (true = enabled, false = disabled).
-/// Enabled by default. Takes effect on next player initialization (restart playback to apply).
-#[no_mangle]
-pub extern "C" fn spotty_playback_set_gapless(enabled: bool) {
-    ffi_void("spotty_playback_set_gapless", || {
-        let old_value = GAPLESS_SETTING.swap(enabled, Ordering::SeqCst);
-        if old_value != enabled {
-            debug!(
-                "Gapless playback changed to {} (restart playback to apply)",
-                enabled
-            );
-        }
-    })
-}
-
-/// Sets the initial volume (0-65535) used when registering with Spotify Connect.
-/// Must be called before spotty_playback_init_player() to take effect.
-#[no_mangle]
-pub extern "C" fn spotty_playback_set_initial_volume(volume: u16) {
-    ffi_void("spotty_playback_set_initial_volume", || {
-        INITIAL_VOLUME_SETTING.store(volume, Ordering::SeqCst);
     })
 }
 

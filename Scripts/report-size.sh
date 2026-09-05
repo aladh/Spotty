@@ -64,7 +64,7 @@ done
 
 if [[ -n "$xcframework_override" ]]; then
     if [[ -n "${SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK:-}" ]]; then
-        # An explicit local source artifact is intentionally outside the published manifest pin.
+        # An explicit local source artifact is intentionally outside the published package pin.
         # Keep the environment contract authoritative and reject a second, different path.
         local_override_path="$SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK"
         case "$local_override_path" in

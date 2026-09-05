@@ -64,7 +64,7 @@ jobs:
           path: |
             .build/*
             !.build/spotty-signing
-          key: macos-swiftpm-app-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Backend/spotty-playback/artifact-manifest.json') }}-${{ github.sha }}
+          key: macos-swiftpm-app-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
             macos-swiftpm-app-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
             macos-swiftpm-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-

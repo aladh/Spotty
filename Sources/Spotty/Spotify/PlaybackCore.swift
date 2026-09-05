@@ -139,8 +139,8 @@ nonisolated enum PlaybackCore {
         return spotty_playback_init_player(nil)
     }
 
-    static func play(uri: String, trackIndex: Int32 = -1) -> Result {
-        uri.withCString { spotty_playback_play_uri($0, trackIndex) }
+    static func play(uri: String) -> Result {
+        uri.withCString { spotty_playback_play_uri($0) }
     }
 
     static func play(tracks: [String]) -> Result {
@@ -311,12 +311,6 @@ nonisolated enum PlaybackCore {
         guard let pointer = spotty_playback_get_queue_snapshot() else { return nil }
         defer { spotty_playback_free_queue_snapshot(pointer) }
         return queueState(from: UnsafePointer(pointer))
-    }
-
-    static func configureHighQualityPlayback() {
-        spotty_playback_set_bitrate(2)
-        spotty_playback_set_gapless(true)
-        spotty_playback_set_initial_volume(UInt16.max)
     }
 
     static func shutdown() -> Result { spotty_playback_shutdown() }

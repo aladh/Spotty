@@ -13,68 +13,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: Classify playback inputs
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      engine_changed: ${{ steps.filter.outputs.engine_changed }}
-
-    steps:
-      - name: Check out source history
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Detect engine input changes
-        id: filter
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BASE_SHA: ${{ github.event.before }}
-          PUSH_HEAD_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$EVENT_NAME" == pull_request ]]; then
-            base_sha="$PR_BASE_SHA"
-            head_sha="$PR_HEAD_SHA"
-          else
-            base_sha="$PUSH_BASE_SHA"
-            head_sha="$PUSH_HEAD_SHA"
-            if [[ "$base_sha" =~ ^0+$ ]] || ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
-              base_sha=""
-            fi
-          fi
-
-          engine_changed=false
-          changed_paths=""
-          if [[ -z "$base_sha" ]]; then
-            engine_changed=true
-          else
-            changed_paths="$(git diff --name-only "$base_sha" "$head_sha")"
-          fi
-          while IFS= read -r changed_path; do
-            case "$changed_path" in
-              Backend/spotty-playback/artifact-manifest.json)
-                ;;
-              Backend/spotty-playback/*|Sources/SpottyPlaybackCore/*|Scripts/generate-c-header.sh|Scripts/generate-playback-notices.py|Scripts/playback-license-overrides.json|Scripts/playback-license-overrides/*|Scripts/playback-notices-preamble.md|rust-toolchain.toml|LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
-                engine_changed=true
-                break
-                ;;
-            esac
-          done <<< "$changed_paths"
-
-          echo "engine_changed=$engine_changed" >> "$GITHUB_OUTPUT"
-          echo "Playback engine inputs changed: $engine_changed"
-
   rust:
     name: Rust checks
-    needs: [changes]
     runs-on: macos-26
     timeout-minutes: 30
+    outputs:
+      candidate_needed: ${{ steps.inputs.outputs.candidate_needed }}
 
     steps:
       - name: Check out source
@@ -99,9 +43,41 @@ jobs:
           echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
 
       - name: Identify playback inputs
+        id: inputs
         run: |
           set -euo pipefail
-          echo "PLAYBACK_INPUT_DIGEST=$(./Backend/spotty-playback/source-input-digest.sh)" >> "$GITHUB_ENV"
+          digest="$(./Backend/spotty-playback/source-input-digest.sh)"
+          candidate_needed=true
+          project_root="$GITHUB_WORKSPACE"
+          source Scripts/playback-xcframework.sh
+          pin_url="$(spotty_playback_pin_value url)"
+          tag="${pin_url%/*}"
+          tag="${tag##*/}"
+          if [[ "$tag" == playback-v* ]]; then
+            version="${tag#playback-v}"
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "Invalid pinned playback version: $version" >&2
+              exit 1
+            fi
+            tag="playback-v$version"
+            git fetch --no-tags --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+            input_list="$(./Backend/spotty-playback/source-input-digest.sh --print-inputs)"
+            paths=()
+            while IFS= read -r path; do paths+=("$path"); done <<< "$input_list"
+            # Include directories to detect deleted source and license files too.
+            paths+=(Backend/spotty-playback/src Scripts/playback-license-overrides)
+            if git diff --quiet "$tag" HEAD -- "${paths[@]}"; then
+              candidate_needed=false
+            else
+              diff_status=$?
+              if [[ "$diff_status" != 1 ]]; then exit "$diff_status"; fi
+            fi
+          else
+            echo "Building candidate to bootstrap the first versioned engine release"
+          fi
+          echo "PLAYBACK_INPUT_DIGEST=$digest" >> "$GITHUB_ENV"
+          echo "candidate_needed=$candidate_needed" >> "$GITHUB_OUTPUT"
+          echo "Playback candidate needed: $candidate_needed"
 
       - name: Cache Rust verification products
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -118,14 +94,16 @@ jobs:
         run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 
       - name: Cache Rust release build products
-        if: needs.changes.outputs.engine_changed == 'true'
+        if: steps.inputs.outputs.candidate_needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: Backend/spotty-playback/target/aarch64-apple-darwin/release
           key: macos-rust-playback-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}
 
       - name: Build candidate playback XCFramework
-        if: needs.changes.outputs.engine_changed == 'true'
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        if: steps.inputs.outputs.candidate_needed == 'true'
         run: |
           set -euo pipefail
           candidate_root="$RUNNER_TEMP/spotty-playback-candidate"
@@ -139,17 +117,20 @@ jobs:
             --archive "$archive_path"
           ./Backend/spotty-playback/validate-xcframework.sh \
             "$framework_path" \
-            --archive "$archive_path"
+            --archive "$archive_path" \
+            --for-publish
 
           (cd "$candidate_root" && shasum -a 256 "$(basename "$archive_path")" > "$(basename "$archive_path").sha256")
           printf 'source_sha=%s\nsource_ref=%s\nsource_input_digest=%s\n' \
             "$(git rev-parse HEAD)" \
-            "${GITHUB_REF_NAME:-$GITHUB_REF}" \
+            "$SOURCE_HEAD_SHA" \
             "$PLAYBACK_INPUT_DIGEST" > "$candidate_root/source-provenance.txt"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md "$candidate_root/"
+          cp "$framework_path/spotty_playback_provenance.json" "$candidate_root/"
+          (cd "$framework_path" && zip -X -q -r "$candidate_root/SpottyPlaybackCore-notices.zip" Notices)
 
       - name: Upload candidate playback artifact
-        if: needs.changes.outputs.engine_changed == 'true'
+        if: steps.inputs.outputs.candidate_needed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playback-candidate-${{ github.sha }}
@@ -208,7 +189,7 @@ jobs:
           path: |
             .build/*
             !.build/spotty-signing
-          key: macos-swiftpm-debug-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Backend/spotty-playback/artifact-manifest.json') }}-${{ github.sha }}
+          key: macos-swiftpm-debug-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
             macos-swiftpm-debug-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
             macos-swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
@@ -218,8 +199,8 @@ jobs:
 
   candidate:
     name: Candidate Swift ${{ matrix.configuration }}
-    needs: [changes, rust]
-    if: needs.changes.outputs.engine_changed == 'true' && needs.rust.result == 'success'
+    needs: [rust]
+    if: needs.rust.outputs.candidate_needed == 'true' && needs.rust.result == 'success'
     runs-on: macos-26
     timeout-minutes: 45
     strategy:
@@ -282,7 +263,7 @@ jobs:
           path: |
             .build/*
             !.build/spotty-signing
-          key: macos-swiftpm-candidate-${{ matrix.configuration }}-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Backend/spotty-playback/artifact-manifest.json') }}-${{ github.sha }}
+          key: macos-swiftpm-candidate-${{ matrix.configuration }}-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
 
       - name: Run candidate Swift checks
         env:
@@ -331,7 +312,7 @@ jobs:
           path: |
             .build/*
             !.build/spotty-signing
-          key: macos-swiftpm-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Backend/spotty-playback/artifact-manifest.json') }}-${{ github.sha }}
+          key: macos-swiftpm-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
             macos-swiftpm-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
             macos-swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
@@ -354,26 +335,25 @@ jobs:
   gate:
     name: Debug quality gate
     if: always()
-    needs: [changes, rust, checks, candidate, release]
+    needs: [rust, checks, candidate, release]
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
       - name: Require every quality lane
         env:
-          CHANGES_RESULT: ${{ needs.changes.result }}
-          ENGINE_CHANGED: ${{ needs.changes.outputs.engine_changed }}
+          CANDIDATE_NEEDED: ${{ needs.rust.outputs.candidate_needed }}
           RUST_RESULT: ${{ needs.rust.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           CANDIDATE_RESULT: ${{ needs.candidate.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
         run: |
-          test "$CHANGES_RESULT" = success
           test "$RUST_RESULT" = success
           test "$CHECKS_RESULT" = success
-          if [[ "$ENGINE_CHANGED" == true ]]; then
+          if [[ "$CANDIDATE_NEEDED" == true ]]; then
             test "$CANDIDATE_RESULT" = success
           else
+            test "$CANDIDATE_NEEDED" = false
             test "$CANDIDATE_RESULT" = skipped
           fi
           test "$RELEASE_RESULT" = success

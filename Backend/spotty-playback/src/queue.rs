@@ -39,7 +39,6 @@ pub(crate) fn send_playback_state(player_state: &PlayerState, is_active_device: 
                 is_paused: player_state.is_paused,
                 track_unavailable: false,
                 track_uri,
-                context_uri: player_state.context_uri.clone(),
                 position_ms: player_state.position_as_of_timestamp,
                 duration_ms: player_state.duration,
                 shuffle,
@@ -140,10 +139,6 @@ fn capture_local_playback_state_with_owner(
                 is_paused: !is_playing,
                 track_unavailable,
                 track_uri,
-                // Local PlayerEvent has no protocol context. Sticky CURRENT_CONTEXT_URI is
-                // resume-load input only; publishing it here would restore a session-lifetime
-                // playlist after a cluster snapshot cleared Swift's playbackContextURI.
-                context_uri: String::new(),
                 position_ms: position_ms as i64,
                 duration_ms: duration_ms as i64,
                 shuffle,

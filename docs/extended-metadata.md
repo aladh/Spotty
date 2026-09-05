@@ -2,9 +2,8 @@
 
 Spotty uses a reverse-engineered Spotify endpoint to populate the Popularity, BPM, and Key columns
 in shared catalog track tables.
-This is not a supported Spotify API; it may change without notice, and using it may violate
-Spotify's Terms of Use. This document records the wire format so the integration can be maintained
-without reverse-engineering it again from scratch.
+This unsupported API may change without notice; using it may violate Spotify's Terms of Use.
+The wire format below supports maintenance of the integration.
 
 ## Discovery notes
 
@@ -19,14 +18,11 @@ and `com.spotify.extendedmetadata.*`) and show playlist requests using
 `POST https://spclient.wg.spotify.com/extended-metadata/v0/extended-metadata`
 
 Use `Content-Type: application/x-protobuf` and the same keymaster bearer, client token, and desktop
-client headers as other private requests (see `SpotifyCredentials.sign`). A 401 means one of those
-credentials may be stale; invalidate the exact bearer and client token that request carried, then
-retry once if the shared attempt budget still allows it. A 401 that arrives after the budget is
-spent, or after that named replay was already used, still invalidates the sent pair and then
-returns. This POST is a metadata read, so HTTP 429, 500, 502, 503, and 504 plus interrupt-class
-network errors also retry through the shared `SpotifyCredentials` policy. Those retries share a
-three-attempt budget with the 401 retry, so earlier transients can consume the budget before a
-later 401.
+client headers as other private requests (`SpotifyCredentials.sign`). A 401 always invalidates the
+exact sent bearer/client-token pair, with at most one replay if budget remains. This metadata-read
+POST also retries HTTP 429/500/502/503/504 and interrupt-class network errors through
+`SpotifyCredentials`. All retries share three total attempts; earlier transients can exhaust the
+budget before a 401.
 
 Request (`BatchedEntityRequest`) — one `EntityRequest` per track, each asking for two extensions:
 

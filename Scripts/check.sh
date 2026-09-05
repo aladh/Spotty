@@ -35,6 +35,7 @@ fi
 # the fallback is the project-local toolchain provisioned by the development
 # bootstrap on this workspace.
 if [[ "$check_scope" != swift ]]; then
+    python3 -B -m unittest discover -s "$project_root/Scripts" -p test_playback_promotion.py
     cargo_bin="${SPOTTY_CARGO:-}"
     if [[ -z "$cargo_bin" ]]; then
         cargo_bin="$(command -v cargo || true)"
@@ -80,7 +81,7 @@ playback_headers="$(spotty_playback_headers_path "$playback_slice")"
 "$project_root/Scripts/check-c-header-imports.sh" "$playback_headers"
 playback_header="$playback_headers/spotty_playback.h"
 
-# Keep the checked-in C header and the actual static-library exports in exact
+# Keep the selected artifact's C header and its static-library exports in exact
 # agreement. Apple's nm can warn on newer Rust LLVM attributes in unrelated
 # compiler-builtins objects, but it still emits the defined Spotty symbols; the
 # exact set comparison below is the contract check.
@@ -93,14 +94,9 @@ abi_check_source="$(mktemp /tmp/spotty-abi-check-source.XXXXXX)"
 header_ast="$(mktemp /tmp/spotty-header-ast.XXXXXX)"
 trap 'rm -f "$header_symbols" "$header_symbol_declarations" "$library_symbols" "$consumed_symbols" "$fixture_symbols" "$abi_check_source" "$header_ast"' EXIT
 
-abi_signature_fixture="$project_root/Backend/spotty-playback/abi-signatures.txt"
-if ! spotty_abi_fixture_symbols "$abi_signature_fixture" > "$fixture_symbols"; then
-    exit 1
-fi
-
 # Parse the artifact's umbrella header once. Clang follows its quoted includes, so declarations in the
-# checked-in cbindgen fragment remains part of the symbol and dead-export contracts. Full
-# declarations are type-checked below by Clang against the unchanged Rust ABI fixture.
+# bundled cbindgen fragment remains part of the symbol and dead-export contracts. Source-built
+# candidates are additionally type-checked below against the Rust ABI fixture.
 if ! command -v clang >/dev/null 2>&1; then
     print -u2 "Clang is required to inspect the checked-in Spotty C ABI signatures"
     exit 1
@@ -127,44 +123,54 @@ if ! diff -u "$header_symbols" "$library_symbols"; then
     exit 1
 fi
 
-# The checked-in fixture names must match the parsed header exactly. Keep this as a separate set
-# proof so a compiler assertion generator cannot silently omit a fixture row.
-if ! diff -u "$fixture_symbols" "$header_symbols"; then
-    print -u2 "The C header exports differ from the C ABI signature fixture names"
-    exit 1
-fi
+# The producer's evolving signature fixture applies only to a source-built candidate.
+# Published consumers check their selected header/archive pair and Swift imports instead.
+if [[ -n "${SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK:-}" ]]; then
+    abi_signature_fixture="$project_root/Backend/spotty-playback/abi-signatures.txt"
+    if ! spotty_abi_fixture_symbols "$abi_signature_fixture" > "$fixture_symbols"; then
+        exit 1
+    fi
 
-# Match each C declaration's canonical function type against the unchanged Rust ABI fixture.
-# Clang follows the umbrella header's includes and __builtin_types_compatible_p compares canonical
-# types, so typedef aliases and nullability annotations do not create false textual mismatches.
-if ! awk -F'|' -v header="$playback_header" '
-    BEGIN { printf "#include \"%s\"\n", header }
-    /^[[:space:]]*$/ || /^[[:space:]]*#/ { next }
-    {
-        signature=$2
-        separator=index(signature, " (")
-        return_type=substr(signature, 1, separator - 1)
-        arguments=substr(signature, separator + 2, length(signature) - separator - 2)
-        printf "_Static_assert(__builtin_types_compatible_p(__typeof__(&%s), %s (*)(%s)), \"%s ABI\");\n", $1, return_type, arguments, $1
-    }
-' "$abi_signature_fixture" > "$abi_check_source"; then
-    print -u2 "Could not generate C ABI compiler assertions from the fixture"
-    exit 1
-fi
-fixture_symbol_count="$(wc -l < "$fixture_symbols" | tr -d '[:space:]')"
-abi_assertion_count="$(sed -n '/^_Static_assert(/p' "$abi_check_source" | wc -l | tr -d '[:space:]')"
-if (( abi_assertion_count != fixture_symbol_count )); then
-    print -u2 "The C ABI compiler assertion count does not match the fixture rows"
-    exit 1
-fi
-if ! clang -I "$playback_headers" \
-    -x c \
-    -std=c11 \
-    -fsyntax-only \
-    -Werror \
-    "$abi_check_source"; then
-    print -u2 "Clang rejected one or more C ABI signatures from $abi_signature_fixture"
-    exit 1
+    # The checked-in fixture names must match the parsed header exactly. Keep this as a separate set
+    # proof so a compiler assertion generator cannot silently omit a fixture row.
+    if ! diff -u "$fixture_symbols" "$header_symbols"; then
+        print -u2 "The C header exports differ from the C ABI signature fixture names"
+        exit 1
+    fi
+
+    # Match each C declaration's canonical function type against the unchanged Rust ABI fixture.
+    # Clang follows the umbrella header's includes and __builtin_types_compatible_p compares canonical
+    # types, so typedef aliases and nullability annotations do not create false textual mismatches.
+    if ! awk -F'|' -v header="$playback_header" '
+        BEGIN { printf "#include \"%s\"\n", header }
+        /^[[:space:]]*$/ || /^[[:space:]]*#/ { next }
+        {
+            signature=$2
+            separator=index(signature, " (")
+            return_type=substr(signature, 1, separator - 1)
+            arguments=substr(signature, separator + 2, length(signature) - separator - 2)
+            printf "_Static_assert(__builtin_types_compatible_p(__typeof__(&%s), %s (*)(%s)), \"%s ABI\");\n", $1, return_type, arguments, $1
+        }
+    ' "$abi_signature_fixture" > "$abi_check_source"; then
+        print -u2 "Could not generate C ABI compiler assertions from the fixture"
+        exit 1
+    fi
+    fixture_symbol_count="$(wc -l < "$fixture_symbols" | tr -d '[:space:]')"
+    abi_assertion_count="$(sed -n '/^_Static_assert(/p' "$abi_check_source" | wc -l | tr -d '[:space:]')"
+    if (( abi_assertion_count != fixture_symbol_count )); then
+        print -u2 "The C ABI compiler assertion count does not match the fixture rows"
+        exit 1
+    fi
+    if ! clang -I "$playback_headers" \
+        -x c \
+        -std=c11 \
+        -fsyntax-only \
+        -Werror \
+        "$abi_check_source"; then
+        print -u2 "Clang rejected one or more C ABI signatures from $abi_signature_fixture"
+        exit 1
+    fi
+
 fi
 
 # Dead C exports cannot regrow silently: every remaining header symbol must be
@@ -456,7 +462,6 @@ if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
     print -u2 "CI must use the selected toolchain swift-format, not a Homebrew Swift linter"
     exit 1
 fi
-changes_job="$(sed -n '/^  changes:/,/^  rust:/p' "$ci_workflow")"
 rust_job="$(sed -n '/^  rust:/,/^  checks:/p' "$ci_workflow")"
 checks_job="$(sed -n '/^  checks:/,/^  candidate:/p' "$ci_workflow")"
 candidate_job="$(sed -n '/^  candidate:/,/^  release:/p' "$ci_workflow")"
@@ -464,9 +469,9 @@ release_job="$(sed -n '/^  release:/,/^  gate:/p' "$ci_workflow")"
 gate_job="$(sed -n '/^  gate:/,$p' "$ci_workflow")"
 checkout_without_credentials=$'uses: actions/checkout@[0-9a-f]{40} # v[^\n]+\n        with:\n          persist-credentials: false'
 blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
-if ! rg -q --fixed-strings 'engine_changed:' <<< "$changes_job" \
-    || ! rg -q --fixed-strings 'Backend/spotty-playback/artifact-manifest.json' <<< "$changes_job" \
-    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
+if ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'candidate_needed' <<< "$rust_job" \
     || ! rg -U -q "$checkout_without_credentials" <<< "$rust_job" \
     || ! rg -q 'key: macos-rust-.*Cargo\.lock' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'source-input-digest.sh' <<< "$rust_job" \
@@ -476,10 +481,11 @@ if ! rg -q --fixed-strings 'engine_changed:' <<< "$changes_job" \
     || ! rg -q --fixed-strings "grep -q 'Apple Swift version 6.3.3'" <<< "$checks_job" \
     || ! rg -U -q "$checkout_without_credentials" <<< "$checks_job" \
     || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$checks_job" \
-    || ! rg -q 'key: macos-swiftpm-debug-.*artifact-manifest\.json' <<< "$checks_job" \
+    || ! rg -q 'key: macos-swiftpm-debug-.*Package\.swift' <<< "$checks_job" \
     || ! rg -U -q --fixed-strings -- $'- name: Run checks\n        run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh' <<< "$checks_job" \
-    || ! rg -q --fixed-strings 'needs: [changes, rust]' <<< "$candidate_job" \
-    || ! rg -q --fixed-strings "if: needs.changes.outputs.engine_changed == 'true' && needs.rust.result == 'success'" <<< "$candidate_job" \
+    || ! rg -q --fixed-strings 'needs: [rust]' <<< "$candidate_job" \
+    || ! rg -q --fixed-strings "if: needs.rust.outputs.candidate_needed == 'true' && needs.rust.result == 'success'" <<< "$candidate_job" \
+    || ! rg -q --fixed-strings 'name: Candidate Swift ${{ matrix.configuration }}' <<< "$candidate_job" \
     || ! rg -q --fixed-strings 'configuration: [debug, release]' <<< "$candidate_job" \
     || ! rg -q --fixed-strings 'SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=' <<< "$candidate_job" \
     || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$candidate_job" \
@@ -489,12 +495,12 @@ if ! rg -q --fixed-strings 'engine_changed:' <<< "$changes_job" \
     || ! rg -q --fixed-strings "grep -q 'Apple Swift version 6.3.3'" <<< "$release_job" \
     || ! rg -U -q "$checkout_without_credentials" <<< "$release_job" \
     || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$release_job" \
-    || ! rg -q 'key: macos-swiftpm-release-.*artifact-manifest\.json' <<< "$release_job" \
+    || ! rg -q 'key: macos-swiftpm-release-.*Package\.swift' <<< "$release_job" \
     || ! rg -U -q --fixed-strings -- $'- name: Compile release Spotty with SPOTTY_DISTRIBUTION\n        run: ./Scripts/compile-release-spotty.sh' <<< "$release_job" \
     || ! rg -q --fixed-strings 'report-size.sh' <<< "$release_job" \
     || ! rg -q --fixed-strings 'if: always()' <<< "$gate_job" \
-    || ! rg -q --fixed-strings 'needs: [changes, rust, checks, candidate, release]' <<< "$gate_job" \
-    || ! rg -U -q --fixed-strings -- $'test "$RUST_RESULT" = success\n          test "$CHECKS_RESULT" = success\n          if [[ "$ENGINE_CHANGED" == true ]]; then\n            test "$CANDIDATE_RESULT" = success' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'needs: [rust, checks, candidate, release]' <<< "$gate_job" \
+    || ! rg -U -q --fixed-strings -- $'test "$RUST_RESULT" = success\n          test "$CHECKS_RESULT" = success\n          if [[ "$CANDIDATE_NEEDED" == true ]]; then\n            test "$CANDIDATE_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$CANDIDATE_RESULT" = skipped' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$RELEASE_RESULT" = success' <<< "$gate_job"; then
     print -u2 "CI must cache immutable inputs, block Rust in Swift lanes, and aggregate all quality lanes"

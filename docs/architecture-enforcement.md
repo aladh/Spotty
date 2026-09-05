@@ -1,14 +1,8 @@
 # Architecture enforcement inventory
 
-This routing table names each hard rule's decision owner and strongest available proof. It also
-marks rules that require semantic review instead of mechanical enforcement. ADRs explain the
-architectural choices; current responsibilities, behavior requirements, and scoped constraints live
-in the ownership document, product contract, and agent instructions.
-
-In this document, **semantic agent review** means
-inspection of the affected code, tests, diff, and canonical decisions by the implementing agent and
-available automated reviewers. It is evidence, but it is weaker than compiler, deterministic test,
-ABI, or focused source enforcement and must never be described as machine proof.
+This inventory maps rules to their canonical owners and strongest available proof.
+**Semantic agent review** means inspection of code, tests, diffs, and decisions by the implementing
+agent and available automated reviewers. It is not compiler, test, ABI, or source-check proof.
 
 PR readiness follows the [acceptance criteria](../CONTRIBUTING.md#pr-acceptance).
 Semantic agent review does not add a human-review requirement beyond repository settings or a manual
@@ -57,7 +51,7 @@ Stable IDs preserve searchability in issue and code history. They are navigation
 | `TST-QUE-001` | Swift owns queue presentation over authoritative unfiltered protocol state; the engine sends a typed C queue snapshot (protocol rows, slim current-track identity, `queue_revision`, replacement-disallow flags) | ADR 002 and ADR 005 | Domain suite for presentation; Rust C-snapshot layout/callback/getter coverage for the wire |
 | `TST-DEV-001` | `ConnectDeviceProjection` owns device activity, sort, and empty-type fallback; the engine sends a typed C device-list snapshot (protocol members plus `active_device_id`) | ADR 005 | Domain suite for presentation; Rust C-snapshot layout/callback coverage for the wire |
 | `TST-CON-001` | `ConnectionSnapshotProjection` owns session phase and empty-device-ID fallback; the engine sends a typed C connection snapshot (session flags, `credentials_rejected`, `device_id`, `last_error`) | ADR 005 | Domain suite for presentation; Rust C-snapshot layout/callback coverage for the wire |
-| `TST-PBK-001` | `PlaybackSnapshotProjection` owns engine playback transport, empty-URI identity, and timestamp correction; unused protocol context is dropped at the Swift boundary and repeat flags are always projected from the typed wire booleans | ADR 005 | Domain suite for presentation; Rust C-snapshot layout/callback coverage for the wire |
+| `TST-PBK-001` | `PlaybackSnapshotProjection` owns engine playback transport, empty-URI identity, and timestamp correction; unused protocol context is omitted from the playback ABI, and C scalar repeat flags are decoded to Swift booleans before projection | ADR 005 | `EnginePayloadContractChecks.swift` for C-to-Swift flag decoding; Domain suite for projection; Rust C-snapshot layout/callback coverage for the wire |
 | `TST-RES-001` | One Swift `ResumeLoadPlan` supplies sticky resume-load targets for user resume and reconnect rehydration. The engine holds readiness behind `resume_pending`; Swift issues at most one load sequence per engine session generation. | ADR 005 | `ResumeLoadPlanChecks.swift`, `ResumeLoadSequenceChecks.swift`, workflow stale-window coverage, and Rust identity/window/export-signature coverage |
 | `TST-PCM-001` | PCM bypasses observable UI state and callbacks stay bounded | ADR 001–002 | PCM write-space/backpressure boundary checks plus semantic timing review |
 | `TST-PLM-001`, `TST-FBK-001` | Playlist writes stay behind mutation owners; transient mutation feedback stays out of playback state | ADR 002 and product contract | Playlist/editability and transient-feedback suites |
@@ -70,8 +64,8 @@ Stable IDs preserve searchability in issue and code history. They are navigation
 
 | IDs | Invariant | Primary enforcement |
 | --- | --- | --- |
-| `ABI-SYM-001`, `ABI-USE-001` | Checked-in C declarations equal archive exports and every retained export is consumed by `PlaybackCore.swift` | Header/archive comparison and export-use checks in `Scripts/check.sh` |
-| `ABI-SIG-001` | C signatures stay compile-time compatible with Rust exports | C compiler type-compatibility assertions generated from `abi-signatures.txt`, exact fixture/export coverage, Rust compile-time function assignments, and fixture-parity tests |
+| `ABI-SYM-001`, `ABI-USE-001` | Selected artifact C declarations equal archive exports and every retained export is consumed by `PlaybackCore.swift` | Header/archive comparison and export-use checks in `Scripts/check.sh` |
+| `ABI-SIG-001` | C signatures stay compile-time compatible with Rust exports | Source-candidate C compiler type-compatibility assertions from `abi-signatures.txt`, exact fixture/export coverage, Rust compile-time function assignments, and fixture-parity tests |
 | `ABI-GEN-001` | All checked-in playback function declarations and snapshot layouts reproduce from Rust using the pinned development tool | `Scripts/generate-c-header.sh --check` in the full/Rust gate; C layout and signature checks remain independent |
 | `ABI-SWIFT-001` | Swift retains required callbacks, typed enums, and each nullable pointer shape | Positive and expected-failing compiler probes in `Scripts/check-c-header-imports.sh`, run in the full/Swift gate without linking or executing |
 | `ABI-ARC-001` | The static archive and matching headers travel together in a pinned XCFramework; app builds never invoke Rust | SwiftPM binary target, artifact validation/provenance, explicit local override, and Rust-free build checks |
@@ -107,7 +101,7 @@ the package graph, deterministic suites, current focused checks, or semantic rev
 | `CI-WF-001`, `CI-RG-001` | CI workflow exists and acquires ripgrep only when absent | `Scripts/check.sh` workflow assertions |
 | `CI-RUST-001` | Rust cache key/content stays tied to runner architecture, toolchain, and lockfile | `Scripts/check.sh` plus semantic workflow review |
 | `CI-FMT-001` | CI uses the selected toolchain formatter, not Homebrew Swift formatting/lint tools | `Scripts/check.sh` |
-| `CI-REL-001` | Rust, published-artifact Swift/architecture and Release lanes, plus candidate Debug/Release lanes for engine changes, feed the aggregate | workflow commands/dependencies asserted from `Scripts/check.sh` |
+| `CI-REL-001` | Rust, published-artifact Swift/architecture and Release lanes, plus candidate Debug/Release lanes (when engine inputs differ from the pinned release tag, or the pin is still unversioned), feed the aggregate | workflow commands/dependencies asserted from `Scripts/check.sh`; `test_playback_promotion.py` in the Rust/full gate covers promotion origin, job results, artifact integrity, provenance, and engine-version tag syntax |
 | `CI-TOOL-001` | CI lanes select the documented toolchain, run on the pinned macOS runner, check out without persisted credentials, and restore caches by the exact content keys | literal workflow fragments asserted from `Scripts/check.sh`; the pin values are owned by the development setup guide and change together |
 
 Action SHA pins, least permissions, cache contents beyond asserted fragments, tag/version agreement,
@@ -133,30 +127,26 @@ review under `DOC-CI-001` and `DOC-REL-001`.
 
 ## Source-reading proof audit (issues 187–188)
 
-Repository source and Markdown are not runtime fixtures. The cleanup keeps each assertion at the
-boundary it can actually observe; deleting a spelling check does not turn a review obligation into
-automated behavior coverage.
+Source and Markdown checks prove lexical boundaries, not runtime behavior. The audit in issues
+187–188 removed spelling assertions; their remaining coverage and review limits are:
 
-| Former check or subject | Current proof and limits |
+| Subject | Current proof and limits |
 | --- | --- |
-| Domain store-state writer/projection scanners | Real reducer and store behavior suites plus compiler access probes. A private setter blocks external mutation; it does not prove that every method inside the owner routes through the reducer. That remains an ownership review obligation. |
-| Historical `PlaybackCommandEffectSpike` | The experimental runner duplicated production coordination. Current domain lifecycle/follow-up policy and real-store command failure, lifecycle parity, and event outcome suites own the assertions. |
-| Account epoch source order and assignment counters | `AccountEpochOwnershipChecks` exercises revoke, replacement, teardown, and stale work; compiler probes reject writes to the store's epoch projection. Exact internal statement order is reviewed, not inferred from substring positions. |
-| Connect name setter-before-init text order | `ConnectDeviceIdentityChecks` exercises name formatting; Rust tests exercise configured names through the FFI. Swift native initialization call order remains boundary review, not claimed as runtime-tested by a text offset. |
-| Renderer allocator-name presence | PCM wait/backpressure behavior remains tested. Matching Core Foundation allocation, Core Media ownership transfer, and failure cleanup require semantic memory-ownership review; the removed token conjunction never exercised these paths. |
-| Keymaster storage wiring and signing prose | Durable write ordering, typed failures, stale-grant behavior, and grant decoding remain executable tests. `SRC-KEY-001` owns the narrow forbidden API references; default production storage wiring and signing policy remain reviewed. |
-| Visual style source fragments, control counts, RGB values, VoiceOver prose, and animation spellings | Retain Home section and remote-banner behavior assertions in `VisualStyleContractChecks`. Layout, native controls, accessibility wiring, and Reduce Motion remain product/semantic review; source-token presence was not UI execution evidence. |
-| Playback keyboard shortcut spelling | Native text-field navigation and shortcut interaction remain product/semantic review. The removed exact `.keyboardShortcut` strings neither dispatched a command nor exercised a text field. |
-| Engine intake token conjunction | `EnginePayloadContractChecks` now constructs typed C playback/connection snapshots, converts them, mutates borrowed strings, and checks copied values and absent fields. Domain projection and store event suites retain session/presentation behavior; owned-string freeing remains FFI ownership review. |
-| Playlist/catalog source topology and product-contract prose | Playlist mutation suites retain occurrence-UID writes, stale-account rejection, mutation success versus reload failure, and retry behavior. `TrackTableDisplayCacheChecks` retains collection-version/cache behavior; existing `SRC-DEP-001` and `SRC-DUP-004` own dependency and unsupported drag API boundaries. Native menus, stale-warning UI wiring, protocol responsibility, and prose stay semantic review. |
-| Queue management UI/coordinator/callback spelling | Queue management and event outcome suites exercise occurrence identity, remote removal, generation stamps, cancellation, and stale callbacks. Native selection wiring and the lack of a local queue-mutation capability remain boundary/product review. |
-| Repeat transport helper-name absence | `RepeatTransitionChecks` exercises pending state, rollback, reconciliation, duplicate refusal, and lifetime cancellation; absence of old helper names added no behavior proof. |
-| Transient feedback UI/composition spelling | Presenter and injected workflow tests retain feedback replacement/lifetime and mutation-result behavior. Hit testing, focus, VoiceOver announcement wiring, and Reduce Motion remain semantic UI review. |
-| Rust C export entry-point scanner | Retained as `SRC-RUST-FFI-001`; named entry wrappers and direct runtime-call placement are lexical. Panic sentinel and nested-runtime behavior have separate executable tests. |
-| Rust playing-state writer scanner | Retained as `SRC-RUST-PLAY-001`; player-event tests exercise Playing, Paused, Stopped, EndOfTrack, and cleanup. Text location alone cannot prove control flow. |
-| Rust ABI signature fixture and generated C consumer probe | Retained ABI evidence, not source/prose snapshots. Parser helper fixtures remain only to exercise the retained lexical scans. |
-| Test fixture and persistence file reads | Retained when loading synthetic payloads or checking durable writes. These read data under test, not implementation spelling. |
+| State/projection writers | Reducer/store suites and compiler access probes. Internal mutation routing still requires review. |
+| Command effects and repeat | Lifecycle/follow-up, failure, parity, event-outcome, and `RepeatTransitionChecks` suites cover acceptance, rollback, reconciliation, cancellation, and duplicate refusal. The historical `PlaybackCommandEffectSpike` adds no production proof. |
+| Account epochs | `AccountEpochOwnershipChecks` covers revoke, replacement, teardown, and stale work; compiler probes reject projection writes. Exact statement order requires review. |
+| Connect identity | `ConnectDeviceIdentityChecks` and Rust FFI tests cover naming. Native initialization order requires review. |
+| Renderer | PCM backpressure tests cover behavior; allocation pairing, Core Media ownership transfer, and failure cleanup require memory-ownership review. |
+| Credentials/signing | Persistence/failure/grant suites and `SRC-KEY-001` cover durable behavior and forbidden APIs. Production wiring and signing semantics require review. |
+| Native UI | `VisualStyleContractChecks` covers Home and remote-banner behavior. Layout, controls, accessibility, Reduce Motion, keyboard dispatch, and text-field interaction require UI review. |
+| Engine intake | `EnginePayloadContractChecks` constructs typed C snapshots and checks conversion, copied borrowed strings, and absent fields. Domain/store suites cover presentation; owned-string freeing requires FFI review. |
+| Playlist/catalog | Mutation suites cover occurrence UIDs, stale accounts, write-versus-refresh failure, and retry. `TrackTableDisplayCacheChecks` covers cache versions; `SRC-DEP-001` and `SRC-DUP-004` cover dependency construction and unsupported drag APIs. Menus, stale warnings, and protocol ownership require review. |
+| Queue mutation | Management/event-outcome suites cover occurrence identity, remote removal, generations, cancellation, and stale callbacks. Native selection and local-removal capability remain review obligations. |
+| Transient feedback | Presenter/workflow suites cover replacement and lifetime. Hit testing, focus, VoiceOver, and Reduce Motion require UI review. |
+| Rust lexical guards | `SRC-RUST-FFI-001` and `SRC-RUST-PLAY-001` constrain wrapper/write locations. Panic, nested-runtime, and player-event tests separately cover behavior; text location does not prove ordering. |
+| ABI and fixtures | Signature/layout probes remain ABI evidence. Parser fixtures exercise retained scanners; synthetic payload and persistence reads test data, not implementation spelling. |
 
-The Rust lexical guards stay with the Rust suite invoked by `Scripts/check.sh`; duplicating their
-scanner in shell would add an enforcement owner without stronger proof. Changing any Rust test
-source also changes the engine artifact identity, so this audit leaves that source and pin intact.
+Rust lexical guards remain in the Rust suite invoked by `Scripts/check.sh`; do not duplicate their
+scanner in shell. `Backend/spotty-playback/source-input-digest.sh` defines artifact inputs; Rust
+tests outside `src/` are excluded from that digest. CI uses the same input list for its diff against
+the pinned engine tag, including source and license directories to catch deletions.

@@ -25,7 +25,6 @@ private final class EpochEngine: LocalPlaybackEngine, @unchecked Sendable {
     func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { record("execute"); return .ok }
     func positionMilliseconds() -> UInt32 { 0 }
     func queueSnapshot() -> RustQueueState? { nil }
-    func configureHighQualityPlayback() { record("configure") }
     func shutdown() -> PlaybackEngineResult { record("shutdown"); return .ok }
     func cleanup() { record("cleanup") }
     func clearStreamingCredentials() { record("clearCredentials") }

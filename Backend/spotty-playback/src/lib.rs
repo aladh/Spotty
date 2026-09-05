@@ -51,9 +51,7 @@ pub(crate) use librespot_protocol::player::{PlayerState, ProvidedTrack};
 pub(crate) use log::debug;
 pub(crate) use once_cell::sync::Lazy;
 pub(crate) use std::ffi::{c_char, CStr, CString};
-pub(crate) use std::sync::atomic::{
-    AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering,
-};
+pub(crate) use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 pub(crate) use std::sync::{Arc, Condvar, Mutex};
 pub(crate) use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub(crate) use tokio::runtime::Runtime;

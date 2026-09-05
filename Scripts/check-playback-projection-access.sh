@@ -82,8 +82,10 @@ for candidate in "$swift_bin_path/include" "$swift_bin_path/SpottyPlaybackCore.b
         break
     fi
 done
-if [[ -z "$c_module_path" && -f "$project_root/Sources/SpottyPlaybackCore/include/module.modulemap" ]]; then
-    c_module_path="$project_root/Sources/SpottyPlaybackCore/include"
+if [[ -z "$c_module_path" ]]; then
+    source "$project_root/Scripts/playback-xcframework.sh"
+    selected_xcframework="$(spotty_playback_resolve_xcframework)"
+    c_module_path="$(spotty_playback_headers_path "$(spotty_playback_slice_path "$selected_xcframework")")"
 fi
 if [[ -z "$c_module_path" ]]; then
     print -u2 "SpottyPlaybackCore's module map is missing from SwiftPM output: $swift_bin_path"

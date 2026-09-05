@@ -11,9 +11,9 @@ Contain that work behind one C module and one Swift adapter. Swift owns applicat
 policy; decoded PCM goes directly to the native AVFoundation renderer. The boundary must allow an
 engine replacement without making the application depend on librespot internals.
 
-This containment decision remains current. [ADR 005](ADR-005-retain-librespot.md) owns the choice to
-retain librespot and the conditions for reconsidering it. [ADR 006](ADR-006-prebuilt-playback-engine.md)
-owns binary distribution. Neither replaceability nor a C boundary implies a migration roadmap.
+[ADR 005](ADR-005-retain-librespot.md) owns engine choice and revisit conditions;
+[ADR 006](ADR-006-prebuilt-playback-engine.md) owns binary distribution. Replaceability does not
+imply a migration roadmap.
 
 ## Tradeoff
 

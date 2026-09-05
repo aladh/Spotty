@@ -32,7 +32,7 @@ inventory](architecture-enforcement.md).
 | `ffi.rs`, `runtime.rs` | Protocol/runtime adapter | Panic barrier, C string delivery, nested-runtime refusal |
 | `proxy_sink.rs` | Protocol/runtime adapter | Librespot's decoded PCM to the bounded Swift audio callback; no UI state crosses this path |
 | `session_lifecycle.rs` | Adapter | Serialized authorization, initialization exports, health checks, and reconnect orchestration. |
-| `session_construction.rs` | Adapter | Transactional session/player/Spirc construction, publication, and rollback guards. |
+| `session_construction.rs` | Adapter | Transactional session/player/Spirc construction, publication, and rollback guards. Player configuration is fixed at 320 kbps and gapless; Connect registers at full volume while Swift owns output volume. |
 | `engine_resources.rs` | Adapter | Shared resource extraction, graceful task shutdown, and cancellation-safe cleanup. |
 | `credentials_cache.rs` | App policy | Streaming cache path selection, retired-directory cleanup, and logout cache clearing. |
 | `lifecycle_serialization.rs` | Spotty-owned coordination that must stay with Rust globals | One async lifecycle mutex, reconnect unit outcomes, generation revalidation |
@@ -46,8 +46,6 @@ inventory](architecture-enforcement.md).
 | `librespot-connect` | Protocol/runtime dependency | The pinned upstream Connect implementation remains the engine's Connect owner; updates require protocol and license review |
 
 ## Retained-engine guarantees
-
-The existing Rust/librespot boundary provides these guarantees:
 
 - Spirc load and activation failures use typed outcomes. A closed command channel or failed
   rehydration returns the reinitialization outcome; the lifecycle owner rebuilds through the
@@ -81,7 +79,7 @@ Control observations for connection, playback, devices, and queue are typed C sn
 
 - `SpottyConnectionSnapshot`: `session_connected`, `spirc_ready`, `is_active_device`,
   `resume_pending`, `credentials_rejected`, `device_id`, `last_error`.
-- `SpottyPlaybackSnapshot`: protocol playing/paused flags, track URI, context URI, timing,
+- `SpottyPlaybackSnapshot`: protocol playing/paused flags, track URI, timing,
   shuffle/repeat options, the active-device fact needed for coherent transport projection, and a
   one-observation `track_unavailable` flag for a failed current local load. Ordinary snapshots
   clear the flag; Rust filters request identity and preload failures, while Swift owns the
@@ -90,25 +88,19 @@ Control observations for connection, playback, devices, and queue are typed C sn
 - `SpottyQueueSnapshot`: unfiltered protocol rows, slim current-track identity, `queue_revision`,
   and replacement-disallow flags.
 
-Swift projects transport, session phase, device activity, and upcoming rows from these; Rust sends
-no presentation copy. New fields should be typed payloads or rawer protocol rows, not Spotty-only
-presentation.
+Swift projects these protocol snapshots into presentation. New fields must remain typed protocol
+payloads, not Spotty presentation copy.
 
 `spotty_playback_get_queue_snapshot` returns the last cluster queue (freed with
 `spotty_playback_free_queue_snapshot`) so Swift can recover after a provisional empty `SetQueue`.
-It returns null when no cluster snapshot has been received yet; null means "not told anything",
-which Swift must keep distinct from an empty queue.
-Caching that snapshot in Rust is adapter convenience, not a second app-facing store.
-
-The sticky resume-load identity remains internal to the Rust engine and is exposed only through the
-existing narrow getters consumed by Swift's `ResumeLoadPlan`. There is no active Rust-to-Swift
-migration plan.
+Null means no cluster snapshot has arrived, not an empty queue. This adapter cache is not another
+app-facing store. Sticky resume-load identity stays in Rust behind `ResumeLoadPlan`'s narrow getters.
 
 ## Standing constraints
 
-- Keep PCM, Spirc, session connect, dealer cluster fetch, streaming, decryption, and decoding in
-  the retained Rust/librespot engine. A significant change to this decision requires evidence and a
-  replacement ADR; see the
+- Keep PCM production, Spirc, session connect, dealer cluster fetch, streaming, decryption, and decoding in
+  Rust/librespot. Follow [ADR 005](ADR-005-retain-librespot.md) for protocol/license review.
+  Reversals require evidence and a replacement ADR under the
   [decision-log guidance](architecture-decisions.md#maintaining-the-decision-log).
 - Rehydrate before announcing readiness. Bootstrapping from the Web API on readiness reopens the
   stale-position window the `resume_pending` hold exists to close.
@@ -117,8 +109,6 @@ migration plan.
   loop-local.
 - Do not widen `spotty_playback_resume`; resume targets are Swift-owned loads.
 - Do not forward raw cluster protobuf to Swift or create a second protocol state machine.
-- Keep the pinned librespot revision and its transitive license set deliberate; an update is a
-  protocol migration review, not a routine dependency bump.
 
 ## Historical measured baseline (2026-08-23)
 
@@ -140,15 +130,8 @@ Renderer backpressure: of 1,971 one-millisecond playing observations, 1,935 were
 deliberate producer sleep, with no allocator hotspot. Those measurements did not justify a Core
 Media sample-buffer pool at the time; new optimization decisions need a current baseline.
 
-The measured browse path included surfaces that have since been removed. A rerun must record its
-own commit and surfaces.
-
 ### Binary size
 
-Every CI run's "Release distribution compile" job publishes a size table (app binary, the selected
-content-addressed playback archive, binary segment totals, archive exported symbol count) to the job
-summary via `Scripts/report-size.sh`, and uploads the same data as the `size-report` artifact
-(`size-report.json`, 30-day retention).
-
-To compare two runs: `gh run view <run-id>` for the job summary, or
-`gh run download <run-id> -n size-report` to fetch the JSON for a scripted diff.
+The CI "Release distribution compile" job uses `Scripts/report-size.sh` to report app/archive sizes,
+binary segments, and archive export count. Read its summary with `gh run view <run-id>` or download
+`size-report.json` (30-day retention) with `gh run download <run-id> -n size-report`.

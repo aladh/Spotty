@@ -499,13 +499,6 @@ pub(crate) static LOGOUT_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// which may belong to a logout and the login that followed it.
 pub(crate) static LAST_BUILD_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-// Playback settings (applied on player init)
-// Bitrate: 0 = 96kbps, 1 = 160kbps (default), 2 = 320kbps
-pub(crate) static BITRATE_SETTING: AtomicU8 = AtomicU8::new(1);
-// Gapless playback: true by default (matches librespot default)
-pub(crate) static GAPLESS_SETTING: AtomicBool = AtomicBool::new(true);
-// Initial volume (0-65535), default 50%
-pub(crate) static INITIAL_VOLUME_SETTING: AtomicU16 = AtomicU16::new(65535 / 2);
 // Swift resolves the user-facing macOS Computer Name and supplies the full Connect label.
 pub(crate) static CONNECT_DEVICE_NAME_SETTING: Lazy<Mutex<Option<String>>> =
     Lazy::new(|| Mutex::new(None));

@@ -384,12 +384,6 @@ final class AccountStore {
             return .credentialsRejected
         }
         phase = .connecting
-        await coordinator.configureHighQualityPlayback()
-        guard isCurrent(generation: generation, epoch: epoch) else { return .failed }
-        guard !requiresReauthentication else {
-            phase = .failed(ConnectionSnapshotProjection.credentialsRejectedMessage)
-            return .credentialsRejected
-        }
         do {
             try environment.audioOutput.prepareForPlayback()
         } catch {

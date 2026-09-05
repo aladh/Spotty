@@ -20,7 +20,7 @@ func positiveImportContract() {
         spotty_playback_register_audio_control_callback
     let authorize: @convention(c) (UnsafePointer<CChar>) -> Int32 =
         spotty_playback_authorize_streaming
-    let playURI: @convention(c) (UnsafePointer<CChar>, Int32) -> SpottyPlaybackResult =
+    let playURI: @convention(c) (UnsafePointer<CChar>) -> SpottyPlaybackResult =
         spotty_playback_play_uri
 
     // Optional C-string arguments/fields and typed open enums.
@@ -83,7 +83,6 @@ func positiveImportContract() {
         let key: UnsafePointer<CChar>? = pair.key
         let active: UnsafePointer<CChar>? = devices.active_device_id
         let playbackTrack: UnsafePointer<CChar>? = playback.track_uri
-        let playbackContext: UnsafePointer<CChar>? = playback.context_uri
         let playbackUnavailable: UInt8 = playback.track_unavailable
         _ = (
             next,
@@ -96,7 +95,6 @@ func positiveImportContract() {
             key,
             active,
             playbackTrack,
-            playbackContext,
             playbackUnavailable
         )
     }

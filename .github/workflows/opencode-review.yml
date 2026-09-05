@@ -1,0 +1,65 @@
+name: OpenCode Thermos review
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opencode-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Skip an already published review
+        id: previous
+        run: |
+          set -euo pipefail
+          found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- spotty-thermos-review -->")) | .id')
+          if [ -n "$found" ]; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout trusted reviewer configuration
+        if: steps.previous.outputs.exists != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/review
+
+      - name: Install OpenCode
+        if: steps.previous.outputs.exists != 'true'
+        run: npm install --prefix "$RUNNER_TEMP/thermos-cli" opencode-ai@1.18.29
+
+      - name: Review and comment
+        if: steps.previous.outputs.exists != 'true'
+        env:
+          OPENCODE_DISABLE_PROJECT_CONFIG: 'true'
+          OPENCODE_DISABLE_AUTOUPDATE: 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/thermos"
+          cp -R "$GITHUB_WORKSPACE/.github/review/." "$RUNNER_TEMP/thermos/"
+          cd "$RUNNER_TEMP/thermos"
+          export OPENCODE_CONFIG="$PWD/opencode.json"
+          "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
+            --agent thermos --variant xhigh \
+            "Review $GITHUB_REPOSITORY PR #$PR_NUMBER. Base SHA: $BASE_SHA. Head SHA: $HEAD_SHA. Run both Thermos audits and publish the consolidated advisory comment."

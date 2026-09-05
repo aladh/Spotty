@@ -60,42 +60,56 @@ extension View {
     }
 }
 
+@MainActor
+private final class PointingHandRegion {
+    var parent: PointingHandRegion?
+    var isInside = false
+    var points = false
+
+    var hasPointingCursor: Bool { points || (parent?.hasPointingCursor ?? false) }
+}
+
 private extension EnvironmentValues {
-    @Entry var containingPointingHand = false
+    @Entry var containingPointingHand: PointingHandRegion? = nil
 }
 
 private struct PointingHandCursor: ViewModifier {
     let enabled: Bool
     let isHovering: Binding<Bool>?
-    @State private var cursorIsInside = false
+    @State private var region = PointingHandRegion()
     @Environment(\.containingPointingHand) private var containingPointingHand
 
     func body(content: Content) -> some View {
         content
-            .environment(\.containingPointingHand, containingPointingHand || (enabled && cursorIsInside))
+            .environment(\.containingPointingHand, region)
             .onContinuousHover { phase in
                 switch phase {
                 case .active:
-                    cursorIsInside = true
-                    if enabled { NSCursor.pointingHand.set() }
+                    region.parent = containingPointingHand
+                    region.isInside = true
+                    region.points = enabled
+                    if region.hasPointingCursor { NSCursor.pointingHand.set() }
                     isHovering?.wrappedValue = enabled
                 case .ended:
                     resetCursor()
                 }
             }
             .onChange(of: enabled) { _, enabled in
-                guard cursorIsInside else { return }
-                ((enabled || containingPointingHand) ? NSCursor.pointingHand : NSCursor.arrow).set()
+                guard region.isInside else { return }
+                region.points = enabled
+                (region.hasPointingCursor ? NSCursor.pointingHand : NSCursor.arrow).set()
                 isHovering?.wrappedValue = enabled
             }
             .onDisappear { resetCursor() }
     }
 
     private func resetCursor() {
-        if cursorIsInside && enabled {
-            (containingPointingHand ? NSCursor.pointingHand : NSCursor.arrow).set()
+        let wasInside = region.isInside
+        region.isInside = false
+        region.points = false
+        if wasInside {
+            (region.hasPointingCursor ? NSCursor.pointingHand : NSCursor.arrow).set()
         }
-        cursorIsInside = false
         isHovering?.wrappedValue = false
     }
 }

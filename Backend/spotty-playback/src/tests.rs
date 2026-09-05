@@ -1039,6 +1039,7 @@ int main(void) {
     EMIT_FIELD(SpottyPlaybackSnapshot, repeat_context);
     EMIT_FIELD(SpottyPlaybackSnapshot, is_active_device);
     EMIT_FIELD(SpottyPlaybackSnapshot, track_uri);
+    EMIT_FIELD(SpottyPlaybackSnapshot, context_uri);
 
     EMIT_TYPE(SpottyProtocolDevice);
     EMIT_FIELD(SpottyProtocolDevice, id);
@@ -1219,7 +1220,8 @@ int main(void) {
         repeat_track,
         repeat_context,
         is_active_device,
-        track_uri
+        track_uri,
+        context_uri
     );
     rust_layout!(
         "SpottyProtocolDevice",
@@ -1434,6 +1436,7 @@ fn playback_snapshot_callback_copies_nullable_fields() {
             is_paused: false,
             track_unavailable: false,
             track_uri: "spotify:track:fixtureNow".to_string(),
+            context_uri: None,
             position_ms: 1_250,
             duration_ms: 180_000,
             shuffle: true,
@@ -1462,6 +1465,7 @@ fn playback_snapshot_callback_copies_nullable_fields() {
             is_paused: true,
             track_unavailable: true,
             track_uri: "spotify:track:fixtureUnavailable".to_string(),
+            context_uri: None,
             position_ms: 0,
             duration_ms: 0,
             shuffle: false,
@@ -1493,6 +1497,7 @@ fn playback_snapshot_callback_copies_nullable_fields() {
                 is_paused: false,
                 track_unavailable: false,
                 track_uri: track_uri.to_string(),
+                context_uri: None,
                 position_ms: 0,
                 duration_ms: 0,
                 shuffle: false,
@@ -2015,4 +2020,73 @@ fn skip_quoted(bytes: &[u8], start: usize, quote: u8) -> usize {
         i += 1;
     }
     bytes.len()
+}
+
+#[test]
+fn protocol_context_clears_without_local_events_resurrecting_resume_context() {
+    static COPIED: Mutex<Vec<Option<String>>> = Mutex::new(Vec::new());
+
+    extern "C" fn capture(snapshot: *const SpottyPlaybackSnapshot) {
+        let snapshot = unsafe { &*snapshot };
+        let context = if snapshot.context_uri.is_null() {
+            None
+        } else {
+            Some(
+                unsafe { CStr::from_ptr(snapshot.context_uri) }
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+            )
+        };
+        COPIED.lock().unwrap().push(context);
+    }
+
+    struct Restore {
+        callback: Option<PlaybackSnapshotCallback>,
+        context: Option<String>,
+        options: (bool, bool, bool),
+    }
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            *CONTROL_CALLBACKS.playback_state.lock().unwrap() = self.callback;
+            *CURRENT_CONTEXT_URI.lock().unwrap() = self.context.take();
+            update_playback_options(self.options.0, self.options.1, self.options.2);
+        }
+    }
+
+    let _guard = lock_lifecycle_test_globals();
+    let _restore = Restore {
+        callback: *CONTROL_CALLBACKS.playback_state.lock().unwrap(),
+        context: CURRENT_CONTEXT_URI.lock().unwrap().clone(),
+        options: current_playback_options(),
+    };
+    *CONTROL_CALLBACKS.playback_state.lock().unwrap() = Some(capture);
+    COPIED.lock().unwrap().clear();
+
+    let mut state = PlayerState {
+        context_uri: "spotify:playlist:authoritative".to_owned(),
+        ..Default::default()
+    };
+    send_playback_state(&state, false);
+    state.context_uri.clear();
+    send_playback_state(&state, false);
+    // The resume getter intentionally retains the old context. Local events must not emit it.
+    assert_eq!(
+        CURRENT_CONTEXT_URI.lock().unwrap().as_deref(),
+        Some("spotify:playlist:authoritative")
+    );
+    send_local_playback_state(true, 42);
+    state.context_uri = "invalid\0context".to_owned();
+    send_playback_state(&state, false);
+
+    // Copies remain valid after both callback buffers and the protocol state have changed.
+    assert_eq!(
+        *COPIED.lock().unwrap(),
+        vec![
+            Some("spotify:playlist:authoritative".to_owned()),
+            Some(String::new()),
+            None,
+            None
+        ]
+    );
 }

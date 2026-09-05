@@ -37,7 +37,7 @@ inventory](architecture-enforcement.md).
 | `credentials_cache.rs` | App policy | Streaming cache path selection, retired-directory cleanup, and logout cache clearing. |
 | `lifecycle_serialization.rs` | Spotty-owned coordination that must stay with Rust globals | One async lifecycle mutex, reconnect unit outcomes, generation revalidation |
 | `connect.rs` | Mixed | Dealer subscribe, hidden-member bootstrap PUT, and protobuf parse are protocol. Device-list and connection-snapshot presentation are Swift-owned. `cluster_offer_decision`, bootstrap-vs-push linearization, and `is_active_in_cluster` (this engine's Connect role) remain Rust-owned Connect logic. |
-| `queue.rs` | Adapter | Forwards unfiltered `ProvidedTrack` rows and slim current-track identity as `SpottyQueueSnapshot`. Cluster protocol playback flags cross as `SpottyPlaybackSnapshot`; sticky context remains available only through the resume getter. Does **not** own delimiter hiding, upcoming presentation, or transport presentation. |
+| `queue.rs` | Adapter | Forwards unfiltered `ProvidedTrack` rows and slim current-track identity as `SpottyQueueSnapshot`. Cluster protocol playback flags and authoritative context cross as `SpottyPlaybackSnapshot`; local timing events omit context, while sticky context remains confined to the resume getter. Does **not** own delimiter hiding, upcoming presentation, or transport presentation. |
 | `state.rs` | Mixed | Librespot object slots (`SESSION`, `SPIRC`, `PLAYER`, `MIXER`). Snapshot stamps and connection aggregation live here. Queue, connection, playback, and device-list observations use typed C snapshots. |
 | `transport.rs` | Adapter | Seek-capable `load_at_position`, one-target `LoadRequest` construction, playing-event waits, and the reconnect rehydration window (`has_resume_identity`, `wait_for_rehydration`). Target order and capture are Swift-owned for user resume and reconnect alike. |
 | `player_control.rs` | Adapter | Spirc play/pause/seek/shuffle/repeat/transfer/queue-add, plus FFI getters for sticky resume URIs |
@@ -69,8 +69,8 @@ inventory](architecture-enforcement.md).
   Swift derives ownership from that fact instead of depending on connection and playback callback
   arrival order.
 - The retained snapshot ABI is represented in the checked-in C header and Rust `repr(C)` types, with
-  symbol/signature fixtures and a C-consumer layout probe. Boundary strings normalize missing,
-  empty, and interior-NUL values before Swift consumes a callback.
+  symbol/signature fixtures and a C-consumer layout probe. Boundary strings normalize missing and interior-NUL values before Swift consumes a callback.
+  Empty strings also normalize to null except for playback context, where empty means clear.
 
 ## FFI surface
 
@@ -79,11 +79,13 @@ Control observations for connection, playback, devices, and queue are typed C sn
 
 - `SpottyConnectionSnapshot`: `session_connected`, `spirc_ready`, `is_active_device`,
   `resume_pending`, `credentials_rejected`, `device_id`, `last_error`.
-- `SpottyPlaybackSnapshot`: protocol playing/paused flags, track URI, timing,
+- `SpottyPlaybackSnapshot`: protocol playing/paused flags, track URI, authoritative context URI, timing,
   shuffle/repeat options, the active-device fact needed for coherent transport projection, and a
   one-observation `track_unavailable` flag for a failed current local load. Ordinary snapshots
   clear the flag; Rust filters request identity and preload failures, while Swift owns the
   actionable notice and its accepted-lifetime/optimistic-target presentation policy.
+- Playback `context_uri`: null omits an update; empty explicitly clears it. Local timing events
+  always omit context. Sticky context is available only through the resume getter.
 - `SpottyDevicesSnapshot`: protocol members (`id`, `name`, type name) plus `active_device_id`.
 - `SpottyQueueSnapshot`: unfiltered protocol rows, slim current-track identity, `queue_revision`,
   and replacement-disallow flags.

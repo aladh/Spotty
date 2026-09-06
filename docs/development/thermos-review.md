@@ -1,70 +1,81 @@
 # Thermos review
 
-The advisory workflow uses the [official OpenCode GitHub action](https://opencode.ai/docs/github/)
-with `pull_request` events when a same-repository PR opens ready or becomes ready.
+The advisory workflow reviews same-repository PRs when opened ready or marked ready.
 Pushes do not trigger reviews. A marked summary from `opencode-agent[bot]` or the
 historical `github-actions[bot]` identity skips repeated automatic reviews.
 
-Thermos runs correctness and quality auditors, then returns one summary with actionable
-findings and file/line references. The action publishes that response as a PR comment;
-there is no separate inline-comment publisher or trace-summary invocation. Review output
-is available in the Actions log. Session sharing is disabled. Findings must be
-introduced or made reachable by the PR; omit informational notes and unrelated
+Thermos launches independent correctness and quality subagents in parallel. The parent
+uses `gh` to post actionable inline findings and a marked summary comment. Findings must
+be introduced or made reachable by the PR; omit informational notes and unrelated
 follow-ups. Conclusions state coverage limits and rely on inspected evidence rather
 than auditor agreement or declarations that the PR is safe to merge.
 
 The original Cursor Thermos rubrics and MIT license live in
 [.github/thermos-review](../../.github/thermos-review), recovered from
 [PR #291](https://github.com/aladh/Spotty/pull/291). Their prompts load directly through
-`{file:...}` references. The default agent is explicitly Thermos, including for action
-versions that do not forward the `agent` input to the session.
+`{file:...}` references. The parent explicitly runs as `thermos`; both auditor agents
+retain their original tools and permissions.
 
 ## Repeat a review
 
-A repository writer can comment `/thermos` on an open, ready, same-repository PR.
-This bypasses summary deduplication and posts a new review. The comment trigger becomes
-available when the workflow is on the default branch; Actions workflow dispatch is not used.
+Select **Run workflow** on **Thermos review**, choose the default branch, and enter the
+PR number, or run:
 
-OpenCode requires the triggering actor to have `write` or `admin` permission. Automatic
-runs from actors without that permission, including Renovate, are skipped; a writer can
-request their review with `/thermos`. Forks, closed PRs, and drafts are skipped.
+```bash
+gh workflow run thermos-review.yml --ref main -f pr_number=287
+```
+
+Manual runs use the current base/head SHAs and bypass summary deduplication, posting
+another review. Only open, ready, same-repository PRs are eligible. Manual runs from
+other branches are skipped. Bot-authored PRs remain eligible for automatic reviews;
+there is no writer-only actor check or comment-command trigger.
 
 ## Identity and permissions
 
 Install the [OpenCode GitHub App](https://github.com/apps/opencode-agent) on Spotty only.
-The action handles OIDC exchange, publication, and token revocation. App authentication
-is selected with `use_github_token: false`; the read-only `GH_TOKEN` supplied to shell
-commands is separate from the App token used by the action. No App private key or
-additional repository secret is required.
+The workflow exchanges a GitHub Actions OIDC token with
+`https://api.opencode.ai/exchange_github_app_token`, using audience
+`opencode-github-action`, and passes the App token to `gh` during review. No App private
+key or additional repository secret is required. Exchange failure fails the job without
+falling back to the Actions identity.
 
 The App has broader write grants: contents, issues, pull requests, workflows, repository
 secrets, and organization secrets when installed on an organization. Workflow permissions
-limit the Actions token, not the App token. The upstream action configures Git with App
-credentials and runs in a job with OIDC access; this is not a credential-isolated review.
+limit the Actions token, not the App token. The exchange does not narrow installation
+permissions. The reviewer can use its token through shell commands; comment-only behavior
+is prompt policy, not a credential restriction. The App remains subject to Spotty's
+main-branch rules and has no configured bypass. Approval settings are unchanged.
 
-Comment-only behavior is prompt policy. Native file editing is denied, but shell access
-remains available. The upstream action can commit and push changes if the agent alters
-the checkout; the review prompt prohibits those changes. The App remains subject to
-Spotty's main-branch rules and has no configured bypass. Approval settings are unchanged.
+Eligibility lookup uses the read-only Actions token. App authentication happens after
+installation and checkout. Installation and review clear OIDC request credentials from
+their environments. Authentication calls have bounded timeouts and distinct errors.
+An always-run cleanup step revokes the App token; cleanup failure warns without failing
+a published review. Forced runner termination can prevent cleanup, in which case the
+token expires normally.
 
 ## Runtime and limits
 
-The action is pinned to the v1.18.29 commit, but its installer selects the latest OpenCode
-release. The model remains `opencode/muse-spark-1.3-contributor-free` at `xhigh`, with no
-fallback. The contributor-free provider may use submitted public source for Meta training;
-availability and model terms remain provider-controlled.
+OpenCode remains pinned to 1.18.29, using `opencode/muse-spark-1.3-contributor-free` at
+`xhigh`, with no fallback. The contributor-free provider may use submitted public source
+for Meta training; availability and model terms remain provider-controlled.
 
-A full-history checkout supplies source and diff context. Reviewer configuration is
-extracted from the PR's base SHA into the runner temporary directory. Pure mode and
-disabled project configuration prevent discovery of candidate configuration, plugins,
-and skills. The `pull_request` workflow itself is evaluated from the PR merge revision;
-this no longer has the base-workflow trust boundary of `pull_request_target`.
+Reviewer configuration comes from the workflow revision in a separate checkout.
+For `pull_request`, that revision is the PR merge commit; this no longer has the
+base-workflow trust boundary of `pull_request_target`. Manual runs use the default-branch
+workflow revision. The PR source is checked out at the selected head SHA with full
+history. Pure mode and disabled project configuration prevent automatic discovery of
+candidate configuration, plugins, and skills. Shell, filesystem, edit, websearch, and
+webfetch access remain available; web content is untrusted review data.
 
-The action fetches the current PR branch before reviewing, so a delayed run may review a
-newer head than the triggering event. There is no enforced revision recheck before
-publication. Cancellation or timeout can prevent a final comment or token cleanup.
-Automatic retries are not configured; use `/thermos` to retry a failed review. This is
+Review output stays in a temporary runner log that disappears with the runner. There
+is no separate trace-summary invocation or uploaded trace artifact. Session sharing is
+disabled. Removing the trace summary does not remove either auditor.
+
+Publication is left to Thermos; there is no custom publisher or enforced revision
+recheck. Inline findings can remain after an interrupted review, and a retry may duplicate
+them when no marked summary was posted. Automatic retries are not configured. This is
 not a required check or approval gate. The job times out after 20 minutes.
 
-All reviewers can use shell, filesystem, websearch, and webfetch tools. Web search is
-enabled with `OPENCODE_ENABLE_EXA=1`; no additional search credential is configured.
+The workflow uses runner ripgrep when available and installs it with apt otherwise.
+Web search is enabled with `OPENCODE_ENABLE_EXA=1`; no additional search credential is
+configured.

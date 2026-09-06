@@ -330,8 +330,10 @@ nonisolated struct PartnerAPI: Sendable {
             return results
         }
         func nodes(in key: String) throws -> [PlaylistLibraryNode] {
+            try Task.checkCancellation()
             guard let entities = folders[key] else { throw PartnerAPIError.emptyPayload }
             return try entities.compactMap { entity in
+                try Task.checkCancellation()
                 if let item = CatalogMapping.item(from: entity) { return PlaylistLibraryNode(playlist: item) }
                 guard let uri = entity.uri, uri.contains(":folder:") else { return nil }
                 return PlaylistLibraryNode(folderURI: uri, title: entity.name ?? "Folder", children: try nodes(in: uri))

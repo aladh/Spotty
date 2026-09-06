@@ -48,26 +48,18 @@ struct NowPlayingProgress: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !player.showsPauseControl)) { timeline in
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(SpottyPalette.progressTrack).frame(height: height)
-                    if player.hasCurrentTrack {
-                        Capsule().fill(isHovering ? SpottyPalette.mediaGreen : SpottyPalette.playerPrimary)
-                            .frame(width: proxy.size.width * fraction(at: timeline.date), height: height)
-                        Circle().fill(SpottyPalette.playerPrimary)
-                            .frame(width: 12, height: 12)
-                            .offset(x: proxy.size.width * fraction(at: timeline.date) - 6)
-                            .opacity(isHovering ? 1 : 0)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture { point in
-                    guard player.canStartPlayback, player.hasCurrentTrack, player.duration > 0 else { return }
-                    player.seek(to: point.x / max(proxy.size.width, 1))
-                }
+        GeometryReader { proxy in
+            PlaybackProgressDrawing(
+                position: player.displayedPosition(at: Date()),
+                duration: player.duration,
+                isPlaying: player.showsPauseControl && !reduceMotion,
+                hasTrack: player.hasCurrentTrack,
+                isHovering: isHovering
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { point in
+                guard player.canStartPlayback, player.hasCurrentTrack, player.duration > 0 else { return }
+                player.seek(to: point.x / max(proxy.size.width, 1))
             }
         }
         .pointingHandCursor(
@@ -84,7 +76,6 @@ struct NowPlayingProgress: View {
         .animationIfAllowed(.snappy(duration: 0.2), value: isHovering, reduceMotion: reduceMotion)
     }
 
-    private var height: CGFloat { 4 }
     private func fraction(at date: Date) -> Double {
         guard player.hasCurrentTrack, player.duration > 0 else { return 0 }
         return min(max(player.displayedPosition(at: date) / player.duration, 0), 1)

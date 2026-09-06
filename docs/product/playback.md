@@ -56,7 +56,10 @@
   track-skip symbols with an outside bar, not rewind or fast-forward symbols. Repeat stays to the
   right of Next.
 - Interpolate progress smoothly between authoritative playing snapshots. New snapshots, seeks,
-  pauses, track changes, and ownership changes re-anchor it.
+  pauses, track changes, and ownership changes re-anchor it. Progress drawing uses
+  [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift) so interpolation
+  does not repeatedly lay out the SwiftUI hierarchy. Reduce Motion disables interpolation;
+  authoritative position and time-label updates continue.
 - Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
   style picker because Connect exposes no shuffle-style parameter.
 - Repeat cycles off → queue → track → off. Each step sends only the Connect flags that change,

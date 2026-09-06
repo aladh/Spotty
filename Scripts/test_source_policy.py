@@ -74,6 +74,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
                 self.assertEqual(self.scan(path, source), expected)
 
     def test_wrapper_rejects_missing_or_empty_owners(self):
+        self.assertIsNotNone(AST_GREP, "ast-grep must be installed")
         owners = [
             "Sources/Spotty/SpottyApp.swift",
             "Sources/Spotty/Spotify/KeychainManager.swift",

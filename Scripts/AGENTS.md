@@ -9,7 +9,7 @@ sections of [agent operations](../CONTRIBUTING.md) and the
   cache change may reduce aggregate coverage.
 - Prefer compiler, behavior suite, ABI fixture, or package-graph enforcement. Add a source check only
   for an exact lexical/topology invariant; never encode concurrency, lifetime, queue provenance,
-  rollback, or payload semantics as source-pattern snapshots.
+  rollback, or payload semantics as source checks.
 - Keep `check-clean.sh` the clean Debug-and-Release owner. Do not add destructive cleanup that can
   erase unrelated work or credentials.
 - `script/build_and_run.sh` terminates a running Spotty executable and can touch an authenticated

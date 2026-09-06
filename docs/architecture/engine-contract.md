@@ -6,14 +6,16 @@
 
 - Initialization is transactional: resources and listener tasks remain staged until the whole
   generation is ready. Failed or superseded construction rolls back and joins staged work.
-  Teardown invalidates the generation, drains work, and closes the old Dealer connection before
-  replacement. A failed activation cannot publish readiness.
+  Teardown invalidates the generation and drains work, giving Spirc a bounded opportunity to finish
+  gracefully before forced shutdown. The old Dealer connection closes before replacement.
+  A failed activation cannot publish readiness.
 - Closed command channels and failed rehydration request engine reinitialization through typed
   outcomes. Rehydrate before announcing readiness; fetching Web playback state afterward would
   reopen the stale-position window.
 - Definitive streaming-credential rejection clears only the current generation's streaming cache
-  and stops retrying it. Swift preserves the independent Keymaster grant and persists the need for
-  reauthorization; a fresh durably adopted grant clears that requirement. Refresh-revoked grants
+  and crosses the boundary as a typed rejection snapshot and initialization result. Swift stops
+  launch restore with that credential, preserves the independent Keymaster grant, and persists the
+  need for reauthorization; a fresh durably adopted grant clears that requirement. Refresh-revoked grants
   are cleared only for their owning account generation. The adapter must distinguish definitive
   rejection from general permission failures; its comparison against private upstream errors
   requires review on librespot updates.

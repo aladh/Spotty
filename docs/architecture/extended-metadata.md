@@ -28,7 +28,8 @@ second schema here. The maintenance-sensitive protocol facts are:
 ## Client behavior
 
 Enrichment is best-effort: lists render before it finishes. Cache by track identity within the
-account, collapse duplicate occurrences, and keep work bounded. Missing attributes and failures
+account and deduplicate metadata requests for repeated tracks while preserving every playlist and
+queue occurrence. Keep work bounded. Missing attributes and failures
 are not durable negative results; a later load may retry them.
 
 [CatalogMetadataRepository](../../Sources/Spotty/Spotify/CatalogMetadataRepository.swift) owns

@@ -10,8 +10,8 @@ and quality review when a same-repository PR first becomes ready.
 
 A request to open a PR authorizes the agent to create a branch, commit the complete in-scope change,
 push it, open the PR, monitor available checks/reviews during the run, and address automated
-findings. It does not authorize merge, release, tag, repository-setting changes, or issue closure
-unless the request says so.
+findings. It does not authorize merge, release, tag, or repository-setting changes unless the
+request says so.
 
 ### PR acceptance
 

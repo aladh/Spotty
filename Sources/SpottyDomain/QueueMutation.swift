@@ -89,6 +89,7 @@ public struct QueueMutationSnapshot: Equatable, Sendable {
 public enum QueueMutationRefusal: Equatable, Sendable, Error {
     case notConnected
     case joiningConnect
+    case needsDeviceSelection
     case incompleteProvenance
     case provisional
     case restricted
@@ -103,6 +104,8 @@ public enum QueueMutationRefusal: Equatable, Sendable, Error {
             "Connect Spotify before changing the queue."
         case .joiningConnect:
             "Spotty is still joining Spotify Connect."
+        case .needsDeviceSelection:
+            "Choose a playback device. Select This computer in the device picker to play on this Mac."
         case .incompleteProvenance, .provisional:
             "The queue isn’t complete enough to edit safely."
         case .restricted:
@@ -378,6 +381,8 @@ public enum QueueMutationPolicy: Sendable {
         switch route {
         case .waitingForLocalIdentity:
             return .failure(.joiningConnect)
+        case .needsDeviceSelection:
+            return .failure(.needsDeviceSelection)
         case .local:
             if !localReplacementSupported {
                 return .failure(.localOwnerUnsupported)

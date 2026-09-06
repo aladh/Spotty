@@ -20,6 +20,10 @@ struct CatalogPlaybackAccess {
 
     var canStartPlayback: Bool { player.canStartPlayback }
     var currentTrackIndicator: CurrentTrackIndicator { player.currentTrackIndicator }
+    func isPlayingPlaylist(_ uri: String) -> Bool {
+        player.playingContextURI == uri
+    }
+
     var statusText: String { player.statusText }
     var requiresReauthentication: Bool { player.requiresReauthentication }
     var connectionActionTitle: String {

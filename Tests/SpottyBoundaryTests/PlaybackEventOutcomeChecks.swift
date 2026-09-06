@@ -373,6 +373,45 @@ private func awaitCapturedEffect(
 struct PlaybackEventOutcomeTests {
     @Test
     @MainActor
+    func testSidebarPlaylistFollowsLocalAndRemoteContext() async {
+        let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        seedReadyLocalPlayback(player, uri: "spotify:track:indicator")
+        player.hasReceivedPlaybackSnapshot = true
+        let access = CatalogPlaybackAccess(player: player)
+        func observe(_ context: String, playing: Bool, local: Bool, revision: UInt64) {
+            player.receive(
+                RustPlaybackState(
+                    revision: revision, sessionGeneration: player.engineGeneration,
+                    isPlaying: playing, isPaused: !playing,
+                    trackURI: "spotify:track:indicator", positionMS: 1000, durationMS: 200000,
+                    timestampMS: 0, shuffle: false, repeatTrack: false, repeatContext: false,
+                    isActiveDevice: local, contextURI: context),
+                revision: revision, receivedAt: Date())
+        }
+        observe("spotify:playlist:first", playing: true, local: true, revision: 1)
+        #expect(access.isPlayingPlaylist("spotify:playlist:first"))
+        #expect(!access.isPlayingPlaylist("spotify:playlist:other"))
+        let invalidations = ObservationCounter()
+        withObservationTracking {
+            _ = access.isPlayingPlaylist("spotify:playlist:first")
+        } onChange: {
+            invalidations.increment()
+        }
+        _ = player.setTiming(position: 42)
+        #expect(invalidations.count == 0)
+        observe("spotify:playlist:remote", playing: true, local: false, revision: 2)
+        #expect(access.isPlayingPlaylist("spotify:playlist:remote"))
+        #expect(!access.isPlayingPlaylist("spotify:playlist:first"))
+        observe("spotify:playlist:remote", playing: false, local: false, revision: 3)
+        #expect(!access.isPlayingPlaylist("spotify:playlist:remote"))
+        observe("spotify:playlist:remote", playing: true, local: false, revision: 4)
+        _ = player.send(.session(.signedOut), source: .account)
+        #expect(!access.isPlayingPlaylist("spotify:playlist:remote"))
+        await player.shutdownForTermination()
+    }
+
+    @Test
+    @MainActor
     func testCatalogPlaybackObservationSkipsTimingTicks() async {
         let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
         seedReadyLocalPlayback(player, uri: "spotify:track:indicator")

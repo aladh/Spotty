@@ -243,8 +243,26 @@ struct PlaybackSupportTests {
                 (connectCommandRoute(owner: .uncertain(remoteOwner), localDeviceID: "local"))
                     == (.remote(from: "local", to: "phone")), "an uncertain paused remote remains routable")
             #expect(
-                (connectCommandRoute(owner: .uncertain(nil), localDeviceID: "local")) == (.waitingForLocalIdentity),
+                (connectCommandRoute(owner: .uncertain(nil), localDeviceID: "local")) == (.needsDeviceSelection),
                 "an unidentified owner cannot accidentally steal playback")
+
+            #expect(
+                connectCommandRoute(owner: .uncertain(nil), localDeviceID: nil) == .waitingForLocalIdentity,
+                "a missing local identity still represents startup")
+            #expect(
+                connectCommandRoute(owner: .uncertain(nil), localDeviceID: "") == .waitingForLocalIdentity,
+                "an empty local identity still represents startup")
+            let freshMac = PlaybackDevice(id: "local", name: "Mac", type: "computer")
+            let unownedTrack = connectionPlaybackOwner(
+                isLocalActive: false, localDeviceID: "local", localDeviceName: "Mac",
+                devices: [freshMac], currentTrackURI: "spotify:track:paused",
+                previousOwner: .none, lastRemoteDeviceID: nil)
+            #expect(connectCommandRoute(owner: unownedTrack, localDeviceID: "local") == .needsDeviceSelection)
+            let selectedMac = connectionPlaybackOwner(
+                isLocalActive: true, localDeviceID: "local", localDeviceName: "Mac",
+                devices: [freshMac], currentTrackURI: "spotify:track:paused",
+                previousOwner: unownedTrack, lastRemoteDeviceID: nil)
+            #expect(connectCommandRoute(owner: selectedMac, localDeviceID: "local") == .local)
 
             let inactivePhone = PlaybackDevice(
                 id: "phone",
@@ -280,7 +298,7 @@ struct PlaybackSupportTests {
             #expect((missingFallbackOwner) == (.uncertain(nil)), "a stale last-remote fallback stays unidentified")
             #expect(
                 (connectCommandRoute(owner: missingFallbackOwner, localDeviceID: "local"))
-                    == (.waitingForLocalIdentity),
+                    == (.needsDeviceSelection),
                 "an unidentified fallback cannot steal playback locally")
             let localIdentityFallback = connectionPlaybackOwner(
                 isLocalActive: false,

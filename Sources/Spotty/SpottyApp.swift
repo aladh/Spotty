@@ -140,7 +140,7 @@ struct SpottyScene: Scene {
         .defaultSize(width: 1220, height: 780)
         .defaultLaunchBehavior(.presented)
         .windowStyle(.hiddenTitleBar)
-        .windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.unified)
         .commands {
             InspectorCommands()
             AccountCommands(player: player)

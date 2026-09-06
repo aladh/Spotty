@@ -9,8 +9,10 @@
 - The main window has a native, resizable sidebar and inspector. The sidebar begins near 208 points and the
   inspector near 280; their ranges are 180–260 and 260–360 points respectively. The library stays visible; a native
   command can show or hide the inspector.
-- A black top bar shares the window-control row and contains back/forward history, Home, and a persistent rounded search field.
+- A black native window toolbar contains back/forward history, Home, and a persistent rounded search field.
+  AppKit owns the standard window controls, their geometry, and their hit targets; do not reposition them.
   Home and Search live in that bar; the library sidebar uses an opaque neutral near-black surface.
+  Empty top-bar space supports dragging and double-clicking to toggle native window zoom.
   Navigation history clears when the account changes. Command-[ and Command-] navigate history;
   Command-L focuses search.
 - The sidebar reads Spotify’s saved custom playlist order and folder hierarchy. Folder rows
@@ -24,7 +26,10 @@
   native keyboard selection and scrolling. Sidebar rows use a pointing-hand cursor and reveal
   a play button over playlist artwork on hover; clicking the rest of the row opens its details.
   Selection uses an inset, rounded charcoal highlight;
-  hover uses a darker surface. Home and Search remain in the top bar; the sidebar
+  hover uses a darker surface. The playlist matching the playing context has a green title and
+  trailing green speaker icon for both local and Connect playback, independent of navigation
+  selection. The indicator clears when playback pauses, disconnects, or changes context.
+  Home and Search remain in the top bar; the sidebar
   has no separate Your Library destinations or app-name header.
 - The near-black inspector presents Queue and Recently played as text tabs with a green active
   underline. Rows use 48-point artwork beside title and artist; available duration and history

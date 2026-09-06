@@ -788,7 +788,7 @@ struct PlaybackReducerTests {
             #expect(
                 (missing.owner) == (.uncertain(nil)), "a stale last-remote after devices-then-track is uncertain(nil)")
             #expect(
-                (connectCommandRoute(owner: missing.owner, localDeviceID: "local")) == (.waitingForLocalIdentity),
+                (connectCommandRoute(owner: missing.owner, localDeviceID: "local")) == (.needsDeviceSelection),
                 "a stale last-remote never becomes local")
 
             var withTrack = PlaybackState(

@@ -3,10 +3,6 @@ import SwiftUI
 struct NavigationBar: View {
     @Binding var searchText: String
     let isHome: Bool
-    let canGoBack: Bool
-    let canGoForward: Bool
-    let goBack: () -> Void
-    let goForward: () -> Void
     let goHome: () -> Void
     let showSearch: () -> Void
     private enum FocusTarget: Hashable {
@@ -18,83 +14,59 @@ struct NavigationBar: View {
     @State private var searchIsHovered = false
 
     var body: some View {
-        ZStack {
-            HStack(spacing: 8) {
-                Button("Go back", systemImage: "chevron.left", action: goBack)
-                    .disabled(!canGoBack)
-                    .keyboardShortcut("[", modifiers: .command)
-                Button("Go forward", systemImage: "chevron.right", action: goForward)
-                    .disabled(!canGoForward)
-                    .keyboardShortcut("]", modifiers: .command)
-                Spacer()
+        HStack(spacing: 8) {
+            Button(action: goHome) {
+                NavigationSymbol(kind: isHome ? .homeFilled : .home)
+                    .fill(style: FillStyle(eoFill: true))
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(
+                        isHome || homeIsHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
+                    )
+                    .frame(width: 48, height: 48)
+                    .background(SpottyPalette.navigationControl, in: Circle())
             }
-            .padding(.leading, 100)
-            .padding(.trailing, 20)
-
-            HStack(spacing: 8) {
-                Button(action: goHome) {
-                    NavigationSymbol(kind: isHome ? .homeFilled : .home)
+            .onHover { homeIsHovered = $0 }
+            .accessibilityLabel("Home")
+            .help("Home")
+            .focusable()
+            .focusEffectDisabled()
+            .focused($focusedControl, equals: .home)
+            HStack(spacing: 12) {
+                Button {
+                    showSearch()
+                    focusedControl = .search
+                } label: {
+                    NavigationSymbol(kind: .search)
                         .fill(style: FillStyle(eoFill: true))
                         .frame(width: 24, height: 24)
                         .foregroundStyle(
-                            isHome || homeIsHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
+                            focusedControl == .search || searchIsHovered
+                                ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
                         )
-                        .frame(width: 48, height: 48)
-                        .background(SpottyPalette.navigationControl, in: Circle())
                 }
-                .onHover { homeIsHovered = $0 }
-                .accessibilityLabel("Home")
-                .help("Home")
-                .focusable()
-                .focusEffectDisabled()
-                .focused($focusedControl, equals: .home)
-                HStack(spacing: 12) {
-                    Button {
-                        showSearch()
-                        focusedControl = .search
-                    } label: {
-                        NavigationSymbol(kind: .search)
-                            .fill(style: FillStyle(eoFill: true))
-                            .frame(width: 24, height: 24)
-                            .foregroundStyle(
-                                focusedControl == .search || searchIsHovered
-                                    ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
-                            )
-                    }
-                    .accessibilityLabel("Search")
-                    .keyboardShortcut("l", modifiers: .command)
-                    TextField("What do you want to play?", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 16))
-                        .focused($focusedControl, equals: .search)
-                        .accessibilityLabel("Search Spotify")
-                        .onSubmit(showSearch)
-                        .onTapGesture { showSearch() }
-                }
-                .onHover { searchIsHovered = $0 }
-                .padding(.horizontal, 16)
-                .frame(maxWidth: 460)
-                .frame(height: 48)
-                .background(SpottyPalette.navigationControl, in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(focusedControl == .search ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
-                }
+                .accessibilityLabel("Search")
+                .keyboardShortcut("l", modifiers: .command)
+                TextField("What do you want to play?", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16))
+                    .focused($focusedControl, equals: .search)
+                    .accessibilityLabel("Search Spotify")
+                    .onSubmit(showSearch)
+                    .onTapGesture { showSearch() }
             }
-            // Reserve equal space for window/history controls on both sides so the
-            // Home/search group stays centered as the window changes width.
-            .padding(.horizontal, 160)
+            .onHover { searchIsHovered = $0 }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: 460)
+            .frame(height: 48)
+            .background(SpottyPalette.navigationControl, in: Capsule())
+            .overlay {
+                Capsule().strokeBorder(focusedControl == .search ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
+            }
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.plain)
         .font(.system(size: 18))
-        .padding(.vertical, 8)
-        .background {
-            Color.black
-                .contentShape(Rectangle())
-                .gesture(WindowDragGesture())
-                .allowsWindowActivationEvents(true)
-        }
-        .background { WindowButtonAlignment() }
+        .frame(width: 516)
         .onChange(of: searchText) {
             if !searchText.isEmpty { showSearch() }
         }

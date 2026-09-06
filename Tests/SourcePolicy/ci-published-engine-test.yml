@@ -20,3 +20,4 @@ invalid:
     run: |
       FOO="a#b" SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp swift build
   - 'run: true;SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp swift build'
+  - 'run: SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK+=/tmp swift build'

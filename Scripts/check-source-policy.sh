@@ -3,6 +3,10 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_root"
+if (( $# > 1 )) || [[ "${1:-}" != "" && "${1:-}" != --test-only ]]; then
+    echo "Usage: $0 [--test-only]" >&2
+    exit 2
+fi
 ast_grep="${SPOTTY_AST_GREP:-ast-grep}"
 expected_version="$(cat Scripts/ast-grep/version)"
 if ! command -v "$ast_grep" >/dev/null 2>&1; then
@@ -15,13 +19,16 @@ if [[ "$("$ast_grep" --version)" != "ast-grep $expected_version" ]]; then
 fi
 export SPOTTY_AST_GREP="$ast_grep"
 
-# Presence rules inspect a syntax tree; a missing owner file must not silently skip them.
+# Presence rules inspect a syntax tree; missing or empty owner files must not silently skip them.
 for owner in Sources/Spotty/SpottyApp.swift \
     Sources/Spotty/Spotify/PlaybackCore.swift \
     Sources/Spotty/Spotify/RustPlaybackEngine.swift; do
-    test -f "$owner" || { echo "Missing policy owner: $owner" >&2; exit 1; }
+    [[ -f "$owner" && -s "$owner" ]] || { echo "Missing or empty policy owner: $owner" >&2; exit 1; }
 done
 
 "$ast_grep" test --config sgconfig.yml --skip-snapshot-tests
 python3 -B -m unittest discover -s Scripts -p test_source_policy.py
-"$ast_grep" scan --config sgconfig.yml Sources
+# CI's ast-grep action already scans production and emits GitHub annotations.
+if [[ "${1:-}" != --test-only ]]; then
+    "$ast_grep" scan --config sgconfig.yml Sources
+fi

@@ -37,7 +37,9 @@ SPOTTY_AST_GREP=/tmp/spotty-ast-grep/node_modules/.bin/ast-grep ./Scripts/check-
 ```
 
 Rules live in `Scripts/ast-grep/rules`; allowed/forbidden fixtures live in `Tests/SourcePolicy`.
-The wrapper runs those fixtures, Python file-routing tests, and the production scan. When changing a
+The wrapper runs those fixtures, Python file-routing tests, and the production scan. CI uses the
+pinned `ast-grep/action` for scanning and the wrapper's `--test-only` mode for fixtures and owner
+presence checks. When changing a
 rule, cover comments/strings, relevant syntax variations, and file-owner exceptions. These are syntax
 policies, not type or runtime proofs: the pinned Swift grammar can recover valid Swift expressions
 as error nodes. Swift compilation remains authoritative; do not treat a clean scan as a parse check.

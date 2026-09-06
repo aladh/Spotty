@@ -24,16 +24,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install pinned ast-grep
+      - name: Read ast-grep version
+        id: ast-grep
         run: |
           set -euo pipefail
           version="$(cat Scripts/ast-grep/version)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          npm install --prefix "$RUNNER_TEMP/spotty-ast-grep" --no-audit --no-fund "@ast-grep/cli@$version"
-          echo "$RUNNER_TEMP/spotty-ast-grep/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Check source policies and rule fixtures
-        run: ./Scripts/check-source-policy.sh
+      - name: Check source policies
+        uses: ast-grep/action@cf62e780f0c88301228978d593a7784427a097a6 # v1.5.0
+        with:
+          version: ${{ steps.ast-grep.outputs.version }}
+          config: sgconfig.yml
+          paths: Sources
+
+      - name: Check rule fixtures and policy owners
+        run: ./Scripts/check-source-policy.sh --test-only
 
   rust:
     name: Rust checks

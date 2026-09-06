@@ -70,6 +70,34 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             with self.subTest(path=path, source=source):
                 self.assertEqual(self.scan(path, source), expected)
 
+    def test_wrapper_rejects_missing_or_empty_owners(self):
+        owners = [
+            "Sources/Spotty/SpottyApp.swift",
+            "Sources/Spotty/Spotify/PlaybackCore.swift",
+            "Sources/Spotty/Spotify/RustPlaybackEngine.swift",
+        ]
+        for absent in owners:
+            for empty in (False, True):
+                with self.subTest(owner=absent, empty=empty), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    (root / "Scripts/ast-grep").mkdir(parents=True)
+                    shutil.copy(ROOT / "Scripts/check-source-policy.sh", root / "Scripts")
+                    shutil.copy(ROOT / "Scripts/ast-grep/version", root / "Scripts/ast-grep")
+                    for owner in owners:
+                        path = root / owner
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        if owner != absent:
+                            path.write_text("// owner\n")
+                        elif empty:
+                            path.touch()
+                    result = subprocess.run(
+                        ["bash", str(root / "Scripts/check-source-policy.sh"), "--test-only"],
+                        env={**os.environ, "SPOTTY_AST_GREP": AST_GREP},
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn(f"Missing or empty policy owner: {absent}", result.stderr)
+
     def test_policy_still_matches_beside_recovered_swift_syntax(self):
         # The pinned tree-sitter grammar recovers some valid Swift expressions as ERROR nodes.
         # Source policy matching is lexical evidence, never a substitute for swiftc.

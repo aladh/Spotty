@@ -22,8 +22,7 @@ ASSETS = (
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
 )
-CANDIDATE_SWIFT_JOBS = ("Candidate Swift debug", "Candidate Swift release")
-REQUIRED_JOBS = ("Source policies", "Rust checks", *CANDIDATE_SWIFT_JOBS)
+REQUIRED_JOBS = ("Source policies", "Rust checks")
 
 
 def require(condition, message):
@@ -46,7 +45,7 @@ def validate_run(run, jobs, repo, source_ref):
             "Candidate must come from a main-branch push CI run")
     require(run["head_sha"] == source_ref, "CI run does not cover the reviewed source")
     require(run["status"] == "completed", "CI run is still running")
-    # Published-pin jobs can fail before an ABI-changing candidate has been published.
+    # App checks validate their published pin independently of engine publication.
     for name in REQUIRED_JOBS:
         matches = [job for job in jobs if job["name"] == name]
         require(len(matches) == 1 and matches[0]["conclusion"] == "success",
@@ -64,9 +63,6 @@ def validate_artifact(artifact, jobs):
     created = artifact["created_at"]
     require(rust["started_at"] <= created <= rust["completed_at"],
             "Artifact was not uploaded by the successful Rust job in this attempt")
-    for job in jobs:
-        if job["name"] in CANDIDATE_SWIFT_JOBS:
-            require(created <= job["started_at"], "Candidate was uploaded after Swift checks started")
 
 
 def read_payload(data):

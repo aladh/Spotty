@@ -46,8 +46,6 @@ jobs:
     name: Rust checks
     runs-on: macos-26
     timeout-minutes: 30
-    outputs:
-      candidate_needed: ${{ steps.inputs.outputs.candidate_needed }}
 
     steps:
       - name: Check out source
@@ -73,35 +71,28 @@ jobs:
 
       - name: Identify playback inputs
         id: inputs
+        env:
+          INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
           digest="$(./Backend/spotty-playback/source-input-digest.sh)"
           candidate_needed=true
-          project_root="$GITHUB_WORKSPACE"
-          source Scripts/playback-xcframework.sh
-          pin_url="$(spotty_playback_pin_value url)"
-          tag="${pin_url%/*}"
-          tag="${tag##*/}"
-          if [[ ! "$tag" =~ ^playback-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Expected a versioned playback pin (playback-vMAJOR.MINOR.PATCH), got: $tag" >&2
-            exit 1
-          fi
-          expected_pin_url="https://github.com/aladh/Spotty/releases/download/$tag/SpottyPlaybackCore.xcframework.zip"
-          if [[ "$pin_url" != "$expected_pin_url" ]]; then
-            echo "Playback pin must use the canonical Spotty release URL and XCFramework asset" >&2
-            exit 1
-          fi
-          git fetch --no-tags --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
-          input_list="$(./Backend/spotty-playback/source-input-digest.sh --print-inputs)"
-          paths=()
-          while IFS= read -r path; do paths+=("$path"); done <<< "$input_list"
-          # Include directories to detect deleted source and license files too.
-          paths+=(Backend/spotty-playback/src Scripts/playback-license-overrides)
-          if git diff --quiet "$tag" HEAD -- "${paths[@]}"; then
-            candidate_needed=false
-          else
-            diff_status=$?
-            if [[ "$diff_status" != 1 ]]; then exit "$diff_status"; fi
+          # Compare this change, not the app's independently selected engine release.
+          if [[ -n "$INPUT_BASE_SHA" && "$INPUT_BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            [[ "$INPUT_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            git fetch --no-tags --depth=1 origin "$INPUT_BASE_SHA"
+            input_list="$(./Backend/spotty-playback/source-input-digest.sh --print-inputs)"
+            paths=()
+            while IFS= read -r path; do paths+=("$path"); done <<< "$input_list"
+            # Include directories to detect deleted source and license files too.
+            paths+=(Backend/spotty-playback/src Scripts/playback-license-overrides)
+            paths+=(.github/workflows/ci.yml Backend/spotty-playback/validate-xcframework.sh)
+            if git diff --quiet "$INPUT_BASE_SHA" HEAD -- "${paths[@]}"; then
+              candidate_needed=false
+            else
+              diff_status=$?
+              if [[ "$diff_status" != 1 ]]; then exit "$diff_status"; fi
+            fi
           fi
           echo "PLAYBACK_INPUT_DIGEST=$digest" >> "$GITHUB_ENV"
           echo "candidate_needed=$candidate_needed" >> "$GITHUB_OUTPUT"
@@ -225,80 +216,6 @@ jobs:
       - name: Run checks
         run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 
-  candidate:
-    name: Candidate Swift ${{ matrix.configuration }}
-    needs: [rust]
-    if: needs.rust.outputs.candidate_needed == 'true' && needs.rust.result == 'success'
-    runs-on: macos-26
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        configuration: [debug, release]
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Select Xcode 26.6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
-
-      - name: Download candidate playback artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: playback-candidate-${{ github.sha }}
-          path: ${{ runner.temp }}/spotty-playback-candidate
-
-      - name: Block Rust tools and select candidate
-        run: |
-          set -euo pipefail
-          blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
-          mkdir -p "$blocked_tools"
-          for tool in cargo rustc rustup cbindgen; do
-            printf '#!/bin/sh\necho "%s is blocked in the Swift candidate lane" >&2\nexit 127\n' "$tool" > "$blocked_tools/$tool"
-            chmod 755 "$blocked_tools/$tool"
-          done
-          echo "$blocked_tools" >> "$GITHUB_PATH"
-          candidate_path="$RUNNER_TEMP/spotty-playback-candidate/SpottyPlaybackCore.xcframework"
-          test -d "$candidate_path"
-          echo "SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=$candidate_path" >> "$GITHUB_ENV"
-
-      - name: Install verification tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            brew install ripgrep
-          fi
-
-      - name: Show Swift toolchain
-        run: |
-          set -euo pipefail
-          {
-            swift --version
-            uname -m
-          } | tee "$RUNNER_TEMP/swift-toolchain.txt"
-          xcrun --find swift-format
-          xcrun swift-format --version
-          grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
-          echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
-
-      - name: Cache SwiftPM candidate build directory
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build/*
-            !.build/spotty-signing
-          key: macos-swiftpm-candidate-${{ matrix.configuration }}-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
-
-      - name: Run candidate Swift checks
-        env:
-          SPOTTY_BUILD_CONFIGURATION: ${{ matrix.configuration }}
-          SPOTTY_CHECK_SCOPE: swift
-        run: ./Scripts/check.sh
-
   release:
     name: Release distribution compile
     runs-on: macos-26
@@ -363,27 +280,19 @@ jobs:
   gate:
     name: Debug quality gate
     if: always()
-    needs: [policy, rust, checks, candidate, release]
+    needs: [policy, rust, checks, release]
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
       - name: Require every quality lane
         env:
-          CANDIDATE_NEEDED: ${{ needs.rust.outputs.candidate_needed }}
           POLICY_RESULT: ${{ needs.policy.result }}
           RUST_RESULT: ${{ needs.rust.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
-          CANDIDATE_RESULT: ${{ needs.candidate.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
         run: |
           test "$POLICY_RESULT" = success
           test "$RUST_RESULT" = success
           test "$CHECKS_RESULT" = success
-          if [[ "$CANDIDATE_NEEDED" == true ]]; then
-            test "$CANDIDATE_RESULT" = success
-          else
-            test "$CANDIDATE_NEEDED" = false
-            test "$CANDIDATE_RESULT" = skipped
-          fi
           test "$RELEASE_RESULT" = success

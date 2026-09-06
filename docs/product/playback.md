@@ -19,6 +19,16 @@
   If this Mac has joined Connect but the playback owner is unidentified, commands direct the user
   to choose a device, including This computer for local playback, rather than claiming startup is
   still in progress. Selecting a device is the explicit recovery path.
+### System media controls
+
+- macOS Play/Pause, Previous, and Next media keys use the same capabilities and Connect routing
+  as the Playback menu. Explicit system Play and Pause are idempotent. They never transfer playback.
+- The system Now Playing surface mirrors the current title, artist, duration, position, and transport
+  state, including an identified remote Connect owner. macOS chooses the active media app.
+- Signing out, losing the connection, or quitting clears system metadata and disables commands.
+  Closing the window leaves media controls available while Spotty continues running.
+- The isolated demo and automated tests do not register system media commands.
+
 ### Transport and progress
 
 - The black player shelf is 80 points tall, with 56-point artwork, 14-point track titles,

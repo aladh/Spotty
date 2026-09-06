@@ -23,9 +23,17 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
     /// menu and popover windows closing — those are windows too on macOS.
     private weak var trackedMainWindow: NSWindow?
     private var terminationHandler: (@MainActor () async -> Void)?
+    private var mediaControls: SystemMediaControls?
     private var terminationPending = false
     private var terminationShutdownTask: Task<Void, Never>?
     private var terminationTimeoutTask: Task<Void, Never>?
+
+    func installMediaControls(player: PlaybackStore) {
+        guard mediaControls == nil else { return }
+        let controls = SystemMediaControls(player: player, output: MacSystemMediaControlsOutput())
+        mediaControls = controls
+        controls.start()
+    }
 
     func installTerminationHandler(_ handler: @escaping @MainActor () async -> Void) {
         terminationHandler = handler
@@ -68,6 +76,7 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
+        mediaControls?.stop()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -75,6 +84,7 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
         guard let terminationHandler else { return .terminateNow }
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
+        mediaControls?.stop()
         SpottyLog.lifecycle.info("Application termination began")
 
         terminationShutdownTask = Task { [weak self] in
@@ -117,7 +127,7 @@ struct SpottyApp: App {
     }
 
     var body: some Scene {
-        SpottyScene(player: player, feedback: feedback, appDelegate: appDelegate)
+        SpottyScene(player: player, feedback: feedback, appDelegate: appDelegate, enablesSystemMediaControls: true)
     }
 }
 
@@ -126,6 +136,7 @@ struct SpottyScene: Scene {
     let player: PlaybackStore
     let feedback: TransientFeedbackPresenter
     let appDelegate: SpottyAppDelegate
+    var enablesSystemMediaControls = false
     var navigation: CatalogNavigation?
 
     var body: some Scene {
@@ -134,6 +145,7 @@ struct SpottyScene: Scene {
                 .frame(minWidth: 960, minHeight: 640)
                 .task {
                     appDelegate.installTerminationHandler { await player.shutdownForTermination() }
+                    if enablesSystemMediaControls { appDelegate.installMediaControls(player: player) }
                     await player.restore()
                 }
         }

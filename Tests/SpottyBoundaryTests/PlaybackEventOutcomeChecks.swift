@@ -369,8 +369,85 @@ private func awaitCapturedEffect(
     await settlement?.wait()
 }
 
+@MainActor
+private final class RecordingSystemMediaOutput: SystemMediaControlsOutput {
+    var handler: (@MainActor @Sendable (SystemMediaCommand) -> Bool)?
+    var snapshot: SystemMediaSnapshot?
+    var installations = 0
+    var removals = 0
+    func install(_ handler: @escaping @MainActor @Sendable (SystemMediaCommand) -> Bool) {
+        self.handler = handler
+        installations += 1
+    }
+    func update(_ snapshot: SystemMediaSnapshot?) { self.snapshot = snapshot }
+    func remove() { removals += 1; snapshot = nil }
+}
+
+private actor MediaKeyRemote: RemotePlaybackClient {
+    private(set) var destinations: [String] = []
+    private(set) var commands: [String] = []
+    func send(_ command: SpotifyConnectCommand, from _: String, to: String) async throws {
+        destinations.append(to)
+        switch command.endpoint {
+        case .pause: commands.append("pause")
+        case .resume: commands.append("resume")
+        case .next: commands.append("next")
+        case .previous: commands.append("previous")
+        default: commands.append("unexpected")
+        }
+    }
+    func trackMetadata(for _: String) async throws -> SpotifyConnectTrackMetadata {
+        throw URLError(.badServerResponse)
+    }
+}
+
 @Suite("Playback Event Outcome")
 struct PlaybackEventOutcomeTests {
+    @Test
+    @MainActor
+    func systemMediaKeysFollowRemoteOwnerAndStopWithLifetime() async {
+        let remote = MediaKeyRemote()
+        let player = playbackStore(outcomeEnvironment(remote: remote))
+        let output = RecordingSystemMediaOutput()
+        let controls = SystemMediaControls(player: player, output: output)
+        controls.start()
+        controls.start()
+        #expect(output.installations == 1)
+        #expect(output.snapshot == nil)
+        #expect(output.handler?(.toggle) == false)
+        seedReadyLocalPlayback(player, uri: "spotify:track:media-key")
+        _ = player.send(
+            .owner(.remote(PlaybackDevice(id: "speaker", name: "Speaker", type: "speaker"))),
+            source: .engineConnection)
+        #expect(await waitUntil { output.snapshot?.title == "Now" })
+        #expect(output.snapshot?.playing == true)
+        // Explicit play is idempotent and never toggles already-playing audio off.
+        #expect(output.handler?(.play) == true)
+        #expect(await remote.commands.isEmpty)
+        #expect(output.handler?(.pause) == true)
+        #expect(await waitUntil { await remote.commands.count == 1 })
+        #expect(await remote.destinations == ["speaker"])
+        #expect(await remote.commands == ["pause"])
+        #expect(await waitUntil { player.canTogglePlayback })
+        #expect(output.handler?(.next) == true)
+        #expect(await waitUntil { await remote.commands.count == 2 })
+        #expect(await remote.commands == ["pause", "next"])
+        #expect(await waitUntil { player.canSkipTrack })
+        #expect(output.handler?(.previous) == true)
+        #expect(await waitUntil { await remote.commands.count == 3 })
+        #expect(await remote.destinations == ["speaker", "speaker", "speaker"])
+        _ = player.send(.session(.signedOut), source: .account)
+        #expect(output.handler?(.toggle) == false)
+        #expect(await waitUntil { output.snapshot == nil })
+        controls.stop()
+        controls.stop()
+        #expect(output.removals == 1)
+        seedReadyLocalPlayback(player, uri: "spotify:track:after-stop")
+        #expect(output.handler?(.next) == false)
+        #expect(output.snapshot == nil)
+        await player.shutdownForTermination()
+    }
+
     @Test
     @MainActor
     func testSidebarPlaylistFollowsLocalAndRemoteContext() async {

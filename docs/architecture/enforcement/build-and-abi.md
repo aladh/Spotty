@@ -31,7 +31,9 @@ consumers validate their selected artifact; the Rust lane validates the evolving
 workflow presence, tool selection, cache integrity, and complete verification. Their executable
 owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
 [check.sh](../../../Scripts/check.sh). The required aggregate includes source policies, Rust,
-Swift/architecture, and Release compilation. Swift CI uses only published engines. Candidate builds
+Swift/architecture, and Release compilation. Rust runs on main and on PRs outside the
+[app-only scope](../../development/verification.md#normal-verification); detection failures cannot
+authorize a skip. Swift CI uses only published engines. Candidate builds
 are selected by [input comparison](../../../Scripts/playback-candidate-needed.sh); producer validation
 and publication do not depend on app compatibility with unpublished candidates.
 

@@ -78,7 +78,7 @@ class PlaybackPinTests(unittest.TestCase):
         for line, valid in cases:
             with self.subTest(line=line):
                 result = subprocess.run(["zsh", "-c", guard], capture_output=True,
-                                        env={**os.environ, "PATH": "/usr/bin:/bin", "checks_job": "  " + line, "release_job": ""})
+                                        env={**os.environ, "PATH": "/usr/bin:/bin", "macos_job": "  " + line})
                 self.assertEqual(result.returncode == 0, valid, result.stderr)
                 if valid:
                     self.assertEqual(result.stderr, b"")

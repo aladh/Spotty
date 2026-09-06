@@ -29,7 +29,7 @@ for owner in Sources/Spotty/SpottyApp.swift \
 done
 
 "$ast_grep" test --config sgconfig.yml --skip-snapshot-tests
-python3 -B -m unittest discover -s Scripts -p test_source_policy.py
+python3 -B -m unittest discover -s Scripts -p 'test_*policy.py'
 # CI's ast-grep action already scans production and emits GitHub annotations.
 if [[ "${1:-}" != --test-only ]]; then
     "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src

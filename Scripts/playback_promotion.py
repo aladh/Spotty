@@ -22,7 +22,19 @@ ASSETS = (
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
 )
-REQUIRED_JOBS = ("Source policies", "Rust checks")
+REQUIRED_JOBS = ("Source policies",)
+PRODUCER_STEPS = ("Run Rust checks", "Build candidate playback XCFramework", "Upload candidate playback artifact")
+
+
+def producer_job(jobs):
+    matches = [job for job in jobs if job["name"] == "macOS checks"]
+    require(len(matches) == 1, "Expected one macOS checks job in this run attempt")
+    job = matches[0]
+    for name in PRODUCER_STEPS:
+        steps = [step for step in job.get("steps", []) if step["name"] == name]
+        require(len(steps) == 1 and steps[0]["conclusion"] == "success",
+                f"Missing successful {name} in this run attempt")
+    return job
 
 
 def require(condition, message):
@@ -46,6 +58,7 @@ def validate_run(run, jobs, repo, source_ref):
     require(run["head_sha"] == source_ref, "CI run does not cover the reviewed source")
     require(run["status"] == "completed", "CI run is still running")
     # App checks validate their published pin independently of engine publication.
+    producer_job(jobs)
     for name in REQUIRED_JOBS:
         matches = [job for job in jobs if job["name"] == name]
         require(len(matches) == 1 and matches[0]["conclusion"] == "success",
@@ -59,10 +72,11 @@ def validate_checkout(run, source_sha):
 
 def validate_artifact(artifact, jobs):
     require(not artifact["expired"], "Candidate artifact expired; run CI again")
-    rust = next(job for job in jobs if job["name"] == "Rust checks")
+    upload = next(step for step in producer_job(jobs)["steps"]
+                  if step["name"] == "Upload candidate playback artifact")
     created = artifact["created_at"]
-    require(rust["started_at"] <= created <= rust["completed_at"],
-            "Artifact was not uploaded by the successful Rust job in this attempt")
+    require(upload["started_at"] <= created <= upload["completed_at"],
+            "Artifact was not uploaded by the successful candidate upload step in this attempt")
 
 
 def read_payload(data):

@@ -22,14 +22,15 @@ SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 
 Rust checks own header generation and producer ABI validation. Swift CI consumes only published
 artifacts, rejecting noncanonical or unversioned release URLs before dependency resolution.
+[Verification](verification.md#normal-verification) defines when app-only PRs may skip the Rust steps.
 
 ## Publish a tested candidate
 
 Publication requires explicit authorization. It promotes the exact candidate from a completed
 main-branch push CI run, without rebuilding. The source must be merged and an ancestor of the
-publisher checkout; PR and fork candidates cannot be published. Source policies and Rust must pass
-in the selected run attempt. Swift jobs validate the published app pin independently and do not gate
-engine publication. The tested commit becomes the release target. Expired artifacts or a changed
+publisher checkout; PR and fork candidates cannot be published. Source policies and the Rust verification, candidate build, and upload steps must pass
+in the selected run attempt. The artifact creation time must fall inside that upload step. Later
+Swift steps validate the published app pin independently and do not gate engine publication. The tested commit becomes the release target. Expired artifacts or a changed
 CI definition require a fresh main CI run.
 
 CI builds candidates for engine-input or build/validation infrastructure changes relative to the

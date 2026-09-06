@@ -17,12 +17,40 @@ jobs:
     name: Source policies
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      rust_needed: ${{ steps.rust-scope.outputs.rust_needed }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Select Rust verification
+        id: rust-scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo "rust_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            if [[ ! "$INPUT_BASE_SHA" =~ ^[0-9a-f]{40}$ || "$INPUT_BASE_SHA" == 0000000000000000000000000000000000000000 ]]; then
+              echo "Rust selection requires a valid PR base SHA" >&2
+              exit 1
+            fi
+            git fetch --no-tags --depth=1 origin "$INPUT_BASE_SHA"
+            if git cat-file -e "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py"; then
+              trusted_policy="$(mktemp "$RUNNER_TEMP/spotty-rust-policy.XXXXXX")"
+              trap 'rm -f "$trusted_policy"' EXIT
+              git show "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py" > "$trusted_policy"
+              python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA" >> "$GITHUB_OUTPUT"
+            else
+              # The first PR introducing this policy must verify Rust too.
+              echo "rust_needed=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Read ast-grep version
         id: ast-grep
@@ -42,10 +70,15 @@ jobs:
       - name: Check rule fixtures and policy owners
         run: ./Scripts/check-source-policy.sh --test-only
 
-  rust:
-    name: Rust checks
+  macos:
+    name: macOS checks
+    needs: [policy]
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 120
+    outputs:
+      rust_result: ${{ steps.rust.outcome }}
+      debug_result: ${{ steps.debug.outcome }}
+      release_result: ${{ steps.release.outcome }}
 
     steps:
       - name: Check out source
@@ -57,6 +90,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
 
       - name: Install pinned cbindgen
+        if: needs.policy.outputs.rust_needed == 'true'
         run: |
           set -euo pipefail
           CARGO_HOME="$RUNNER_TEMP/spotty-cbindgen-cargo" \
@@ -64,18 +98,21 @@ jobs:
           echo "$RUNNER_TEMP/spotty-cbindgen/bin" >> "$GITHUB_PATH"
 
       - name: Show Rust toolchain
+        if: needs.policy.outputs.rust_needed == 'true'
         run: |
           set -euo pipefail
           rustc --version
           echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
 
       - name: Identify playback inputs
+        if: needs.policy.outputs.rust_needed == 'true'
         id: inputs
         env:
           INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: ./Scripts/playback-candidate-needed.sh
 
       - name: Cache Rust verification products
+        if: needs.policy.outputs.rust_needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -87,6 +124,8 @@ jobs:
           restore-keys: macos-rust-debug-${{ runner.arch }}-
 
       - name: Run Rust checks
+        id: rust
+        if: needs.policy.outputs.rust_needed == 'true'
         run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 
       - name: Cache Rust release build products
@@ -134,20 +173,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  checks:
-    name: Debug and deterministic checks
-    runs-on: macos-26
-    timeout-minutes: 45
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Select Xcode 26.6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
-
       - name: Install verification tools
         run: |
           if command -v rg >/dev/null 2>&1; then
@@ -185,61 +210,16 @@ jobs:
           path: |
             .build/*
             !.build/spotty-signing
-          key: macos-swiftpm-debug-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
+          key: macos-swiftpm-combined-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
-            macos-swiftpm-debug-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
-            macos-swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
+            macos-swiftpm-combined-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
 
       - name: Run checks
+        id: debug
         run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 
-  release:
-    name: Release distribution compile
-    runs-on: macos-26
-    timeout-minutes: 45
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Select Xcode 26.6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
-
-      - name: Show toolchains
-        run: |
-          set -euo pipefail
-          {
-            swift --version
-            uname -m
-          } | tee "$RUNNER_TEMP/swift-toolchain.txt"
-          grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
-          echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
-
-      - name: Block Rust tools
-        run: |
-          set -euo pipefail
-          blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
-          mkdir -p "$blocked_tools"
-          for tool in cargo rustc rustup cbindgen; do
-            printf '#!/bin/sh\necho "%s is blocked in the Swift lane" >&2\nexit 127\n' "$tool" > "$blocked_tools/$tool"
-            chmod 755 "$blocked_tools/$tool"
-          done
-          echo "$blocked_tools" >> "$GITHUB_PATH"
-
-      - name: Cache SwiftPM release build directory
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build/*
-            !.build/spotty-signing
-          key: macos-swiftpm-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
-          restore-keys: |
-            macos-swiftpm-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
-            macos-swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
-
       - name: Compile release Spotty with SPOTTY_DISTRIBUTION
+        id: release
         run: ./Scripts/compile-release-spotty.sh
 
       - name: Report release build size
@@ -257,7 +237,7 @@ jobs:
   gate:
     name: Debug quality gate
     if: always()
-    needs: [policy, rust, checks, release]
+    needs: [policy, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -265,11 +245,19 @@ jobs:
       - name: Require every quality lane
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
-          RUST_RESULT: ${{ needs.rust.result }}
-          CHECKS_RESULT: ${{ needs.checks.result }}
-          RELEASE_RESULT: ${{ needs.release.result }}
+          RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
+          RUST_RESULT: ${{ needs.macos.outputs.rust_result }}
+          MACOS_RESULT: ${{ needs.macos.result }}
+          CHECKS_RESULT: ${{ needs.macos.outputs.debug_result }}
+          RELEASE_RESULT: ${{ needs.macos.outputs.release_result }}
         run: |
           test "$POLICY_RESULT" = success
-          test "$RUST_RESULT" = success
+          test "$MACOS_RESULT" = success
+          if [[ "$RUST_NEEDED" == true ]]; then
+            test "$RUST_RESULT" = success
+          else
+            test "$RUST_NEEDED" = false
+            test "$RUST_RESULT" = skipped
+          fi
           test "$CHECKS_RESULT" = success
           test "$RELEASE_RESULT" = success

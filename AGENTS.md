@@ -12,16 +12,13 @@ features, and optimize measured, user-visible costs.
 
 ## Working in this repository
 
-- Check `git status --short` and preserve unrelated work.
-- Before editing, read the applicable `AGENTS.md` chain. Discover tracked instruction files with
-  `git ls-files | rg '(^|/)AGENTS\.md$'` from the repository root.
-- Load only relevant documents; inspect the affected implementation, checks, and recent history,
-  using the [documentation index](docs/README.md) to find canonical owners rather than duplicating
-  their rules.
+- Preserve unrelated work and follow the applicable `AGENTS.md` chain.
+- Use the [documentation index](docs/README.md) when the task needs a product contract or development
+  procedure; load only the relevant guidance.
 - Reviews, explanations, diagnoses, and plans are read-only unless changes are requested.
-  For changes, complete in-scope work and non-destructive validation without routine approval.
-- Spotty is maintained exclusively by agents: complete agent-operable work and report unperformed
-  acceptance steps honestly.
+- For changes, continue through implementation, focused validation, and fixes for failures caused by
+  the change. Spotty is maintained exclusively by agents; finish agent-operable work within the
+  authorized scope and report any remaining blocker or unperformed acceptance step.
 - PR requests authorize branch/commit/push, opening the PR, and addressing automated review per
   [agent operations](CONTRIBUTING.md#pull-request-execution). They do not authorize merging,
   tagging, releases, repository settings, or unrelated issue mutations.
@@ -57,8 +54,6 @@ or interactive acceptance.
 ## Code, test, and documentation quality
 
 - Follow YAGNI principles, and prefer one-liner solutions.
-- Tests must catch plausible behavioral failures, not mirror implementation or duplicate coverage.
-- Skip obvious comments and production hooks added solely to test trivial code.
 - Document intent, usage, and non-obvious constraints; let code describe mechanics. Link to the
   implementation instead of maintaining a prose copy of its steps, variables, or configuration.
   Keep concrete commands and details when needed to use, verify, or safely change the system.
@@ -68,7 +63,9 @@ or interactive acceptance.
 
 ## Local verification
 
-Run the smallest focused check that exercises the change; commands are in
+Choose verification proportional to the changed behavior; documentation-only edits need no app build.
+Fix and rerun affected checks without routine approval; broaden verification when failures or remaining
+risk justify it. Commands are in
 [build and verification](docs/development/verification.md#normal-verification). Reserve `./Scripts/check-clean.sh` for
 clean-build changes or diagnosis requiring a clean rebuild. PR CI covers Rust, Swift/Debug, and
 Release compilation but does not run that clean-room gate.

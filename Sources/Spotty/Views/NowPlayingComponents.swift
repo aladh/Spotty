@@ -49,13 +49,18 @@ struct NowPlayingProgress: View {
 
     var body: some View {
         GeometryReader { proxy in
-            PlaybackProgressDrawing(
-                position: player.displayedPosition(at: Date()),
-                duration: player.duration,
-                isPlaying: player.showsPauseControl && !reduceMotion,
-                hasTrack: player.hasCurrentTrack,
-                isHovering: isHovering
-            )
+            ZStack {
+                Color.clear
+                PlaybackProgressDrawing(
+                    position: player.displayedPosition(at: Date()),
+                    duration: player.duration,
+                    isPlaying: player.showsPauseControl && !reduceMotion,
+                    hasTrack: player.hasCurrentTrack,
+                    isHovering: isHovering,
+                    reduceMotion: reduceMotion
+                )
+                .allowsHitTesting(false)
+            }
             .contentShape(Rectangle())
             .onTapGesture { point in
                 guard player.canStartPlayback, player.hasCurrentTrack, player.duration > 0 else { return }
@@ -73,7 +78,6 @@ struct NowPlayingProgress: View {
         .accessibilityValue(accessibilityValue)
         .accessibilityAdjustableAction(adjust)
         .frame(height: 16)
-        .animationIfAllowed(.snappy(duration: 0.2), value: isHovering, reduceMotion: reduceMotion)
     }
 
     private func fraction(at date: Date) -> Double {

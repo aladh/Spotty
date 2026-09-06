@@ -10,6 +10,7 @@ struct PlaybackProgressDrawing: NSViewRepresentable {
     let isPlaying: Bool
     let hasTrack: Bool
     let isHovering: Bool
+    let reduceMotion: Bool
 
     func makeNSView(context: Context) -> ProgressView { ProgressView() }
 
@@ -46,9 +47,17 @@ struct PlaybackProgressDrawing: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         func update(_ state: PlaybackProgressDrawing) {
+            let previous = self.state
             self.state = state
             anchoredAt = Date()
             render()
+            if previous?.isHovering != state.isHovering && !state.reduceMotion {
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = previous?.isHovering == true ? 1 : 0
+                fade.toValue = state.isHovering ? 1 : 0
+                fade.duration = 0.2
+                thumb.add(fade, forKey: "hover")
+            }
         }
 
         override func layout() {
@@ -58,6 +67,11 @@ struct PlaybackProgressDrawing: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            render()
+        }
+
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
             render()
         }
 
@@ -78,13 +92,19 @@ struct PlaybackProgressDrawing: NSViewRepresentable {
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            stopAnimation()
+            fill.removeAnimation(forKey: "playbackProgress")
+            thumb.removeAnimation(forKey: "playbackProgress")
+            for sublayer in [rail, fill, thumb] {
+                sublayer.contentsScale = window?.backingScaleFactor ?? 1
+            }
             rail.frame = CGRect(x: 0, y: bounds.midY - 2, width: width, height: 4)
             fill.isHidden = !state.hasTrack
-            thumb.isHidden = !state.hasTrack || !state.isHovering
-            fill.backgroundColor = NSColor(
-                state.isHovering ? SpottyPalette.mediaGreen : SpottyPalette.playerPrimary
-            ).cgColor
+            thumb.isHidden = !state.hasTrack
+            thumb.opacity = state.isHovering ? 1 : 0
+            fill.backgroundColor =
+                NSColor(
+                    state.isHovering ? SpottyPalette.mediaGreen : SpottyPalette.playerPrimary
+                ).cgColor
             fill.position = CGPoint(x: 0, y: bounds.midY)
             fill.bounds = CGRect(x: 0, y: 0, width: animates ? width : x, height: 4)
             thumb.bounds = CGRect(x: 0, y: 0, width: 12, height: 12)

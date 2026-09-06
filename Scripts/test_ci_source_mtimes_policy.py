@@ -19,7 +19,7 @@ class SourceTimestampTests(unittest.TestCase):
             for name in ("same", "changed", "removed", "link"):
                 (root / "Sources" / name).write_text("old")
             (root / "Package.swift").write_text("manifest")
-            (root / "README.md").write_text("docs")
+            (root / "README.md").write_text("old")
             subprocess.run(["git", "add", "."], cwd=root, check=True)
             old = 1_700_000_000_000_000_000
             new = old + 10_000_000_000
@@ -36,7 +36,7 @@ class SourceTimestampTests(unittest.TestCase):
                 os.utime(root / "Sources" / name, ns=(new, new))
             docs_time = (root / "README.md").stat().st_mtime_ns
             # Even a content-matching manifest entry cannot change an excluded path.
-            saved["README.md"] = {"sha256": hashlib.sha256(b"docs").hexdigest(), "mtime_ns": old}
+            saved["README.md"] = {"sha256": hashlib.sha256(b"old").hexdigest(), "mtime_ns": old}
             restore(root, saved)
             self.assertEqual((root / "Sources/same").stat().st_mtime_ns, old)
             for name in ("changed", "new"):

@@ -8,7 +8,7 @@ import textwrap
 import unittest
 from unittest.mock import patch
 
-from ci_rust_policy import rust_needed
+from ci_rust_policy import verification_needed
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -60,7 +60,51 @@ class RustSelectionTests(unittest.TestCase):
                      ".swift-format", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md"):
             self.write(name)
         self.commit()
-        self.assertFalse(rust_needed("pull_request", self.base, self.root))
+        self.assertFalse(verification_needed("pull_request", self.base, self.root)["rust_needed"])
+
+    def test_documentation_and_nested_agent_guidance_skip_both_toolchains(self):
+        for name in ("AGENTS.md", "Tests/AGENTS.md", "Sources/SpottyPlaybackCore/AGENTS.md",
+                     "Backend/spotty-playback/AGENTS.md", ".github/AGENTS.md", "Scripts/AGENTS.md",
+                     "README.md", "CONTRIBUTING.md", "SECURITY.md", "PRIVACY.md",
+                     "docs/development/guide.md", "docs/images/overview.png"):
+            self.write(name)
+        self.commit()
+        self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                         {"rust_needed": False, "macos_needed": False})
+        (self.root / "runner-temp").mkdir()
+        result, output = self.select_via_workflow()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "rust_needed=false\nmacos_needed=false\n")
+
+    def test_mixed_docs_and_app_change_keeps_macos(self):
+        self.write("Tests/AGENTS.md")
+        self.write("Sources/Spotty/View.swift")
+        self.commit()
+        self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                         {"rust_needed": False, "macos_needed": True})
+
+    def test_rename_engine_into_documentation_keeps_both_toolchains(self):
+        (self.root / "Backend/spotty-playback/src/lib.rs").rename(self.root / "AGENTS.md")
+        self.commit()
+        self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                         {"rust_needed": True, "macos_needed": True})
+
+    def test_unknown_documentation_extension_keeps_macos(self):
+        self.write("docs/generator.py")
+        self.commit()
+        self.assertTrue(verification_needed("pull_request", self.base, self.root)["macos_needed"])
+
+    def test_legacy_base_policy_without_macos_output_remains_supported(self):
+        self.write("Scripts/ci_rust_policy.py", 'print("rust_needed=false")\n')
+        self.base = self.commit()
+        self.write("Tests/AGENTS.md")
+        self.commit()
+        (self.root / "runner-temp").mkdir()
+        result, output = self.select_via_workflow()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "rust_needed=false\n")
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn("macos_needed: ${{ steps.rust-scope.outputs.macos_needed != 'false' }}", workflow)
 
     def test_engine_headers_ci_scripts_licenses_and_unknown_paths_run_rust(self):
         for name in ("Backend/spotty-playback/src/lib.rs", "Backend/spotty-playback/tests/new.rs",
@@ -71,28 +115,28 @@ class RustSelectionTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.write(name)
                 self.commit()
-                self.assertTrue(rust_needed("pull_request", self.base, self.root))
+                self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
                 self.base = self.git("rev-parse", "HEAD")
 
     def test_deletion_and_rename_out_of_engine_scope_run_rust(self):
         source = self.root / "Backend/spotty-playback/src/lib.rs"
         source.rename(self.root / "docs-renamed.rs")
         self.commit()
-        self.assertTrue(rust_needed("pull_request", self.base, self.root))
+        self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
         # Repeat with an app destination: rename detection must not hide the old engine path.
         self.git("reset", "--hard", self.base)
         source.rename(self.root / "Sources/Spotty/renamed.swift")
         self.commit()
-        self.assertTrue(rust_needed("pull_request", self.base, self.root))
+        self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
         self.git("reset", "--hard", self.base)
         source.unlink()
         self.commit()
-        self.assertTrue(rust_needed("pull_request", self.base, self.root))
+        self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
 
     def test_filename_newline_does_not_hide_unknown_path(self):
         self.write("unexpected\nSources/Spotty/View.swift")
         self.commit()
-        self.assertTrue(rust_needed("pull_request", self.base, self.root))
+        self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
 
     def select_via_workflow(self):
         script = workflow_script("Select Rust verification")
@@ -110,7 +154,7 @@ class RustSelectionTests(unittest.TestCase):
         self.commit()
         result, output = self.select_via_workflow()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output, "rust_needed=true\n")
+        self.assertEqual(output, "rust_needed=true\nmacos_needed=true\n")
 
     def test_workflow_without_a_base_policy_requires_rust(self):
         (self.root / "Scripts/ci_rust_policy.py").unlink()
@@ -119,7 +163,7 @@ class RustSelectionTests(unittest.TestCase):
         self.commit()
         result, output = self.select_via_workflow()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output, "rust_needed=true\n")
+        self.assertEqual(output, "rust_needed=true\nmacos_needed=true\n")
 
     def test_workflow_skips_app_only_changes_with_existing_base_policy(self):
         (self.root / "runner-temp").mkdir()
@@ -127,20 +171,21 @@ class RustSelectionTests(unittest.TestCase):
         self.commit()
         result, output = self.select_via_workflow()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output, "rust_needed=false\n")
+        self.assertEqual(output, "rust_needed=false\nmacos_needed=true\n")
 
     def test_main_and_other_events_always_run_without_a_base(self):
         for event in ("push", "workflow_dispatch", "unknown"):
             with self.subTest(event=event):
-                self.assertTrue(rust_needed(event, "", self.root))
+                self.assertEqual(verification_needed(event, "", self.root),
+                                 {"rust_needed": True, "macos_needed": True})
 
     def test_invalid_or_missing_pr_history_fails_closed(self):
         for base in ("", "0" * 40, "not-a-sha", "f" * 40):
             with self.subTest(base=base), self.assertRaises((ValueError, subprocess.CalledProcessError)):
-                rust_needed("pull_request", base, self.root)
+                verification_needed("pull_request", base, self.root)["rust_needed"]
         with patch("ci_rust_policy.subprocess.check_output", side_effect=subprocess.CalledProcessError(128, "git diff")):
             with self.assertRaises(subprocess.CalledProcessError):
-                rust_needed("pull_request", self.base, self.root)
+                verification_needed("pull_request", self.base, self.root)["rust_needed"]
 
 
 class ConsolidatedWorkflowTests(unittest.TestCase):
@@ -150,13 +195,14 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         macos = workflow.split("  macos:\n", 1)[1]
         self.assertNotRegex(macos, r"(?m)^  [^ #\s]",
                             "macOS must remain the final CI job; update the job extractor if this changes")
+        self.assertIn("if: needs.policy.outputs.macos_needed == 'true'", macos)
         steps = {}
         for block in macos.split("      - name: ")[1:]:
             name, body = block.split("\n", 1)
             self.assertNotIn(name, steps)
             steps[name] = body
         for name in ("Install pinned cbindgen", "Show Rust toolchain", "Identify playback inputs",
-                     "Cache Rust verification products", "Run Rust checks"):
+                     "Cache pinned cbindgen", "Cache Rust verification products", "Run Rust checks"):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
@@ -176,7 +222,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
                         "CHECKS_RESULT: ${{ steps.debug.outcome }}",
                         "RELEASE_RESULT: ${{ steps.release.outcome }}"):
             self.assertIn(binding, gate)
-        ordered = ("Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",
+        ordered = ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",
                    "Upload candidate playback artifact", "Block Rust tools", "Run checks",
                    "Compile release Spotty with SPOTTY_DISTRIBUTION")
         for name in ordered:
@@ -184,11 +230,56 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         positions = [names.index(name) for name in ordered]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("continue-on-error:", macos)
+        cbindgen_cache = steps["Cache pinned cbindgen"]
+        self.assertIn("${{ env.CBINDGEN_VERSION }}", cbindgen_cache)
+        self.assertIn("${{ env.RUST_TOOLCHAIN_KEY }}", cbindgen_cache)
+        self.assertIn("${{ runner.arch }}", cbindgen_cache)
+        self.assertNotIn("restore-keys:", cbindgen_cache)
         cache = steps["Cache SwiftPM build directory"]
         self.assertEqual(macos.count("path: |\n            .build/*"), 1)
         self.assertIn("!.build/spotty-signing", cache)
         self.assertNotIn("macos-swiftpm-debug-", cache)
         self.assertNotIn("macos-swiftpm-release-", cache)
+
+
+class SelectionValidationTests(unittest.TestCase):
+    def test_only_consistent_boolean_selections_or_legacy_output_are_accepted(self):
+        script = workflow_script("Validate verification selection")
+        for rust in ("true", "false", "", "invalid"):
+            for macos in ("true", "false", "", "invalid"):
+                with self.subTest(rust=rust, macos=macos):
+                    result = subprocess.run(["bash", "-c", script], capture_output=True,
+                                            env={**os.environ, "RUST_NEEDED": rust, "MACOS_NEEDED": macos})
+                    expected = (rust, macos) in (("true", "true"), ("false", "true"),
+                                                ("false", "false"), ("true", ""), ("false", ""))
+                    self.assertEqual(result.returncode == 0, expected)
+
+
+class CbindgenCacheTests(unittest.TestCase):
+    def test_verified_binary_reuse_and_missing_or_wrong_version_repair(self):
+        script = workflow_script("Install pinned cbindgen")
+        for cached in (None, "0.29.3", "0.29.4"):
+            with self.subTest(cached=cached), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                binary = root / "spotty-cbindgen/bin/cbindgen"
+                binary.parent.mkdir(parents=True)
+                if cached:
+                    binary.write_text(f'#!/bin/sh\necho "cbindgen {cached}"\n')
+                    binary.chmod(0o755)
+                cargo = root / "cargo"
+                cargo.write_text('''#!/bin/sh
+set -eu
+echo invoked >> "$RUNNER_TEMP/cargo-calls"
+printf '#!/bin/sh\\necho "cbindgen %s"\\n' "$CBINDGEN_VERSION" > "$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
+chmod +x "$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
+''')
+                cargo.chmod(0o755)
+                env = {**os.environ, "PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root),
+                       "CBINDGEN_VERSION": "0.29.4", "GITHUB_PATH": str(root / "github-path")}
+                result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "cargo-calls").exists(), cached != "0.29.4")
+                self.assertEqual((root / "github-path").read_text(), str(binary.parent) + "\n")
 
 
 class AggregateGateTests(unittest.TestCase):

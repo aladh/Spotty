@@ -27,7 +27,8 @@ a Swift parse guarantee. Review owner scope when introducing files or new syntax
 Additional owners:
 
 - `SRC-PROJ-001`: [compiler access probes](../../../Scripts/check-playback-projection-access.sh).
-- `SRC-HYG-002`–`004`: [check.sh](../../../Scripts/check.sh), gitignore, and privacy review.
+- `SRC-HYG-002`–`004`: [repository-text checks](../../../Scripts/check-source-policy.sh),
+  [artifact hygiene](../../../Scripts/check.sh), gitignore, and privacy review.
 - `SRC-SIGN-001`: signing assertions in [check.sh](../../../Scripts/check.sh), plus the
   [signing contract](../../development/signing.md). Spelling checks do not establish Keychain trust.
 

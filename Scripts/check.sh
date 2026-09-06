@@ -231,11 +231,6 @@ if [[ ! -d "$project_root/Tests/SpottyDomainTests" || ! -d "$project_root/Tests/
     exit 1
 fi
 
-if rg -n "MockCatalog|PlaybackController|demo catalog" \
-    "$project_root/README.md"; then
-    print -u2 "Mock catalog references remain"
-    exit 1
-fi
 
 # Public-repository hygiene. Generated bundles, archives, diagnostics, and finder metadata must
 # never become source inputs or silently return in a later commit.
@@ -249,13 +244,6 @@ if git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fi
 fi
 
-if rg -n 'security@example\.com|replace this placeholder' \
-    "$project_root/README.md" \
-    "$project_root/SECURITY.md" \
-    "$project_root/CONTRIBUTING.md"; then
-    print -u2 "A public-facing security-contact placeholder remains"
-    exit 1
-fi
 
 # The CI quality gates must keep using an existing runner rg, immutable playback inputs,
 # one shared Debug/Release SwiftPM cache, Rust-free Swift lanes, and credential-free checkouts.

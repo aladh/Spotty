@@ -20,13 +20,14 @@ a Swift parse guarantee. Review owner scope when introducing files or new syntax
 | `SRC-DEP-001` | Live dependency construction stays out of views and feature stores |
 | `SRC-ISO-001`, `SRC-INOUT-001` | Unsafe isolation escapes and split revision ownership |
 | `SRC-UI-001`, `SRC-DUP-004` | Appearance ownership and unsupported drag APIs |
+| `SRC-HYG-001`, `CI-TOOL-001`, `ABI-ARC-001` | Retired Swift symbols; syntax-only facets of Rust-free app scripts and workflow action/credential/published-engine policies |
 | `SRC-KEY-001` | Retired Keychain APIs |
 | `SRC-RUST-FFI-001`, `SRC-RUST-PLAY-001` | Panic-barrier/runtime entry and playing-event write ownership |
 
 Additional owners:
 
 - `SRC-PROJ-001`: [compiler access probes](../../../Scripts/check-playback-projection-access.sh).
-- `SRC-HYG-001`–`004`: [check.sh](../../../Scripts/check.sh), gitignore, and privacy review.
+- `SRC-HYG-002`–`004`: [check.sh](../../../Scripts/check.sh), gitignore, and privacy review.
 - `SRC-SIGN-001`: signing assertions in [check.sh](../../../Scripts/check.sh), plus the
   [signing contract](../../development/signing.md). Spelling checks do not establish Keychain trust.
 

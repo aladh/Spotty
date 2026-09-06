@@ -1,0 +1,16 @@
+id: app-script-rust-free
+language: Bash
+severity: error
+message: App build and packaging scripts must not invoke Rust tools or consume source-built archives.
+files:
+  - 'Scripts/compile-release-spotty.sh'
+  - 'Scripts/package-app.sh'
+  - 'Scripts/report-size.sh'
+  - 'Scripts/playback-xcframework.sh'
+  - 'Scripts/swiftpm-env.sh'
+rule:
+  any:
+    - kind: word
+    - kind: string
+    - kind: raw_string
+  regex: '(^|[^[:alnum:]_])(cargo|rustc|rustup|cbindgen)([^[:alnum:]_]|$)|Backend/lib|libspotty_playback'

@@ -15,7 +15,7 @@ concurrency:
 jobs:
   policy:
     name: Source policies
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       rust_needed: ${{ steps.rust-scope.outputs.rust_needed }}
@@ -65,7 +65,7 @@ jobs:
         with:
           version: ${{ steps.ast-grep.outputs.version }}
           config: sgconfig.yml
-          paths: Sources Backend/spotty-playback/src
+          paths: Sources Backend/spotty-playback/src Scripts .github/workflows
 
       - name: Check rule fixtures and policy owners
         run: ./Scripts/check-source-policy.sh --test-only
@@ -75,11 +75,6 @@ jobs:
     needs: [policy]
     runs-on: macos-26
     timeout-minutes: 120
-    outputs:
-      rust_result: ${{ steps.rust.outcome }}
-      debug_result: ${{ steps.debug.outcome }}
-      release_result: ${{ steps.release.outcome }}
-
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -234,25 +229,16 @@ jobs:
           path: ${{ runner.temp }}/size-report.json
           retention-days: 30
 
-  gate:
-    name: Debug quality gate
-    if: always()
-    needs: [policy, macos]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
       - name: Require every quality lane
+        if: always()
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
           RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
-          RUST_RESULT: ${{ needs.macos.outputs.rust_result }}
-          MACOS_RESULT: ${{ needs.macos.result }}
-          CHECKS_RESULT: ${{ needs.macos.outputs.debug_result }}
-          RELEASE_RESULT: ${{ needs.macos.outputs.release_result }}
+          RUST_RESULT: ${{ steps.rust.outcome }}
+          CHECKS_RESULT: ${{ steps.debug.outcome }}
+          RELEASE_RESULT: ${{ steps.release.outcome }}
         run: |
           test "$POLICY_RESULT" = success
-          test "$MACOS_RESULT" = success
           if [[ "$RUST_NEEDED" == true ]]; then
             test "$RUST_RESULT" = success
           else

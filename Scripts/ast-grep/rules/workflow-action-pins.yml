@@ -1,0 +1,21 @@
+id: workflow-action-pins
+language: Yaml
+severity: error
+message: Pin external GitHub Actions to a full commit SHA.
+files:
+  - '.github/workflows/*.yml'
+rule:
+  any:
+    - kind: block_mapping_pair
+    - kind: flow_pair
+  all:
+    - has:
+        field: key
+        regex: '^["'']?uses["'']?$'
+    - has:
+        field: value
+        all:
+          - not:
+              regex: '^["'']?\./'
+          - not:
+              regex: '^["'']?[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+@[0-9a-f]{40}["'']?$'

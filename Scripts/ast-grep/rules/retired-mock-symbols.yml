@@ -1,0 +1,11 @@
+id: retired-mock-symbols
+language: Swift
+severity: error
+message: Retired mock catalog and playback controller symbols must not return to production.
+files:
+  - 'Sources/**/*.swift'
+rule:
+  any:
+    - kind: simple_identifier
+    - kind: type_identifier
+  regex: '^(MockCatalog|PlaybackController)$'

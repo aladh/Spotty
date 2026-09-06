@@ -30,7 +30,8 @@ consumers validate their selected artifact; the Rust lane validates the evolving
 `CI-WF-001`, `CI-RG-001`, `CI-RUST-001`, `CI-FMT-001`, `CI-REL-001`, and `CI-TOOL-001` cover
 workflow presence, tool selection, cache integrity, and complete verification. Their executable
 owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
-[check.sh](../../../Scripts/check.sh). The required aggregate includes source policies, Rust,
+[check.sh](../../../Scripts/check.sh). [Source policies](source-checks.md) cover the syntax-only
+facets of `CI-TOOL-001` and `ABI-ARC-001`; artifact validation and build execution remain here. The required aggregate includes source policies, Rust,
 Swift/architecture, and Release compilation. Rust runs on main and on PRs outside the
 [app-only scope](../../development/verification.md#normal-verification); detection failures cannot
 authorize a skip. Swift CI uses only published engines. Candidate builds

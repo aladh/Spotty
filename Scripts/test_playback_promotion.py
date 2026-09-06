@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import unittest
+from pathlib import Path
 import zipfile
 
 from playback_promotion import (
@@ -13,6 +14,7 @@ from playback_promotion import (
 HEAD = "a" * 40
 BASE = "b" * 40
 DIGEST = "d" * 64
+WORKFLOW = (Path(__file__).resolve().parent.parent / ".github/workflows/ci.yml").read_bytes()
 
 
 def zip_bytes(files):
@@ -77,7 +79,7 @@ class PromotionTests(unittest.TestCase):
             artifacts=[{**self.artifact, "name": f"playback-candidate-{HEAD}",
                         "digest": "sha256:" + hashlib.sha256(bundle).hexdigest()}],
             bundle=bundle,
-            comparison="ahead", workflow_bytes=b"trusted CI", trusted_ci=b"trusted CI",
+            comparison="ahead", workflow_bytes=WORKFLOW, trusted_ci=WORKFLOW,
             source_ref=HEAD, repo="owner/repo")
 
     def test_complete_promotion_returns_exact_publication_bytes(self):
@@ -99,6 +101,21 @@ class PromotionTests(unittest.TestCase):
                        {"comparison": "diverged"}, {"comparison": "behind"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 promote(**{**self.promotion_inputs(), **change})
+
+    def test_consumer_or_linux_image_changes_do_not_invalidate_candidate(self):
+        args = self.promotion_inputs()
+        self.assertIn(b"ubuntu-latest", WORKFLOW)
+        self.assertIn(b"id: debug", WORKFLOW)
+        args["trusted_ci"] = WORKFLOW.replace(b"ubuntu-latest", b"ubuntu-24.04").replace(
+            b"id: debug", b"id: debug # consumer change")
+        promote(**args)
+
+    def test_changed_producer_or_source_policy_invalidates_candidate(self):
+        for old, new in ((b"--for-publish", b"--for-publish --changed"),
+                         (b"contents: read", b"contents: write"),
+                         (b"--test-only", b"--skip-tests")):
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                promote(**{**self.promotion_inputs(), "trusted_ci": WORKFLOW.replace(old, new)})
 
     def test_promotion_rejects_missing_asset(self):
         args = self.promotion_inputs()

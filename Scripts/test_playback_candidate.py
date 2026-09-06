@@ -25,6 +25,9 @@ class CandidateSelectionTests(unittest.TestCase):
                 shutil.copytree(ROOT / name, target, dirs_exist_ok=True)
             else:
                 shutil.copy2(ROOT / name, target)
+        workflow = self.root / ".github/workflows/ci.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / ".github/workflows/ci.yml", workflow)
         # The digest enumerates this directory even when it has no extra licenses.
         (self.root / "Scripts/playback-license-overrides").mkdir(exist_ok=True)
         self.git("init", "-q")
@@ -69,7 +72,6 @@ class CandidateSelectionTests(unittest.TestCase):
     def test_engine_addition_deletion_and_infrastructure_trigger_candidate(self):
         for path, delete in (("Backend/spotty-playback/src/extra.rs", False),
                              ("Backend/spotty-playback/src/tests.rs", True),
-                             (".github/workflows/ci.yml", False),
                              ("Backend/spotty-playback/validate-xcframework.sh", False)):
             with self.subTest(path=path):
                 target = self.root / path
@@ -82,6 +84,29 @@ class CandidateSelectionTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(output, "candidate_needed=true\n")
                 self.base = self.git("rev-parse", "HEAD")
+
+    def test_unrelated_workflow_change_does_not_build_candidate(self):
+        workflow = self.root / ".github/workflows/ci.yml"
+        self.assertIn("ubuntu-latest", workflow.read_text())
+        self.assertIn("id: debug", workflow.read_text())
+        workflow.write_text(workflow.read_text().replace("ubuntu-latest", "ubuntu-24.04")
+                            .replace("id: debug", "id: debug # consumer change"))
+        self.commit()
+        result, output = self.select()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "candidate_needed=false\n")
+
+    def test_producer_workflow_change_or_unknown_layout_builds_candidate(self):
+        workflow = self.root / ".github/workflows/ci.yml"
+        original = workflow.read_text()
+        for changed in (original.replace("--for-publish", "--for-publish --changed"),
+                        original.replace("contents: read", "contents: write"), "jobs: {}\n"):
+            with self.subTest(workflow=changed[:60]):
+                workflow.write_text(changed)
+                self.commit()
+                result, output = self.select()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output, "candidate_needed=true\n")
 
     def test_initial_push_builds_conservatively(self):
         for base in ("", "0" * 40):

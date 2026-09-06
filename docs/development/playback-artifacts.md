@@ -28,16 +28,18 @@ artifacts, rejecting noncanonical or unversioned release URLs before dependency 
 
 Publication requires explicit authorization. It promotes the exact candidate from a completed
 main-branch push CI run, without rebuilding. The source must be merged and an ancestor of the
-publisher checkout; PR and fork candidates cannot be published. Source policies and the Rust verification, candidate build, and upload steps must pass
-in the selected run attempt. The artifact creation time must fall inside that upload step. Later
-Swift steps validate the published app pin independently and do not gate engine publication. The tested commit becomes the release target. Expired artifacts or a changed
-CI definition require a fresh main CI run.
+publisher checkout; PR and fork candidates cannot be published. Source policies and the Rust
+verification, candidate build, and upload steps must pass in the selected run attempt. The artifact
+creation time must fall inside that upload step. Later Swift steps validate the published app pin
+independently and do not gate engine publication. The tested commit becomes the release target.
+Expired artifacts or a changed producer CI definition require a fresh main CI run.
 
-CI builds candidates for engine-input or build/validation infrastructure changes relative to the
-PR base or previous main push. Unrelated app-only changes do not rebuild unpublished engines; select
-the earlier engine-changing main run when the latest run has no candidate. Missing bases build
-conservatively, while comparison failures fail CI. An app change requiring a newer ABI must update
-its published pin.
+CI builds candidates for engine-input or engine build/validation script changes relative to the
+PR base or previous main push. Unrelated Swift-phase or Ubuntu-image edits do not build candidates
+or invalidate an existing candidate; producer, source-policy, and workflow trust changes still do.
+Select the earlier engine-changing main run when the latest run has no candidate. Missing bases or
+unrecognized workflow layouts build conservatively; Git comparison failures fail CI. An app change
+requiring a newer ABI must update its published pin.
 
 Use the completed main push run's head SHA and run ID. Add `-f dry_run=true` to validate without
 publishing:

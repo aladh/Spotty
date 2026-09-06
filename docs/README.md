@@ -14,7 +14,7 @@ contracts and records.
 - [Build and verification](development/verification.md): launch, formatting, tests, and diagnostics.
 - [Playback binary artifacts](development/playback-artifacts.md): local candidates, publication, and app pins.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.
-- [OpenCode review](development/opencode-review.md): advisory PR review operation and limits.
+- [Thermos review](development/thermos-review.md): advisory PR review operation and limits.
 
 ## Product
 

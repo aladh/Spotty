@@ -378,7 +378,7 @@ struct PlaybackEventOutcomeTests {
         seedReadyLocalPlayback(player, uri: "spotify:track:indicator")
         player.hasReceivedPlaybackSnapshot = true
         let access = CatalogPlaybackAccess(player: player)
-        func observe(_ context: String, playing: Bool, local: Bool, revision: UInt64) {
+        func observe(_ context: String?, playing: Bool, local: Bool, revision: UInt64) {
             player.receive(
                 RustPlaybackState(
                     revision: revision, sessionGeneration: player.engineGeneration,
@@ -405,6 +405,14 @@ struct PlaybackEventOutcomeTests {
         observe("spotify:playlist:remote", playing: false, local: false, revision: 3)
         #expect(!access.isPlayingPlaylist("spotify:playlist:remote"))
         observe("spotify:playlist:remote", playing: true, local: false, revision: 4)
+        // Local transport samples omit context; absence preserves the accepted context.
+        observe(nil, playing: true, local: true, revision: 5)
+        #expect(access.isPlayingPlaylist("spotify:playlist:remote"))
+        // A full protocol snapshot uses an empty string to explicitly clear context.
+        observe("", playing: true, local: true, revision: 6)
+        #expect(player.playingContextURI == nil)
+        #expect(!access.isPlayingPlaylist("spotify:playlist:remote"))
+        observe("spotify:playlist:remote", playing: true, local: false, revision: 7)
         _ = player.send(.session(.signedOut), source: .account)
         #expect(!access.isPlayingPlaylist("spotify:playlist:remote"))
         await player.shutdownForTermination()

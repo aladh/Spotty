@@ -25,7 +25,8 @@ final class PlaybackKeyboardControls {
                     window != nil && window === app.mainWindow
                     && window === app.keyWindow && window?.attachedSheet == nil && app.modalWindow == nil
                 return self?.handle(
-                    event, firstResponder: window?.firstResponder, isPlaybackWindow: isPlaybackWindow
+                    event, firstResponder: window?.firstResponder, isPlaybackWindow: isPlaybackWindow,
+                    focusedRole: (app.accessibilityFocusedUIElement as? NSAccessibilityProtocol)?.accessibilityRole()
                 ) == true
             }
             return consumed ? nil : event
@@ -38,16 +39,24 @@ final class PlaybackKeyboardControls {
         self.monitor = nil
     }
 
-    /// Returns whether the event was consumed, including repeats and unavailable
-    /// playback, so holding Space can never toggle repeatedly or fall through.
-    func handle(_ event: NSEvent, firstResponder: NSResponder?, isPlaybackWindow: Bool) -> Bool {
+    /// Accessibility roles also cover controls hosted inside SwiftUI responders.
+    func handle(
+        _ event: NSEvent, firstResponder: NSResponder?, isPlaybackWindow: Bool,
+        focusedRole: NSAccessibility.Role? = nil
+    ) -> Bool {
         guard isRunning, isPlaybackWindow, event.type == .keyDown,
             event.charactersIgnoringModifiers == " ",
-            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+            event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift, .function])
         else { return false }
         if firstResponder is NSText { return false }
         if firstResponder is NSControl && !(firstResponder is NSTableView) { return false }
-        if !event.isARepeat && canToggle() { toggle() }
+        let controlRoles: Set<NSAccessibility.Role> = [
+            .textField, .textArea, .comboBox, .button, .checkBox, .radioButton,
+            .slider, .popUpButton, .menuButton, .incrementor, .menuItem,
+        ]
+        if let focusedRole, controlRoles.contains(focusedRole) { return false }
+        guard canToggle() else { return false }
+        if !event.isARepeat { toggle() }
         return true
     }
 }

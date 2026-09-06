@@ -20,7 +20,7 @@ struct PlaybackKeyboardChecks {
         #expect(controls.handle(try event(repeatKey: true), firstResponder: nil, isPlaybackWindow: true))
         #expect(toggles == 1)
         allowed = false
-        #expect(controls.handle(space, firstResponder: nil, isPlaybackWindow: true))
+        #expect(!controls.handle(space, firstResponder: nil, isPlaybackWindow: true))
         #expect(toggles == 1)
         controls.stop()
         controls.stop()
@@ -40,11 +40,22 @@ struct PlaybackKeyboardChecks {
             #expect(!controls.handle(space, firstResponder: responder, isPlaybackWindow: true))
         }
         #expect(!controls.handle(space, firstResponder: nil, isPlaybackWindow: false))
-        for flags: NSEvent.ModifierFlags in [.command, .control, .option, .shift] {
+        for flags: NSEvent.ModifierFlags in [.command, .control, .option, .shift, .function] {
             #expect(!controls.handle(try event(flags: flags), firstResponder: nil, isPlaybackWindow: true))
         }
         #expect(!controls.handle(try event(characters: "x"), firstResponder: nil, isPlaybackWindow: true))
+        for role: NSAccessibility.Role in [.button, .textField, .textArea, .slider, .comboBox] {
+            #expect(
+                !controls.handle(
+                    space, firstResponder: NSView(), isPlaybackWindow: true, focusedRole: role
+                ))
+        }
         #expect(toggles == 0)
+        #expect(
+            controls.handle(
+                try event(flags: .capsLock), firstResponder: nil, isPlaybackWindow: true, focusedRole: .row
+            ))
+        #expect(toggles == 1)
     }
 
     private func event(

@@ -162,9 +162,11 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn("if: steps.inputs.outputs.candidate_needed == 'true'", steps[name])
         names = list(steps)
-        ordered = ("Run Rust checks", "Build candidate playback XCFramework",
+        ordered = ("Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",
                    "Upload candidate playback artifact", "Block Rust tools", "Run checks",
                    "Compile release Spotty with SPOTTY_DISTRIBUTION")
+        for name in ordered:
+            self.assertIn(name, steps, f"Required CI producer/consumer step was renamed or removed: {name}")
         positions = [names.index(name) for name in ordered]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("continue-on-error:", macos)

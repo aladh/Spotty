@@ -74,7 +74,7 @@ jobs:
     name: macOS checks
     needs: [policy]
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 120
     outputs:
       rust_result: ${{ steps.rust.outcome }}
       debug_result: ${{ steps.debug.outcome }}

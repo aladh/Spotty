@@ -18,6 +18,9 @@ spotty_playback_pin_value() {
             m{\Ahttps://github\.com/aladh/Spotty/releases/download/playback-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)/SpottyPlaybackCore\.xcframework\.zip\z}) {
             die "Playback pin must name a canonical Spotty playback-vMAJOR.MINOR.PATCH release asset\n";
         }
+        if ($ENV{PIN_NAME} eq "generatedPlaybackArtifactChecksum" && $values[0] !~ /\A[0-9a-fA-F]{64}\z/) {
+            die "Playback pin checksum must contain exactly 64 hexadecimal characters\n";
+        }
         print "$values[0]\n";
     ' "$project_root/Package.swift"
 }

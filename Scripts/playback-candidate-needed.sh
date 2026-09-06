@@ -22,7 +22,7 @@ fi
 digest="$(./Backend/spotty-playback/source-input-digest.sh)"
 candidate_needed=true
 # Compare this change, not the app's independently selected engine release.
-if [[ -n "$INPUT_BASE_SHA" && "$INPUT_BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+if [[ -n "${INPUT_BASE_SHA:-}" && "$INPUT_BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
     if [[ ! "$INPUT_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
         echo "Candidate selection requires a full hexadecimal base SHA" >&2
         exit 1

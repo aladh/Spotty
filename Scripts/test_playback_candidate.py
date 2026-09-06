@@ -41,14 +41,17 @@ class CandidateSelectionTests(unittest.TestCase):
         self.git("commit", "-qm", "Fixture")
         return self.git("rev-parse", "HEAD")
 
-    def select(self, base=None):
+    def select(self, base=None, unset_base=False):
         output = self.root / "job-output"
         output.unlink(missing_ok=True)
         (self.root / "job-env").unlink(missing_ok=True)
+        env = {**os.environ, "INPUT_BASE_SHA": self.base if base is None else base,
+               "GITHUB_ENV": str(self.root / "job-env"), "GITHUB_OUTPUT": str(output)}
+        if unset_base:
+            env.pop("INPUT_BASE_SHA")
         result = subprocess.run(
             [str(self.root / "Scripts/playback-candidate-needed.sh")], cwd=self.root, text=True, capture_output=True,
-            env={**os.environ, "INPUT_BASE_SHA": self.base if base is None else base,
-                 "GITHUB_ENV": str(self.root / "job-env"), "GITHUB_OUTPUT": str(output)},
+            env=env,
         )
         return result, output.read_text() if output.exists() else ""
 
@@ -86,6 +89,11 @@ class CandidateSelectionTests(unittest.TestCase):
                 result, output = self.select(base)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(output, "candidate_needed=true\n")
+
+    def test_unset_base_builds_conservatively(self):
+        result, output = self.select(unset_base=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "candidate_needed=true\n")
 
     def test_invalid_or_unavailable_base_fails_closed(self):
         for base in ("invalid", "f" * 40):

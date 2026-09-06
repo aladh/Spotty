@@ -127,6 +127,8 @@ jobs:
             "$cli" --pure export "$session_id" > "$RUNNER_TEMP/thermos-parent.json" || return
             jq -r '[.messages[]?.parts[]? | select(.type == "tool" and .tool == "task") | .state.metadata.sessionId // empty] | unique[]' \
               "$RUNNER_TEMP/thermos-parent.json" > "$RUNNER_TEMP/thermos-child-ids.txt" || return
+            child_count=$(wc -l < "$RUNNER_TEMP/thermos-child-ids.txt")
+            echo "Discovered $child_count auditor sessions; expected two." | tee -a "$RUNNER_TEMP/thermos-review.log"
             while IFS= read -r child_id; do
               if "$cli" --pure export "$child_id" > "$RUNNER_TEMP/thermos-child.json" &&
                 jq '{session: .info.id, title: .info.title, messages: [.messages[]? | {role: .info.role, agent: .info.agent, parts: [.parts[]? | select(.type == "tool" or .type == "text")]}]}' \

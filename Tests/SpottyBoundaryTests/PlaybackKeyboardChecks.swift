@@ -19,6 +19,13 @@ struct PlaybackKeyboardChecks {
         #expect(toggles == 1)
         #expect(controls.handle(try event(repeatKey: true), firstResponder: nil, isPlaybackWindow: true))
         #expect(toggles == 1)
+        for flags: NSEvent.ModifierFlags in [.command, .control, .option, .shift, .function] {
+            #expect(
+                !controls.handle(
+                    try event(flags: flags, repeatKey: true), firstResponder: nil, isPlaybackWindow: true
+                ))
+        }
+        #expect(toggles == 1)
         allowed = false
         #expect(controls.handle(try event(repeatKey: true), firstResponder: nil, isPlaybackWindow: true))
         #expect(toggles == 1)

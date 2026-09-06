@@ -51,13 +51,14 @@ final class PlaybackKeyboardControls {
             consumedSpacePress = false
             return false
         }
+        let isUnmodified = event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift, .function])
         if event.type == .keyDown && event.keyCode == 49 {
-            if event.isARepeat { return consumedSpacePress && isPlaybackWindow }
+            if event.isARepeat { return consumedSpacePress && isPlaybackWindow && isUnmodified }
             consumedSpacePress = false
         }
         guard isPlaybackWindow, event.type == .keyDown,
             event.charactersIgnoringModifiers == " ",
-            event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift, .function])
+            isUnmodified
         else { return false }
         if firstResponder is NSText { return false }
         if firstResponder is NSControl && !(firstResponder is NSTableView) { return false }

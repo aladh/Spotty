@@ -30,8 +30,8 @@ CI compares engine inputs against the PR base or the previous main push commit. 
 candidate only when those inputs or candidate build/validation infrastructure change, including
 shared headers, packaging scripts, and license inputs. An absent or initial base SHA builds a
 candidate conservatively; a failed comparison fails CI. Unpublished engine changes already on main
-do not trigger candidate builds for unrelated PRs. Rust checks and published-artifact Swift checks
-remain required on every run. Content digests identify build caches and artifact provenance.
+do not trigger candidate builds for unrelated PRs. Rust checks run on main and on PRs with engine, shared-header, verification, or unknown-path changes.
+App-only PRs skip the Rust job; published-artifact Swift checks remain required on every run. Content digests identify build caches and artifact provenance.
 
 Publication promotes the exact candidate ZIP from a completed CI run, without rebuilding it. Run
 the publisher after Source policies and Rust succeed in the candidate's main push CI run. Swift

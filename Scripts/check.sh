@@ -310,6 +310,10 @@ if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -q --fixed-strings 'run: ./Scripts/check-source-policy.sh --test-only' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'needs: [policy]' <<< "$rust_job" \
+    || ! rg -q --fixed-strings "if: needs.policy.outputs.rust_needed == 'true'" <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'run: python3 -B -m unittest discover -s Scripts -p test_ci_rust_policy.py' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'run: python3 Scripts/ci_rust_policy.py' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'candidate_needed' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'run: ./Scripts/playback-candidate-needed.sh' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}' <<< "$rust_job" \
@@ -334,7 +338,7 @@ if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -q --fixed-strings 'report-size.sh' <<< "$release_job" \
     || ! rg -q --fixed-strings 'if: always()' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'needs: [policy, rust, checks, release]' <<< "$gate_job" \
-    || ! rg -U -q --fixed-strings -- $'test "$RUST_RESULT" = success\n          test "$CHECKS_RESULT" = success' <<< "$gate_job" \
+    || ! rg -U -q --fixed-strings -- $'if [[ "$RUST_NEEDED" == true ]]; then\n            test "$RUST_RESULT" = success\n          else\n            test "$RUST_NEEDED" = false\n            test "$RUST_RESULT" = skipped\n          fi\n          test "$CHECKS_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$POLICY_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$RELEASE_RESULT" = success' <<< "$gate_job"; then
     print -u2 "CI must cache immutable inputs, block Rust in Swift lanes, and aggregate all quality lanes"

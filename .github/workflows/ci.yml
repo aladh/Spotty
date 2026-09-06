@@ -17,12 +17,24 @@ jobs:
     name: Source policies
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      rust_needed: ${{ steps.rust-scope.outputs.rust_needed }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Test Rust job selection
+        run: python3 -B -m unittest discover -s Scripts -p test_ci_rust_policy.py
+
+      - name: Select Rust verification
+        id: rust-scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 Scripts/ci_rust_policy.py --event "$EVENT_NAME" --base "$INPUT_BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Read ast-grep version
         id: ast-grep
@@ -44,6 +56,8 @@ jobs:
 
   rust:
     name: Rust checks
+    needs: [policy]
+    if: needs.policy.outputs.rust_needed == 'true'
     runs-on: macos-26
     timeout-minutes: 30
 
@@ -265,11 +279,17 @@ jobs:
       - name: Require every quality lane
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
+          RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
           RUST_RESULT: ${{ needs.rust.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
         run: |
           test "$POLICY_RESULT" = success
-          test "$RUST_RESULT" = success
+          if [[ "$RUST_NEEDED" == true ]]; then
+            test "$RUST_RESULT" = success
+          else
+            test "$RUST_NEEDED" = false
+            test "$RUST_RESULT" = skipped
+          fi
           test "$CHECKS_RESULT" = success
           test "$RELEASE_RESULT" = success

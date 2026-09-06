@@ -49,8 +49,10 @@ there is no MCP server, custom publication guard, or enforced revision recheck.
 
 Review output is redirected to a temporary runner file. A separate OpenCode invocation,
 with the same shell, filesystem, and web tools but no GitHub token, summarizes that trace in the Actions log, including
-after review failure. It does not export sessions or upload the trace; the file disappears
-with the runner. Detailed child-agent traces are not included. Summary generation does
+after review failure. It exports the parent session to discover its child task sessions, then appends the
+child tool calls and text responses to the summary input. Exported files remain on the
+ephemeral runner and are not uploaded. Reasoning parts are excluded from the appended
+child traces. Summary generation does
 not clear an original review failure, and job cancellation or timeout can prevent it.
 This is not a required check or approval gate. Forks are
 skipped. A PR changing during review may receive no comment; a push between the final

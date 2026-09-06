@@ -17,7 +17,7 @@ See [launch constraints](../../script/AGENTS.md) and
 
 ## Normal verification
 
-Use the smallest focused check per [AGENTS.md](../../AGENTS.md#local-verification). Available gate scopes:
+Use the smallest focused check per [AGENTS.md](../../AGENTS.md#development). Available gate scopes:
 
 ```bash
 ./Scripts/check.sh

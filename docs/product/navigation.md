@@ -38,7 +38,7 @@
   play/pause button on hover. Row clicks still select; the artwork
   button, Return, or double-click invokes playback.
   Queue ordering and history content retain their existing playback-owned sources.
-- Closing the main window purges presentation caches but does not quit Spotty. The app remains in the
+- Closing the main window does not quit Spotty. The app remains in the
   Dock and reopens through the Dock icon or the standard macOS Window command.
 - Sign Out stays in the macOS **Spotty** menu, including while connecting or after a session
   failure. Teardown drains accepted authorization persistence before clearing the grant.

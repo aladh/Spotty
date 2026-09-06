@@ -24,5 +24,5 @@ and capable without advertising every capability.
 - Do not use `.draggable`, `.dropDestination`, or `onDrop`; drag-and-drop is deliberately outside the
   current product contract.
 - Views render state and invoke narrow actions. They do not construct network/auth/playback
-  dependencies or own asynchronous orchestration. Downsample artwork to rendered Retina size, keep
-  presentation caches cost-bounded, and release them with the window lifecycle.
+  dependencies or own asynchronous orchestration. Artwork uses SwiftUI `AsyncImage`; do not add
+  application-owned image caching or downsampling without a measured need.

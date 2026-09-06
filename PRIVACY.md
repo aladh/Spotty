@@ -23,8 +23,8 @@ playback services, plus artwork hosts returned by Spotify. It has no Spotty-oper
   deleted without being imported.
 - Local preferences also retain a random installation/device identifier, UI preferences, shuffle
   history, and playback preferences.
-- Artwork is held in a bounded ephemeral URL cache and in-memory image cache; the app purges its
-  artwork cache when the main window closes.
+- Artwork loads through SwiftUI `AsyncImage`. macOS frameworks manage any image and response
+  caching; Spotty does not impose its own artwork cache limits or purge it on window close.
 - Spotify/librespot session credentials may be cached under the app's local cache directory so the
   playback device can reconnect. Retired cache locations are deleted without being imported.
 - Apple Unified Logging stores local operational events. The intended contract excludes tokens,

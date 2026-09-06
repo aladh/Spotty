@@ -188,6 +188,12 @@ for (( run = 1; run <= repeat_count; run++ )); do
     swift test "${boundary_test_arguments[@]}"
 done
 
+# The opt-in browsing app is never part of the shipping graph. Its deterministic port/fixture
+# checks run headlessly; launching its real views remains an explicit local acceptance step.
+SPOTTY_BUILD_BROWSING_HARNESS=1 swift test --disable-sandbox --no-parallel \
+    --package-path "$project_root" --configuration debug --filter SpottyBrowsingHarnessTests \
+    "${spotty_swiftc_warnings_as_errors[@]}"
+
 # Check mutation access against the actual testable Debug module built by the boundary suite.
 "$project_root/Scripts/check-playback-projection-access.sh"
 

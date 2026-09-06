@@ -138,3 +138,27 @@ let package = Package(
         ),
     ]
 )
+
+// An opt-in, non-shipping app can inspect internal production views through Debug testability.
+// The ordinary package graph (including distribution builds) contains no harness or fixtures.
+if ProcessInfo.processInfo.environment["SPOTTY_BUILD_BROWSING_HARNESS"] == "1" {
+    package.products.append(.executable(name: "SpottyBrowsingHarness", targets: ["SpottyBrowsingHarness"]))
+    package.targets += [
+        .target(
+            name: "SpottyBrowsingSupport",
+            dependencies: ["SpottyCore"],
+            path: "Tests/BrowsingHarness/Support",
+            resources: [.copy("Artwork")]
+        ),
+        .executableTarget(
+            name: "SpottyBrowsingHarness",
+            dependencies: ["SpottyBrowsingSupport"],
+            path: "Tests/BrowsingHarness/App"
+        ),
+        .testTarget(
+            name: "SpottyBrowsingHarnessTests",
+            dependencies: ["SpottyBrowsingSupport", "SpottyCore"],
+            path: "Tests/BrowsingHarness/Checks"
+        ),
+    ]
+}

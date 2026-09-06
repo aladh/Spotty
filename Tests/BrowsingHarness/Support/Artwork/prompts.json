@@ -1,0 +1,26 @@
+[
+  {
+    "name": "tidal-light",
+    "prompt": "Use case: stylized-concept. Asset type: square album artwork for an offline music-app demo fixture. A fictional ambient music album cover: an isolated sea stack reflected in a still ocean at blue hour, misty horizon, a pale peach moon, analog photographic grain, quiet cinematic composition. One standalone square cover, edge-to-edge artwork, visually readable at thumbnail size. No lettering, artist names, logos, brands, watermarks, frame, UI, or contact sheet. Original fictional artwork."
+  },
+  {
+    "name": "night-transit",
+    "prompt": "Use case: stylized-concept. Asset type: square album artwork for an offline music-app demo fixture. A fictional electronic music album cover: rain-slick midnight city seen through a tram window, abstract streaks of red and cyan light, dark violet shadows, tactile film photography, no identifiable city or people. One standalone square cover, edge-to-edge artwork, visually readable at thumbnail size. No lettering, artist names, logos, brands, watermarks, frame, UI, or contact sheet. Original fictional artwork."
+  },
+  {
+    "name": "paper-sun",
+    "prompt": "Use case: stylized-concept. Asset type: square album artwork for an offline music-app demo fixture. A fictional indie folk album cover: a sun made of layered ochre handmade paper above rolling terracotta hills, small black cypress silhouettes, expressive cut-paper collage, warm cream and rust palette. One standalone square cover, edge-to-edge artwork, visually readable at thumbnail size. No lettering, artist names, logos, brands, watermarks, frame, UI, or contact sheet. Original fictional artwork."
+  },
+  {
+    "name": "glass-garden",
+    "prompt": "Use case: stylized-concept. Asset type: square album artwork for an offline music-app demo fixture. A fictional contemporary jazz album cover: translucent emerald and cobalt glass sculptures arranged like a small garden on a cream backdrop, strong oblique sunlight and textured shadows, elegant editorial still-life photography. One standalone square cover, edge-to-edge artwork, visually readable at thumbnail size. No lettering, artist names, logos, brands, watermarks, frame, UI, or contact sheet. Original fictional artwork."
+  },
+  {
+    "name": "afterimage",
+    "prompt": "Use case: stylized-concept. Asset type: square album artwork for an offline music-app demo fixture. A fictional experimental rock album cover: torn black-and-white photograph of a mountain repeated with magenta and orange offset-print misregistration, bold tactile silkscreen texture, expressive graphic composition. One standalone square cover, edge-to-edge artwork, visually readable at thumbnail size. No lettering, artist names, logos, brands, watermarks, frame, UI, or contact sheet. Original fictional artwork."
+  },
+  {
+    "name": "violet-orbit",
+    "prompt": "Use case: stylized-concept. Asset type: square album artwork for an offline music-app demo fixture. A fictional dream-pop album cover: a tiny silver sphere floating above a field of violet flowers under a pale mint sky, surreal landscape, soft cinematic photography with subtle grain. One standalone square cover, edge-to-edge artwork, visually readable at thumbnail size. No lettering, artist names, logos, brands, watermarks, frame, UI, or contact sheet. Original fictional artwork."
+  }
+]

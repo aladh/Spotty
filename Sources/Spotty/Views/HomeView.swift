@@ -112,8 +112,7 @@ private struct QuickAccessCard: View {
                 RemoteArtwork(
                     url: item.artworkURL,
                     kind: item.kind,
-                    cornerRadius: item.kind == .artist ? 28 : 4,
-                    pointSize: 56
+                    cornerRadius: item.kind == .artist ? 28 : 4
                 )
                 .frame(width: 56, height: 56)
 
@@ -179,8 +178,7 @@ struct MediaCard: View {
                 RemoteArtwork(
                     url: item.artworkURL,
                     kind: item.kind,
-                    cornerRadius: item.kind == .artist ? CatalogLayout.cardArtwork / 2 : 10,
-                    pointSize: CatalogLayout.cardArtwork
+                    cornerRadius: item.kind == .artist ? CatalogLayout.cardArtwork / 2 : 10
                 )
                 .frame(width: CatalogLayout.cardArtwork, height: CatalogLayout.cardArtwork)
                 .shadow(color: .black.opacity(isHovering ? 0.18 : 0.08), radius: isHovering ? 10 : 5, y: 4)

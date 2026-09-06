@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "mode": "browsing",
+  "trackCount": 1000,
+  "artworkCount": 48,
+  "artworkPixels": 640,
+  "cycles": 3,
+  "dwellMilliseconds": 250
+}

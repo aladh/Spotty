@@ -253,8 +253,7 @@ struct TrackTable: View {
             RemoteArtwork(
                 url: track.artworkURL,
                 kind: .track,
-                cornerRadius: 4,
-                pointSize: 40
+                cornerRadius: 4
             )
             .frame(width: 40, height: 40)
 

@@ -20,6 +20,10 @@ struct PlaybackKeyboardChecks {
         #expect(controls.handle(try event(repeatKey: true), firstResponder: nil, isPlaybackWindow: true))
         #expect(toggles == 1)
         allowed = false
+        #expect(controls.handle(try event(repeatKey: true), firstResponder: nil, isPlaybackWindow: true))
+        #expect(toggles == 1)
+        #expect(!controls.handle(try event(type: .keyUp), firstResponder: nil, isPlaybackWindow: true))
+        #expect(!controls.handle(try event(repeatKey: true), firstResponder: nil, isPlaybackWindow: true))
         #expect(!controls.handle(space, firstResponder: nil, isPlaybackWindow: true))
         #expect(toggles == 1)
         controls.stop()
@@ -59,11 +63,12 @@ struct PlaybackKeyboardChecks {
     }
 
     private func event(
-        characters: String = " ", flags: NSEvent.ModifierFlags = [], repeatKey: Bool = false
+        characters: String = " ", flags: NSEvent.ModifierFlags = [], repeatKey: Bool = false,
+        type: NSEvent.EventType = .keyDown
     ) throws -> NSEvent {
         try #require(
             NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                with: type, location: .zero, modifierFlags: flags, timestamp: 0,
                 windowNumber: 0, context: nil, characters: characters,
                 charactersIgnoringModifiers: characters, isARepeat: repeatKey, keyCode: 49
             ))

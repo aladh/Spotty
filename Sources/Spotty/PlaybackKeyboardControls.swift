@@ -5,6 +5,7 @@ import AppKit
 @MainActor
 final class PlaybackKeyboardControls {
     private var monitor: Any?
+    private var consumedSpacePress = false
     private let canToggle: () -> Bool
     private let toggle: () -> Void
 
@@ -17,7 +18,7 @@ final class PlaybackKeyboardControls {
 
     func start() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             let consumed = MainActor.assumeIsolated {
                 let app = NSApplication.shared
                 let window = event.window
@@ -37,6 +38,7 @@ final class PlaybackKeyboardControls {
         guard let monitor else { return }
         NSEvent.removeMonitor(monitor)
         self.monitor = nil
+        consumedSpacePress = false
     }
 
     /// Accessibility roles also cover controls hosted inside SwiftUI responders.
@@ -44,7 +46,16 @@ final class PlaybackKeyboardControls {
         _ event: NSEvent, firstResponder: NSResponder?, isPlaybackWindow: Bool,
         focusedRole: NSAccessibility.Role? = nil
     ) -> Bool {
-        guard isRunning, isPlaybackWindow, event.type == .keyDown,
+        guard isRunning else { return false }
+        if event.type == .keyUp && event.keyCode == 49 {
+            consumedSpacePress = false
+            return false
+        }
+        if event.type == .keyDown && event.keyCode == 49 {
+            if event.isARepeat { return consumedSpacePress && isPlaybackWindow }
+            consumedSpacePress = false
+        }
+        guard isPlaybackWindow, event.type == .keyDown,
             event.charactersIgnoringModifiers == " ",
             event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift, .function])
         else { return false }
@@ -56,7 +67,8 @@ final class PlaybackKeyboardControls {
         ]
         if let focusedRole, controlRoles.contains(focusedRole) { return false }
         guard canToggle() else { return false }
-        if !event.isARepeat { toggle() }
+        consumedSpacePress = true
+        toggle()
         return true
     }
 }

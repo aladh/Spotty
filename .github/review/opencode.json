@@ -19,6 +19,7 @@
   "agent": {
     "thermos": {
       "mode": "primary",
+      "model": "opencode/muse-spark-1.3-contributor-free",
       "variant": "xhigh",
       "description": "Coordinate Thermos audits and publish findings with a brief summary.",
       "prompt": "{file:thermos/orchestration.md}",
@@ -32,12 +33,14 @@
     },
     "thermos-correctness": {
       "mode": "subagent",
+      "model": "opencode/muse-spark-1.3-contributor-free",
       "variant": "xhigh",
       "description": "Independent Thermos correctness audit.",
       "prompt": "{file:thermos/correctness.md}"
     },
     "thermos-quality": {
       "mode": "subagent",
+      "model": "opencode/muse-spark-1.3-contributor-free",
       "variant": "xhigh",
       "description": "Independent Thermos quality audit.",
       "prompt": "{file:thermos/quality.md}"

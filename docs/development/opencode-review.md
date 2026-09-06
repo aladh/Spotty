@@ -5,7 +5,10 @@ marked ready after draft creation. Pushes do not trigger reviews. An existing bo
 comment with the review marker skips later ready events and reruns of automatic jobs.
 
 One OpenCode run launches independent correctness and quality subagents. The parent
-posts inline findings where appropriate and a marked issue-comment summary through `gh`.
+posts actionable findings introduced or made reachable by the PR inline and a marked
+issue-comment summary through `gh`. Publication omits informational notes and unrelated
+follow-ups; conclusions state coverage limits and use inspected evidence rather than
+auditor agreement or a merge-safety declaration.
 Git and filesystem tools provide source and
 diff context from a full-history PR checkout; `gh` also reads PR discussion.
 
@@ -13,7 +16,7 @@ The original Cursor Thermos correctness and quality rubrics and MIT license are 
 [.github/review/thermos](../../.github/review/thermos), recovered from
 [PR #291](https://github.com/aladh/Spotty/pull/291). Orchestration differs only in OpenCode
 task names and foreground execution. The files load directly into agent prompts via
-`{file:...}`; no skill discovery is required. The task prompt requests Thermos, inline findings where appropriate, and a brief summary.
+`{file:...}`; no skill discovery is required. The task prompt invokes Thermos and supplies the publication constraints above.
 The summary marker is retained for automatic duplicate detection.
 
 ## Repeat a trial
@@ -52,7 +55,8 @@ with the same shell, filesystem, and web tools but no GitHub token, summarizes t
 after review failure. It exports the parent session to discover its child task sessions, then appends the
 child tool calls and text responses to the summary input. Exported files remain on the
 ephemeral runner and are not uploaded. Reasoning parts are excluded from the appended
-child traces. Summary generation does
+child traces. Multiline payload strings are rendered as line arrays to avoid
+per-line truncation of escaped tool outputs. Summary generation does
 not clear an original review failure, and job cancellation or timeout can prevent it.
 This is not a required check or approval gate. Forks are
 skipped. A PR changing during review may receive no comment; a push between the final

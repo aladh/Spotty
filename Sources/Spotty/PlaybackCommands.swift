@@ -23,7 +23,6 @@ struct PlaybackCommands: Commands {
             Button("Play/Pause") {
                 player.togglePlayback()
             }
-            .keyboardShortcut(.space, modifiers: [])
             .disabled(!player.canTogglePlayback)
 
             Button("Previous") { player.previous() }

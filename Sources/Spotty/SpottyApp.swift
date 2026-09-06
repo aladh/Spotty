@@ -24,9 +24,19 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
     private weak var trackedMainWindow: NSWindow?
     private var terminationHandler: (@MainActor () async -> Void)?
     private var mediaControls: SystemMediaControls?
+    private var keyboardControls: PlaybackKeyboardControls?
     private var terminationPending = false
     private var terminationShutdownTask: Task<Void, Never>?
     private var terminationTimeoutTask: Task<Void, Never>?
+
+    func installKeyboardControls(player: PlaybackStore) {
+        guard keyboardControls == nil else { return }
+        let controls = PlaybackKeyboardControls(
+            canToggle: { player.canTogglePlayback }, toggle: { player.togglePlayback() }
+        )
+        keyboardControls = controls
+        controls.start()
+    }
 
     func installMediaControls(player: PlaybackStore) {
         guard mediaControls == nil else { return }
@@ -77,6 +87,7 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_: Notification) {
         mediaControls?.stop()
+        keyboardControls?.stop()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -85,6 +96,7 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
         mediaControls?.stop()
+        keyboardControls?.stop()
         SpottyLog.lifecycle.info("Application termination began")
 
         terminationShutdownTask = Task { [weak self] in
@@ -145,6 +157,7 @@ struct SpottyScene: Scene {
                 .frame(minWidth: 960, minHeight: 640)
                 .task {
                     appDelegate.installTerminationHandler { await player.shutdownForTermination() }
+                    appDelegate.installKeyboardControls(player: player)
                     if enablesSystemMediaControls { appDelegate.installMediaControls(player: player) }
                     await player.restore()
                 }

@@ -105,7 +105,7 @@ jobs:
           export OPENCODE_CONFIG="$RUNNER_TEMP/thermos/opencode.json"
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent thermos \
-            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. The gh and rg CLIs are available. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->."
+            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. The gh and rg CLIs are available. Have the parent post only actionable findings introduced by this PR as inline comments (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->. Omit informational notes and unrelated follow-ups. If no actionable findings remain, say so and state coverage limits; do not declare the PR safe to merge. Support behavioral claims with inspected evidence rather than agreement between auditors."
 
       - name: Summarize review trace
         if: ${{ !cancelled() && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}
@@ -131,7 +131,7 @@ jobs:
             echo "Discovered $child_count auditor sessions; expected two." | tee -a "$RUNNER_TEMP/thermos-review.log"
             while IFS= read -r child_id; do
               if "$cli" --pure export "$child_id" > "$RUNNER_TEMP/thermos-child.json" &&
-                jq '{session: .info.id, title: .info.title, messages: [.messages[]? | {role: .info.role, agent: .info.agent, parts: [.parts[]? | select(.type == "tool" or .type == "text")]}]}' \
+                jq 'walk(if type == "string" and contains("\n") then split("\n") else . end) | {session: .info.id, title: .info.title, messages: [.messages[]? | {role: .info.role, agent: .info.agent, parts: [.parts[]? | select(.type == "tool" or .type == "text")]}]}' \
                   "$RUNNER_TEMP/thermos-child.json" >> "$RUNNER_TEMP/thermos-review.log"; then
                 echo "Included auditor trace: $child_id"
               else

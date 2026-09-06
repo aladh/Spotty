@@ -104,7 +104,7 @@ jobs:
           export OPENCODE_CONFIG="$RUNNER_TEMP/thermos/opencode.json"
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent thermos \
-            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. Use GitHub CLI (gh) to interact with GitHub. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->." \
+            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. GitHub CLI (gh) is available for interacting with GitHub. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->." \
             > "$RUNNER_TEMP/thermos-review.log" 2>&1
 
       - name: Summarize review trace

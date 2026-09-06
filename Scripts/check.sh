@@ -293,7 +293,7 @@ if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
     exit 1
 fi
 policy_job="$(sed -n '/^  policy:/,/^  macos:/p' "$ci_workflow")"
-macos_job="$(sed -n '/^  macos:/,/^  checks:/p' "$ci_workflow")"
+macos_job="$(sed -n '/^  macos:/,/^  gate:/p' "$ci_workflow")"
 gate_job="$(sed -n '/^  gate:/,$p' "$ci_workflow")"
 if grep -Eq '^[[:space:]]*([^#[:space:]].*)?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK(=|[[:space:]]*:)' <<< "$macos_job"; then
     print -u2 "Swift CI must consume the published playback pin, not an unpublished engine override"
@@ -332,7 +332,7 @@ if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -U -q --fixed-strings -- $'- name: Compile release Spotty with SPOTTY_DISTRIBUTION\n        id: release\n        run: ./Scripts/compile-release-spotty.sh' <<< "$macos_job" \
     || ! rg -q --fixed-strings 'report-size.sh' <<< "$macos_job" \
     || ! rg -q --fixed-strings 'if: always()' <<< "$gate_job" \
-    || ! rg -q --fixed-strings 'needs: [policy, macos, checks, release]' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'needs: [policy, macos]' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'RUST_RESULT: ${{ needs.macos.outputs.rust_result }}' <<< "$gate_job" \
     || ! rg -U -q --fixed-strings -- $'if [[ "$RUST_NEEDED" == true ]]; then\n            test "$RUST_RESULT" = success\n          else\n            test "$RUST_NEEDED" = false\n            test "$RUST_RESULT" = skipped\n          fi\n          test "$CHECKS_RESULT" = success' <<< "$gate_job" \

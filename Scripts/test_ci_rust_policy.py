@@ -147,7 +147,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
     def test_rust_scope_guards_and_phase_order(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertEqual(workflow.count("runs-on: macos-"), 1)
-        macos = workflow.split("  macos:\n", 1)[1].split("  checks:\n", 1)[0]
+        macos = workflow.split("  macos:\n", 1)[1].split("  gate:\n", 1)[0]
         steps = {}
         for block in macos.split("      - name: ")[1:]:
             name, body = block.split("\n", 1)

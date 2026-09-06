@@ -234,35 +234,10 @@ jobs:
           path: ${{ runner.temp }}/size-report.json
           retention-days: 30
 
-  # Preserve required check contexts while all compilation runs on one macOS runner.
-  checks:
-    name: Debug and deterministic checks
-    if: always()
-    needs: [macos]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Require Debug verification
-        env:
-          RESULT: ${{ needs.macos.outputs.debug_result }}
-        run: test "$RESULT" = success
-
-  release:
-    name: Release distribution compile
-    if: always()
-    needs: [macos]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Require Release compilation
-        env:
-          RESULT: ${{ needs.macos.outputs.release_result }}
-        run: test "$RESULT" = success
-
   gate:
     name: Debug quality gate
     if: always()
-    needs: [policy, macos, checks, release]
+    needs: [policy, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -273,8 +248,8 @@ jobs:
           RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
           RUST_RESULT: ${{ needs.macos.outputs.rust_result }}
           MACOS_RESULT: ${{ needs.macos.result }}
-          CHECKS_RESULT: ${{ needs.checks.result }}
-          RELEASE_RESULT: ${{ needs.release.result }}
+          CHECKS_RESULT: ${{ needs.macos.outputs.debug_result }}
+          RELEASE_RESULT: ${{ needs.macos.outputs.release_result }}
         run: |
           test "$POLICY_RESULT" = success
           test "$MACOS_RESULT" = success

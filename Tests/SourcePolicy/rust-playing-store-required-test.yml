@@ -1,7 +1,7 @@
 id: rust-playing-store-required
 valid:
   - |-
-    fn event(event: PlayerEvent) {
+    fn apply_player_event_locked(event: PlayerEvent) {
         match event {
             PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }
             _ => {}
@@ -9,7 +9,7 @@ valid:
     }
   - |-
     #[cfg(test)] mod tests {}
-    fn event(event: PlayerEvent) {
+    fn apply_player_event_locked(event: PlayerEvent) {
         match event {
             PlayerEvent::Playing { track_id, .. } => {
                 // after test module
@@ -18,17 +18,21 @@ valid:
             _ => {}
         }
     }
+  - 'fn apply_player_event_locked(event: PlayerEvent) { match event { crate::PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }, _ => {} } }'
+  - 'fn apply_player_event_locked(event: PlayerEvent) { match event { self::PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }, _ => {} } }'
+  - 'fn apply_player_event_locked(event: PlayerEvent) { match event { PlayerEvent::Playing { .. } => IS_PLAYING.store(true, Ordering::SeqCst), _ => {} } }'
+  - 'fn apply_player_event_locked(event: PlayerEvent) { match event { PlayerEvent::Playing { .. } => { IS_PLAYING.store((true as bool), Ordering::SeqCst); }, _ => {} } }'
 invalid:
-  - 'fn event() {}'
+  - 'fn apply_player_event_locked() {}'
   - |-
-    fn event(event: PlayerEvent) {
+    fn apply_player_event_locked(event: PlayerEvent) {
         match event {
             PlayerEvent::Playing { .. } => { IS_PLAYING.store(false, Ordering::SeqCst); }
             _ => { IS_PLAYING.store(true, Ordering::SeqCst); }
         }
     }
   - |-
-    fn event(event: PlayerEvent) {
+    fn apply_player_event_locked(event: PlayerEvent) {
         match event {
             PlayerEvent::Playing { .. } => {
                 // IS_PLAYING.store(true, Ordering::SeqCst);
@@ -38,10 +42,13 @@ invalid:
     }
   - |-
     #[cfg(test)] mod tests {
-        fn event(event: PlayerEvent) {
+        fn apply_player_event_locked(event: PlayerEvent) {
             match event {
                 PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }
                 _ => {}
             }
         }
     }
+  - 'fn apply_player_event_locked(event: PlayerEvent) { match event { PlayerEvent::Playing { .. } => {}, _ => {} } } fn decoy(event: PlayerEvent) { match event { PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }, _ => {} } }'
+  - 'fn apply_player_event_locked(event: PlayerEvent) { match event { PlayerEvent::Playing { .. } => { #[cfg(test)] mod tests { fn stub() { IS_PLAYING.store(true, Ordering::SeqCst); } } }, _ => {} } }'
+  - 'fn apply_player_event_locked(event: PlayerEvent) { match event { PlayerEvent::Playing { .. } => { fn decoy(event: PlayerEvent) { match event { PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }, _ => {} } } }, _ => {} } }'

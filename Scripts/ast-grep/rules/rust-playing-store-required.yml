@@ -10,6 +10,13 @@ rule:
     has:
       kind: match_arm
       all:
+        - inside:
+            kind: function_item
+            has:
+              field: name
+              regex: '^apply_player_event_locked$'
+            stopBy:
+              kind: function_item
         - has:
             field: pattern
             kind: match_pattern
@@ -21,18 +28,24 @@ rule:
                 all:
                   - has:
                       field: path
-                      kind: identifier
-                      regex: '^PlayerEvent$'
+                      regex: '(^|::)PlayerEvent$'
                   - has:
                       field: name
                       kind: type_identifier
                       regex: '^Playing$'
         - has:
             field: value
-            kind: block
-            has:
-              matches: rust-playing-true-store
-              stopBy: end
+            any:
+              - matches: rust-playing-true-store
+              - kind: block
+                has:
+                  matches: rust-playing-true-store
+                  not:
+                    inside:
+                      matches: rust-cfg-test-module
+                      stopBy: end
+                  stopBy:
+                    kind: function_item
         - not:
             inside:
               matches: rust-cfg-test-module

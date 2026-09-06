@@ -135,7 +135,7 @@ class PromotionTests(unittest.TestCase):
             with self.subTest(missing=index), self.assertRaises(ValueError):
                 validate_run(self.run, self.jobs[:index] + self.jobs[index + 1:], "owner/repo", HEAD)
             with self.subTest(duplicate=index), self.assertRaises(ValueError):
-                validate_run(self.run, self.jobs + [self.jobs[index]], "owner/repo", HEAD)
+                validate_run(self.run, [*self.jobs, self.jobs[index]], "owner/repo", HEAD)
 
     def test_stale_artifact_cannot_borrow_a_rerun_success(self):
         with self.assertRaises(ValueError):

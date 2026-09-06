@@ -18,7 +18,7 @@ compiler checks remain on macOS. The rules do not resolve symbols or prove execu
 | `SRC-UI-001` | Fixed dark appearance has one owner and shipping code does not add appearance-mode branching | `Scripts/ast-grep/rules` plus [product scope](../../product/scope.md) |
 | `SRC-PROJ-001` | Playback projections expose no external mutation access | Compiler positive/negative probes in `Scripts/check-playback-projection-access.sh`, after the Debug boundary build |
 | `SRC-KEY-001` | `KeychainManager.swift` contains no data-protection Keychain or access-group API references | `Scripts/ast-grep/rules`, with allowed/forbidden syntax fixtures; storage and signing semantics remain behavior-tested or reviewed |
-| `SRC-RUST-FFI-001` | C exports enter named panic barriers; direct `RUNTIME.block_on` stays in the runtime owner | `Scripts/ast-grep/rules` plus Rust barrier panic/nested-runtime behavior tests |
+| `SRC-RUST-FFI-001` | C export bodies consist of named panic-barrier calls; direct `RUNTIME.block_on` stays in the runtime owner | `Scripts/ast-grep/rules` plus Rust barrier panic/nested-runtime behavior tests |
 | `SRC-RUST-PLAY-001` | Production `IS_PLAYING=true` writes stay in the Playing event owner | `Scripts/ast-grep/rules` plus Rust player-event behavior tests; lexical ownership is not proof of execution ordering |
 | `SRC-INOUT-001` | Revision gates do not use `lastRevision: inout` | `Scripts/ast-grep/rules`; epoch correctness remains behavior-tested |
 | `SRC-HYG-001`–`004` | No tracked generated/private artifacts, security placeholders, mock/demo tombstones, or shipping `LogicChecks` directory | `Scripts/check.sh`, gitignore, and privacy review |

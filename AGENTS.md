@@ -56,8 +56,7 @@ or interactive acceptance.
 
 ## Code, test, and documentation quality
 
-- Avoid speculative abstractions and pass-through wrappers; helpers should clarify logic or remove
-  meaningful duplication.
+- Follow YAGNI principles, and prefer one-liner solutions.
 - Tests must catch plausible behavioral failures, not mirror implementation or duplicate coverage.
 - Skip obvious comments and production hooks added solely to test trivial code.
 - Document intent, usage, and non-obvious constraints; let code describe mechanics. Link to the

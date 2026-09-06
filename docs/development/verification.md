@@ -44,6 +44,12 @@ The full and Rust scopes require the [engine toolchain](setup.md#engine-developm
 The Swift scope and packaging use the pinned binary without Rust tools. Checks do not sign in or
 initiate playback. See the [enforcement inventory](../architecture/enforcement.md) for coverage.
 
+CI skips Rust only for PRs limited to app sources/tests, assets, packaging, package pins, or
+documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
+runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
+requires Rust, and detection errors fail the aggregate. A skipped Rust job is accepted only after an
+explicit successful app-only decision. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
+
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
 header. `--check` verifies reproducibility; set `SPOTTY_CBINDGEN` if the pinned tool is not on `PATH`.
 

@@ -22,6 +22,7 @@ SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 
 Rust checks own header generation and producer ABI validation. Swift CI consumes only published
 artifacts, rejecting noncanonical or unversioned release URLs before dependency resolution.
+[Verification](verification.md#normal-verification) defines when app-only PRs may skip the Rust job.
 
 ## Publish a tested candidate
 

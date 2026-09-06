@@ -6,10 +6,6 @@ boundaries. Read the relevant ADRs and [playback](../../../docs/product/playback
 in [product contracts](../../../docs/product/README.md); live-account work follows
 [safe testing](../../../docs/product/safe-testing.md).
 
-The pinned Rust/librespot engine is the sole production owner of session, Connect, streaming,
-decryption, and decoding. Keep the existing PCM path through the adapter and do not add a parallel
-audio or protocol implementation.
-
 ## State, effects, and dependencies
 
 - `SpottyDomain.PlaybackState` is the single atomic presentation snapshot and `PlaybackReducer` its
@@ -26,9 +22,6 @@ audio or protocol implementation.
   mutation feedback in `TransientFeedbackPresenter`.
 
 ## Boundary invariants
-
-- For new async boundaries, define the owner, lifetime, cancellation, ordering, stale-result and
-  failure policy, and verification coverage before adding the flow.
 
 - `PlaybackCore.swift` is the only Swift importer of `SpottyPlaybackCore`;
   `RustPlaybackEngine.swift` is its only caller. Keep the C header, Rust exports, ownership, pointer

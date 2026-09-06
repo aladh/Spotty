@@ -156,10 +156,12 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         for name in ("Install pinned cbindgen", "Show Rust toolchain", "Identify playback inputs",
                      "Cache Rust verification products", "Run Rust checks"):
             with self.subTest(name=name):
+                self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
         for name in ("Cache Rust release build products", "Build candidate playback XCFramework",
                      "Upload candidate playback artifact"):
             with self.subTest(name=name):
+                self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: steps.inputs.outputs.candidate_needed == 'true'", steps[name])
         names = list(steps)
         ordered = ("Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",

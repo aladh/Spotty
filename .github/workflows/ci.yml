@@ -73,30 +73,7 @@ jobs:
         id: inputs
         env:
           INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          set -euo pipefail
-          digest="$(./Backend/spotty-playback/source-input-digest.sh)"
-          candidate_needed=true
-          # Compare this change, not the app's independently selected engine release.
-          if [[ -n "$INPUT_BASE_SHA" && "$INPUT_BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            [[ "$INPUT_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
-            git fetch --no-tags --depth=1 origin "$INPUT_BASE_SHA"
-            input_list="$(./Backend/spotty-playback/source-input-digest.sh --print-inputs)"
-            paths=()
-            while IFS= read -r path; do paths+=("$path"); done <<< "$input_list"
-            # Include directories to detect deleted source and license files too.
-            paths+=(Backend/spotty-playback/src Scripts/playback-license-overrides)
-            paths+=(.github/workflows/ci.yml Backend/spotty-playback/validate-xcframework.sh)
-            if git diff --quiet "$INPUT_BASE_SHA" HEAD -- "${paths[@]}"; then
-              candidate_needed=false
-            else
-              diff_status=$?
-              if [[ "$diff_status" != 1 ]]; then exit "$diff_status"; fi
-            fi
-          fi
-          echo "PLAYBACK_INPUT_DIGEST=$digest" >> "$GITHUB_ENV"
-          echo "candidate_needed=$candidate_needed" >> "$GITHUB_OUTPUT"
-          echo "Playback candidate needed: $candidate_needed"
+        run: ./Scripts/playback-candidate-needed.sh
 
       - name: Cache Rust verification products
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

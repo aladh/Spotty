@@ -14,6 +14,10 @@ spotty_playback_pin_value() {
     PIN_NAME="$pin_name" perl -0777 -ne '
         my @values = /private\s+let\s+\Q$ENV{PIN_NAME}\E\s*=\s*"([^"]+)"/g;
         die "Expected one playback pin declaration\n" unless @values == 1;
+        if ($ENV{PIN_NAME} eq "generatedPlaybackArtifactURL" && $values[0] !~
+            m{\Ahttps://github\.com/aladh/Spotty/releases/download/playback-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)/SpottyPlaybackCore\.xcframework\.zip\z}) {
+            die "Playback pin must name a canonical Spotty playback-vMAJOR.MINOR.PATCH release asset\n";
+        }
         print "$values[0]\n";
     ' "$project_root/Package.swift"
 }
@@ -40,6 +44,9 @@ spotty_playback_resolve_xcframework() {
         (cd "$local_playback_path" && pwd -P)
         return 0
     fi
+
+    manifest_url="$(spotty_playback_pin_value url)" || return 1
+    manifest_checksum="$(spotty_playback_pin_value checksum)" || return 1
 
     # Remote binary targets are downloaded by SwiftPM. Resolve on every lookup so a changed
     # package pin cannot leave an old workspace-state path selected; do not guess from the
@@ -105,8 +112,6 @@ spotty_playback_resolve_xcframework() {
     fi
 
     # Reject a stale resolved artifact after a Package.swift pin change.
-    manifest_url="$(spotty_playback_pin_value url)" || return 1
-    manifest_checksum="$(spotty_playback_pin_value checksum)" || return 1
     state_url="$(plutil -extract "object.artifacts.$local_resolved_index.source.url" raw -o - "$local_workspace_state" 2>/dev/null || true)"
     state_checksum="$(plutil -extract "object.artifacts.$local_resolved_index.source.checksum" raw -o - "$local_workspace_state" 2>/dev/null || true)"
     if [ -z "$manifest_url" ] || [ -z "$manifest_checksum" ] || [ -z "$state_url" ] || [ -z "$state_checksum" ]; then

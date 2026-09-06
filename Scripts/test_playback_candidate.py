@@ -5,7 +5,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,16 +15,16 @@ class CandidateSelectionTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix="spotty-candidate-policy-")
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        step = workflow.split("      - name: Identify playback inputs\n", 1)[1]
-        self.script = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
         inputs = subprocess.check_output(
-            [str(ROOT / "Backend/spotty-playback/source-input-digest.sh"), "--print-inputs"], text=True,
+            [str(ROOT / "Scripts/playback-candidate-needed.sh"), "--print-paths"], text=True,
         ).splitlines()
-        for name in [*inputs, ".github/workflows/ci.yml", "Backend/spotty-playback/validate-xcframework.sh"]:
+        for name in inputs:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / name, target)
+            if (ROOT / name).is_dir():
+                shutil.copytree(ROOT / name, target, dirs_exist_ok=True)
+            else:
+                shutil.copy2(ROOT / name, target)
         # The digest enumerates this directory even when it has no extra licenses.
         (self.root / "Scripts/playback-license-overrides").mkdir(exist_ok=True)
         self.git("init", "-q")
@@ -47,7 +46,7 @@ class CandidateSelectionTests(unittest.TestCase):
         output.unlink(missing_ok=True)
         (self.root / "job-env").unlink(missing_ok=True)
         result = subprocess.run(
-            ["bash", "-c", self.script], cwd=self.root, text=True, capture_output=True,
+            [str(self.root / "Scripts/playback-candidate-needed.sh")], cwd=self.root, text=True, capture_output=True,
             env={**os.environ, "INPUT_BASE_SHA": self.base if base is None else base,
                  "GITHUB_ENV": str(self.root / "job-env"), "GITHUB_OUTPUT": str(output)},
         )
@@ -94,6 +93,7 @@ class CandidateSelectionTests(unittest.TestCase):
                 result, output = self.select(base)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("candidate_needed=false", output)
+                self.assertIn("base", result.stderr)
 
 
 if __name__ == "__main__":

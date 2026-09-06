@@ -292,15 +292,15 @@ if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
     print -u2 "CI must use the selected toolchain swift-format, not a Homebrew Swift linter"
     exit 1
 fi
-if rg -q --fixed-strings 'SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK' "$ci_workflow"; then
-    print -u2 "Swift CI must consume the published playback pin, not an unpublished engine override"
-    exit 1
-fi
 policy_job="$(sed -n '/^  policy:/,/^  rust:/p' "$ci_workflow")"
 rust_job="$(sed -n '/^  rust:/,/^  checks:/p' "$ci_workflow")"
 checks_job="$(sed -n '/^  checks:/,/^  release:/p' "$ci_workflow")"
 release_job="$(sed -n '/^  release:/,/^  gate:/p' "$ci_workflow")"
 gate_job="$(sed -n '/^  gate:/,$p' "$ci_workflow")"
+if rg -q '^[[:space:]]*([^#[:space:]].*)?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK[=:]' <<< "$checks_job$release_job"; then
+    print -u2 "Swift CI must consume the published playback pin, not an unpublished engine override"
+    exit 1
+fi
 checkout_without_credentials=$'uses: actions/checkout@[0-9a-f]{40} # v[^\n]+\n        with:\n          persist-credentials: false'
 blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
 if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
@@ -311,9 +311,11 @@ if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'candidate_needed' <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'run: ./Scripts/playback-candidate-needed.sh' <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}' <<< "$rust_job" \
     || ! rg -U -q "$checkout_without_credentials" <<< "$rust_job" \
     || ! rg -q 'key: macos-rust-.*Cargo\.lock' <<< "$rust_job" \
-    || ! rg -q --fixed-strings 'source-input-digest.sh' <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'source-input-digest.sh' Scripts/playback-candidate-needed.sh \
     || ! rg -q --fixed-strings 'run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$checks_job" \
     || ! rg -q --fixed-strings 'xcode-select -s /Applications/Xcode_26.6.app' <<< "$checks_job" \

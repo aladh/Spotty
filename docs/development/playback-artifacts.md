@@ -15,7 +15,8 @@ the ARM64 library, matching headers/module map, provenance, and dependency notic
 The Swift package and Rust crate are independent projects in this repository. App builds and Swift
 checks consume the pinned artifact and its bundled headers, even when engine source has changed.
 Rust checks own source/header generation and producer ABI validation. Swift CI never selects an
-unpublished engine. Updating the app pin to a published release is the integration step.
+unpublished engine. The consumer rejects noncanonical or unversioned release URLs before SwiftPM
+resolves the dependency. Updating the app pin to a published release is the integration step.
 
 For engine development, install the [artifact tools](setup.md#engine-development), run the Rust
 checks, and build the artifact independently of the app:

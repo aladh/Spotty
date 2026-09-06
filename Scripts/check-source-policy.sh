@@ -29,7 +29,7 @@ for owner in README.md SECURITY.md CONTRIBUTING.md Sources/Spotty/SpottyApp.swif
 done
 
 if grep -nE "MockCatalog|PlaybackController|demo catalog" \
-    "README.md"; then
+    "README.md" >&2; then
     echo "Mock catalog references remain" >&2
     exit 1
 fi
@@ -37,7 +37,7 @@ fi
 if grep -nE 'security@example\.com|replace this placeholder' \
     "README.md" \
     "SECURITY.md" \
-    "CONTRIBUTING.md"; then
+    "CONTRIBUTING.md" >&2; then
     echo "A public-facing security-contact placeholder remains" >&2
     exit 1
 fi

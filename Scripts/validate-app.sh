@@ -87,6 +87,7 @@ if [[ ! -x "$sparkle_framework/Sparkle" ]]; then
 fi
 python3 - "$info_plist" <<'PYTHON'
 import base64
+import binascii
 import plistlib
 import sys
 
@@ -96,13 +97,17 @@ def require(condition, message):
 
 with open(sys.argv[1], "rb") as source:
     info = plistlib.load(source)
-require(len(base64.b64decode(info["SUPublicEDKey"], validate=True)) == 32, "Invalid updater public key")
-require(info["SURequireSignedFeed"] is True, "Update feed must require authentication")
-require(info["SUVerifyUpdateBeforeExtraction"] is True, "Signed feeds require pre-extraction verification")
-require(info["SUAllowsAutomaticUpdates"] is False, "Installation must require user action")
-require(info["SUEnableAutomaticChecks"] is False, "Background checking must default to opt-in")
-require(info["SUSendProfileInfo"] is False, "Update system-profile reporting must be disabled")
-require(info["SUFeedURL"] == "https://github.com/aladh/Spotty/releases/latest/download/appcast.xml", "Incorrect update feed")
+try:
+    public_key = base64.b64decode(info.get("SUPublicEDKey", ""), validate=True)
+except (binascii.Error, ValueError, TypeError):
+    raise SystemExit("Invalid updater public key")
+require(len(public_key) == 32, "Invalid updater public key")
+require(info.get("SURequireSignedFeed") is True, "Update feed must require authentication")
+require(info.get("SUVerifyUpdateBeforeExtraction") is True, "Signed feeds require pre-extraction verification")
+require(info.get("SUAllowsAutomaticUpdates") is False, "Installation must require user action")
+require(info.get("SUEnableAutomaticChecks") is False, "Background checking must default to opt-in")
+require(info.get("SUSendProfileInfo") is False, "Update system-profile reporting must be disabled")
+require(info.get("SUFeedURL") == "https://github.com/aladh/Spotty/releases/latest/download/appcast.xml", "Incorrect update feed")
 PYTHON
 codesign --verify --deep --strict --verbose=2 "$app_path"
 signing_details="$(codesign --display --verbose=4 "$app_path" 2>&1)"

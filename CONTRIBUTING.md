@@ -5,7 +5,7 @@ Start with [AGENTS.md](AGENTS.md) for repository rules and the
 
 ## Pull-request execution
 
-[OpenCode Thermos review](docs/development/opencode-review.md) provides one advisory correctness
+[Thermos review](docs/development/thermos-review.md) provides one advisory correctness
 and quality review when a same-repository PR first becomes ready.
 
 A request to open a PR authorizes the agent to create a branch, commit the complete in-scope change,

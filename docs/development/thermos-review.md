@@ -14,7 +14,7 @@ follow-ups. Conclusions state coverage limits and rely on inspected evidence rat
 than auditor agreement or declarations that the PR is safe to merge.
 
 The original Cursor Thermos rubrics and MIT license live in
-[.github/review/thermos](../../.github/review/thermos), recovered from
+[.github/thermos-review](../../.github/thermos-review), recovered from
 [PR #291](https://github.com/aladh/Spotty/pull/291). Their prompts load directly through
 `{file:...}` references. The default agent is explicitly Thermos, including for action
 versions that do not forward the `agent` input to the session.

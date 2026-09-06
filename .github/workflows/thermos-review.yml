@@ -76,7 +76,7 @@ jobs:
           set -euo pipefail
           unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           mkdir -p "$RUNNER_TEMP/thermos"
-          git archive "$BASE_SHA" .github/review | tar -x -C "$RUNNER_TEMP/thermos"
+          git archive "$BASE_SHA" .github/thermos-review | tar -x -C "$RUNNER_TEMP/thermos"
           if ! command -v rg >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y ripgrep
@@ -87,7 +87,7 @@ jobs:
         uses: anomalyco/opencode/github@16747470f976aca3d362ad730bcd3fe82ecc2c9a # v1.18.29
         env:
           GH_TOKEN: ${{ github.token }}
-          OPENCODE_CONFIG: ${{ runner.temp }}/thermos/.github/review/opencode.json
+          OPENCODE_CONFIG: ${{ runner.temp }}/thermos/.github/thermos-review/opencode.json
           OPENCODE_CONFIG_CONTENT: '{"default_agent":"thermos","permission":{"edit":"deny"}}'
           OPENCODE_PURE: 'true'
           OPENCODE_DISABLE_PROJECT_CONFIG: 'true'

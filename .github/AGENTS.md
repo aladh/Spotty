@@ -8,8 +8,9 @@ GitHub workflows and pull-request metadata are part of the verification and rele
 - Use least permissions and never expose credentials to untrusted pull-request code or logs.
 - Require `Source policies` and `macOS checks`; the final macOS step must validate Rust,
   Swift/architecture verification, and Release outcomes. Rust may be skipped only for an explicit
-  app-only PR classification from the successful Linux job; main always verifies Rust. Unknown paths
-  require Rust, and detection failures must fail the aggregate.
+  app-only PR classification from the successful Linux job. A trusted documentation-only decision
+  may skip the macOS job; main always verifies both toolchains. Unknown paths require verification,
+  and detection failures must fail the Linux job.
 - Swift CI consumes only the app's published engine pin. Producer validation and engine publication
   must not depend on app compatibility with an unpublished candidate.
 - Preserve content-keyed Rust archive reuse and configuration-safe SwiftPM cache isolation. Treat

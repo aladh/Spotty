@@ -1,4 +1,4 @@
-"""Skip PR Rust verification only when every changed path belongs to the app or docs."""
+"""Select compiler verification from trusted PR paths; main always verifies both toolchains."""
 
 import argparse
 from pathlib import Path
@@ -13,13 +13,21 @@ APP_ONLY_DIRECTORIES = (
 )
 APP_ONLY_FILES = {
     "Package.swift", "Package.resolved", ".swift-format",
-    "README.md", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md",
 }
 
 
-def rust_needed(event, base, repository):
+DOCUMENTATION_FILES = {"README.md", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md"}
+DOCUMENTATION_SUFFIXES = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
+
+
+def documentation_path(path):
+    return (Path(path).name == "AGENTS.md" or path in DOCUMENTATION_FILES
+            or (path.startswith("docs/") and Path(path).suffix in DOCUMENTATION_SUFFIXES))
+
+
+def verification_needed(event, base, repository):
     if event != "pull_request":
-        return True
+        return {"rust_needed": True, "macos_needed": True}
     if not re.fullmatch(r"[0-9a-f]{40}", base) or base == "0" * 40:
         raise ValueError("PR Rust selection requires a valid base SHA")
     subprocess.run(
@@ -31,9 +39,12 @@ def rust_needed(event, base, repository):
     result = subprocess.check_output(
         ["git", "diff", "--name-only", "--no-renames", "-z", base, "HEAD", "--"], cwd=repository,
     )
-    paths = result.decode("utf-8", errors="surrogateescape").split("\0")
-    return any(path and path not in APP_ONLY_FILES and not path.startswith(APP_ONLY_DIRECTORIES)
-               for path in paths)
+    paths = [path for path in result.decode("utf-8", errors="surrogateescape").split("\0") if path]
+    return {
+        "rust_needed": any(not documentation_path(path) and path not in APP_ONLY_FILES
+                           and not path.startswith(APP_ONLY_DIRECTORIES) for path in paths),
+        "macos_needed": any(not documentation_path(path) for path in paths),
+    }
 
 
 def main():
@@ -41,8 +52,8 @@ def main():
     parser.add_argument("--event", required=True)
     parser.add_argument("--base", default="")
     args = parser.parse_args()
-    needed = rust_needed(args.event, args.base, Path.cwd())
-    print(f"rust_needed={str(needed).lower()}")
+    for name, needed in verification_needed(args.event, args.base, Path.cwd()).items():
+        print(f"{name}={str(needed).lower()}")
 
 
 if __name__ == "__main__":

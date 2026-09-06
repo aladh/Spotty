@@ -19,14 +19,28 @@ if [[ "$("$ast_grep" --version)" != "ast-grep $expected_version" ]]; then
 fi
 export SPOTTY_AST_GREP="$ast_grep"
 
-# Presence rules inspect a syntax tree; missing or empty owner files must not silently skip them.
-for owner in Sources/Spotty/SpottyApp.swift \
+# Required policy owners must exist and contain content, even when compiler jobs are skipped.
+for owner in README.md SECURITY.md CONTRIBUTING.md Sources/Spotty/SpottyApp.swift \
     Sources/Spotty/Spotify/PlaybackCore.swift \
     Sources/Spotty/Spotify/KeychainManager.swift \
     Sources/Spotty/Spotify/RustPlaybackEngine.swift \
     Backend/spotty-playback/src/player_event_pump.rs; do
     [[ -f "$owner" && -s "$owner" ]] || { echo "Missing or empty policy owner: $owner" >&2; exit 1; }
 done
+
+if grep -nE "MockCatalog|PlaybackController|demo catalog" \
+    "README.md" >&2; then
+    echo "Mock catalog references remain" >&2
+    exit 1
+fi
+
+if grep -nE 'security@example\.com|replace this placeholder' \
+    "README.md" \
+    "SECURITY.md" \
+    "CONTRIBUTING.md" >&2; then
+    echo "A public-facing security-contact placeholder remains" >&2
+    exit 1
+fi
 
 "$ast_grep" test --config sgconfig.yml --skip-snapshot-tests
 python3 -B -m unittest discover -s Scripts -p 'test_*policy.py'

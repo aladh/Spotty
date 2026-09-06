@@ -30,7 +30,7 @@ done
 
 if grep -nE "MockCatalog|PlaybackController|demo catalog" \
     "README.md"; then
-    echo "Mock catalog references remain"
+    echo "Mock catalog references remain" >&2
     exit 1
 fi
 
@@ -38,7 +38,7 @@ if grep -nE 'security@example\.com|replace this placeholder' \
     "README.md" \
     "SECURITY.md" \
     "CONTRIBUTING.md"; then
-    echo "A public-facing security-contact placeholder remains"
+    echo "A public-facing security-contact placeholder remains" >&2
     exit 1
 fi
 

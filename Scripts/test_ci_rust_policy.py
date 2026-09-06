@@ -143,10 +143,46 @@ class RustSelectionTests(unittest.TestCase):
                 rust_needed("pull_request", self.base, self.root)
 
 
+class ConsolidatedWorkflowTests(unittest.TestCase):
+    def test_rust_scope_guards_and_phase_order(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertEqual(workflow.count("runs-on: macos-"), 1)
+        macos = workflow.split("  macos:\n", 1)[1].split("  gate:\n", 1)[0]
+        steps = {}
+        for block in macos.split("      - name: ")[1:]:
+            name, body = block.split("\n", 1)
+            self.assertNotIn(name, steps)
+            steps[name] = body
+        for name in ("Install pinned cbindgen", "Show Rust toolchain", "Identify playback inputs",
+                     "Cache Rust verification products", "Run Rust checks"):
+            with self.subTest(name=name):
+                self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
+                self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
+        for name in ("Cache Rust release build products", "Build candidate playback XCFramework",
+                     "Upload candidate playback artifact"):
+            with self.subTest(name=name):
+                self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
+                self.assertIn("if: steps.inputs.outputs.candidate_needed == 'true'", steps[name])
+        names = list(steps)
+        ordered = ("Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",
+                   "Upload candidate playback artifact", "Block Rust tools", "Run checks",
+                   "Compile release Spotty with SPOTTY_DISTRIBUTION")
+        for name in ordered:
+            self.assertIn(name, steps, f"Required CI producer/consumer step was renamed or removed: {name}")
+        positions = [names.index(name) for name in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("continue-on-error:", macos)
+        cache = steps["Cache SwiftPM build directory"]
+        self.assertEqual(macos.count("path: |\n            .build/*"), 1)
+        self.assertIn("!.build/spotty-signing", cache)
+        self.assertNotIn("macos-swiftpm-debug-", cache)
+        self.assertNotIn("macos-swiftpm-release-", cache)
+
+
 class AggregateGateTests(unittest.TestCase):
     def test_only_an_explicit_app_only_decision_allows_skipped_rust(self):
         script = workflow_script("Require every quality lane")
-        env = {**os.environ, "POLICY_RESULT": "success", "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
+        env = {**os.environ, "POLICY_RESULT": "success", "MACOS_RESULT": "success", "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
         for needed in ("true", "false", "", "invalid"):
             for result in ("success", "skipped", "failure", "cancelled", ""):
                 with self.subTest(needed=needed, result=result):
@@ -154,7 +190,7 @@ class AggregateGateTests(unittest.TestCase):
                                                env={**env, "RUST_NEEDED": needed, "RUST_RESULT": result})
                     expected = (needed, result) in (("true", "success"), ("false", "skipped"))
                     self.assertEqual(completed.returncode == 0, expected)
-        for lane in ("POLICY_RESULT", "CHECKS_RESULT", "RELEASE_RESULT"):
+        for lane in ("POLICY_RESULT", "MACOS_RESULT", "CHECKS_RESULT", "RELEASE_RESULT"):
             with self.subTest(lane=lane):
                 completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
                                            env={**env, "RUST_NEEDED": "false", "RUST_RESULT": "skipped", lane: "failure"})

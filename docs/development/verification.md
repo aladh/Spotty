@@ -44,10 +44,16 @@ The full and Rust scopes require the [engine toolchain](setup.md#engine-developm
 The Swift scope and packaging use the pinned binary without Rust tools. Checks do not sign in or
 initiate playback. See the [enforcement inventory](../architecture/enforcement.md) for coverage.
 
+CI uses one macOS job for conditional Rust verification/candidate production, then Swift Debug
+checks and the Release distribution compile. Debug and Release share one SwiftPM cache under a
+new combined key; separate configuration directories remain inside `.build`. Rust tools are blocked
+before Swift runs. Main requires `Source policies`, `macOS checks`, and `Debug quality gate`.
+The aggregate checks each phase outcome and requires the whole macOS job to pass.
+
 CI skips Rust only for PRs limited to app sources/tests, assets, packaging, package pins, or
 documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
 runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
-requires Rust, and detection errors fail the aggregate. A skipped Rust job is accepted only after an
+requires Rust, and detection errors fail the aggregate. Skipped Rust steps are accepted only after an
 explicit successful app-only decision. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated

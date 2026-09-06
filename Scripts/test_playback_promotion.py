@@ -6,7 +6,7 @@ import unittest
 import zipfile
 
 from playback_promotion import (
-    promote, release_tag, validate_artifact, validate_checkout, validate_payload, validate_run,
+    PRODUCER_STEPS, promote, release_tag, validate_artifact, validate_checkout, validate_payload, validate_run,
 )
 
 
@@ -55,12 +55,16 @@ class PromotionTests(unittest.TestCase):
             "path": ".github/workflows/ci.yml", "event": "push", "head_branch": "main",
             "head_sha": HEAD, "status": "completed", "conclusion": "failure",
         }
-        self.jobs = [{"name": name, "conclusion": "success", "started_at": "2026-09-05T12:00:00Z",
-                      "completed_at": "2026-09-05T12:10:00Z"} for name in (
-                          "Rust checks", "Source policies")]
+        self.jobs = [{"name": "Source policies", "conclusion": "success"}, {
+            "name": "macOS checks", "conclusion": "failure", "steps": [
+                {"name": name, "conclusion": "success", "started_at": "2026-09-05T12:00:00Z",
+                 "completed_at": "2026-09-05T12:10:00Z"} for name in PRODUCER_STEPS
+            ] + [{"name": "Run checks", "conclusion": "failure"}],
+        }]
+        self.jobs[1]["steps"][2]["started_at"] = "2026-09-05T12:08:00Z"
         self.artifact = {"expired": False, "created_at": "2026-09-05T12:09:00Z"}
 
-    def test_engine_promotion_requires_no_swift_jobs(self):
+    def test_engine_promotion_survives_later_swift_failure(self):
         validate_run(self.run, self.jobs, "owner/repo", HEAD)
         validate_checkout(self.run, HEAD)
         validate_artifact(self.artifact, self.jobs)
@@ -121,21 +125,38 @@ class PromotionTests(unittest.TestCase):
                 validate_run({**self.run, key: value}, self.jobs, "owner/repo", HEAD)
 
     def test_every_required_job_must_pass(self):
-        for index in range(len(self.jobs)):
-            for conclusion in ("failure", "skipped", "cancelled", None):
-                jobs = copy.deepcopy(self.jobs)
-                jobs[index]["conclusion"] = conclusion
-                with self.subTest(index=index, conclusion=conclusion), self.assertRaises(ValueError):
-                    validate_run(self.run, jobs, "owner/repo", HEAD)
+        for conclusion in ("failure", "skipped", "cancelled", None):
+            jobs = copy.deepcopy(self.jobs)
+            jobs[0]["conclusion"] = conclusion
+            with self.subTest(conclusion=conclusion), self.assertRaises(ValueError):
+                validate_run(self.run, jobs, "owner/repo", HEAD)
         for index in range(len(self.jobs)):
             with self.subTest(missing=index), self.assertRaises(ValueError):
                 validate_run(self.run, self.jobs[:index] + self.jobs[index + 1:], "owner/repo", HEAD)
             with self.subTest(duplicate=index), self.assertRaises(ValueError):
                 validate_run(self.run, [*self.jobs, self.jobs[index]], "owner/repo", HEAD)
 
+    def test_every_producer_step_must_pass_even_when_job_succeeds(self):
+        for index in range(len(PRODUCER_STEPS)):
+            for conclusion in ("failure", "skipped", "cancelled", None):
+                jobs = copy.deepcopy(self.jobs)
+                jobs[1]["conclusion"] = "success"
+                jobs[1]["steps"][index]["conclusion"] = conclusion
+                with self.subTest(index=index, conclusion=conclusion), self.assertRaises(ValueError):
+                    validate_run(self.run, jobs, "owner/repo", HEAD)
+            for duplicate in (False, True):
+                jobs = copy.deepcopy(self.jobs)
+                step = jobs[1]["steps"].pop(index)
+                if duplicate:
+                    jobs[1]["steps"].extend([step, step])
+                with self.subTest(index=index, duplicate=duplicate), self.assertRaises(ValueError):
+                    validate_run(self.run, jobs, "owner/repo", HEAD)
+
     def test_stale_artifact_cannot_borrow_a_rerun_success(self):
         with self.assertRaises(ValueError):
             validate_artifact({**self.artifact, "created_at": "2026-09-04T12:09:00Z"}, self.jobs)
+        with self.assertRaises(ValueError):
+            validate_artifact({**self.artifact, "created_at": "2026-09-05T12:07:00Z"}, self.jobs)
         with self.assertRaises(ValueError):
             validate_artifact({**self.artifact, "expired": True}, self.jobs)
 

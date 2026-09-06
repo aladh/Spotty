@@ -9,6 +9,8 @@ GitHub workflows and pull-request metadata are part of the verification and rele
 - The required `Debug quality gate` must aggregate Linux source policies, Rust verification,
   Swift/architecture verification, and the release compile. Parallelism and caches may reduce
   latency, never coverage.
+- Swift CI consumes only the app's published engine pin. Producer validation and engine publication
+  must not depend on app compatibility with an unpublished candidate.
 - Preserve content-keyed Rust archive reuse and configuration-safe SwiftPM cache isolation. Treat
   cache contents, restore prefixes, and timestamp refreshes as correctness-sensitive build behavior.
 - Use the selected Xcode toolchain for Swift formatting. The pinned ast-grep rules own migrated

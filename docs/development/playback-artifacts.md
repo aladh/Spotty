@@ -14,36 +14,31 @@ the ARM64 library, matching headers/module map, provenance, and dependency notic
 
 The Swift package and Rust crate are independent projects in this repository. App builds and Swift
 checks consume the pinned artifact and its bundled headers, even when engine source has changed.
-Rust checks own source/header generation; candidate Swift checks exercise the new engine. Updating
-the app pin is the explicit integration step.
+Rust checks own source/header generation and producer ABI validation. Swift CI never selects an
+unpublished engine. The consumer rejects noncanonical or unversioned release URLs before SwiftPM
+resolves the dependency. Updating the app pin to a published release is the integration step.
 
-For engine development, install the [artifact tools](setup.md#engine-development)
-and build a local artifact:
+For engine development, install the [artifact tools](setup.md#engine-development), run the Rust
+checks, and build the artifact independently of the app:
 
 ```bash
+SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ./Backend/spotty-playback/build-xcframework.sh
-engine_digest="$(./Backend/spotty-playback/source-input-digest.sh)"
-export SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK="$PWD/.build/playback-engine/$engine_digest/SpottyPlaybackCore.xcframework"
-SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
-./Scripts/compile-release-spotty.sh
 ```
 
-Rebuild and refresh the override after every engine-input change. Preserve digest-bearing paths
-and library names so SwiftPM relinks changed engines. The override selects a binary without building
-Rust; unset it to return to the published dependency. Run the Rust gate separately.
-
-CI diffs engine build inputs against the app's pinned `playback-vMAJOR.MINOR.PATCH` tag. It builds
-and tests a candidate only when those inputs differ, including shared headers, packaging scripts,
-and license inputs. Comparing with the pinned release also catches unpublished engine changes from
-earlier commits. CI requires the canonical repository release URL and XCFramework asset with a valid versioned tag. Rust source checks and
-published-artifact Swift checks remain
-required; content digests still identify build caches and artifact provenance.
+CI compares engine inputs against the PR base or the previous main push commit. It builds a
+candidate only when those inputs or candidate build/validation infrastructure change, including
+shared headers, packaging scripts, and license inputs. An absent or initial base SHA builds a
+candidate conservatively; a failed comparison fails CI. Unpublished engine changes already on main
+do not trigger candidate builds for unrelated PRs. Rust checks and published-artifact Swift checks
+remain required on every run. Content digests identify build caches and artifact provenance.
 
 Publication promotes the exact candidate ZIP from a completed CI run, without rebuilding it. Run
-the publisher from main after Source policies, Rust, and candidate Swift Debug/Release succeed.
-Published-pin jobs continue to test the app against its selected release; they fail if app changes require a newer ABI. The selected source must be a
-merged commit covered by a main-branch push CI run and an ancestor of the publisher checkout.
+the publisher after Source policies and Rust succeed in the candidate's main push CI run. Swift
+jobs validate the app's published pin independently and do not gate engine publication. The selected
+source must be a merged commit covered by that run and an ancestor of the publisher checkout.
 PR and fork candidates cannot be published. The tested main commit becomes the release target.
+When a later app-only commit produces no candidate, select the earlier engine-changing main run.
 
 The publisher verifies the CI definition matches its trusted checkout, the source ancestry on main,
 successful jobs from the same run attempt, artifact identity/checksum, and embedded provenance and

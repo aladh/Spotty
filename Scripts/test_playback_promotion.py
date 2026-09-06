@@ -57,14 +57,10 @@ class PromotionTests(unittest.TestCase):
         }
         self.jobs = [{"name": name, "conclusion": "success", "started_at": "2026-09-05T12:00:00Z",
                       "completed_at": "2026-09-05T12:10:00Z"} for name in (
-                          "Rust checks", "Candidate Swift debug", "Candidate Swift release", "Source policies")]
-        for job in self.jobs:
-            if job["name"].startswith("Candidate Swift "):
-                job["started_at"] = "2026-09-05T12:11:00Z"
-                job["completed_at"] = "2026-09-05T12:20:00Z"
+                          "Rust checks", "Source policies")]
         self.artifact = {"expired": False, "created_at": "2026-09-05T12:09:00Z"}
 
-    def test_failed_published_pin_does_not_block_successful_candidate(self):
+    def test_engine_promotion_requires_no_swift_jobs(self):
         validate_run(self.run, self.jobs, "owner/repo", HEAD)
         validate_checkout(self.run, HEAD)
         validate_artifact(self.artifact, self.jobs)

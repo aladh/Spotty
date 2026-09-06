@@ -53,7 +53,8 @@ temporary_header="$(mktemp /tmp/spotty-cbindgen-header.XXXXXX)"
 temporary_ast="$(mktemp /tmp/spotty-cbindgen-ast.XXXXXX)"
 temporary_fixture_symbols="$(mktemp /tmp/spotty-cbindgen-fixture-symbols.XXXXXX)"
 temporary_header_symbols="$(mktemp /tmp/spotty-cbindgen-header-symbols.XXXXXX)"
-trap 'rm -f "$temporary_header" "$temporary_ast" "$temporary_fixture_symbols" "$temporary_header_symbols"' EXIT
+temporary_abi_source="$(mktemp /tmp/spotty-cbindgen-abi.XXXXXX)"
+trap 'rm -f "$temporary_header" "$temporary_ast" "$temporary_fixture_symbols" "$temporary_header_symbols" "$temporary_abi_source"' EXIT
 
 if ! spotty_abi_fixture_symbols "$abi_signature_fixture" > "$temporary_fixture_symbols"; then
     exit 1
@@ -91,10 +92,43 @@ if ! diff -u "$temporary_fixture_symbols" <(sort "$temporary_header_symbols"); t
     exit 1
 fi
 
+# Match each C declaration's canonical function type against the unchanged Rust ABI fixture.
+# Clang follows the generated header's includes and __builtin_types_compatible_p compares canonical
+# types, so typedef aliases and nullability annotations do not create false textual mismatches.
+if ! awk -F'|' -v header="$temporary_header" '
+    BEGIN { printf "#include \"%s\"\n", header }
+    /^[[:space:]]*$/ || /^[[:space:]]*#/ { next }
+    {
+        signature=$2
+        separator=index(signature, " (")
+        return_type=substr(signature, 1, separator - 1)
+        arguments=substr(signature, separator + 2, length(signature) - separator - 2)
+        printf "_Static_assert(__builtin_types_compatible_p(__typeof__(&%s), %s (*)(%s)), \"%s ABI\");\n", $1, return_type, arguments, $1
+    }
+' "$abi_signature_fixture" > "$temporary_abi_source"; then
+    print -u2 "Could not generate C ABI compiler assertions from the fixture"
+    exit 1
+fi
+fixture_symbol_count="$(wc -l < "$temporary_fixture_symbols" | tr -d '[:space:]')"
+abi_assertion_count="$(sed -n '/^_Static_assert(/p' "$temporary_abi_source" | wc -l | tr -d '[:space:]')"
+if (( abi_assertion_count != fixture_symbol_count )); then
+    print -u2 "The C ABI compiler assertion count does not match the fixture rows"
+    exit 1
+fi
+if ! "$clang_bin" -I "$project_root/Sources/SpottyPlaybackCore/include" \
+    -x c \
+    -std=c11 \
+    -fsyntax-only \
+    -Werror \
+    "$temporary_abi_source"; then
+    print -u2 "Clang rejected one or more C ABI signatures from $abi_signature_fixture"
+    exit 1
+fi
+
 if [[ "$mode" == "write" ]]; then
     mv "$temporary_header" "$generated_header"
     chmod 644 "$generated_header"
-    rm -f "$temporary_ast" "$temporary_fixture_symbols" "$temporary_header_symbols"
+    rm -f "$temporary_ast" "$temporary_fixture_symbols" "$temporary_header_symbols" "$temporary_abi_source"
     trap - EXIT
     print "Generated $generated_header"
     exit 0

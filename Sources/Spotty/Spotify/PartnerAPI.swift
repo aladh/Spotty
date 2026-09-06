@@ -295,13 +295,55 @@ nonisolated struct PartnerAPI: Sendable {
     }
 
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
-        try await playlistLibrary(folderURI: nil, ancestors: [])
+        struct FolderRequest: Sendable {
+            let uri: String?
+            let ancestors: Set<String>
+        }
+        // Keep the complete-library contract without serializing every folder's network latency.
+        // One work queue bounds concurrency across the whole hierarchy, including nested folders.
+        let folders = try await withThrowingTaskGroup(
+            of: (FolderRequest, [PathfinderPlaylist]).self
+        ) { group in
+            var pending = [FolderRequest(uri: nil, ancestors: [])]
+            var next = 0
+            var active = 0
+            var results: [String: [PathfinderPlaylist]] = [:]
+            while next < pending.count || active > 0 {
+                try Task.checkCancellation()
+                while active < 4, next < pending.count {
+                    let request = pending[next]
+                    next += 1
+                    active += 1
+                    group.addTask { (request, try await playlistLibraryEntries(folderURI: request.uri)) }
+                }
+                guard let (request, entities) = try await group.next() else { break }
+                active -= 1
+                results[request.uri ?? ""] = entities
+                for entity in entities where CatalogMapping.item(from: entity) == nil {
+                    guard let uri = entity.uri, uri.contains(":folder:") else { continue }
+                    guard !request.ancestors.contains(uri), request.ancestors.count < 31 else {
+                        throw PartnerAPIError.emptyPayload
+                    }
+                    pending.append(FolderRequest(uri: uri, ancestors: request.ancestors.union([uri])))
+                }
+            }
+            return results
+        }
+        func nodes(in key: String) throws -> [PlaylistLibraryNode] {
+            guard let entities = folders[key] else { throw PartnerAPIError.emptyPayload }
+            return try entities.compactMap { entity in
+                if let item = CatalogMapping.item(from: entity) { return PlaylistLibraryNode(playlist: item) }
+                guard let uri = entity.uri, uri.contains(":folder:") else { return nil }
+                return PlaylistLibraryNode(folderURI: uri, title: entity.name ?? "Folder", children: try nodes(in: uri))
+            }
+        }
+        try Task.checkCancellation()
+        return try nodes(in: "")
     }
 
-    private func playlistLibrary(folderURI: String?, ancestors: Set<String>) async throws -> [PlaylistLibraryNode] {
+    private func playlistLibraryEntries(folderURI: String?) async throws -> [PathfinderPlaylist] {
         try Task.checkCancellation()
-        guard ancestors.count < 32 else { throw PartnerAPIError.emptyPayload }
-        let entities: [PathfinderPlaylist] = try await paginate { offset in
+        return try await paginate { offset in
             let response: PathfinderLibraryResponse<PathfinderPlaylist> = try await query(
                 .libraryV3,
                 variables: PathfinderLibraryVariables(
@@ -313,18 +355,6 @@ nonisolated struct PartnerAPI: Sendable {
             return Pagination.Page(
                 items: page.entities, pageEntryCount: page.items?.count ?? 0, totalCount: page.totalCount)
         }
-        var nodes: [PlaylistLibraryNode] = []
-        for entity in entities {
-            try Task.checkCancellation()
-            if let item = CatalogMapping.item(from: entity) {
-                nodes.append(PlaylistLibraryNode(playlist: item))
-            } else if let uri = entity.uri, uri.contains(":folder:") {
-                guard !ancestors.contains(uri) else { throw PartnerAPIError.emptyPayload }
-                let children = try await playlistLibrary(folderURI: uri, ancestors: ancestors.union([uri]))
-                nodes.append(PlaylistLibraryNode(folderURI: uri, title: entity.name ?? "Folder", children: children))
-            }
-        }
-        return nodes
     }
 
     func libraryAlbums() async throws -> [PathfinderAlbum] {

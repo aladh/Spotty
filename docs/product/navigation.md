@@ -16,7 +16,9 @@
 - The sidebar reads Spotify’s saved custom playlist order and folder hierarchy. Folder rows
   expand and collapse locally, including nested folders, without changing the Spotify library.
   Sibling order follows the service across pagination; folder failures preserve the previous
-  complete library rather than publishing a partial tree. The flat playlist catalog remains
+  complete library rather than publishing a partial tree. Folder requests use a shared concurrency
+  limit of four so collapsed folders do not load serially at launch; an empty sidebar shows loading
+  progress while the library is fetched. The flat playlist catalog remains
   available for detail navigation and playlist actions.
   Rows use 48-point artwork, a 16-point title, and a muted 14-point owner or fallback label, with
   native keyboard selection and scrolling. Sidebar rows use a pointing-hand cursor and reveal

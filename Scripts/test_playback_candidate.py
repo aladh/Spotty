@@ -44,6 +44,8 @@ class CandidateSelectionTests(unittest.TestCase):
 
     def select(self, base=None):
         output = self.root / "job-output"
+        output.unlink(missing_ok=True)
+        (self.root / "job-env").unlink(missing_ok=True)
         result = subprocess.run(
             ["bash", "-c", self.script], cwd=self.root, text=True, capture_output=True,
             env={**os.environ, "INPUT_BASE_SHA": self.base if base is None else base,
@@ -60,7 +62,7 @@ class CandidateSelectionTests(unittest.TestCase):
         self.commit()
         result, output = self.select()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("candidate_needed=false", output)
+        self.assertEqual(output, "candidate_needed=false\n")
 
     def test_engine_addition_deletion_and_infrastructure_trigger_candidate(self):
         for path, delete in (("Backend/spotty-playback/src/extra.rs", False),
@@ -76,7 +78,7 @@ class CandidateSelectionTests(unittest.TestCase):
                 self.commit()
                 result, output = self.select()
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("candidate_needed=true", output)
+                self.assertEqual(output, "candidate_needed=true\n")
                 self.base = self.git("rev-parse", "HEAD")
 
     def test_initial_push_builds_conservatively(self):
@@ -84,7 +86,7 @@ class CandidateSelectionTests(unittest.TestCase):
             with self.subTest(base=base):
                 result, output = self.select(base)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("candidate_needed=true", output)
+                self.assertEqual(output, "candidate_needed=true\n")
 
     def test_invalid_or_unavailable_base_fails_closed(self):
         for base in ("invalid", "f" * 40):

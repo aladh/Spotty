@@ -3,20 +3,19 @@
 [Agent operations](../../CONTRIBUTING.md) · Run commands from the repository root.
 
 App releases use `vMAJOR.MINOR.PATCH`; playback releases use `playback-vMAJOR.MINOR.PATCH` in the
-same repository. Engine publication takes a version such as `0.1.0`, independent of the app version.
+same repository. Engine publication takes a new version independent of the app version.
 Versions have three numeric components without leading zeroes; existing tags and releases cannot
 be reused. Hashes remain internal artifact/cache identities and integrity checks.
 
 `Package.swift` is the single dependency pin: a hardcoded release URL and SHA-256 checksum for
-the SwiftPM binary target. SwiftPM
-fetches that exact versioned release asset, rather than resolving prefixed Git tags as package
-versions. Update the pin with the updater below. The artifact bundles the ARM64 library, matching
-headers/module map, provenance, and dependency notices. Never overwrite a published asset.
+the SwiftPM binary target. SwiftPM fetches that exact versioned release asset, rather than resolving
+prefixed Git tags as package versions. Update the pin with the updater below. The artifact bundles
+the ARM64 library, matching headers/module map, provenance, and dependency notices. Never overwrite a published asset.
 
 The Swift package and Rust crate are independent projects in this repository. App builds and Swift
 checks consume the pinned artifact and its bundled headers, even when engine source has changed.
 Rust checks own source/header generation; candidate Swift checks exercise the new engine. Updating
-the app pin is the explicit integration step. The existing source layout remains unchanged.
+the app pin is the explicit integration step.
 
 For engine development, install the [artifact tools](setup.md#engine-development)
 and build a local artifact:
@@ -36,8 +35,8 @@ Rust; unset it to return to the published dependency. Run the Rust gate separate
 CI diffs engine build inputs against the app's pinned `playback-vMAJOR.MINOR.PATCH` tag. It builds
 and tests a candidate only when those inputs differ, including shared headers, packaging scripts,
 and license inputs. Comparing with the pinned release also catches unpublished engine changes from
-earlier commits. Until the legacy pin is replaced with a versioned release, every run builds a
-candidate to bootstrap publication. Rust source checks and published-artifact Swift checks remain
+earlier commits. CI requires the canonical repository release URL and XCFramework asset with a valid versioned tag. Rust source checks and
+published-artifact Swift checks remain
 required; content digests still identify build caches and artifact provenance.
 
 Publication promotes the exact candidate ZIP from a completed CI run, without rebuilding it. Run
@@ -53,11 +52,13 @@ Expired artifacts or candidates from an older CI definition require a fresh CI r
 engine release identities separate; published playback releases are never overwritten.
 
 Use the completed main push CI run's head SHA and run ID to promote an explicitly authorized
-candidate (use `-f dry_run=true` to validate without publishing):
+candidate (use `-f dry_run=true` to validate without publishing). Set `new_engine_version` to an
+unused version; publication rejects existing release identities:
 
 ```bash
+: "${new_engine_version:?Set new_engine_version to an unused MAJOR.MINOR.PATCH version}"
 gh workflow run playback-artifact.yml --ref main \
-  -f version="0.1.0" \
+  -f version="$new_engine_version" \
   -f source_ref="$reviewed_source_sha" -f candidate_run_id="$candidate_ci_run_id"
 ```
 
@@ -65,15 +66,14 @@ Download the release ZIP and update the package pin; the updater validates the b
 and computes its checksum without requiring current engine source to match:
 
 ```bash
+: "${new_engine_version:?Set new_engine_version to the published artifact version}"
 ./Backend/spotty-playback/update-artifact-pin.sh \
   --archive /absolute/path/SpottyPlaybackCore.xcframework.zip \
-  --version "0.1.0"
+  --version "$new_engine_version"
 unset SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK
 SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 ./Scripts/compile-release-spotty.sh
 ```
 
-Commit the pin update in a PR. Publication rejects dirty source and existing release identities.
-The existing hash-based pin remains supported during migration; the updater only writes versioned
-pins. Publish the first version and adopt its pin before removing any legacy release assets that
-current checkouts still reference.
+Commit the pin update in a PR. Publication rejects dirty source; the updater only writes versioned
+pins. Preserve published assets that older checkouts still reference.

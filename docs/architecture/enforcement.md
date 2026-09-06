@@ -1,6 +1,7 @@
 # Architecture enforcement inventory
 
-This inventory maps rules to their canonical owners and strongest available proof.
+This inventory links verification families to their canonical owners and explains proof limits.
+Keep detailed cases in tests and exact checks in their executable owners.
 **Semantic agent review** means inspection of code, tests, diffs, and decisions by the implementing
 agent and available automated reviewers. It is not compiler, test, ABI, or source-check proof.
 
@@ -32,4 +33,4 @@ Stable IDs preserve searchability in issue and code history. They are navigation
 
 ## Semantic review
 
-[Review families and proof limits](enforcement/review.md) cover judgment rules and the source-reading proof audit.
+[Review families and proof limits](enforcement/review.md) cover judgment rules and what automated checks cannot establish.

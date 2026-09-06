@@ -4,27 +4,32 @@
 
 ## Focused source and topology checks
 
-These rules are intentionally lexical; they complement rather than replace semantic behavior tests.
-Migrated Swift and Rust policies use `Scripts/ast-grep/rules`, run by `Scripts/check-source-policy.sh` on Linux
-and in the local full gate. Syntax fixtures and file-routing tests protect matching and owner scope;
-compiler checks remain on macOS. The rules do not resolve symbols or prove execution order.
+[ast-grep rules](../../../Scripts/ast-grep/rules) own syntax policies; their
+[fixtures](../../../Tests/SourcePolicy) and [routing checks](../../../Scripts/test_source_policy.py)
+exercise matching and file scope. Run them through
+[check-source-policy.sh](../../../Scripts/check-source-policy.sh), following
+[verification setup](../../development/verification.md#normal-verification).
 
-| IDs | Exact boundary | Owner |
-| --- | --- | --- |
-| `SRC-DOM-001` | SpottyDomain has no AppKit, SwiftUI, AVFoundation, or C-module import | `Scripts/ast-grep/rules` |
-| `SRC-FFI-001`–`002` | One C-module importer and one `PlaybackCore` caller | `Scripts/ast-grep/rules` |
-| `SRC-DEP-001` | Views and named feature stores do not construct live auth/network/playback dependencies | `Scripts/ast-grep/rules`; new store paths require semantic scope review |
-| `SRC-ISO-001` | Shipping Swift contains no `nonisolated(unsafe)` | `Scripts/ast-grep/rules` |
-| `SRC-UI-001` | Fixed dark appearance has one owner and shipping code does not add appearance-mode branching | `Scripts/ast-grep/rules` plus [product scope](../../product/scope.md) |
-| `SRC-PROJ-001` | Playback projections expose no external mutation access | Compiler positive/negative probes in `Scripts/check-playback-projection-access.sh`, after the Debug boundary build |
-| `SRC-KEY-001` | `KeychainManager.swift` contains no data-protection Keychain or access-group API references | `Scripts/ast-grep/rules`, with allowed/forbidden syntax fixtures; storage and signing semantics remain behavior-tested or reviewed |
-| `SRC-RUST-FFI-001` | C export bodies consist of named panic-barrier calls; direct `RUNTIME.block_on` stays in the runtime owner | `Scripts/ast-grep/rules` plus Rust barrier panic/nested-runtime behavior tests |
-| `SRC-RUST-PLAY-001` | Production `IS_PLAYING=true` writes stay in the Playing event owner | `Scripts/ast-grep/rules` plus Rust player-event behavior tests; lexical ownership is not proof of execution ordering |
-| `SRC-INOUT-001` | Revision gates do not use `lastRevision: inout` | `Scripts/ast-grep/rules`; epoch correctness remains behavior-tested |
-| `SRC-HYG-001`–`004` | No tracked generated/private artifacts, security placeholders, mock/demo tombstones, or shipping `LogicChecks` directory | `Scripts/check.sh`, gitignore, and privacy review |
-| `SRC-DUP-004` | View code does not introduce the intentionally unsupported drag APIs | `Scripts/ast-grep/rules` and [playlist behavior](../../product/playlists.md) |
-| `SRC-SIGN-001` | Authenticated development launch requires the Apple anchor + Team ID validator and never silently falls back to a self-signed identity; packaging keeps the identity override and validation stays `--keychain-stable` | `Scripts/check.sh` signing-policy assertions over `script/build_and_run.sh`, `Scripts/package-app.sh`, and `Scripts/validate-app.sh`; behavior remains semantic review under `DOC-SEC-002` |
+These checks do not resolve symbols, establish execution order, or replace compilation and behavior
+tests. The pinned Swift grammar can recover valid Swift as error nodes, so a clean scan is not even
+a Swift parse guarantee. Review owner scope when introducing files or new syntax.
 
-The removed IDs `SRC-OBS-001`–`003`, `SRC-WRITER-001`, `SRC-DUP-003`, `CI-OBS-001`,
-`CI-SWIFT-001`, and `ABI-JSON-001` stay retired. Do not recreate them as duplicate snapshots; their behavior is owned by
-the package graph, deterministic suites, current focused checks, or [semantic review](review.md).
+| IDs | Boundary |
+| --- | --- |
+| `SRC-DOM-001`, `SRC-FFI-001`–`002` | Domain imports and the narrow C-adapter entry points |
+| `SRC-DEP-001` | Live dependency construction stays out of views and feature stores |
+| `SRC-ISO-001`, `SRC-INOUT-001` | Unsafe isolation escapes and split revision ownership |
+| `SRC-UI-001`, `SRC-DUP-004` | Appearance ownership and unsupported drag APIs |
+| `SRC-KEY-001` | Retired Keychain APIs |
+| `SRC-RUST-FFI-001`, `SRC-RUST-PLAY-001` | Panic-barrier/runtime entry and playing-event write ownership |
+
+Additional owners:
+
+- `SRC-PROJ-001`: [compiler access probes](../../../Scripts/check-playback-projection-access.sh).
+- `SRC-HYG-001`–`004`: [check.sh](../../../Scripts/check.sh), gitignore, and privacy review.
+- `SRC-SIGN-001`: signing assertions in [check.sh](../../../Scripts/check.sh), plus the
+  [signing contract](../../development/signing.md). Spelling checks do not establish Keychain trust.
+
+Retired IDs `SRC-OBS-001`–`003`, `SRC-WRITER-001`, `SRC-DUP-003`, `CI-OBS-001`,
+`CI-SWIFT-001`, and `ABI-JSON-001` remain historical references. Do not recreate duplicate snapshots
+of behavior now covered by the package graph, deterministic suites, or semantic review.

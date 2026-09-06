@@ -114,7 +114,8 @@ struct SidePanelView: View {
 
     @ViewBuilder
     private var queueList: some View {
-        if !player.hasCurrentTrack && player.queueNextEntries.isEmpty {
+        let entries = player.queueNextEntries
+        if !player.hasCurrentTrack && entries.isEmpty {
             EmptyState(
                 icon: "list.bullet.rectangle",
                 title: "Nothing queued",
@@ -129,9 +130,9 @@ struct SidePanelView: View {
                         .listRowSeparator(.hidden)
                 }
 
-                if !player.queueNextEntries.isEmpty {
-                    ForEach(Array(player.queueNextEntries.enumerated()), id: \.element.id) { index, entry in
-                        if index == 0 || queueHeading(entry) != queueHeading(player.queueNextEntries[index - 1]) {
+                if !entries.isEmpty {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        if index == 0 || queueHeading(entry) != queueHeading(entries[index - 1]) {
                             if queueHeading(entry) == "Next up", let playlist = queuePlaylist {
                                 railSectionHeader {
                                     QueuePlaylistHeading(playlist: playlist, action: { onSelect(playlist) })

@@ -53,27 +53,21 @@ jobs:
           pin_url="$(spotty_playback_pin_value url)"
           tag="${pin_url%/*}"
           tag="${tag##*/}"
-          if [[ "$tag" == playback-v* ]]; then
-            version="${tag#playback-v}"
-            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-              echo "Invalid pinned playback version: $version" >&2
-              exit 1
-            fi
-            tag="playback-v$version"
-            git fetch --no-tags --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
-            input_list="$(./Backend/spotty-playback/source-input-digest.sh --print-inputs)"
-            paths=()
-            while IFS= read -r path; do paths+=("$path"); done <<< "$input_list"
-            # Include directories to detect deleted source and license files too.
-            paths+=(Backend/spotty-playback/src Scripts/playback-license-overrides)
-            if git diff --quiet "$tag" HEAD -- "${paths[@]}"; then
-              candidate_needed=false
-            else
-              diff_status=$?
-              if [[ "$diff_status" != 1 ]]; then exit "$diff_status"; fi
-            fi
+          if [[ ! "$tag" =~ ^playback-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a versioned playback pin (playback-vMAJOR.MINOR.PATCH), got: $tag" >&2
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+          input_list="$(./Backend/spotty-playback/source-input-digest.sh --print-inputs)"
+          paths=()
+          while IFS= read -r path; do paths+=("$path"); done <<< "$input_list"
+          # Include directories to detect deleted source and license files too.
+          paths+=(Backend/spotty-playback/src Scripts/playback-license-overrides)
+          if git diff --quiet "$tag" HEAD -- "${paths[@]}"; then
+            candidate_needed=false
           else
-            echo "Building candidate to bootstrap the first versioned engine release"
+            diff_status=$?
+            if [[ "$diff_status" != 1 ]]; then exit "$diff_status"; fi
           fi
           echo "PLAYBACK_INPUT_DIGEST=$digest" >> "$GITHUB_ENV"
           echo "candidate_needed=$candidate_needed" >> "$GITHUB_OUTPUT"

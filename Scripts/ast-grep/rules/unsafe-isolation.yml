@@ -1,0 +1,9 @@
+id: 'unsafe-isolation'
+language: 'Swift'
+severity: 'error'
+message: 'Do not bypass production Swift isolation with nonisolated(unsafe).'
+files:
+  - 'Sources/**/*.swift'
+rule:
+  kind: 'member_modifier'
+  regex: '^nonisolated\s*\(\s*unsafe\s*\)$'

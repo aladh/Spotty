@@ -13,6 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  policy:
+    name: Source policies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read ast-grep version
+        id: ast-grep
+        run: |
+          set -euo pipefail
+          version="$(cat Scripts/ast-grep/version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check source policies
+        uses: ast-grep/action@cf62e780f0c88301228978d593a7784427a097a6 # v1.5.0
+        with:
+          version: ${{ steps.ast-grep.outputs.version }}
+          config: sgconfig.yml
+          paths: Sources
+
+      - name: Check rule fixtures and policy owners
+        run: ./Scripts/check-source-policy.sh --test-only
+
   rust:
     name: Rust checks
     runs-on: macos-26
@@ -334,7 +363,7 @@ jobs:
   gate:
     name: Debug quality gate
     if: always()
-    needs: [rust, checks, candidate, release]
+    needs: [policy, rust, checks, candidate, release]
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -342,11 +371,13 @@ jobs:
       - name: Require every quality lane
         env:
           CANDIDATE_NEEDED: ${{ needs.rust.outputs.candidate_needed }}
+          POLICY_RESULT: ${{ needs.policy.result }}
           RUST_RESULT: ${{ needs.rust.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           CANDIDATE_RESULT: ${{ needs.candidate.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
         run: |
+          test "$POLICY_RESULT" = success
           test "$RUST_RESULT" = success
           test "$CHECKS_RESULT" = success
           if [[ "$CANDIDATE_NEEDED" == true ]]; then

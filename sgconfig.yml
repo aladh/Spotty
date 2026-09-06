@@ -1,0 +1,4 @@
+ruleDirs:
+  - 'Scripts/ast-grep/rules'
+testConfigs:
+  - testDir: 'Tests/SourcePolicy'

@@ -28,12 +28,15 @@ swift --version
 rg --version
 ```
 
-Build directly with SwiftPM, or run the app verification gate:
+Build directly with SwiftPM, or run the Swift verification scope:
 
 ```bash
 swift build --product Spotty
 SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 ```
+
+Run [source policies](verification.md#normal-verification) separately for the complete app/source
+verification coverage; that portable check requires the pinned ast-grep CLI.
 
 SwiftPM caches the checksum-pinned ARM64 XCFramework, including matching headers and library.
 App builds, Swift tests, and packaging need the Apple SDK and Clang but no Rust tools. Verification

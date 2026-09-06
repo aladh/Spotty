@@ -1,0 +1,13 @@
+id: 'ffi-import-owner'
+language: 'Swift'
+severity: 'error'
+message: 'Only PlaybackCore.swift may import SpottyPlaybackCore.'
+files:
+  - 'Sources/**/*.swift'
+ignores:
+  - 'Sources/Spotty/Spotify/PlaybackCore.swift'
+rule:
+  kind: 'import_declaration'
+  has:
+    kind: 'identifier'
+    regex: '^SpottyPlaybackCore(\.|$)'

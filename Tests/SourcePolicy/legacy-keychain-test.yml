@@ -1,0 +1,9 @@
+id: 'legacy-keychain'
+valid:
+  - 'let query = [kSecClass: kSecClassGenericPassword]'
+  - '// kSecUseDataProtectionKeychain'
+  - 'let note = "kSecAttrAccessGroup"'
+  - '/* kSecAttrAccessGroup */'
+invalid:
+  - 'let query = [kSecUseDataProtectionKeychain: true]'
+  - 'let query = [kSecAttrAccessGroup: group]'

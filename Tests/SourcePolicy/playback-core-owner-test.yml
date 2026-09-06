@@ -1,0 +1,14 @@
+id: 'playback-core-owner'
+valid:
+  - 'OtherCore.start()'
+  - '// PlaybackCore.start()'
+  - 'let text = "PlaybackCore.start()"'
+invalid:
+  - 'PlaybackCore.start()'
+  - |-
+    PlaybackCore
+     .start()
+  - 'let start = PlaybackCore.start'
+  - 'Module.PlaybackCore.start()'
+  - 'func f(_ r: PlaybackCore.Result) {}'
+  - 'typealias R = Module.PlaybackCore.Result'

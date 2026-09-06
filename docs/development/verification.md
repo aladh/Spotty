@@ -21,9 +21,28 @@ Use the smallest focused check per [AGENTS.md](../../AGENTS.md#local-verificatio
 
 ```bash
 ./Scripts/check.sh
+./Scripts/check-source-policy.sh
 SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ```
+
+The full gate includes source policies; CI runs those once in the Linux `Source policies` job,
+separately from the Swift and Rust scopes. `check-source-policy.sh` needs Python 3 and ast-grep
+at the version in `Scripts/ast-grep/version`. Install with `brew install ast-grep` when Homebrew
+provides that version, or install the exact CLI with npm:
+
+```bash
+npm install --prefix /tmp/spotty-ast-grep "@ast-grep/cli@$(cat Scripts/ast-grep/version)"
+SPOTTY_AST_GREP=/tmp/spotty-ast-grep/node_modules/.bin/ast-grep ./Scripts/check-source-policy.sh
+```
+
+Rules live in `Scripts/ast-grep/rules`; allowed/forbidden fixtures live in `Tests/SourcePolicy`.
+The wrapper runs those fixtures, Python file-routing tests, and the production scan. CI uses the
+pinned `ast-grep/action` for scanning and the wrapper's `--test-only` mode for fixtures and owner
+presence checks. When changing a
+rule, cover comments/strings, relevant syntax variations, and file-owner exceptions. These are syntax
+policies, not type or runtime proofs: the pinned Swift grammar can recover valid Swift expressions
+as error nodes. Swift compilation remains authoritative; do not treat a clean scan as a parse check.
 
 The full and Rust scopes require the [engine toolchain](setup.md#engine-development).
 The Swift scope and packaging use the pinned binary without Rust tools. Checks do not sign in or
@@ -56,7 +75,8 @@ swift test --disable-sandbox --filter ProtobufTests/testProtobuf
 swift test --disable-sandbox --no-parallel --filter AuthFlowTests/testAuthFlow
 ```
 
-CI's required `Debug quality gate` aggregates Rust, Swift/architecture, and Release compilation.
+CI's required `Debug quality gate` aggregates Linux source policies, Rust, Swift/architecture, and
+Release compilation.
 
 Use `SPOTTY_CHECK_REPEATS=N ./Scripts/check.sh` with `N` from 1 through 25 when concurrency or
 lifetime work merits stress.

@@ -1,0 +1,59 @@
+id: 'injected-dependencies'
+language: 'Swift'
+severity: 'error'
+message: 'Views and feature stores must use injected dependencies.'
+files:
+  - 'Sources/Spotty/Views/**/*.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore+Projections.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore+Commands.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore+EngineEvents.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore+History.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore+Queue.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore+Transport.swift'
+  - 'Sources/Spotty/Spotify/PlaybackStore+Session.swift'
+  - 'Sources/Spotty/Spotify/AccountStore.swift'
+  - 'Sources/Spotty/Spotify/HomeLibraryStore.swift'
+  - 'Sources/Spotty/Spotify/SearchStore.swift'
+  - 'Sources/Spotty/Spotify/PlaylistStore.swift'
+  - 'Sources/Spotty/Spotify/PlaylistMutationController.swift'
+  - 'Sources/Spotty/Spotify/CatalogStore.swift'
+rule:
+  any:
+    - kind: 'call_expression'
+      has:
+        any:
+          - kind: 'simple_identifier'
+            regex: '^(PartnerAPI|SpotifyConnectAPI|SpotifyWebPlayerAPI)$'
+          - kind: 'navigation_expression'
+            has:
+              kind: 'navigation_suffix'
+              has:
+                kind: 'simple_identifier'
+                regex: '^(PartnerAPI|SpotifyConnectAPI|SpotifyWebPlayerAPI)$'
+    - pattern: 'KeymasterAuth.authorize'
+
+    - pattern: 'KeymasterSession.shared'
+
+    - pattern: 'RustPlaybackEngine.shared'
+
+    - any:
+        - kind: navigation_expression
+          has:
+            field: target
+            any:
+              - kind: simple_identifier
+                regex: '^PlaybackCore$'
+              - kind: navigation_expression
+                has:
+                  kind: navigation_suffix
+                  has:
+                    kind: simple_identifier
+                    regex: '^PlaybackCore$'
+        - kind: user_type
+          has:
+            kind: type_identifier
+            regex: '^PlaybackCore$'
+            precedes:
+              stopBy: end
+              kind: type_identifier

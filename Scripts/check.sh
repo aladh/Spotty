@@ -23,6 +23,10 @@ case "$check_scope" in
         ;;
 esac
 
+if [[ "$check_scope" == full ]]; then
+    "$project_root/Scripts/check-source-policy.sh"
+fi
+
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
 if [[ "$check_scope" != rust ]]; then
@@ -241,63 +245,6 @@ done
 # Check mutation access against the actual testable Debug module built by the boundary suite.
 "$project_root/Scripts/check-playback-projection-access.sh"
 
-# Architectural dependency rules. The domain must stay portable and deterministic,
-# and the C ABI remains isolated behind the playback adapter boundary.
-forbidden_domain_imports="$(rg -n '^import (AppKit|SwiftUI|AVFoundation|SpottyPlaybackCore)$' \
-    "$project_root/Sources/SpottyDomain" || true)"
-if [[ -n "$forbidden_domain_imports" ]]; then
-    print -u2 "SpottyDomain imports a UI, audio, or FFI framework:"
-    print -u2 "$forbidden_domain_imports"
-    exit 1
-fi
-
-ffi_imports="$(rg -l '^import SpottyPlaybackCore$' "$project_root/Sources" --glob '*.swift' || true)"
-expected_ffi_import="$project_root/Sources/Spotty/Spotify/PlaybackCore.swift"
-if [[ "$ffi_imports" != "$expected_ffi_import" ]]; then
-    print -u2 "SpottyPlaybackCore must be imported only by PlaybackCore.swift; found:"
-    print -u2 "${ffi_imports:-<none>}"
-    exit 1
-fi
-
-direct_core_calls="$(rg -l 'PlaybackCore\.' "$project_root/Sources/Spotty" --glob '*.swift' || true)"
-expected_core_caller="$project_root/Sources/Spotty/Spotify/RustPlaybackEngine.swift"
-if [[ "$direct_core_calls" != "$expected_core_caller" ]]; then
-    print -u2 "PlaybackCore calls must remain inside RustPlaybackEngine.swift; found:"
-    print -u2 "${direct_core_calls:-<none>}"
-    exit 1
-fi
-
-if rg -n 'nonisolated\(unsafe\)' "$project_root/Sources" --glob '*.swift'; then
-    print -u2 "Production Swift must not use nonisolated(unsafe)"
-    exit 1
-fi
-
-# Spotty deliberately has one appearance rather than a theme preference. Pin the native dark
-# appearance at the application boundary and reject concrete APIs or comparisons that would
-# reintroduce runtime appearance selection. The patterns are code-shaped so prose comments about
-# the product contract do not fail the gate.
-spotty_app_source="$project_root/Sources/Spotty/SpottyApp.swift"
-dark_appearance_assignment_pattern='^[[:space:]]*NSApplication\.shared\.appearance[[:space:]]*=[[:space:]]*NSAppearance\(named:[[:space:]]*\.darkAqua\)[[:space:]]*$'
-strip_noncode_policy_text() {
-    perl -0pe 's{""".*?"""}{}gs; s{/\*.*?\*/}{}gs; s{//[^\n]*}{}g'
-}
-spotty_app_code="$(strip_noncode_policy_text < "$spotty_app_source")"
-if ! rg -q "$dark_appearance_assignment_pattern" <<< "$spotty_app_code"; then
-    print -u2 "SpottyApp must pin the application to native dark Aqua"
-    exit 1
-fi
-dark_appearance_noncode_fixture=$'// NSApplication.shared.appearance = NSAppearance(named: .darkAqua)\n/*\nNSApplication.shared.appearance = NSAppearance(named: .darkAqua)\n*/\nlet example = """\nNSApplication.shared.appearance = NSAppearance(named: .darkAqua)\n"""'
-dark_appearance_fixture_code="$(strip_noncode_policy_text <<< "$dark_appearance_noncode_fixture")"
-if rg -q "$dark_appearance_assignment_pattern" <<< "$dark_appearance_fixture_code"; then
-    print -u2 "Dark appearance assignment check must reject comments and multiline strings"
-    exit 1
-fi
-if rg -n '@Environment\(\.colorScheme\)|\.preferredColorScheme\(|\.effectiveAppearance\b|colorScheme[[:space:]]*(==|!=)|NSAppearance\(named:[[:space:]]*\.aqua\)' \
-    "$project_root/Sources/Spotty" --glob '*.swift'; then
-    print -u2 "Spotty has one fixed dark appearance; appearance-mode logic is not allowed"
-    exit 1
-fi
-
 # Authenticated development must never silently fall back to a self-signed identity. On current
 # macOS that gives the Keychain item a per-build CDHash partition and recreates the password prompt
 # after every rebuild. Packaging may remain self-signed for deterministic build verification, but
@@ -318,69 +265,6 @@ if ! rg -q --fixed-strings 'SPOTTY_DEVELOPMENT_SIGNING_IDENTITY' \
     || ! rg -q --fixed-strings "codesign --verify --strict -R '=anchor apple generic'" \
         "$project_root/Scripts/validate-app.sh"; then
     print -u2 "Authenticated development signing policy is incomplete"
-    exit 1
-fi
-
-# Lexical API boundary only: the app's legacy Keychain owner must not reference these
-# opt-in APIs. This does not prove credential storage behavior or signing correctness.
-legacy_keychain_api_pattern='\b(kSecUseDataProtectionKeychain|kSecAttrAccessGroup)\b'
-legacy_keychain_code="$(strip_noncode_policy_text < "$project_root/Sources/Spotty/Spotify/KeychainManager.swift")"
-if rg -n "$legacy_keychain_api_pattern" <<< "$legacy_keychain_code"; then
-    print -u2 "KeychainManager must not reference data-protection or access-group APIs"
-    exit 1
-fi
-if rg -q "$legacy_keychain_api_pattern" <<< 'let query = [kSecClass: kSecClassGenericPassword]'; then
-    print -u2 "Legacy Keychain API check rejected an allowed fixture"
-    exit 1
-fi
-keychain_comment_fixture_code="$(strip_noncode_policy_text <<< '// kSecUseDataProtectionKeychain and kSecAttrAccessGroup are deliberately omitted')"
-if rg -q "$legacy_keychain_api_pattern" <<< "$keychain_comment_fixture_code"; then
-    print -u2 "Legacy Keychain API check must allow explanatory comments"
-    exit 1
-fi
-for forbidden_keychain_api in kSecUseDataProtectionKeychain kSecAttrAccessGroup; do
-    keychain_api_fixture_code="$(strip_noncode_policy_text <<< "let query = [$forbidden_keychain_api: true]")"
-    if ! rg -q "$legacy_keychain_api_pattern" <<< "$keychain_api_fixture_code"; then
-        print -u2 "Legacy Keychain API check missed a forbidden fixture"
-        exit 1
-    fi
-done
-
-# Passing one PlaybackStore field as inout while the callee touches another field on the same
-# store traps at runtime under Swift's exclusivity enforcement. Keep engine revision gates keyed
-# by source instead of accepting a stored revision through inout.
-if rg -n 'lastRevision:[[:space:]]*inout' \
-    "$project_root/Sources/Spotty/Spotify" --glob '*.swift'; then
-    print -u2 "Playback revision gates must not borrow store fields through inout"
-    exit 1
-fi
-
-feature_dependencies=(
-    "$project_root/Sources/Spotty/Views"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore+Projections.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore+Commands.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore+EngineEvents.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore+History.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore+Queue.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore+Transport.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaybackStore+Session.swift"
-    "$project_root/Sources/Spotty/Spotify/AccountStore.swift"
-    "$project_root/Sources/Spotty/Spotify/HomeLibraryStore.swift"
-    "$project_root/Sources/Spotty/Spotify/SearchStore.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaylistStore.swift"
-    "$project_root/Sources/Spotty/Spotify/PlaylistMutationController.swift"
-    "$project_root/Sources/Spotty/Spotify/CatalogStore.swift"
-)
-if rg -n 'PartnerAPI\(|SpotifyConnectAPI\(|SpotifyWebPlayerAPI\(|KeymasterAuth\.authorize|KeymasterSession\.shared|RustPlaybackEngine\.shared|PlaybackCore\.' \
-    "${feature_dependencies[@]}"; then
-    print -u2 "A store or view bypasses the injected production environment"
-    exit 1
-fi
-
-if rg -n '\.draggable\(|\.dropDestination\(|onDrop\(' \
-    "$project_root/Sources/Spotty/Views" --glob '*.swift'; then
-    print -u2 "Playlist drag-and-drop was omitted; do not reintroduce unverified SwiftUI drag UI"
     exit 1
 fi
 
@@ -462,6 +346,7 @@ if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
     print -u2 "CI must use the selected toolchain swift-format, not a Homebrew Swift linter"
     exit 1
 fi
+policy_job="$(sed -n '/^  policy:/,/^  rust:/p' "$ci_workflow")"
 rust_job="$(sed -n '/^  rust:/,/^  checks:/p' "$ci_workflow")"
 checks_job="$(sed -n '/^  checks:/,/^  candidate:/p' "$ci_workflow")"
 candidate_job="$(sed -n '/^  candidate:/,/^  release:/p' "$ci_workflow")"
@@ -469,7 +354,10 @@ release_job="$(sed -n '/^  release:/,/^  gate:/p' "$ci_workflow")"
 gate_job="$(sed -n '/^  gate:/,$p' "$ci_workflow")"
 checkout_without_credentials=$'uses: actions/checkout@[0-9a-f]{40} # v[^\n]+\n        with:\n          persist-credentials: false'
 blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
-if ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
+if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
+    || ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'run: ./Scripts/check-source-policy.sh --test-only' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'candidate_needed' <<< "$rust_job" \
     || ! rg -U -q "$checkout_without_credentials" <<< "$rust_job" \
@@ -499,9 +387,10 @@ if ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
     || ! rg -U -q --fixed-strings -- $'- name: Compile release Spotty with SPOTTY_DISTRIBUTION\n        run: ./Scripts/compile-release-spotty.sh' <<< "$release_job" \
     || ! rg -q --fixed-strings 'report-size.sh' <<< "$release_job" \
     || ! rg -q --fixed-strings 'if: always()' <<< "$gate_job" \
-    || ! rg -q --fixed-strings 'needs: [rust, checks, candidate, release]' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'needs: [policy, rust, checks, candidate, release]' <<< "$gate_job" \
     || ! rg -U -q --fixed-strings -- $'test "$RUST_RESULT" = success\n          test "$CHECKS_RESULT" = success\n          if [[ "$CANDIDATE_NEEDED" == true ]]; then\n            test "$CANDIDATE_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$CANDIDATE_RESULT" = skipped' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'test "$POLICY_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$RELEASE_RESULT" = success' <<< "$gate_job"; then
     print -u2 "CI must cache immutable inputs, block Rust in Swift lanes, and aggregate all quality lanes"
     exit 1

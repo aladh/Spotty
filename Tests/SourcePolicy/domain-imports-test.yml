@@ -1,0 +1,11 @@
+id: 'domain-imports'
+valid:
+  - 'import Foundation'
+  - '// import AppKit'
+  - 'let text = "import SwiftUI"'
+  - 'import AppKitExtras'
+invalid:
+  - 'import AppKit'
+  - '@preconcurrency import AVFoundation'
+  - 'import struct AppKit.NSRect'
+  - 'public import SwiftUI'

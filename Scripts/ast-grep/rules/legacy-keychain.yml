@@ -1,0 +1,9 @@
+id: 'legacy-keychain'
+language: 'Swift'
+severity: 'error'
+message: 'Keep the legacy Keychain owner free of data-protection and access-group APIs.'
+files:
+  - 'Sources/Spotty/Spotify/KeychainManager.swift'
+rule:
+  kind: 'simple_identifier'
+  regex: '^(kSecUseDataProtectionKeychain|kSecAttrAccessGroup)$'

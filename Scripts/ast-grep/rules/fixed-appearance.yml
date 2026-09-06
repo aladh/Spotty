@@ -1,0 +1,51 @@
+id: 'fixed-appearance'
+language: 'Swift'
+severity: 'error'
+message: 'Spotty has one fixed dark appearance; do not add appearance-mode selection.'
+files:
+  - 'Sources/Spotty/**/*.swift'
+rule:
+  any:
+    - kind: 'attribute'
+      regex: '^@Environment\s*\(\s*\\\s*\.\s*colorScheme\s*\)'
+    - kind: 'call_expression'
+      has:
+        kind: 'navigation_expression'
+        has:
+          kind: 'navigation_suffix'
+          has:
+            kind: 'simple_identifier'
+            regex: '^preferredColorScheme$'
+    - kind: 'navigation_expression'
+      has:
+        kind: 'navigation_suffix'
+        has:
+          kind: 'simple_identifier'
+          regex: '^effectiveAppearance$'
+    - kind: 'equality_expression'
+      has:
+        any:
+          - kind: 'simple_identifier'
+            regex: '^colorScheme$'
+          - kind: 'navigation_expression'
+            has:
+              kind: 'navigation_suffix'
+              has:
+                kind: 'simple_identifier'
+                regex: '^colorScheme$'
+    - kind: 'infix_expression'
+      all:
+        - has:
+            any:
+              - kind: 'simple_identifier'
+                regex: '^colorScheme$'
+              - kind: 'navigation_expression'
+                has:
+                  kind: 'navigation_suffix'
+                  has:
+                    kind: 'simple_identifier'
+                    regex: '^colorScheme$'
+        - has:
+            kind: 'custom_operator'
+            regex: '^!=$'
+    - pattern: 'NSAppearance(named: .aqua)'

@@ -47,10 +47,10 @@ initiate playback. See the [enforcement inventory](../architecture/enforcement.m
 CI uses one macOS job for conditional Rust verification/candidate production, then Swift Debug
 checks and the Release distribution compile. Debug and Release share one SwiftPM cache under a
 combined key; separate configuration directories remain inside `.build`. CI restores source timestamps
-only when tracked Swift input contents match the manifest saved with that build cache; changed and
+only when tracked compiler input contents match the manifest saved with that build cache; changed and
 new inputs keep checkout timestamps. Rust verification disables incremental products and keeps line-table
 debug information to reduce cache transfer without changing assertions or test coverage. Release
-caches include Cargo host tools as well as target products. Rust tools are blocked
+caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust tools are blocked
 before Swift runs. Main requires `Source policies` and `macOS checks`. The final macOS step validates each phase
 outcome, including the explicit decision required to skip Rust.
 

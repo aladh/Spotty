@@ -44,6 +44,25 @@ class SourceTimestampTests(unittest.TestCase):
             self.assertFalse((root / "Sources/removed").exists())
             self.assertEqual((root / "README.md").stat().st_mtime_ns, docs_time)
 
+    def test_rust_scope_preserves_edits_and_excludes_swift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            backend = root / "Backend/spotty-playback/src"
+            backend.mkdir(parents=True)
+            for path in (backend / "lib.rs", backend / "changed.rs", root / "Package.swift"):
+                path.write_text("old")
+                os.utime(path, ns=(1_700_000_000_000_000_000,) * 2)
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            saved = snapshot(root, "rust")
+            self.assertNotIn("Package.swift", saved)
+            (backend / "changed.rs").write_text("new")
+            new = 1_800_000_000_000_000_000
+            for path in backend.iterdir():
+                os.utime(path, ns=(new, new))
+            self.assertEqual(restore(root, saved, "rust"), 1)
+            self.assertEqual((backend / "changed.rs").stat().st_mtime_ns, new)
+
     def test_invalid_or_future_timestamp_is_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

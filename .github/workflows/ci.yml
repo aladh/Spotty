@@ -162,7 +162,16 @@ jobs:
           path: |
             Backend/spotty-playback/target/aarch64-apple-darwin/release
             Backend/spotty-playback/target/release
-          key: macos-rust-playback-host-v1-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}
+          key: macos-rust-playback-host-v2-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}
+          restore-keys: macos-rust-playback-host-v1-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}
+
+      - name: Restore unchanged Rust release input timestamps
+        if: steps.inputs.outputs.candidate_needed == 'true'
+        run: python3 Scripts/ci_source_mtimes.py restore --scope rust
+
+      - name: Snapshot Rust release input timestamps
+        if: steps.inputs.outputs.candidate_needed == 'true'
+        run: python3 Scripts/ci_source_mtimes.py save --scope rust
 
       - name: Build candidate playback XCFramework
         env:

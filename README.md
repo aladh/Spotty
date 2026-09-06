@@ -4,8 +4,8 @@
 
 # Spotty
 
-A native macOS music client for Spotify Premium, built for personal experimentation on Apple
-Silicon Macs running macOS 15 or newer.
+A native macOS music client for Spotify Premium, built for Apple Silicon Macs running macOS
+15 or newer.
 
 ![Spotty showing a playlist details page with synthetic demo data](Assets/PlaylistScreenshot.jpg)
 

@@ -10,8 +10,7 @@ be reused. Hashes remain internal artifact/cache identities and integrity checks
 `Package.swift` is the single dependency pin: a hardcoded release URL and SHA-256 checksum for
 the SwiftPM binary target. SwiftPM fetches that exact versioned release asset, rather than resolving
 prefixed Git tags as package versions. Update the pin with the updater below. The artifact bundles
-the ARM64 library, matching
-headers/module map, provenance, and dependency notices. Never overwrite a published asset.
+the ARM64 library, matching headers/module map, provenance, and dependency notices. Never overwrite a published asset.
 
 The Swift package and Rust crate are independent projects in this repository. App builds and Swift
 checks consume the pinned artifact and its bundled headers, even when engine source has changed.
@@ -36,7 +35,7 @@ Rust; unset it to return to the published dependency. Run the Rust gate separate
 CI diffs engine build inputs against the app's pinned `playback-vMAJOR.MINOR.PATCH` tag. It builds
 and tests a candidate only when those inputs differ, including shared headers, packaging scripts,
 and license inputs. Comparing with the pinned release also catches unpublished engine changes from
-earlier commits. CI rejects pins without a valid versioned playback tag. Rust source checks and
+earlier commits. CI requires the canonical repository release URL and XCFramework asset with a valid versioned tag. Rust source checks and
 published-artifact Swift checks remain
 required; content digests still identify build caches and artifact provenance.
 
@@ -57,6 +56,7 @@ candidate (use `-f dry_run=true` to validate without publishing). Set `new_engin
 unused version; publication rejects existing release identities:
 
 ```bash
+: "${new_engine_version:?Set new_engine_version to an unused MAJOR.MINOR.PATCH version}"
 gh workflow run playback-artifact.yml --ref main \
   -f version="$new_engine_version" \
   -f source_ref="$reviewed_source_sha" -f candidate_run_id="$candidate_ci_run_id"
@@ -66,6 +66,7 @@ Download the release ZIP and update the package pin; the updater validates the b
 and computes its checksum without requiring current engine source to match:
 
 ```bash
+: "${new_engine_version:?Set new_engine_version to the published artifact version}"
 ./Backend/spotty-playback/update-artifact-pin.sh \
   --archive /absolute/path/SpottyPlaybackCore.xcframework.zip \
   --version "$new_engine_version"

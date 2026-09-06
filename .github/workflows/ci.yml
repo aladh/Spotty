@@ -57,6 +57,11 @@ jobs:
             echo "Expected a versioned playback pin (playback-vMAJOR.MINOR.PATCH), got: $tag" >&2
             exit 1
           fi
+          expected_pin_url="https://github.com/aladh/Spotty/releases/download/$tag/SpottyPlaybackCore.xcframework.zip"
+          if [[ "$pin_url" != "$expected_pin_url" ]]; then
+            echo "Playback pin must use the canonical Spotty release URL and XCFramework asset" >&2
+            exit 1
+          fi
           git fetch --no-tags --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
           input_list="$(./Backend/spotty-playback/source-input-digest.sh --print-inputs)"
           paths=()

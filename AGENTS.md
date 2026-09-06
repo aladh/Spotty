@@ -1,9 +1,8 @@
 # AGENTS.md
 
-Spotty is an experimental, unofficial, independent, personal-use Spotify Premium client for
+Spotty is an unofficial, independent, personal-use Spotify Premium client for
 macOS 15+ on Apple Silicon, built with SwiftUI/AppKit, AVFoundation, and Rust/librespot.
-No WebView, cross-platform shell, or supported Spotify API fallback. Keep the experimental and
-no-affiliation warnings prominent in public material.
+No WebView, cross-platform shell, or supported Spotify API fallback.
 
 Prioritize account/privacy/session safety, playback and lifetime correctness, then native macOS
 behavior and truthful state. Keep scope small using the

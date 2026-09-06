@@ -13,6 +13,7 @@ esac
 
 project_root="${0:A:h:h}"
 source "$project_root/Scripts/playback-xcframework.sh"
+source "$project_root/Scripts/embed-sparkle.sh"
 app_path="${SPOTTY_APP_PATH:-$project_root/Spotty.app}"
 staged_launch_path="$project_root/.build/spotty-launch/Spotty.app"
 executable="$project_root/.build/$build_configuration/Spotty"
@@ -182,23 +183,29 @@ sign_with_local_identity() {
             "$signing_keychain"
     fi
 
+    spotty_embed_sparkle "$app_path" "$identity_name" --timestamp=none --keychain "$signing_keychain"
     codesign --force --options runtime --timestamp=none \
         --keychain "$signing_keychain" \
+        --entitlements "$project_root/Packaging/AdHoc.entitlements" \
         --sign "$identity_name" \
         "$app_path"
 }
 
 if [[ "$distribution_identity" == "-" ]]; then
+    spotty_embed_sparkle "$app_path" - --timestamp=none
     codesign --force --options runtime --timestamp=none \
         --sign - \
+        --entitlements "$project_root/Packaging/AdHoc.entitlements" \
         "$app_path"
     signing_kind="ad hoc"
 elif [[ -n "$distribution_identity" ]]; then
+    spotty_embed_sparkle "$app_path" "$distribution_identity" --timestamp
     codesign --force --options runtime --timestamp \
         --sign "$distribution_identity" \
         "$app_path"
     signing_kind="Developer ID"
 elif [[ -n "$development_identity" ]]; then
+    spotty_embed_sparkle "$app_path" "$development_identity" --timestamp=none
     codesign --force --options runtime --timestamp=none \
         --sign "$development_identity" \
         "$app_path"

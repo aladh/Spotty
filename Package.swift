@@ -97,11 +97,14 @@ let package = Package(
         .library(name: "SpottyCore", targets: ["SpottyCore"]),
         .library(name: "SpottyDomain", targets: ["SpottyDomain"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+    ],
     targets: [
         playbackSelection,
         .target(
             name: "SpottyCore",
-            dependencies: ["SpottyDomain", "SpottyPlaybackCore"],
+            dependencies: ["SpottyDomain", "SpottyPlaybackCore", .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/Spotty",
             exclude: [
                 "AGENTS.md",
@@ -113,6 +116,7 @@ let package = Package(
                 .linkedFramework("Security"),
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("AVFoundation"),
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
             ]
         ),
         .executableTarget(

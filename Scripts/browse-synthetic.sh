@@ -3,6 +3,7 @@ set -euo pipefail
 
 project_root="${0:A:h:h}"
 source "$project_root/Scripts/swiftpm-env.sh"
+source "$project_root/Scripts/embed-sparkle.sh"
 cd "$project_root"
 automated=true
 if [[ "${1:-}" == "--interactive" ]]; then
@@ -73,6 +74,7 @@ launch = {
 }
 (app / "Contents/Resources/launch.json").write_text(json.dumps(launch))
 PY
+spotty_embed_sparkle "$app" "$signing_identity" --timestamp=none
 /usr/bin/codesign --force --options runtime --timestamp=none --sign "$signing_identity" --entitlements "$run_root/entitlements.plist" "$app"
 /usr/bin/codesign --verify --strict "$app"
 /usr/bin/codesign --verify --strict -R '=anchor apple generic' "$app"

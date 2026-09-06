@@ -105,6 +105,7 @@ swift_arguments=(
     -module-cache-path "$module_cache"
     "${swift_module_paths[@]}"
     -I "$c_module_path"
+    -F "$project_root/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64"
 )
 
 "$swiftc_path" "${swift_arguments[@]}" "$positive_fixture"

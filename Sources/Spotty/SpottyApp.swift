@@ -130,6 +130,7 @@ struct SpottyApp: App {
     @NSApplicationDelegateAdaptor(SpottyAppDelegate.self) private var appDelegate
     @State private var player: PlaybackStore
     @State private var feedback: TransientFeedbackPresenter
+    @State private var updater = AppUpdater()
 
     init() {
         let environment = PlaybackEnvironment.live
@@ -139,7 +140,10 @@ struct SpottyApp: App {
     }
 
     var body: some Scene {
-        SpottyScene(player: player, feedback: feedback, appDelegate: appDelegate, enablesSystemMediaControls: true)
+        SpottyScene(
+            player: player, feedback: feedback, appDelegate: appDelegate,
+            enablesSystemMediaControls: true, updater: updater
+        )
     }
 }
 
@@ -149,6 +153,7 @@ struct SpottyScene: Scene {
     let feedback: TransientFeedbackPresenter
     let appDelegate: SpottyAppDelegate
     var enablesSystemMediaControls = false
+    var updater: AppUpdater?
     var navigation: CatalogNavigation?
 
     var body: some Scene {
@@ -159,6 +164,7 @@ struct SpottyScene: Scene {
                     appDelegate.installTerminationHandler { await player.shutdownForTermination() }
                     appDelegate.installKeyboardControls(player: player)
                     if enablesSystemMediaControls { appDelegate.installMediaControls(player: player) }
+                    updater?.start()
                     await player.restore()
                 }
         }
@@ -168,6 +174,7 @@ struct SpottyScene: Scene {
         .windowToolbarStyle(.unified)
         .commands {
             InspectorCommands()
+            if let updater { UpdateCommands(updater: updater) }
             AccountCommands(player: player)
             PlaybackCommands(player: player)
         }

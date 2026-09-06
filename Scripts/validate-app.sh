@@ -80,7 +80,31 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$info_plist")" !=
     exit 1
 fi
 
-codesign --verify --strict --verbose=2 "$app_path"
+sparkle_framework="$app_path/Contents/Frameworks/Sparkle.framework"
+if [[ ! -x "$sparkle_framework/Sparkle" ]]; then
+    print -u2 "Missing embedded Sparkle framework"
+    exit 1
+fi
+python3 - "$info_plist" <<'PYTHON'
+import base64
+import plistlib
+import sys
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit(message)
+
+with open(sys.argv[1], "rb") as source:
+    info = plistlib.load(source)
+require(len(base64.b64decode(info["SUPublicEDKey"], validate=True)) == 32, "Invalid updater public key")
+require(info["SURequireSignedFeed"] is True, "Update feed must require authentication")
+require(info["SUVerifyUpdateBeforeExtraction"] is True, "Signed feeds require pre-extraction verification")
+require(info["SUAllowsAutomaticUpdates"] is False, "Installation must require user action")
+require(info["SUEnableAutomaticChecks"] is False, "Background checking must default to opt-in")
+require(info["SUSendProfileInfo"] is False, "Update system-profile reporting must be disabled")
+require(info["SUFeedURL"] == "https://github.com/aladh/Spotty/releases/latest/download/appcast.xml", "Incorrect update feed")
+PYTHON
+codesign --verify --deep --strict --verbose=2 "$app_path"
 signing_details="$(codesign --display --verbose=4 "$app_path" 2>&1)"
 if ! grep -Eq 'flags=0x[0-9a-fA-F]+\([^)]*runtime' <<< "$signing_details"; then
     print -u2 "The app is signed without hardened runtime"

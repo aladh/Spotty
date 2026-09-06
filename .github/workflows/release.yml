@@ -64,6 +64,7 @@ jobs:
           path: |
             .build/*
             !.build/spotty-signing
+            !.build/spotty-update-signing
           key: macos-swiftpm-app-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
             macos-swiftpm-app-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
@@ -106,6 +107,11 @@ jobs:
           cd dist
           shasum -a 256 "Spotty-$version.zip" > "Spotty-$version.zip.sha256"
 
+      - name: Generate signed update feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: ./Scripts/generate-update-feed.sh
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -115,6 +121,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "dist/Spotty-$version.zip" \
             "dist/Spotty-$version.zip.sha256" \
+            "dist/appcast.xml" \
             --verify-tag \
             --title "Spotty $version" \
             --notes-file "$notes"

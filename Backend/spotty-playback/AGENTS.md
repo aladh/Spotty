@@ -30,5 +30,5 @@ across the Swift/Rust boundary.
   Swift decoder, or player-injection seam.
 - Keep the checked-in C header, exported symbol set, signatures, ownership, allocation, and callback
   lifetime aligned.
-- Treat librespot changes as protocol migrations. Preserve the ownership classification instead of
-  opportunistically expanding the Rust leaf.
+- Treat librespot changes as protocol migrations. Preserve the documented Swift/Rust responsibility
+  boundary instead of opportunistically expanding the Rust leaf.

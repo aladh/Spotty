@@ -2,53 +2,44 @@
 
 [Agent operations](../../CONTRIBUTING.md) · Run commands from the repository root.
 
-App releases use `vMAJOR.MINOR.PATCH`; playback releases use `playback-vMAJOR.MINOR.PATCH` in the
-same repository. Engine publication takes a new version independent of the app version.
-Versions have three numeric components without leading zeroes; existing tags and releases cannot
-be reused. Hashes remain internal artifact/cache identities and integrity checks.
+App builds consume the immutable engine release pinned in [Package.swift](../../Package.swift),
+including matching headers and dependency notices. Changing Rust source does not change that pin;
+a validated artifact and explicit pin update integrate an engine change into the app.
 
-`Package.swift` is the single dependency pin: a hardcoded release URL and SHA-256 checksum for
-the SwiftPM binary target. SwiftPM fetches that exact versioned release asset, rather than resolving
-prefixed Git tags as package versions. Update the pin with the updater below. The artifact bundles
-the ARM64 library, matching headers/module map, provenance, and dependency notices. Never overwrite a published asset.
+App tags use `vMAJOR.MINOR.PATCH`; engine tags use `playback-vMAJOR.MINOR.PATCH`. Choose an unused
+three-component version without leading zeroes. Never overwrite published assets or remove assets
+that older checkouts still use.
 
-The Swift package and Rust crate are independent projects in this repository. App builds and Swift
-checks consume the pinned artifact and its bundled headers, even when engine source has changed.
-Rust checks own source/header generation and producer ABI validation. Swift CI never selects an
-unpublished engine. The consumer rejects noncanonical or unversioned release URLs before SwiftPM
-resolves the dependency. Updating the app pin to a published release is the integration step.
+## Local engine development
 
-For engine development, install the [artifact tools](setup.md#engine-development), run the Rust
-checks, and build the artifact independently of the app:
+Install the [engine tools](setup.md#engine-development), run the Rust checks, and build the
+artifact independently of the app:
 
 ```bash
 SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ./Backend/spotty-playback/build-xcframework.sh
 ```
 
-CI compares engine inputs against the PR base or the previous main push commit. It builds a
-candidate only when those inputs or candidate build/validation infrastructure change, including
-shared headers, packaging scripts, and license inputs. An absent or initial base SHA builds a
-candidate conservatively; a failed comparison fails CI. Unpublished engine changes already on main
-do not trigger candidate builds for unrelated PRs. Rust checks and published-artifact Swift checks
-remain required on every run. Content digests identify build caches and artifact provenance.
+Rust checks own header generation and producer ABI validation. Swift CI consumes only published
+artifacts, rejecting noncanonical or unversioned release URLs before dependency resolution.
 
-Publication promotes the exact candidate ZIP from a completed CI run, without rebuilding it. Run
-the publisher after Source policies and Rust succeed in the candidate's main push CI run. Swift
-jobs validate the app's published pin independently and do not gate engine publication. The selected
-source must be a merged commit covered by that run and an ancestor of the publisher checkout.
-PR and fork candidates cannot be published. The tested main commit becomes the release target.
-When a later app-only commit produces no candidate, select the earlier engine-changing main run.
+## Publish a tested candidate
 
-The publisher verifies the CI definition matches its trusted checkout, the source ancestry on main,
-successful jobs from the same run attempt, artifact identity/checksum, and embedded provenance and
-notices. It never executes candidate code and keeps release credentials in a separate Linux job.
-Expired artifacts or candidates from an older CI definition require a fresh CI run. Keep app and
-engine release identities separate; published playback releases are never overwritten.
+Publication requires explicit authorization. It promotes the exact candidate from a completed
+main-branch push CI run, without rebuilding. The source must be merged and an ancestor of the
+publisher checkout; PR and fork candidates cannot be published. Source policies and Rust must pass
+in the selected run attempt. Swift jobs validate the published app pin independently and do not gate
+engine publication. The tested commit becomes the release target. Expired artifacts or a changed
+CI definition require a fresh main CI run.
 
-Use the completed main push CI run's head SHA and run ID to promote an explicitly authorized
-candidate (use `-f dry_run=true` to validate without publishing). Set `new_engine_version` to an
-unused version; publication rejects existing release identities:
+CI builds candidates for engine-input or build/validation infrastructure changes relative to the
+PR base or previous main push. Unrelated app-only changes do not rebuild unpublished engines; select
+the earlier engine-changing main run when the latest run has no candidate. Missing bases build
+conservatively, while comparison failures fail CI. An app change requiring a newer ABI must update
+its published pin.
+
+Use the completed main push run's head SHA and run ID. Add `-f dry_run=true` to validate without
+publishing:
 
 ```bash
 : "${new_engine_version:?Set new_engine_version to an unused MAJOR.MINOR.PATCH version}"
@@ -57,8 +48,14 @@ gh workflow run playback-artifact.yml --ref main \
   -f source_ref="$reviewed_source_sha" -f candidate_run_id="$candidate_ci_run_id"
 ```
 
-Download the release ZIP and update the package pin; the updater validates the bundled artifact
-and computes its checksum without requiring current engine source to match:
+The [publication workflow](../../.github/workflows/playback-artifact.yml) and
+[promotion validator](../../Scripts/playback_promotion.py) own eligibility, provenance, integrity,
+and notice checks. Publication must not execute candidate code or expose release credentials to it.
+
+## Adopt the release
+
+Download the published ZIP and update the pin. The updater validates the archive and computes its
+checksum; current engine source need not match the selected release.
 
 ```bash
 : "${new_engine_version:?Set new_engine_version to the published artifact version}"
@@ -70,5 +67,5 @@ SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 ./Scripts/compile-release-spotty.sh
 ```
 
-Commit the pin update in a PR. Publication rejects dirty source; the updater only writes versioned
-pins. Preserve published assets that older checkouts still reference.
+Commit the pin update in a PR. See [ADR 006](../architecture/adrs/ADR-006-prebuilt-playback-engine.md)
+for the binary-distribution decision and relinking constraints.

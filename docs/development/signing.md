@@ -32,11 +32,8 @@ keychain under `.build/spotty-signing/`. It is local-only, unsuitable for distri
 `build_and_run.sh` fails before terminating or launching Spotty when no Apple-issued Team identity
 is available. Never install the generated identity in the login keychain or commit it.
 
-Packaging compiles `Assets/Spotty.icon` into `.build/spotty-icon/<configuration>/Assets.car` using
-Xcode's `actool`; select full Xcode with `xcode-select -s` or `DEVELOPER_DIR`.
-`CFBundleIconName=Spotty` selects the catalog, including macOS 15 compatibility renditions.
-`Assets/Spotty.icns` remains available to icon-file consumers; it does not override macOS 15's
-catalog selection.
+Packaging needs full Xcode selected through `xcode-select` or `DEVELOPER_DIR` to compile the
+native icon. See [icon maintenance](../../Assets/README.md) when changing artwork.
 
 Sandboxed development tools may need permission for the packaging or launch script to invoke
 `security` and `codesign`. Apple Development signing can require private-key access once; Spotty

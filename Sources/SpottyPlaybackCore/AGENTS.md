@@ -12,4 +12,6 @@ independent implementation. Read [ADR 001](../../docs/architecture/adrs/ADR-001-
 - Make ownership explicit for every pointer, buffer, callback, and returned allocation. Pair every
   Rust allocation with the documented release path; do not assume the panic barrier validates
   foreign pointers or extends callback lifetimes.
+- Keep Swift nullable-pointer and open-enum annotations in `spotty_playback_annotations.h`.
+  Do not enable cbindgen's global nullable-pointer annotation: required callbacks would become nullable.
 - Review ABI changes for threading, reentrancy, nullability, sentinel errors, and pointer lifetime.

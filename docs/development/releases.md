@@ -30,13 +30,13 @@ SPOTTY_NOTARY_PROFILE="spotty-notary" \
 
 `validate-app.sh --distribution` requires a Developer ID signature, a valid notarization ticket, and
 Gatekeeper acceptance. Signing proves artifact integrity; it does not make the private Spotify
-integration supported or policy-compliant. Engine publication generates and inspects transitive
-licenses from `Cargo.lock`; app packaging copies them from the pinned artifact.
+integration supported or policy-compliant. Retain the selected engine's dependency notices; see
+[playback artifacts](playback-artifacts.md) for engine publication.
 
 ## Tagged releases
 
 An authorized `vX.Y.Z` tag must match `CFBundleShortVersionString` in `Packaging/Info.plist`. The
-release workflow verifies the app against the pinned engine and publishes an ARM64 experimental
-prerelease ZIP and SHA-256 checksum. Until Developer ID and notarization credentials are configured,
+[release workflow](../../.github/workflows/release.yml) publishes an ARM64 experimental prerelease
+and checksum after verification. Until Developer ID and notarization credentials are configured,
 artifacts use hardened-runtime ad-hoc signing; release notes must state that macOS will not
 automatically trust them. Renovate owns dependency updates.

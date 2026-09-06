@@ -24,6 +24,7 @@ Media sample-buffer pool at the time; new optimization decisions need a current 
 
 ## Binary size
 
-The CI "Release distribution compile" job uses `Scripts/report-size.sh` to report app/archive sizes,
-binary segments, and archive export count. Read its summary with `gh run view <run-id>` or download
-`size-report.json` (30-day retention) with `gh run download <run-id> -n size-report`.
+CI reports release sizes for comparison, not as a pass/fail budget. Read the run summary with
+`gh run view <run-id>` or download the report with `gh run download <run-id> -n size-report`.
+[report-size.sh](../../Scripts/report-size.sh) owns the measurements; retention is configured in
+[CI](../../.github/workflows/ci.yml).

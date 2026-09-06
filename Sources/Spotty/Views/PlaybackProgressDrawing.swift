@@ -51,7 +51,9 @@ struct PlaybackProgressDrawing: NSViewRepresentable {
             self.state = state
             anchoredAt = Date()
             render()
-            if previous?.isHovering != state.isHovering && !state.reduceMotion {
+            if state.reduceMotion {
+                thumb.removeAnimation(forKey: "hover")
+            } else if previous?.isHovering != state.isHovering {
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = previous?.isHovering == true ? 1 : 0
                 fade.toValue = state.isHovering ? 1 : 0

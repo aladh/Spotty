@@ -99,13 +99,13 @@ jobs:
           OPENCODE_ENABLE_EXA: '1'
         run: |
           set -euo pipefail
+          exec > "$RUNNER_TEMP/thermos-review.log" 2>&1
           mkdir -p "$RUNNER_TEMP/thermos"
           cp -R "$GITHUB_WORKSPACE/reviewer/.github/review/." "$RUNNER_TEMP/thermos/"
           export OPENCODE_CONFIG="$RUNNER_TEMP/thermos/opencode.json"
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent thermos \
-            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. The gh and rg CLIs are available. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->." \
-            > "$RUNNER_TEMP/thermos-review.log" 2>&1
+            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. The gh and rg CLIs are available. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->."
 
       - name: Summarize review trace
         if: ${{ !cancelled() && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}

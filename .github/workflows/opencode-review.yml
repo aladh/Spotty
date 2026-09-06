@@ -69,9 +69,14 @@ jobs:
           sparse-checkout: .github/review
           path: reviewer
 
-      - name: Install OpenCode
+      - name: Install OpenCode and ripgrep
         if: steps.eligibility.outputs.skip != 'true'
-        run: npm install --prefix "$RUNNER_TEMP/thermos-cli" opencode-ai@1.18.29
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
+          npm install --prefix "$RUNNER_TEMP/thermos-cli" opencode-ai@1.18.29
 
       - name: Checkout PR source and history
         if: steps.eligibility.outputs.skip != 'true'
@@ -90,6 +95,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           OPENCODE_DISABLE_PROJECT_CONFIG: 'true'
           OPENCODE_DISABLE_AUTOUPDATE: 'true'
+          OPENCODE_ENABLE_EXA: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/thermos"
@@ -97,4 +103,4 @@ jobs:
           export OPENCODE_CONFIG="$RUNNER_TEMP/thermos/opencode.json"
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent thermos --variant xhigh \
-            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER and post the result. The checkout is at head $HEAD_SHA; the PR base is $BASE_SHA."
+            "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. GitHub CLI (gh) is available and authenticated. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->."

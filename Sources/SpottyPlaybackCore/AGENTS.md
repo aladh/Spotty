@@ -1,8 +1,8 @@
 # C ABI surface agent guidance
 
 This directory is the checked-in Swift-facing description of the Rust playback ABI, not an
-independent implementation. Read [ADR 001](../../docs/ADR-001-playback-engine.md) and
-[ADR 005](../../docs/ADR-005-retain-librespot.md) before changing it.
+independent implementation. Read [ADR 001](../../docs/architecture/adrs/ADR-001-playback-engine.md) and
+[ADR 005](../../docs/architecture/adrs/ADR-005-retain-librespot.md) before changing it.
 
 - `include/spotty_playback.h` must match the exported `spotty-playback` symbol set and signatures exactly.
   Never add, remove, rename, or reinterpret a declaration as a header-only change.

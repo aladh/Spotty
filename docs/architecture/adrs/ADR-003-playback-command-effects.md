@@ -27,7 +27,7 @@ current playback architecture.
   needs; its cancellation model would also need adaptation to Spotty's refusal of a second
   in-flight command of the same kind.
 
-The [enforcement inventory](architecture-enforcement.md) maps command lifecycle, reconciliation,
+The [enforcement inventory](../enforcement.md) maps command lifecycle, reconciliation,
 and rollback to `TST-CMD-001`, Rust reconnect generations to `TST-LIF-001`, and
 generation/cancellation to `TST-EPC-001`.
 

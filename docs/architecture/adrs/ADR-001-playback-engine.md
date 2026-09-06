@@ -21,5 +21,5 @@ A foreign-function boundary adds ABI and lifetime verification, but limits the r
 protocol changes. Adding another application-facing engine abstraction would add indirection
 without improving that containment.
 
-Current modules and responsibilities are listed in [playback engine ownership](playback-engine-ownership.md);
-ABI and import checks are indexed in the [enforcement inventory](architecture-enforcement.md).
+Current modules and responsibilities are listed in [playback engine ownership](../playback-engine-ownership.md);
+ABI and import checks are indexed in the [enforcement inventory](../enforcement.md).

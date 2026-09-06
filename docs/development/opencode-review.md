@@ -9,7 +9,7 @@ one synthesized PR comment through `gh`. Git and filesystem tools provide source
 diff context from a full-history PR checkout; `gh` also reads PR discussion.
 
 The original Cursor Thermos correctness and quality rubrics and MIT license are in
-[.github/review/thermos](../.github/review/thermos), recovered from
+[.github/review/thermos](../../.github/review/thermos), recovered from
 [PR #291](https://github.com/aladh/Spotty/pull/291). Orchestration differs only in OpenCode
 task names and foreground execution. The files load directly into agent prompts via
 `{file:...}`; no skill discovery is required. Additional instructions cover publication

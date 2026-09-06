@@ -11,4 +11,4 @@ system mask. Extra glass, translucency, and group shadows are disabled to preser
 Edit this document in Icon Composer and verify its macOS previews when changing the native icon.
 
 The generated `Spotty.icns` retains the legacy icon representations. After changing the source PNG,
-follow the [icon regeneration procedure](../docs/development-setup.md#generated-local-state).
+follow the [icon regeneration procedure](../docs/development/local-state.md#generated-local-state).

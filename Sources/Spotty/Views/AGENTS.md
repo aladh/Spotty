@@ -1,6 +1,6 @@
 # Native UI agent guidance
 
-Read the [product contract](../../../docs/product-and-acceptance-contract.md) for UX changes,
+Read the [product contract](../../../docs/product/README.md) for UX changes,
 including the fixed dark appearance, layout, supported actions, and acceptance rules.
 
 ## Product taste

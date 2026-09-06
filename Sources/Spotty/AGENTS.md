@@ -2,8 +2,8 @@
 
 This scope owns the `SpottyCore` composition shell and top-level services. Deeper `AGENTS.md` files
 own Spotify boundaries and view rules. Read
-[ADR 002](../../docs/ADR-002-playback-state-and-dependencies.md) and
-[ADR 003](../../docs/ADR-003-playback-command-effects.md) before changing composition, task
+[ADR 002](../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md) and
+[ADR 003](../../docs/architecture/adrs/ADR-003-playback-command-effects.md) before changing composition, task
 ownership, or transient feedback.
 
 ## Ownership

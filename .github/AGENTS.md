@@ -2,7 +2,7 @@
 
 GitHub workflows and pull-request metadata are part of the verification and release boundary. Read
 [agent operations](../CONTRIBUTING.md) and the
-[enforcement inventory](../docs/architecture-enforcement.md) before changing them.
+[enforcement inventory](../docs/architecture/enforcement.md) before changing them.
 
 - Pin every GitHub Action to a full commit SHA and keep a readable version comment.
 - Use least permissions and never expose credentials to untrusted pull-request code or logs.

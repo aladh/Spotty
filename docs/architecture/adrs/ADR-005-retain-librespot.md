@@ -34,9 +34,9 @@ and [ADR 003](ADR-003-playback-command-effects.md) continue to govern applicatio
   review, not routine version bumps.
 
 [ADR 006](ADR-006-prebuilt-playback-engine.md) removes Rust tooling from ordinary app builds,
-not engine development or source CI. See [engine ownership](playback-engine-ownership.md) for current
-responsibilities and guarantees, and the
-[safe acceptance contract](product-and-acceptance-contract.md#safe-acceptance-testing) for live tests.
+not engine development or source CI. See [engine ownership](../playback-engine-ownership.md) for current
+responsibilities, [engine contracts](../engine-contract.md) for guarantees, and the
+[safe acceptance contract](../../product/safe-testing.md#safe-acceptance-testing) for live tests.
 
 ## Revisit trigger
 

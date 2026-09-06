@@ -2,7 +2,7 @@
 
 These scripts are repository policy executables, not convenience wrappers. Read the relevant
 sections of [agent operations](../CONTRIBUTING.md) and the
-[enforcement inventory](../docs/architecture-enforcement.md) before changing gate behavior.
+[enforcement inventory](../docs/architecture/enforcement.md) before changing gate behavior.
 
 - Run scripts from the repository root and preserve their fail-fast, warning-clean behavior.
 - `check.sh` is the ordinary complete verification gate. CI scopes may partition it, but no scope or

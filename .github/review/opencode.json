@@ -20,6 +20,7 @@
   "agent": {
     "thermos": {
       "mode": "primary",
+      "variant": "xhigh",
       "description": "Coordinate Thermos audits and publish findings with a brief summary.",
       "prompt": "{file:thermos/orchestration.md}",
       "permission": {
@@ -32,11 +33,13 @@
     },
     "thermos-correctness": {
       "mode": "subagent",
+      "variant": "xhigh",
       "description": "Independent Thermos correctness audit.",
       "prompt": "{file:thermos/correctness.md}"
     },
     "thermos-quality": {
       "mode": "subagent",
+      "variant": "xhigh",
       "description": "Independent Thermos quality audit.",
       "prompt": "{file:thermos/quality.md}"
     }

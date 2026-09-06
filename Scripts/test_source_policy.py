@@ -37,6 +37,9 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/Spotty/Spotify/Other.swift", "import SpottyPlaybackCore", {"ffi-import-owner"}),
             ("Sources/Spotty/Spotify/RustPlaybackEngine.swift", "PlaybackCore.start()", set()),
             ("Sources/Spotty/Spotify/Other.swift", "PlaybackCore.start()", {"playback-core-owner"}),
+            ("Sources/Spotty/Spotify/Other.swift", "func f(_ r: PlaybackCore.Result) {}", {"playback-core-owner"}),
+            ("Sources/Spotty/Spotify/RustPlaybackEngine.swift", "typealias R = PlaybackCore.Result", set()),
+            ("Sources/Spotty/Spotify/SearchStore.swift", "Module.PlaybackCore.start()", {"playback-core-owner", "injected-dependencies"}),
             ("Tests/Example.swift", "import SpottyPlaybackCore\nPlaybackCore.start()", set()),
         ]
         for path, source, expected in cases:
@@ -60,7 +63,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/Spotty/Spotify/SearchStore.swift", "PartnerAPI()", {"injected-dependencies"}),
             ("Sources/Spotty/Spotify/PlaybackStore+Queue.swift", "PartnerAPI()", {"injected-dependencies"}),
             ("Sources/Spotty/Views/Nested/Example.swift", "PartnerAPI()", {"injected-dependencies"}),
-            ("Sources/Spotty/Spotify/ProductionEnvironment.swift", "PartnerAPI()", set()),
+            ("Sources/Spotty/Spotify/PlaybackEnvironment.swift", "PartnerAPI()", set()),
             ("Sources/Spotty/Spotify/KeychainManager.swift", "let key = kSecAttrAccessGroup", {"legacy-keychain"}),
             ("Sources/Spotty/Spotify/Other.swift", "let key = kSecAttrAccessGroup", set()),
             ("Sources/Spotty/Views/Example.swift", "view.draggable(item)", {"unsupported-drag-ui"}),
@@ -73,6 +76,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
     def test_wrapper_rejects_missing_or_empty_owners(self):
         owners = [
             "Sources/Spotty/SpottyApp.swift",
+            "Sources/Spotty/Spotify/KeychainManager.swift",
             "Sources/Spotty/Spotify/PlaybackCore.swift",
             "Sources/Spotty/Spotify/RustPlaybackEngine.swift",
         ]

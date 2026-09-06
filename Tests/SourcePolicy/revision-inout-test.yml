@@ -9,3 +9,5 @@ invalid:
     func accept(lastRevision:
      inout UInt64) {}
   - 'func accept(_ lastRevision: inout UInt64) {}'
+  - 'call({ (lastRevision: inout UInt64) in true })'
+  - 'typealias R = (lastRevision: inout UInt64) -> Void'

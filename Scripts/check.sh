@@ -346,6 +346,7 @@ if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
     print -u2 "CI must use the selected toolchain swift-format, not a Homebrew Swift linter"
     exit 1
 fi
+policy_job="$(sed -n '/^  policy:/,/^  rust:/p' "$ci_workflow")"
 rust_job="$(sed -n '/^  rust:/,/^  checks:/p' "$ci_workflow")"
 checks_job="$(sed -n '/^  checks:/,/^  candidate:/p' "$ci_workflow")"
 candidate_job="$(sed -n '/^  candidate:/,/^  release:/p' "$ci_workflow")"
@@ -353,7 +354,10 @@ release_job="$(sed -n '/^  release:/,/^  gate:/p' "$ci_workflow")"
 gate_job="$(sed -n '/^  gate:/,$p' "$ci_workflow")"
 checkout_without_credentials=$'uses: actions/checkout@[0-9a-f]{40} # v[^\n]+\n        with:\n          persist-credentials: false'
 blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
-if ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
+if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
+    || ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'run: ./Scripts/check-source-policy.sh --test-only' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'candidate_needed' <<< "$rust_job" \
     || ! rg -U -q "$checkout_without_credentials" <<< "$rust_job" \

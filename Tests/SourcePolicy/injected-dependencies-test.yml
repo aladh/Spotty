@@ -16,3 +16,6 @@ invalid:
   - 'KeymasterSession.shared'
   - 'RustPlaybackEngine.shared'
   - 'PlaybackCore.start()'
+  - 'Module.PlaybackCore.start()'
+  - 'func f(_ r: PlaybackCore.Result) {}'
+  - 'typealias R = Module.PlaybackCore.Result'

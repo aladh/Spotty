@@ -13,3 +13,5 @@ invalid:
     let example = """
     NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
     """
+  - 'NSApplication.shared.appearance = NSAppearance(named: .aqua)'
+  - 'NSApplication.shared.appearance = nil'

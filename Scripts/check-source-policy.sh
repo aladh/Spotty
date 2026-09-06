@@ -22,6 +22,7 @@ export SPOTTY_AST_GREP="$ast_grep"
 # Presence rules inspect a syntax tree; missing or empty owner files must not silently skip them.
 for owner in Sources/Spotty/SpottyApp.swift \
     Sources/Spotty/Spotify/PlaybackCore.swift \
+    Sources/Spotty/Spotify/KeychainManager.swift \
     Sources/Spotty/Spotify/RustPlaybackEngine.swift; do
     [[ -f "$owner" && -s "$owner" ]] || { echo "Missing or empty policy owner: $owner" >&2; exit 1; }
 done

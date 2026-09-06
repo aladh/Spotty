@@ -1,6 +1,8 @@
 id: 'playback-core-required'
 valid:
   - 'func start() { PlaybackCore.start() }'
+  - 'Module.PlaybackCore.start()'
+  - 'typealias R = PlaybackCore.Result'
 invalid:
   - 'struct Engine {}'
   - '// PlaybackCore.start()'

@@ -5,7 +5,10 @@ message: 'Revision gates must not borrow store fields through lastRevision: inou
 files:
   - 'Sources/Spotty/Spotify/**/*.swift'
 rule:
-  kind: 'parameter'
+  any:
+    - kind: parameter
+    - kind: lambda_parameter
+    - kind: tuple_type_item
   all:
     - has:
         kind: 'simple_identifier'

@@ -48,7 +48,12 @@ broader than comments. Shell access allows direct use of that token through `gh`
 other commands. Publication behavior is left to Thermos and the short task prompt;
 there is no MCP server, custom publication guard, or enforced revision recheck.
 
-Actions logs hold run output. This is not a required check or approval gate. Forks are
+Review output is redirected to a temporary runner file. A separate OpenCode invocation,
+with the same shell, filesystem, and web tools but no GitHub token, summarizes that trace in the Actions log, including
+after review failure. It does not export sessions or upload the trace; the file disappears
+with the runner. Detailed child-agent traces are not included. Summary generation does
+not clear an original review failure, and job cancellation or timeout can prevent it.
+This is not a required check or approval gate. Forks are
 skipped. A PR changing during review may receive no comment; a push between the final
 read and publication can leave a comment about an older SHA. Automatic reviews remain
 once per PR. The job times out after 20 minutes; failed runs can be retried manually.

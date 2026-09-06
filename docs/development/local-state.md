@@ -11,12 +11,8 @@ signing material as disposable build output:
 - `diagnostics/` — local reports; review them before sharing;
 - `SpottyArtwork/`, `.DS_Store`, and `.swiftpm/` — artwork cache and local tooling metadata.
 
-When changing the master app artwork in `Assets/SpottyIcon.png`, regenerate the legacy icon
-representations with `./Scripts/generate-icon.sh`. Also replace the embedded image in
-`Assets/Spotty.icon` using Icon Composer, then check its macOS previews and package the app to
-compile the native catalog. Icon Composer embeds a copy; changing the master PNG does not update
-that copy automatically. Commit the source PNG, generated `Assets/Spotty.icns`, and updated
-`Assets/Spotty.icon` document together.
+For artwork changes, follow the [icon regeneration procedure](../../Assets/README.md). The native
+icon embeds a copy of the master image, so regenerating only the legacy icon is insufficient.
 
 Prefer a fresh clone for uncertain local state; do not copy old build products or signing material.
 SwiftPM resolves the pinned artifact, and Cargo resolves engine dependencies from `Cargo.lock`.

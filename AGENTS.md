@@ -60,11 +60,12 @@ or interactive acceptance.
   meaningful duplication.
 - Tests must catch plausible behavioral failures, not mirror implementation or duplicate coverage.
 - Skip obvious comments and production hooks added solely to test trivial code.
-- Before adding documentation, check the canonical owner. Update or replace existing guidance
-  rather than appending another explanation. Keep details that affect decisions, safe execution,
-  or verification; omit task history, obvious code narration, and repeated rationale. Link to
-  existing rules, and remove wording made redundant by the change. Use judgment: brevity must not
-  erase useful constraints or tradeoffs.
+- Document intent, usage, and non-obvious constraints; let code describe mechanics. Link to the
+  implementation instead of maintaining a prose copy of its steps, variables, or configuration.
+  Keep concrete commands and details when needed to use, verify, or safely change the system.
+- Before adding documentation, check the canonical owner. Update or replace existing guidance;
+  remove stale or redundant wording. Omit task history and repeated rationale. Record review
+  dispositions in the review thread rather than expanding permanent guides with each discussion.
 
 ## Local verification
 

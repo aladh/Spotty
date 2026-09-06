@@ -38,7 +38,7 @@ indication of affiliation.
 - **Playlist editing:** add selected tracks to an owned library playlist or remove selected
   occurrences from an open owned playlist, with success and failure feedback.
 - **macOS integration:** native navigation, tables, menus, inspector, keyboard commands, and
-  accessibility. Selection and focus follow the system accent; playback actions use Spotty green.
+  accessibility. Preserve native focus and selection behavior; playback actions use Spotty green.
 
 ## Getting started
 
@@ -55,13 +55,10 @@ cd Spotty
 ./script/build_and_run.sh
 ```
 
-SwiftPM downloads the checksum-pinned playback XCFramework; ordinary app builds need no Rust tools.
-The launch script replaces any running development copy. On first launch, choose **Connect** and
-complete Spotify authorization in the browser. See [build modes](docs/development/verification.md#build-and-run).
-
-Generated app bundles and engine archives stay out of Git. Version tags publish experimental
-prereleases; until Developer ID and notarization credentials are configured, their hardened-runtime
-ad-hoc signatures are not automatically trusted by macOS.
+Ordinary app builds need no Rust tools. The launch script replaces any running development copy.
+On first launch, choose **Connect** and complete Spotify authorization in the browser.
+Experimental prerelease downloads are not automatically trusted by macOS; see
+[packaging and releases](docs/development/releases.md) for signing status.
 
 See the [documentation index](docs/README.md) for development guides, product contracts,
 architecture, and the PR workflow.

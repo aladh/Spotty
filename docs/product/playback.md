@@ -18,7 +18,7 @@
   candidate so commands remain remote-routable; a missing or stale fallback never becomes local.
 ### Transport and progress
 
-- The black player shelf is 88 points tall, with 56-point artwork, 14-point track titles,
+- The black player shelf is 80 points tall, with 56-point artwork, 14-point track titles,
   12-point artist/time labels, and a 32-point play button. The centered progress area scales
   with window width; the remote-owner strip remains separate. Queue and device-chooser icons
   use 16-point filled glyphs in adjacent 32-point targets, with 70% white at rest and white on hover.

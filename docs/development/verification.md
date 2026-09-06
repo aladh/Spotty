@@ -36,30 +36,26 @@ npm install --prefix /tmp/spotty-ast-grep "@ast-grep/cli@$(cat Scripts/ast-grep/
 SPOTTY_AST_GREP=/tmp/spotty-ast-grep/node_modules/.bin/ast-grep ./Scripts/check-source-policy.sh
 ```
 
-Swift and Rust rules live in `Scripts/ast-grep/rules`, with shared matchers in
-`Scripts/ast-grep/utils`; allowed/forbidden fixtures live in `Tests/SourcePolicy`.
-The wrapper runs those fixtures, Python file-routing tests, and the production scan. CI uses the
-pinned `ast-grep/action` for scanning and the wrapper's `--test-only` mode for fixtures and owner
-presence checks. When changing a
-rule, cover comments/strings, relevant syntax variations, and file-owner exceptions. These are syntax
-policies, not type or runtime proofs: the pinned Swift grammar can recover valid Swift expressions
-as error nodes. Swift compilation remains authoritative; do not treat a clean scan as a parse check.
+[Source policies](../architecture/enforcement/source-checks.md) index the rules and their limits.
+When changing a rule, cover syntax variants and file-owner exceptions. A clean syntax scan does
+not replace Swift compilation or behavior tests.
 
 The full and Rust scopes require the [engine toolchain](setup.md#engine-development).
 The Swift scope and packaging use the pinned binary without Rust tools. Checks do not sign in or
 initiate playback. See the [enforcement inventory](../architecture/enforcement.md) for coverage.
 
+CI skips Rust only for PRs limited to app sources/tests, assets, packaging, package pins, or
+documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
+runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
+requires Rust, and detection errors fail the aggregate. A skipped Rust job is accepted only after an
+explicit successful app-only decision. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
+
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
 header. `--check` verifies reproducibility; set `SPOTTY_CBINDGEN` if the pinned tool is not on `PATH`.
 
-`Backend/spotty-playback/cbindgen.toml` generates
-`Sources/SpottyPlaybackCore/include/spotty_playback_generated.h`. Edit the Rust declarations and
-their ownership documentation, then regenerate; never edit the generated header. Keep Swift-specific
-nullable-pointer and open-enum annotations in `spotty_playback_annotations.h`. Do not enable
-cbindgen's global nullable-pointer annotation: it would make required callback pointers nullable.
-
-Extend `Scripts/check-c-header-imports.sh` when adding a pointer shape; it compile-checks Swift
-imports and nullability without running playback.
+Edit Rust declarations and regenerate; never hand-edit generated headers. Preserve callback and
+pointer ownership annotations under the [C-boundary guidance](../../Sources/SpottyPlaybackCore/AGENTS.md).
+Extend `Scripts/check-c-header-imports.sh` when adding a pointer shape.
 
 Swift formatting:
 
@@ -75,13 +71,6 @@ Tests live in `Tests/SpottyDomainTests/` and `Tests/SpottyBoundaryTests/`. Disco
 swift test --disable-sandbox --filter ProtobufTests/testProtobuf
 swift test --disable-sandbox --no-parallel --filter AuthFlowTests/testAuthFlow
 ```
-
-CI's required `Debug quality gate` aggregates Linux source policies, Rust, Swift/architecture, and
-Release compilation. The Linux source-policy job classifies PR changes using the base commit's
-policy before scheduling Rust. A base without the policy requires Rust conservatively.
-PRs limited to app sources, app tests, assets, packaging, package pins, or documentation skip Rust;
-engine, shared-header, script, CI, and unknown paths require it. Main always runs Rust. The aggregate
-accepts a skipped Rust job only after an explicit successful app-only classification.
 
 Use `SPOTTY_CHECK_REPEATS=N ./Scripts/check.sh` with `N` from 1 through 25 when concurrency or
 lifetime work merits stress.

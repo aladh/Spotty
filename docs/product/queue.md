@@ -33,3 +33,5 @@
   and remote owners, including multiple selected tracks in visible order.
 
 See [transient mutation feedback](navigation.md#transient-mutation-feedback) for shared banner behavior.
+[QueueService](../../Sources/Spotty/Spotify/QueueService.swift) owns queue authority;
+[QueueMutation](../../Sources/SpottyDomain/QueueMutation.swift) owns mutation policy.

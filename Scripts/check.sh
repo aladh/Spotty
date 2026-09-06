@@ -339,6 +339,8 @@ if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -q --fixed-strings 'report-size.sh' <<< "$release_job" \
     || ! rg -q --fixed-strings 'if: always()' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'needs: [policy, rust, checks, release]' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'RUST_RESULT: ${{ needs.rust.result }}' <<< "$gate_job" \
     || ! rg -U -q --fixed-strings -- $'if [[ "$RUST_NEEDED" == true ]]; then\n            test "$RUST_RESULT" = success\n          else\n            test "$RUST_NEEDED" = false\n            test "$RUST_RESULT" = skipped\n          fi\n          test "$CHECKS_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$POLICY_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$RELEASE_RESULT" = success' <<< "$gate_job"; then

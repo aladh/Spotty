@@ -44,7 +44,8 @@ class RustSelectionTests(unittest.TestCase):
         for name in ("Sources/Spotty/View.swift", "Sources/SpottyApp/main.swift",
                      "Sources/SpottyDomain/Model.swift", "Tests/SpottyBoundaryTests/Example.swift",
                      "Tests/SpottyDomainTests/Example.swift", "Package.swift", "Package.resolved",
-                     "Assets/icon.png", "Packaging/Info.plist", "docs/development/guide.md", "README.md"):
+                     "Assets/icon.png", "Packaging/Info.plist", "docs/development/guide.md", "README.md",
+                     ".swift-format", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md"):
             self.write(name)
         self.commit()
         self.assertFalse(rust_needed("pull_request", self.base, self.root))

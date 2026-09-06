@@ -53,6 +53,7 @@ or interactive acceptance.
 
 ## Code, test, and documentation quality
 
+- Follow YAGNI principles, and prefer one-liner solutions.
 - Document intent, usage, and non-obvious constraints; let code describe mechanics. Link to the
   implementation instead of maintaining a prose copy of its steps, variables, or configuration.
   Keep concrete commands and details when needed to use, verify, or safely change the system.

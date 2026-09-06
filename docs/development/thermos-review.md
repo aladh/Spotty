@@ -1,4 +1,4 @@
-# OpenCode Thermos review
+# Thermos review
 
 The advisory workflow uses the [official OpenCode GitHub action](https://opencode.ai/docs/github/)
 with `pull_request` events when a same-repository PR opens ready or becomes ready.

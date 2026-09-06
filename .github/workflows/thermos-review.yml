@@ -51,8 +51,13 @@ jobs:
             exit 0
           fi
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo 'use_action=true' >> "$GITHUB_OUTPUT"
             jq -r '"BASE_SHA=" + .base.sha, "HEAD_SHA=" + .head.sha' <<< "$pr" >> "$GITHUB_ENV"
           else
+            permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission) || permission=none
+            if [[ "$permission" == admin || "$permission" == write ]]; then
+              echo 'use_action=true' >> "$GITHUB_OUTPUT"
+            fi
             found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
               --jq '.[] | select(.user.login == "github-actions[bot]" or .user.login == "opencode-agent[bot]") | select(.body | startswith("<!-- spotty-thermos-review -->")) | .id')
             if [ -n "$found" ]; then
@@ -89,6 +94,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Prepare official-action compatibility
+        if: steps.eligibility.outputs.skip != 'true' && steps.eligibility.outputs.use_action == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/thermos" "$RUNNER_TEMP/thermos-tools"
+          cp -R "$GITHUB_WORKSPACE/reviewer/.github/thermos-review/." "$RUNNER_TEMP/thermos/"
+          cp "$RUNNER_TEMP/thermos/action-entrypoint.sh" "$RUNNER_TEMP/thermos-tools/opencode"
+          chmod +x "$RUNNER_TEMP/thermos-tools/opencode"
+          printf 'export PATH="%s:$PATH"\n' "$RUNNER_TEMP/thermos-tools" > "$RUNNER_TEMP/thermos-action-env.sh"
+          git -C source remote set-url --push origin no-push://thermos-review-only
+
       - name: Authenticate as OpenCode App
         id: app-token
         if: steps.eligibility.outputs.skip != 'true'
@@ -110,9 +126,8 @@ jobs:
           echo "::add-mask::$token"
           echo "token=$token" >> "$GITHUB_OUTPUT"
 
-      - name: Review and comment
-        id: review
-        if: steps.eligibility.outputs.skip != 'true'
+      - name: Review with CLI for actors unsupported by the action
+        if: steps.eligibility.outputs.skip != 'true' && steps.eligibility.outputs.use_action != 'true'
         working-directory: source
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -130,6 +145,38 @@ jobs:
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent thermos \
             "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. The gh and rg CLIs are available. Have the parent post only actionable findings introduced or made reachable by this PR as inline comments (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->. Omit informational notes and unrelated follow-ups. If no actionable findings remain, say so and state coverage limits; do not declare the PR safe to merge. Support behavioral claims with inspected evidence rather than agreement between auditors."
+
+      - name: Review with the official OpenCode action
+        if: steps.eligibility.outputs.skip != 'true' && steps.eligibility.outputs.use_action == 'true'
+        uses: anomalyco/opencode/github@16747470f976aca3d362ad730bcd3fe82ecc2c9a # v1.18.29
+        env:
+          BASH_ENV: ${{ runner.temp }}/thermos-action-env.sh
+          VERSION: '1.18.29'
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          OPENCODE_CONFIG: ${{ runner.temp }}/thermos/opencode.json
+          OPENCODE_CONFIG_CONTENT: '{"default_agent":"thermos"}'
+          OPENCODE_DISABLE_PROJECT_CONFIG: 'true'
+          OPENCODE_DISABLE_AUTOUPDATE: 'true'
+          OPENCODE_ENABLE_EXA: '1'
+        with:
+          model: opencode/muse-spark-1.3-contributor-free
+          agent: thermos
+          variant: xhigh
+          share: false
+          use_github_token: true
+          prompt: |
+            Run Thermos on ${{ github.repository }} PR #${{ env.PR_NUMBER }}.
+            The gh and rg CLIs are available. Use both correctness and quality auditors.
+            Have the parent post only actionable findings introduced or made reachable
+            by this PR as inline comments using gh (COMMENT, not an approval or change
+            request). Omit informational notes and unrelated follow-ups. If no actionable
+            findings remain, say so and state coverage limits; do not declare the PR
+            safe to merge. Support behavioral claims with inspected evidence rather
+            than agreement between auditors. Do not modify or commit repository files;
+            use the runner temporary directory for scratch files. Git pushes are disabled.
+            ${{ github.event_name == 'workflow_dispatch' && 'Post the brief summary via gh pr comment, starting with <!-- spotty-thermos-review -->. The action does not publish summaries for workflow_dispatch.' || 'Return a brief final summary starting with <!-- spotty-thermos-review -->. The action publishes it; do not post a separate summary comment yourself.' }}
 
       - name: Revoke OpenCode App token
         if: ${{ always() && steps.app-token.outputs.token != '' }}

@@ -1,7 +1,10 @@
 # Documentation
 
-Start with [AGENTS.md](../AGENTS.md) for repository rules or
-[CONTRIBUTING.md](../CONTRIBUTING.md) for the PR workflow.
+[Spotty overview](../README.md) · [Repository rules](../AGENTS.md) ·
+[PR workflow and acceptance](../CONTRIBUTING.md)
+
+Choose the guide for the task; the product, ADR, and enforcement indexes lead to their focused
+contracts and records.
 
 ## Development
 

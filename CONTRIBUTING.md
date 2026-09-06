@@ -1,15 +1,7 @@
 # Agent operations for Spotty
 
-Start with [AGENTS.md](AGENTS.md). Use the focused development guide for the task:
-
-| Task | Guide |
-| --- | --- |
-| Install app or engine toolchains | [Development setup](docs/development/setup.md) |
-| Configure signing or recover credentials | [Development signing](docs/development/signing.md) |
-| Inspect generated outputs or regenerate artwork | [Local state](docs/development/local-state.md) |
-| Build, launch, format, test, or export diagnostics | [Build and verification](docs/development/verification.md) |
-| Build an engine candidate, publish it, or update the app pin | [Playback binary artifacts](docs/development/playback-artifacts.md) |
-| Package, sign, notarize, or release the app | [Packaging and releases](docs/development/releases.md) |
+Start with [AGENTS.md](AGENTS.md) for repository rules and the
+[documentation index](docs/README.md#development) for development guides.
 
 ## Pull-request execution
 

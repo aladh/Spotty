@@ -28,8 +28,7 @@ gh workflow run opencode-review.yml --ref main -f pr_number=287
 
 Manual runs select the current base/head SHAs and bypass comment deduplication, posting
 another comment. Only open, ready, same-repository PRs are eligible. Manual runs from
-other branches are skipped. The trigger becomes available after this change reaches
-the default branch.
+other branches are skipped.
 
 ## Runtime and limits
 
@@ -65,7 +64,5 @@ Native edit/external-directory permissions are unrestricted. Web content is untr
 The workflow explicitly enables websearch with `OPENCODE_ENABLE_EXA=1`; no additional
 search credential is configured.
 
-The task asks for inline diff comments where appropriate and a brief summary.
-Publication uses `gh`. Inline comments posted before an
-interruption can remain even if the overview was never posted; a retry may duplicate
-those comments because automatic deduplication still uses the overview marker.
+Inline comments posted before an interruption can remain even if the overview was never posted;
+a retry may duplicate those comments because automatic deduplication still uses the overview marker.

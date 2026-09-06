@@ -1,5 +1,7 @@
 # Architecture decisions
 
+[Documentation index](../../README.md)
+
 ADRs explain consequential choices and their tradeoffs. Read the relevant decision when changing a
 boundary; routine implementation work does not require reading the whole history.
 
@@ -17,13 +19,6 @@ boundary; routine implementation work does not require reading the whole history
 
 [ADR 004: Incremental Swift ownership migration](ADR-004-swift-owned-playback-logic.md) was superseded
 by ADR 005. Consult it for historical reasoning, not current work instructions.
-
-## Where other information belongs
-
-| Need | Owner |
-| --- | --- |
-| Canonical product, ownership, verification, setup, and operations docs | [Repository guide](../../../AGENTS.md#canonical-documents) |
-| Private extended-metadata protocol notes | [Extended metadata](../extended-metadata.md) |
 
 ## Maintaining the decision log
 

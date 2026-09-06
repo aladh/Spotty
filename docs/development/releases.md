@@ -2,6 +2,18 @@
 
 [Agent operations](../../CONTRIBUTING.md) · Run commands from the repository root.
 
+## Verify a download
+
+Download the app archive and its `.sha256` file from the same GitHub release into one folder.
+In Terminal, change to that folder and run the following, substituting the downloaded version:
+
+```bash
+shasum -a 256 -c Spotty-0.1.0.zip.sha256
+```
+
+Continue only if the result is `Spotty-0.1.0.zip: OK`. This checks download integrity; the checksum
+is hosted with the archive and is not independent proof of publisher identity.
+
 ## Package, sign, and notarize
 
 Local packages are development artifacts:

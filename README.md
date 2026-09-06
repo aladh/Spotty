@@ -7,15 +7,7 @@
 A native macOS music client for Spotify Premium, built for personal experimentation on Apple
 Silicon Macs running macOS 15 or newer.
 
-![Spotty showing a playlist details page with synthetic demo data](Assets/PlaylistScreenshot.png)
-
-> [!CAUTION]
-> **Experimental, unofficial software.** Spotty is an independent personal project built on
-> unsupported, reverse-engineered Spotify interfaces. It is not affiliated with, endorsed by,
-> sponsored by, or otherwise connected to Spotify AB. It may break without notice or lose
-> functionality. Do not rely on it as your only Spotify client, and use it only with an account
-> you control. Its use of private interfaces and Spotify's desktop-client authorization flow may
-> violate Spotify's terms.
+![Spotty showing a playlist details page with synthetic demo data](Assets/PlaylistScreenshot.jpg)
 
 Spotty uses SwiftUI and AppKit for its interface, AVFoundation for audio output, and a pinned
 Rust/librespot backend for Spotify sessions, Connect, and audio streaming and decoding. There is
@@ -49,7 +41,7 @@ App downloads are published on [GitHub Releases](https://github.com/aladh/Spotty
 Releases named `SpottyPlaybackCore` contain the playback dependency, not the Spotty app.
 
 Download the `Spotty-<version>.zip` archive, unzip it, and drag **Spotty.app** into
-**Applications**.
+**Applications**. See [archive verification](docs/development/releases.md#verify-a-download) to check the download checksum.
 
 ### First launch on macOS
 
@@ -65,23 +57,10 @@ this download, allow it through System Settings:
 After approval, open Spotty normally. Choose **Connect** and complete Spotify authorization in
 your browser. See [Apple's first-open guidance](https://support.apple.com/en-us/102445) for details.
 
-## Build from source
+## Development
 
-Follow the [development setup guide](docs/development/setup.md#fresh-clone) for prerequisites.
-Authenticated development launches require an Apple Development signing identity with a stable
-Team ID; a free Xcode Personal Team is sufficient.
-
-```bash
-git clone https://github.com/aladh/Spotty.git
-cd Spotty
-./script/build_and_run.sh
-```
-
-Ordinary app builds need no Rust tools. The launch script replaces any running development copy.
-See [packaging and releases](docs/development/releases.md) for the release procedure.
-
-See the [documentation index](docs/README.md) for development guides, product contracts,
-architecture, and the PR workflow.
+See the [documentation index](docs/README.md) for [building from source](docs/development/setup.md#fresh-clone),
+product contracts, architecture, and the PR workflow.
 
 ## Privacy and security
 

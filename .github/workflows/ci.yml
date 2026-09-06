@@ -241,7 +241,7 @@ jobs:
             !.build/spotty-signing
           key: macos-swiftpm-mtimes-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
-            macos-swiftpm-mtimes-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
+            macos-swiftpm-mtimes-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-
 
       - name: Restore unchanged Swift input timestamps
         run: python3 Scripts/ci_source_mtimes.py restore

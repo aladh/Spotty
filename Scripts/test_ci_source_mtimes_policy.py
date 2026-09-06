@@ -1,5 +1,6 @@
 """A restored build must still observe changed, new, and removed source inputs."""
 
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -34,7 +35,8 @@ class SourceTimestampTests(unittest.TestCase):
             for name in ("same", "changed", "new"):
                 os.utime(root / "Sources" / name, ns=(new, new))
             docs_time = (root / "README.md").stat().st_mtime_ns
-            saved["README.md"] = {"sha256": saved["Sources/same"]["sha256"], "mtime_ns": old}
+            # Even a content-matching manifest entry cannot change an excluded path.
+            saved["README.md"] = {"sha256": hashlib.sha256(b"docs").hexdigest(), "mtime_ns": old}
             restore(root, saved)
             self.assertEqual((root / "Sources/same").stat().st_mtime_ns, old)
             for name in ("changed", "new"):

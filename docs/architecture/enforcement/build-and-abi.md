@@ -17,13 +17,13 @@
 | IDs | Purpose | Owner |
 | --- | --- | --- |
 | `ABI-SYM-001`, `ABI-USE-001` | Agreement between selected headers, exports, and Swift consumption | [check.sh](../../../Scripts/check.sh) |
-| `ABI-SIG-001` | Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), Rust tests, and candidate checks |
+| `ABI-SIG-001` | Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), Rust tests, and producer ABI checks |
 | `ABI-GEN-001` | Reproducible generated declarations and layouts | [Header generator](../../../Scripts/generate-c-header.sh) |
 | `ABI-SWIFT-001` | Required callbacks, enums, and nullable pointer shapes survive Swift import | [Compiler probes](../../../Scripts/check-c-header-imports.sh) |
 | `ABI-ARC-001` | Immutable matched library/header artifacts; Rust-free app builds | [ADR 006](../adrs/ADR-006-prebuilt-playback-engine.md), [artifact workflow](../../development/playback-artifacts.md) |
 
 Generated headers do not replace signature/layout probes or memory-ownership review. Published
-consumers validate their selected artifact; source candidates also validate the evolving Rust ABI.
+consumers validate their selected artifact; the Rust lane validates the evolving producer ABI.
 
 ## CI and release workflow
 
@@ -31,7 +31,9 @@ consumers validate their selected artifact; source candidates also validate the 
 workflow presence, tool selection, cache integrity, and complete verification. Their executable
 owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
 [check.sh](../../../Scripts/check.sh). The required aggregate includes source policies, Rust,
-Swift/architecture, Release compilation, and candidate-engine lanes when applicable.
+Swift/architecture, and Release compilation. Swift CI uses only published engines. Candidate builds
+are selected by [input comparison](../../../Scripts/playback-candidate-needed.sh); producer validation
+and publication do not depend on app compatibility with unpublished candidates.
 
 [GitHub guidance](../../../.github/AGENTS.md) owns workflow-change constraints.
 [Promotion tests](../../../Scripts/test_playback_promotion.py) exercise release eligibility and

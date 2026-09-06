@@ -12,31 +12,31 @@ that older checkouts still use.
 
 ## Local engine development
 
-Install the [engine tools](setup.md#engine-development), then build and test a local artifact:
+Install the [engine tools](setup.md#engine-development), run the Rust checks, and build the
+artifact independently of the app:
 
 ```bash
+SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ./Backend/spotty-playback/build-xcframework.sh
-engine_digest="$(./Backend/spotty-playback/source-input-digest.sh)"
-export SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK="$PWD/.build/playback-engine/$engine_digest/SpottyPlaybackCore.xcframework"
-SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
-./Scripts/compile-release-spotty.sh
 ```
 
-Rebuild and refresh the override after every engine-input change. Preserve digest-bearing paths
-and library names so SwiftPM relinks changed engines. The override selects a binary without building
-Rust; unset it to return to the published dependency. Run the Rust gate separately.
+Rust checks own header generation and producer ABI validation. Swift CI consumes only published
+artifacts, rejecting noncanonical or unversioned release URLs before dependency resolution.
 
 ## Publish a tested candidate
 
 Publication requires explicit authorization. It promotes the exact candidate from a completed
 main-branch push CI run, without rebuilding. The source must be merged and an ancestor of the
-publisher checkout; PR and fork candidates cannot be published. Source policies, Rust, and candidate
-Swift Debug/Release must pass in the selected run attempt. The tested commit becomes the release
-target. Expired artifacts or a changed CI definition require a fresh main CI run.
+publisher checkout; PR and fork candidates cannot be published. Source policies and Rust must pass
+in the selected run attempt. Swift jobs validate the published app pin independently and do not gate
+engine publication. The tested commit becomes the release target. Expired artifacts or a changed
+CI definition require a fresh main CI run.
 
-CI tests a candidate when engine inputs differ from the pinned release, including unpublished
-changes from earlier commits. Published-pin checks still verify the app's currently selected engine;
-an app change requiring a newer ABI must update the pin.
+CI builds candidates for engine-input or build/validation infrastructure changes relative to the
+PR base or previous main push. Unrelated app-only changes do not rebuild unpublished engines; select
+the earlier engine-changing main run when the latest run has no candidate. Missing bases build
+conservatively, while comparison failures fail CI. An app change requiring a newer ABI must update
+its published pin.
 
 Use the completed main push run's head SHA and run ID. Add `-f dry_run=true` to validate without
 publishing:

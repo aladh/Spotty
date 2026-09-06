@@ -73,6 +73,7 @@ jobs:
       - name: Install OpenCode and ripgrep
         if: steps.eligibility.outputs.skip != 'true'
         run: |
+          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           if ! command -v rg >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y ripgrep
@@ -93,13 +94,19 @@ jobs:
         if: steps.eligibility.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          oidc=$(curl --fail --silent --show-error \
+          if ! oidc=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
             -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=opencode-github-action" | jq -er '.value | select(type == "string" and length > 0)')
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=opencode-github-action" | jq -er '.value | select(type == "string" and length > 0)'); then
+            echo '::error::Could not obtain the GitHub OIDC token.'
+            exit 1
+          fi
           echo "::add-mask::$oidc"
-          token=$(curl --fail --silent --show-error -X POST \
+          if ! token=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 -X POST \
             -H "Authorization: Bearer $oidc" \
-            https://api.opencode.ai/exchange_github_app_token | jq -er '.token | select(type == "string" and length > 0)')
+            https://api.opencode.ai/exchange_github_app_token | jq -er '.token | select(type == "string" and length > 0)'); then
+            echo '::error::OpenCode App token exchange failed. Check the App installation on Spotty and OpenCode service availability.'
+            exit 1
+          fi
           echo "::add-mask::$token"
           echo "token=$token" >> "$GITHUB_OUTPUT"
 
@@ -115,6 +122,7 @@ jobs:
           OPENCODE_ENABLE_EXA: '1'
         run: |
           set -euo pipefail
+          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           exec > "$RUNNER_TEMP/thermos-review.log" 2>&1
           mkdir -p "$RUNNER_TEMP/thermos"
           cp -R "$GITHUB_WORKSPACE/reviewer/.github/review/." "$RUNNER_TEMP/thermos/"
@@ -127,7 +135,10 @@ jobs:
         if: ${{ always() && steps.app-token.outputs.token != '' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: gh api --method DELETE /installation/token
+        run: |
+          if ! gh api --method DELETE /installation/token; then
+            echo '::warning::Could not revoke the OpenCode App token; it will expire normally.'
+          fi
 
       - name: Summarize review trace
         if: ${{ !cancelled() && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}
@@ -139,6 +150,7 @@ jobs:
           OPENCODE_ENABLE_EXA: '1'
         run: |
           set -euo pipefail
+          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           export OPENCODE_CONFIG="$GITHUB_WORKSPACE/reviewer/.github/review/trace-summary.json"
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent trace-summary \

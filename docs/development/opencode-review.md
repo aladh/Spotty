@@ -27,11 +27,13 @@ Reviews appear as `opencode-agent[bot]`; duplicate detection also accepts histor
 to the Actions identity. No App private key or additional repository secret is needed.
 
 The App installation grants broader permissions than the previous Actions token,
-including contents, issues, workflows, and secrets writes. The exchange service returns
+with writes to contents, issues, pull requests, workflows, repository secrets, and
+organization secrets (when installed on an organization). The exchange service returns
 an installation token without narrowing repositories or permissions; the workflow's
 `permissions` block limits only `GITHUB_TOKEN`, not the App token. Keep the installation
 limited to Spotty. This migration retains comment-only review instructions and does not
-enable approving reviews or change repository approval settings.
+change repository approval settings. Comment-only behavior is prompt policy, not a
+token permission restriction.
 
 ## Repeat a trial
 
@@ -60,8 +62,10 @@ remain available for investigation. Shell and filesystem access are unrestricted
 
 GitHub lookup uses the read-only Actions token. The App token is acquired after dependency
 installation and checkout, exposed to the review step, and revoked in an always-run cleanup
-step before trace summarization. Forced runner termination can prevent revocation; the
-installation token then expires normally. Shell access allows direct use of the App token
+step before trace summarization. Cleanup failure emits a warning without failing a
+published review; forced runner termination can also prevent revocation. The installation
+token then expires normally. Installation and both OpenCode invocations clear OIDC
+request credentials from their environments. Shell access allows direct use of the App token
 through `gh` or other commands with the installation permissions described above.
 Publication behavior is left to Thermos and the short task prompt;
 there is no MCP server, custom publication guard, or enforced revision recheck.

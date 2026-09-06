@@ -1,0 +1,8 @@
+id: 'ffi-import-required'
+valid:
+  - |-
+    import SpottyPlaybackCore
+    struct Adapter {}
+invalid:
+  - 'import Foundation'
+  - '// import SpottyPlaybackCore'

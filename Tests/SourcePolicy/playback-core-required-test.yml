@@ -1,0 +1,6 @@
+id: 'playback-core-required'
+valid:
+  - 'func start() { PlaybackCore.start() }'
+invalid:
+  - 'struct Engine {}'
+  - '// PlaybackCore.start()'

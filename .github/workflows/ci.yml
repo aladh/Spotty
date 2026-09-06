@@ -13,6 +13,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  policy:
+    name: Source policies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned ast-grep
+        run: |
+          set -euo pipefail
+          version="$(cat Scripts/ast-grep/version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          npm install --prefix "$RUNNER_TEMP/spotty-ast-grep" --no-audit --no-fund "@ast-grep/cli@$version"
+          echo "$RUNNER_TEMP/spotty-ast-grep/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Check source policies and rule fixtures
+        run: ./Scripts/check-source-policy.sh
+
   rust:
     name: Rust checks
     runs-on: macos-26
@@ -334,7 +356,7 @@ jobs:
   gate:
     name: Debug quality gate
     if: always()
-    needs: [rust, checks, candidate, release]
+    needs: [policy, rust, checks, candidate, release]
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -342,11 +364,13 @@ jobs:
       - name: Require every quality lane
         env:
           CANDIDATE_NEEDED: ${{ needs.rust.outputs.candidate_needed }}
+          POLICY_RESULT: ${{ needs.policy.result }}
           RUST_RESULT: ${{ needs.rust.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           CANDIDATE_RESULT: ${{ needs.candidate.result }}
           RELEASE_RESULT: ${{ needs.release.result }}
         run: |
+          test "$POLICY_RESULT" = success
           test "$RUST_RESULT" = success
           test "$CHECKS_RESULT" = success
           if [[ "$CANDIDATE_NEEDED" == true ]]; then

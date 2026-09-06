@@ -1,0 +1,12 @@
+id: 'dark-appearance-required'
+language: 'Swift'
+severity: 'error'
+message: 'Pin the application appearance to native dark Aqua.'
+files:
+  - 'Sources/Spotty/SpottyApp.swift'
+rule:
+  kind: 'source_file'
+  not:
+    has:
+      pattern: 'NSApplication.shared.appearance = NSAppearance(named: .darkAqua)'
+      stopBy: 'end'

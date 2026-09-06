@@ -1,0 +1,7 @@
+id: 'ffi-import-owner'
+valid:
+  - 'import Foundation'
+  - '// import SpottyPlaybackCore'
+invalid:
+  - 'import SpottyPlaybackCore'
+  - '@preconcurrency import SpottyPlaybackCore'

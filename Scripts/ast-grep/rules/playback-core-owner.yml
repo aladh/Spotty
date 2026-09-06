@@ -1,0 +1,14 @@
+id: 'playback-core-owner'
+language: 'Swift'
+severity: 'error'
+message: 'Only RustPlaybackEngine.swift may access PlaybackCore members.'
+files:
+  - 'Sources/Spotty/**/*.swift'
+ignores:
+  - 'Sources/Spotty/Spotify/RustPlaybackEngine.swift'
+rule:
+  kind: 'navigation_expression'
+  has:
+    kind: 'simple_identifier'
+    regex: '^PlaybackCore$'
+    field: 'target'

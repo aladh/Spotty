@@ -1,0 +1,16 @@
+id: 'playback-core-required'
+language: 'Swift'
+severity: 'error'
+message: 'RustPlaybackEngine.swift must own PlaybackCore access.'
+files:
+  - 'Sources/Spotty/Spotify/RustPlaybackEngine.swift'
+rule:
+  kind: 'source_file'
+  not:
+    has:
+      kind: 'navigation_expression'
+      has:
+        kind: 'simple_identifier'
+        regex: '^PlaybackCore$'
+        field: 'target'
+      stopBy: 'end'

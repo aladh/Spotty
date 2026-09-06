@@ -1,0 +1,11 @@
+id: 'playback-core-owner'
+valid:
+  - 'OtherCore.start()'
+  - '// PlaybackCore.start()'
+  - 'let text = "PlaybackCore.start()"'
+invalid:
+  - 'PlaybackCore.start()'
+  - |-
+    PlaybackCore
+     .start()
+  - 'let start = PlaybackCore.start'

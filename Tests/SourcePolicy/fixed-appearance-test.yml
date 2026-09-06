@@ -1,0 +1,16 @@
+id: 'fixed-appearance'
+valid:
+  - 'NSAppearance(named: .darkAqua)'
+  - '// view.preferredColorScheme(.light)'
+  - 'let text = "NSAppearance(named: .aqua)"'
+invalid:
+  - '@Environment(\.colorScheme) var scheme'
+  - 'view.preferredColorScheme(.light)'
+  - 'view.effectiveAppearance'
+  - 'colorScheme == .dark'
+  - 'colorScheme != .light'
+  - 'self.colorScheme == .dark'
+  - 'self.colorScheme != .light'
+  - |-
+    NSAppearance(named:
+     .aqua)

@@ -1,0 +1,15 @@
+id: 'ffi-import-required'
+language: 'Swift'
+severity: 'error'
+message: 'PlaybackCore.swift must import the playback FFI module.'
+files:
+  - 'Sources/Spotty/Spotify/PlaybackCore.swift'
+rule:
+  kind: 'source_file'
+  not:
+    has:
+      kind: 'import_declaration'
+      has:
+        kind: 'identifier'
+        regex: '^SpottyPlaybackCore(\.|$)'
+      stopBy: 'end'

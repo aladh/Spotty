@@ -1,0 +1,15 @@
+id: 'dark-appearance-required'
+valid:
+  - 'func setup() { NSApplication.shared.appearance = NSAppearance(named: .darkAqua) }'
+  - |-
+    NSApplication.shared.appearance =
+     NSAppearance(named: .darkAqua)
+invalid:
+  - 'struct App {}'
+  - '// NSApplication.shared.appearance = NSAppearance(named: .darkAqua)'
+  - 'let text = "NSApplication.shared.appearance = NSAppearance(named: .darkAqua)"'
+  - '/* NSApplication.shared.appearance = NSAppearance(named: .darkAqua) */'
+  - |-
+    let example = """
+    NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+    """

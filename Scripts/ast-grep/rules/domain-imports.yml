@@ -1,0 +1,11 @@
+id: 'domain-imports'
+language: 'Swift'
+severity: 'error'
+message: 'Keep the domain independent of UI, audio, and playback FFI modules.'
+files:
+  - 'Sources/SpottyDomain/**/*.swift'
+rule:
+  kind: 'import_declaration'
+  has:
+    kind: 'identifier'
+    regex: '^(AppKit|SwiftUI|AVFoundation|SpottyPlaybackCore)(\.|$)'

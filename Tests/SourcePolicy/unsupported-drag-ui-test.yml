@@ -1,0 +1,12 @@
+id: 'unsupported-drag-ui'
+valid:
+  - 'view.onTapGesture {}'
+  - '// view.draggable(item)'
+  - 'let text = "onDrop("'
+invalid:
+  - 'view.draggable(item)'
+  - |-
+    view
+     .dropDestination(for: String.self) { items, point in true }
+  - 'view.onDrop(of: types) { providers in true }'
+  - 'onDrop(of: types) { providers in true }'

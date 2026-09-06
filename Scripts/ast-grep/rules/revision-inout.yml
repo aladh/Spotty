@@ -1,0 +1,17 @@
+id: 'revision-inout'
+language: 'Swift'
+severity: 'error'
+message: 'Revision gates must not borrow store fields through lastRevision: inout.'
+files:
+  - 'Sources/Spotty/Spotify/**/*.swift'
+rule:
+  kind: 'parameter'
+  all:
+    - has:
+        kind: 'simple_identifier'
+        regex: '^lastRevision$'
+    - has:
+        kind: 'parameter_modifiers'
+        has:
+          kind: 'parameter_modifier'
+          regex: '^inout$'

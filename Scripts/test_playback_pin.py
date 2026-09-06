@@ -67,23 +67,6 @@ class PlaybackPinTests(unittest.TestCase):
                                             env=env, text=True, capture_output=True)
                     self.assertEqual(result.returncode == 0, valid, result.stderr)
 
-    def test_ci_override_assignments_are_rejected_but_comments_are_allowed(self):
-        source = (ROOT / "Scripts/check.sh").read_text()
-        start = source.index("if grep -Eq '^[[:space:]]*")
-        guard = source[start:source.index("\nfi", start) + 3]
-        cases = (("# SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK : forbidden", True),
-                 ("SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK : /tmp/framework", False),
-                 ("SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/framework", False),
-                 ("export SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp/framework", False))
-        for line, valid in cases:
-            with self.subTest(line=line):
-                result = subprocess.run(["zsh", "-c", guard], capture_output=True,
-                                        env={**os.environ, "PATH": "/usr/bin:/bin", "macos_job": "  " + line})
-                self.assertEqual(result.returncode == 0, valid, result.stderr)
-                if valid:
-                    self.assertEqual(result.stderr, b"")
-
-
 
 if __name__ == "__main__":
     unittest.main()

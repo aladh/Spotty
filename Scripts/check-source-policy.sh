@@ -32,5 +32,5 @@ done
 python3 -B -m unittest discover -s Scripts -p 'test_*policy.py'
 # CI's ast-grep action already scans production and emits GitHub annotations.
 if [[ "${1:-}" != --test-only ]]; then
-    "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src
+    "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src Scripts .github/workflows
 fi

@@ -24,7 +24,8 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(source)
             result = subprocess.run(
-                [AST_GREP, "scan", "--config", "sgconfig.yml", "--json=compact", "."],
+                [AST_GREP, "scan", "--config", "sgconfig.yml", "--json=compact",
+                 ".github/workflows" if path.startswith(".github/workflows/") else "."],
                 cwd=root, capture_output=True, text=True, check=False,
             )
             self.assertIn(result.returncode, (0, 1), result.stderr)
@@ -91,6 +92,22 @@ class SourcePolicyRoutingTests(unittest.TestCase):
         for file, source, expected in cases:
             with self.subTest(file=file, source=source):
                 self.assertEqual(self.scan(f"Backend/spotty-playback/src/{file}", source), expected)
+
+    def test_workflow_and_script_policy_routing(self):
+        cases = [
+            (".github/workflows/ci.yml", "uses: actions/checkout@main", {"workflow-action-pins", "workflow-checkout-credentials"}),
+            (".github/workflows/other.yml", "uses: actions/cache@main", {"workflow-action-pins"}),
+            ("docs/example.yml", "uses: actions/checkout@main", set()),
+            (".github/workflows/ci.yml", "env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}", {"ci-published-engine"}),
+            ("Scripts/compile-release-spotty.sh", "cargo build", {"app-script-rust-free"}),
+            ("Scripts/package-app.sh", "tool='cbindgen'", {"app-script-rust-free"}),
+            ("Backend/spotty-playback/build-xcframework.sh", "cargo build", set()),
+            ("Sources/Spotty/Example.swift", "let catalog = MockCatalog()", {"retired-mock-symbols"}),
+            ("Tests/Example.swift", "let catalog = MockCatalog()", set()),
+        ]
+        for path, source, expected in cases:
+            with self.subTest(path=path):
+                self.assertEqual(self.scan(path, source), expected)
 
     def test_wrapper_rejects_missing_or_empty_owners(self):
         self.assertIsNotNone(AST_GREP, "ast-grep must be installed")

@@ -47,8 +47,8 @@ initiate playback. See the [enforcement inventory](../architecture/enforcement.m
 CI uses one macOS job for conditional Rust verification/candidate production, then Swift Debug
 checks and the Release distribution compile. Debug and Release share one SwiftPM cache under a
 new combined key; separate configuration directories remain inside `.build`. Rust tools are blocked
-before Swift runs. Main requires `Source policies`, `macOS checks`, and `Debug quality gate`.
-The aggregate checks each phase outcome and requires the whole macOS job to pass.
+before Swift runs. Main requires `Source policies` and `macOS checks`. The final macOS step validates each phase
+outcome, including the explicit decision required to skip Rust.
 
 CI skips Rust only for PRs limited to app sources/tests, assets, packaging, package pins, or
 documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always

@@ -1,0 +1,20 @@
+id: ci-published-engine
+language: Yaml
+severity: error
+message: Swift CI must consume the published playback pin, never a local engine override.
+files:
+  - '.github/workflows/ci.yml'
+rule:
+  any:
+    - all:
+        - any:
+            - kind: block_mapping_pair
+            - kind: flow_pair
+        - has:
+            field: key
+            regex: '^["'']?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK["'']?$'
+    - all:
+        - any:
+            - kind: block_scalar
+            - kind: flow_node
+        - regex: '(?m)^[ \t]*([^#\n]*[^#[:space:]])?[ \t]*SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK[ \t]*='

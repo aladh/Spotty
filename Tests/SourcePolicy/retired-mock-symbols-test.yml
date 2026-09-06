@@ -1,0 +1,9 @@
+id: retired-mock-symbols
+valid:
+  - '// MockCatalog PlaybackController'
+  - 'let text = "MockCatalog"'
+  - 'let controller = PlaybackStore()'
+invalid:
+  - 'let catalog = MockCatalog()'
+  - 'class PlaybackController {}'
+  - 'let controller: PlaybackController'

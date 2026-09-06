@@ -1,0 +1,18 @@
+id: ci-published-engine
+valid:
+  - '# SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local'
+  - |
+    run: |
+      # SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp/local
+      swift build
+invalid:
+  - 'SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local'
+  - |
+    run: |
+      export SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp/local
+      swift build
+  - |
+    run: |
+      SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp/local swift build
+  - 'run: export SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp/local'
+  - 'env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}'

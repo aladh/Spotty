@@ -147,7 +147,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
     def test_rust_scope_guards_and_phase_order(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertEqual(workflow.count("runs-on: macos-"), 1)
-        macos = workflow.split("  macos:\n", 1)[1].split("  gate:\n", 1)[0]
+        macos = workflow.split("  macos:\n", 1)[1]
         steps = {}
         for block in macos.split("      - name: ")[1:]:
             name, body = block.split("\n", 1)
@@ -164,6 +164,16 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: steps.inputs.outputs.candidate_needed == 'true'", steps[name])
         names = list(steps)
+        self.assertNotIn("\n  gate:", workflow)
+        self.assertEqual(names[-1], "Require every quality lane")
+        gate = steps[names[-1]]
+        self.assertIn("if: always()", gate)
+        for binding in ("POLICY_RESULT: ${{ needs.policy.result }}",
+                        "RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}",
+                        "RUST_RESULT: ${{ steps.rust.outcome }}",
+                        "CHECKS_RESULT: ${{ steps.debug.outcome }}",
+                        "RELEASE_RESULT: ${{ steps.release.outcome }}"):
+            self.assertIn(binding, gate)
         ordered = ("Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",
                    "Upload candidate playback artifact", "Block Rust tools", "Run checks",
                    "Compile release Spotty with SPOTTY_DISTRIBUTION")
@@ -182,7 +192,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
 class AggregateGateTests(unittest.TestCase):
     def test_only_an_explicit_app_only_decision_allows_skipped_rust(self):
         script = workflow_script("Require every quality lane")
-        env = {**os.environ, "POLICY_RESULT": "success", "MACOS_RESULT": "success", "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
+        env = {**os.environ, "POLICY_RESULT": "success", "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
         for needed in ("true", "false", "", "invalid"):
             for result in ("success", "skipped", "failure", "cancelled", ""):
                 with self.subTest(needed=needed, result=result):
@@ -190,7 +200,7 @@ class AggregateGateTests(unittest.TestCase):
                                                env={**env, "RUST_NEEDED": needed, "RUST_RESULT": result})
                     expected = (needed, result) in (("true", "success"), ("false", "skipped"))
                     self.assertEqual(completed.returncode == 0, expected)
-        for lane in ("POLICY_RESULT", "MACOS_RESULT", "CHECKS_RESULT", "RELEASE_RESULT"):
+        for lane in ("POLICY_RESULT", "CHECKS_RESULT", "RELEASE_RESULT"):
             with self.subTest(lane=lane):
                 completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
                                            env={**env, "RUST_NEEDED": "false", "RUST_RESULT": "skipped", lane: "failure"})

@@ -1,0 +1,12 @@
+id: app-script-rust-free
+valid:
+  - '# cargo is unavailable in the Swift phase'
+  - 'swift build --configuration release'
+  - 'cargo_cache_name=unused'
+invalid:
+  - 'cargo build --release'
+  - 'env MODE=release cargo build'
+  - '/opt/homebrew/bin/cbindgen --version'
+  - 'tool="rustc"'
+  - "tool='rustup'"
+  - 'cp Backend/lib/libspotty_playback.a output'

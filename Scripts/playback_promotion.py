@@ -11,6 +11,8 @@ import re
 import subprocess
 import zipfile
 
+from ci_playback_definition import producer_definition
+
 
 ASSETS = (
     "SpottyPlaybackCore.xcframework.zip",
@@ -141,8 +143,8 @@ def promote(run, jobs, artifacts, bundle, comparison, workflow_bytes,
     require(artifact["name"] == f"playback-candidate-{source_sha}", "Artifact name/checkout mismatch")
     validate_checkout(run, source_sha)
     require(comparison in ("ahead", "identical"), "Candidate source is not on publisher main history")
-    require(workflow_bytes == trusted_ci,
-            "Candidate CI definition differs from the trusted publisher checkout; run current CI")
+    require(producer_definition(workflow_bytes) == producer_definition(trusted_ci),
+            "Candidate producer CI definition differs from the trusted publisher checkout; run current CI")
     return source_sha, digest, assets
 
 

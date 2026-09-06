@@ -36,7 +36,9 @@ integration supported or policy-compliant. Retain the selected engine's dependen
 ## Tagged releases
 
 An authorized `vX.Y.Z` tag must match `CFBundleShortVersionString` in `Packaging/Info.plist`. The
-[release workflow](../../.github/workflows/release.yml) publishes an ARM64 experimental prerelease
-and checksum after verification. Until Developer ID and notarization credentials are configured,
+[release workflow](../../.github/workflows/release.yml) publishes an ARM64 app archive
+and checksum after verification. Before tagging, write the release notes in
+`docs/releases/vX.Y.Z.md`; the workflow publishes that file verbatim as a regular GitHub release.
+Until Developer ID and notarization credentials are configured,
 artifacts use hardened-runtime ad-hoc signing; release notes must state that macOS will not
 automatically trust them. Renovate owns dependency updates.

@@ -7,6 +7,8 @@
 A native macOS music client for Spotify Premium, built for personal experimentation on Apple
 Silicon Macs running macOS 15 or newer.
 
+![Spotty showing a playlist details page with synthetic demo data](Assets/PlaylistScreenshot.png)
+
 > [!CAUTION]
 > **Experimental, unofficial software.** Spotty is an independent personal project built on
 > unsupported, reverse-engineered Spotify interfaces. It is not affiliated with, endorsed by,
@@ -40,14 +42,34 @@ indication of affiliation.
 - **macOS integration:** native navigation, tables, menus, inspector, keyboard commands, and
   accessibility. Preserve native focus and selection behavior; playback actions use Spotty green.
 
-## Getting started
+## Download and install
 
-You need a Spotify Premium account to use Spotty. Building from source is the intended way to run
-it; follow the [development setup guide](docs/development/setup.md#fresh-clone) for build-machine
-requirements, toolchains, and signing setup. Authenticated development launches require an
-Apple Development signing identity with a stable Team ID. A free Xcode Personal Team is sufficient.
+Spotty requires macOS 15 or newer, an Apple Silicon Mac, and a Spotify Premium account.
+App downloads are published on [GitHub Releases](https://github.com/aladh/Spotty/releases).
+Releases named `SpottyPlaybackCore` contain the playback dependency, not the Spotty app.
 
-Once the prerequisites are installed, clone the repository and launch a development build:
+Download the `Spotty-<version>.zip` archive, unzip it, and drag **Spotty.app** into
+**Applications**.
+
+### First launch on macOS
+
+Spotty is not notarized or Developer ID signed, so macOS may block the first launch. If you trust
+this download, allow it through System Settings:
+
+1. Open **Spotty** from Applications. If macOS blocks it because the developer cannot be verified
+   or Apple cannot check it for malicious software, dismiss the alert without moving the app to Trash.
+2. Go to **System Settings → Privacy & Security**.
+3. Find the message about Spotty in the **Security** section and click **Open Anyway**.
+4. Authenticate if asked, then confirm that you want to open Spotty.
+
+After approval, open Spotty normally. Choose **Connect** and complete Spotify authorization in
+your browser. See [Apple's first-open guidance](https://support.apple.com/en-us/102445) for details.
+
+## Build from source
+
+Follow the [development setup guide](docs/development/setup.md#fresh-clone) for prerequisites.
+Authenticated development launches require an Apple Development signing identity with a stable
+Team ID; a free Xcode Personal Team is sufficient.
 
 ```bash
 git clone https://github.com/aladh/Spotty.git
@@ -56,9 +78,7 @@ cd Spotty
 ```
 
 Ordinary app builds need no Rust tools. The launch script replaces any running development copy.
-On first launch, choose **Connect** and complete Spotify authorization in the browser.
-Experimental prerelease downloads are not automatically trusted by macOS; see
-[packaging and releases](docs/development/releases.md) for signing status.
+See [packaging and releases](docs/development/releases.md) for the release procedure.
 
 See the [documentation index](docs/README.md) for development guides, product contracts,
 architecture, and the PR workflow.

@@ -18,8 +18,8 @@ fix timeline.
 
 ## Supported versions
 
-Only the latest commit on the default branch is supported. There are currently no supported binary
-releases.
+Security fixes target the latest commit on the default branch and the latest app release. Older
+releases do not receive backported fixes.
 
 ## Scope
 

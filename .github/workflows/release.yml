@@ -97,31 +97,22 @@ jobs:
             echo "Expected an ARM64-only app, found: $architectures" >&2
             exit 1
           fi
-          mv "dist/Spotty-$version.zip" "dist/Spotty-$version-arm64.zip"
           cd dist
-          shasum -a 256 "Spotty-$version-arm64.zip" > "Spotty-$version-arm64.zip.sha256"
+          shasum -a 256 "Spotty-$version.zip" > "Spotty-$version.zip.sha256"
 
-      - name: Publish experimental release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_NOTES: |
-            > [!CAUTION]
-            > **Experimental build:** Spotty uses unsupported, reverse-engineered Spotify interfaces
-            > and may stop working without notice. Use it only with an account you control.
-
-            This is an ARM64-only build for Apple-silicon Macs running macOS 15 or newer.
-
-            The artifact has a hardened-runtime, ad-hoc signature because this
-            project does not yet have Developer ID and notarization credentials. macOS will not
-            automatically trust it as an identified-developer application. You can instead build
-            directly from the tagged source using the documented development setup.
         run: |
           version="${GITHUB_REF_NAME#v}"
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          if [[ ! -s "$notes" ]]; then
+            echo "Missing release notes: $notes" >&2
+            exit 1
+          fi
           gh release create "$GITHUB_REF_NAME" \
-            "dist/Spotty-$version-arm64.zip" \
-            "dist/Spotty-$version-arm64.zip.sha256" \
+            "dist/Spotty-$version.zip" \
+            "dist/Spotty-$version.zip.sha256" \
             --verify-tag \
-            --prerelease \
-            --generate-notes \
             --title "Spotty $version" \
-            --notes "$RELEASE_NOTES"
+            --notes-file "$notes"

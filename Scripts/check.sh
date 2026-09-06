@@ -298,7 +298,7 @@ if ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'xcode-select -s /Applications/Xcode_26.6.app' <<< "$macos_job" \
     || ! rg -q --fixed-strings "grep -q 'Apple Swift version 6.3.3'" <<< "$macos_job" \
     || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$macos_job" \
-    || ! rg -q 'key: macos-swiftpm-combined-.*Package\.swift' <<< "$macos_job" \
+    || ! rg -q "key: macos-swiftpm-mtimes-v1-.*hashFiles\\('Package\\.swift', 'Package\\.resolved'\\)" <<< "$macos_job" \
     || ! rg -U -q --fixed-strings -- $'- name: Run checks\n        id: debug\n        run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh' <<< "$macos_job" \
     || ! rg -U -q --fixed-strings -- $'- name: Compile release Spotty with SPOTTY_DISTRIBUTION\n        id: release\n        run: ./Scripts/compile-release-spotty.sh' <<< "$macos_job" \
     || ! rg -q --fixed-strings 'report-size.sh' <<< "$macos_job" \

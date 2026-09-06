@@ -18,66 +18,75 @@ struct NavigationBar: View {
     @State private var searchIsHovered = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button("Go back", systemImage: "chevron.left", action: goBack)
-                .disabled(!canGoBack)
-                .keyboardShortcut("[", modifiers: .command)
-            Button("Go forward", systemImage: "chevron.right", action: goForward)
-                .disabled(!canGoForward)
-                .keyboardShortcut("]", modifiers: .command)
-            Spacer(minLength: 16)
-            Button(action: goHome) {
-                NavigationSymbol(kind: isHome ? .homeFilled : .home)
-                    .fill(style: FillStyle(eoFill: true))
-                    .frame(width: 24, height: 24)
-                    .foregroundStyle(isHome || homeIsHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary)
-                    .frame(width: 48, height: 48)
-                    .background(SpottyPalette.navigationControl, in: Circle())
+        ZStack {
+            HStack(spacing: 8) {
+                Button("Go back", systemImage: "chevron.left", action: goBack)
+                    .disabled(!canGoBack)
+                    .keyboardShortcut("[", modifiers: .command)
+                Button("Go forward", systemImage: "chevron.right", action: goForward)
+                    .disabled(!canGoForward)
+                    .keyboardShortcut("]", modifiers: .command)
+                Spacer()
             }
-            .onHover { homeIsHovered = $0 }
-            .accessibilityLabel("Home")
-            .help("Home")
-            .focusable()
-            .focusEffectDisabled()
-            .focused($focusedControl, equals: .home)
-            HStack(spacing: 12) {
-                Button {
-                    showSearch()
-                    focusedControl = .search
-                } label: {
-                    NavigationSymbol(kind: .search)
+            .padding(.leading, 100)
+            .padding(.trailing, 20)
+
+            HStack(spacing: 8) {
+                Button(action: goHome) {
+                    NavigationSymbol(kind: isHome ? .homeFilled : .home)
                         .fill(style: FillStyle(eoFill: true))
                         .frame(width: 24, height: 24)
                         .foregroundStyle(
-                            focusedControl == .search || searchIsHovered
-                                ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
+                            isHome || homeIsHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
                         )
+                        .frame(width: 48, height: 48)
+                        .background(SpottyPalette.navigationControl, in: Circle())
                 }
-                .accessibilityLabel("Search")
-                .keyboardShortcut("l", modifiers: .command)
-                TextField("What do you want to play?", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .focused($focusedControl, equals: .search)
-                    .accessibilityLabel("Search Spotify")
-                    .onSubmit(showSearch)
-                    .onTapGesture { showSearch() }
+                .onHover { homeIsHovered = $0 }
+                .accessibilityLabel("Home")
+                .help("Home")
+                .focusable()
+                .focusEffectDisabled()
+                .focused($focusedControl, equals: .home)
+                HStack(spacing: 12) {
+                    Button {
+                        showSearch()
+                        focusedControl = .search
+                    } label: {
+                        NavigationSymbol(kind: .search)
+                            .fill(style: FillStyle(eoFill: true))
+                            .frame(width: 24, height: 24)
+                            .foregroundStyle(
+                                focusedControl == .search || searchIsHovered
+                                    ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
+                            )
+                    }
+                    .accessibilityLabel("Search")
+                    .keyboardShortcut("l", modifiers: .command)
+                    TextField("What do you want to play?", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 16))
+                        .focused($focusedControl, equals: .search)
+                        .accessibilityLabel("Search Spotify")
+                        .onSubmit(showSearch)
+                        .onTapGesture { showSearch() }
+                }
+                .onHover { searchIsHovered = $0 }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: 460)
+                .frame(height: 48)
+                .background(SpottyPalette.navigationControl, in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(focusedControl == .search ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
+                }
             }
-            .onHover { searchIsHovered = $0 }
-            .padding(.horizontal, 16)
-            .frame(maxWidth: 460)
-            .frame(height: 48)
-            .background(SpottyPalette.navigationControl, in: Capsule())
-            .overlay {
-                Capsule().strokeBorder(focusedControl == .search ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
-            }
-            Spacer(minLength: 80)
+            // Reserve equal space for window/history controls on both sides so the
+            // Home/search group stays centered as the window changes width.
+            .padding(.horizontal, 160)
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.plain)
         .font(.system(size: 18))
-        .padding(.leading, 100)
-        .padding(.trailing, 20)
         .padding(.vertical, 8)
         .background {
             Color.black

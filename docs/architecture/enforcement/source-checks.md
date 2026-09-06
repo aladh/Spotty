@@ -5,9 +5,9 @@
 ## Focused source and topology checks
 
 These rules are intentionally lexical; they complement rather than replace semantic behavior tests.
-Migrated Swift policies use `Scripts/ast-grep/rules`, run by `Scripts/check-source-policy.sh` on Linux
+Migrated Swift and Rust policies use `Scripts/ast-grep/rules`, run by `Scripts/check-source-policy.sh` on Linux
 and in the local full gate. Syntax fixtures and file-routing tests protect matching and owner scope;
-compiler checks remain on macOS. The rules do not resolve Swift symbols or prove execution order.
+compiler checks remain on macOS. The rules do not resolve symbols or prove execution order.
 
 | IDs | Exact boundary | Owner |
 | --- | --- | --- |
@@ -18,8 +18,8 @@ compiler checks remain on macOS. The rules do not resolve Swift symbols or prove
 | `SRC-UI-001` | Fixed dark appearance has one owner and shipping code does not add appearance-mode branching | `Scripts/ast-grep/rules` plus [product scope](../../product/scope.md) |
 | `SRC-PROJ-001` | Playback projections expose no external mutation access | Compiler positive/negative probes in `Scripts/check-playback-projection-access.sh`, after the Debug boundary build |
 | `SRC-KEY-001` | `KeychainManager.swift` contains no data-protection Keychain or access-group API references | `Scripts/ast-grep/rules`, with allowed/forbidden syntax fixtures; storage and signing semantics remain behavior-tested or reviewed |
-| `SRC-RUST-FFI-001` | C exports enter named panic barriers; direct `RUNTIME.block_on` stays in the runtime owner | Retained Rust source scanner plus barrier panic/nested-runtime behavior tests |
-| `SRC-RUST-PLAY-001` | Production `IS_PLAYING=true` writes stay in the Playing event owner | Retained Rust source scanner plus player-event behavior tests; the scanner is not proof of execution ordering |
+| `SRC-RUST-FFI-001` | C exports enter named panic barriers; direct `RUNTIME.block_on` stays in the runtime owner | `Scripts/ast-grep/rules` plus Rust barrier panic/nested-runtime behavior tests |
+| `SRC-RUST-PLAY-001` | Production `IS_PLAYING=true` writes stay in the Playing event owner | `Scripts/ast-grep/rules` plus Rust player-event behavior tests; lexical ownership is not proof of execution ordering |
 | `SRC-INOUT-001` | Revision gates do not use `lastRevision: inout` | `Scripts/ast-grep/rules`; epoch correctness remains behavior-tested |
 | `SRC-HYG-001`–`004` | No tracked generated/private artifacts, security placeholders, mock/demo tombstones, or shipping `LogicChecks` directory | `Scripts/check.sh`, gitignore, and privacy review |
 | `SRC-DUP-004` | View code does not introduce the intentionally unsupported drag APIs | `Scripts/ast-grep/rules` and [playlist behavior](../../product/playlists.md) |

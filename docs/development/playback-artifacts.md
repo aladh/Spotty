@@ -40,8 +40,8 @@ published-artifact Swift checks remain
 required; content digests still identify build caches and artifact provenance.
 
 Publication promotes the exact candidate ZIP from a completed CI run, without rebuilding it. Run
-the publisher from main after Rust and candidate Swift Debug/Release succeed. Published-pin jobs
-continue to test the app against its selected release; they fail if app changes require a newer ABI. The selected source must be a
+the publisher from main after Source policies, Rust, and candidate Swift Debug/Release succeed.
+Published-pin jobs continue to test the app against its selected release; they fail if app changes require a newer ABI. The selected source must be a
 merged commit covered by a main-branch push CI run and an ancestor of the publisher checkout.
 PR and fork candidates cannot be published. The tested main commit becomes the release target.
 

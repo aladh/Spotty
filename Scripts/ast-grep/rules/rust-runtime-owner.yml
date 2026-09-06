@@ -1,0 +1,27 @@
+id: rust-runtime-owner
+language: Rust
+severity: error
+message: Use block_on_export; direct RUNTIME.block_on access belongs to runtime.rs.
+files:
+  - Backend/spotty-playback/src/**/*.rs
+ignores:
+  - Backend/spotty-playback/src/runtime.rs
+  - Backend/spotty-playback/src/**/tests.rs
+  - Backend/spotty-playback/src/**/*_tests.rs
+rule:
+  kind: field_expression
+  all:
+    - has:
+        field: field
+        kind: field_identifier
+        regex: '^block_on$'
+    - has:
+        field: value
+        any:
+          - kind: identifier
+            regex: '^RUNTIME$'
+          - kind: scoped_identifier
+            has:
+              field: name
+              kind: identifier
+              regex: '^RUNTIME$'

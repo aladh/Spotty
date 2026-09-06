@@ -36,7 +36,8 @@ npm install --prefix /tmp/spotty-ast-grep "@ast-grep/cli@$(cat Scripts/ast-grep/
 SPOTTY_AST_GREP=/tmp/spotty-ast-grep/node_modules/.bin/ast-grep ./Scripts/check-source-policy.sh
 ```
 
-Rules live in `Scripts/ast-grep/rules`; allowed/forbidden fixtures live in `Tests/SourcePolicy`.
+Swift and Rust rules live in `Scripts/ast-grep/rules`, with shared matchers in
+`Scripts/ast-grep/utils`; allowed/forbidden fixtures live in `Tests/SourcePolicy`.
 The wrapper runs those fixtures, Python file-routing tests, and the production scan. CI uses the
 pinned `ast-grep/action` for scanning and the wrapper's `--test-only` mode for fixtures and owner
 presence checks. When changing a

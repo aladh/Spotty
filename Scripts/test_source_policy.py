@@ -19,6 +19,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             root = Path(directory)
             shutil.copy(ROOT / "sgconfig.yml", root)
             shutil.copytree(ROOT / "Scripts/ast-grep/rules", root / "Scripts/ast-grep/rules")
+            shutil.copytree(ROOT / "Scripts/ast-grep/utils", root / "Scripts/ast-grep/utils")
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(source)
@@ -73,6 +74,24 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             with self.subTest(path=path, source=source):
                 self.assertEqual(self.scan(path, source), expected)
 
+    def test_rust_owner_and_test_file_routing(self):
+        runtime_call = "fn f() { RUNTIME.block_on(future); }"
+        store = "fn f() { IS_PLAYING.store(true, Ordering::SeqCst); }"
+        cases = [
+            ("runtime.rs", runtime_call, set()),
+            ("player_control.rs", runtime_call, {"rust-runtime-owner"}),
+            ("nested/module.rs", runtime_call, {"rust-runtime-owner"}),
+            ("tests.rs", runtime_call + store, set()),
+            ("lifecycle_tests.rs", runtime_call + store, set()),
+            ("nested/other_tests.rs", runtime_call + store, set()),
+            ("player_control.rs", store, {"rust-playing-store-owner"}),
+            ("player_event_pump.rs", store, {"rust-playing-store-required"}),
+            ("tests.rs", 'pub extern "C" fn export() { work(); }', {"rust-ffi-panic-barrier"}),
+        ]
+        for file, source, expected in cases:
+            with self.subTest(file=file, source=source):
+                self.assertEqual(self.scan(f"Backend/spotty-playback/src/{file}", source), expected)
+
     def test_wrapper_rejects_missing_or_empty_owners(self):
         self.assertIsNotNone(AST_GREP, "ast-grep must be installed")
         owners = [
@@ -80,6 +99,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             "Sources/Spotty/Spotify/KeychainManager.swift",
             "Sources/Spotty/Spotify/PlaybackCore.swift",
             "Sources/Spotty/Spotify/RustPlaybackEngine.swift",
+            "Backend/spotty-playback/src/player_event_pump.rs",
         ]
         for absent in owners:
             for empty in (False, True):

@@ -1,0 +1,47 @@
+id: rust-playing-store-required
+valid:
+  - |-
+    fn event(event: PlayerEvent) {
+        match event {
+            PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }
+            _ => {}
+        }
+    }
+  - |-
+    #[cfg(test)] mod tests {}
+    fn event(event: PlayerEvent) {
+        match event {
+            PlayerEvent::Playing { track_id, .. } => {
+                // after test module
+                IS_PLAYING.store(true, Ordering::SeqCst);
+            }
+            _ => {}
+        }
+    }
+invalid:
+  - 'fn event() {}'
+  - |-
+    fn event(event: PlayerEvent) {
+        match event {
+            PlayerEvent::Playing { .. } => { IS_PLAYING.store(false, Ordering::SeqCst); }
+            _ => { IS_PLAYING.store(true, Ordering::SeqCst); }
+        }
+    }
+  - |-
+    fn event(event: PlayerEvent) {
+        match event {
+            PlayerEvent::Playing { .. } => {
+                // IS_PLAYING.store(true, Ordering::SeqCst);
+            }
+            _ => {}
+        }
+    }
+  - |-
+    #[cfg(test)] mod tests {
+        fn event(event: PlayerEvent) {
+            match event {
+                PlayerEvent::Playing { .. } => { IS_PLAYING.store(true, Ordering::SeqCst); }
+                _ => {}
+            }
+        }
+    }

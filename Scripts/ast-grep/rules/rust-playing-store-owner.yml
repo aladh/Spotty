@@ -1,0 +1,16 @@
+id: rust-playing-store-owner
+language: Rust
+severity: error
+message: Production IS_PLAYING=true stores belong to player_event_pump.rs.
+files:
+  - Backend/spotty-playback/src/**/*.rs
+ignores:
+  - Backend/spotty-playback/src/player_event_pump.rs
+  - Backend/spotty-playback/src/**/tests.rs
+  - Backend/spotty-playback/src/**/*_tests.rs
+rule:
+  matches: rust-playing-true-store
+  not:
+    inside:
+      matches: rust-cfg-test-module
+      stopBy: end

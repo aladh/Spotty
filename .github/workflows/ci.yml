@@ -37,7 +37,7 @@ jobs:
         with:
           version: ${{ steps.ast-grep.outputs.version }}
           config: sgconfig.yml
-          paths: Sources
+          paths: Sources Backend/spotty-playback/src
 
       - name: Check rule fixtures and policy owners
         run: ./Scripts/check-source-policy.sh --test-only

@@ -1,0 +1,27 @@
+id: rust-playing-store-owner
+valid:
+  - 'fn stopped() { IS_PLAYING.store(false, Ordering::SeqCst); }'
+  - 'fn other() { OTHER.store(true, Ordering::SeqCst); }'
+  - '// IS_PLAYING.store(true, Ordering::SeqCst)'
+  - 'const TEXT: &str = r#"IS_PLAYING.store(true, Ordering::SeqCst)"#;'
+  - '#[cfg(test)] mod tests { fn f() { IS_PLAYING.store(true, Ordering::SeqCst); } }'
+  - |-
+    #[cfg(test)]
+    // tests only
+    #[allow(dead_code)]
+    mod tests { fn f() { IS_PLAYING.store(true, Ordering::SeqCst); } }
+  - 'fn other() { IS_PLAYING.store(false, true); }'
+invalid:
+  - 'fn queued() { IS_PLAYING.store(true, Ordering::SeqCst); }'
+  - |-
+    fn queued() { IS_PLAYING
+        .store(true, Ordering::SeqCst); }
+  - 'fn queued() { IS_PLAYING.store(/* value */ true, Ordering::SeqCst); }'
+  - |-
+    #[cfg(test)] mod tests {}
+    fn after() { IS_PLAYING.store(true, Ordering::SeqCst); }
+  - |-
+    #[cfg(test)] mod tests {}
+    mod production { fn f() { IS_PLAYING.store(true, Ordering::SeqCst); } }
+  - 'mod tests { fn f() { IS_PLAYING.store(true, Ordering::SeqCst); } }'
+  - 'fn queued() { crate::IS_PLAYING.store(true, Ordering::SeqCst); }'

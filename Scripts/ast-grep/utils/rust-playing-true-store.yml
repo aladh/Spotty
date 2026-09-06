@@ -1,0 +1,36 @@
+id: rust-playing-true-store
+language: Rust
+rule:
+  kind: call_expression
+  all:
+    - has:
+        field: function
+        kind: field_expression
+        all:
+          - has:
+              field: value
+              any:
+                - kind: identifier
+                  regex: '^IS_PLAYING$'
+                - kind: scoped_identifier
+                  has:
+                    field: name
+                    kind: identifier
+                    regex: '^IS_PLAYING$'
+          - has:
+              field: field
+              kind: field_identifier
+              regex: '^store$'
+    - has:
+        field: arguments
+        kind: arguments
+        has:
+          kind: boolean_literal
+          regex: '^true$'
+          nthChild:
+            position: 1
+            ofRule:
+              not:
+                any:
+                  - kind: line_comment
+                  - kind: block_comment

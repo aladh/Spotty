@@ -31,6 +31,11 @@
 
 ### Transport and progress
 
+- Unmodified Space toggles playback while browsing in the main window. Holding it toggles only
+  once. Text editing, focused native controls, sheets, and dialogs retain their normal Space
+  behavior. The menu action and keyboard handler use the same playback admission and routing.
+
+
 - The black player shelf is 80 points tall, with 56-point artwork, 14-point track titles,
   12-point artist/time labels, and a 32-point play button. The centered progress area scales
   with window width; the remote-owner strip remains separate. Queue and device-chooser icons

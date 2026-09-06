@@ -13,7 +13,7 @@
   lifetime correctness, or native macOS behavior and truthful state.
 - Spotty is a focused native macOS client for personal Spotify Premium use; macOS is its only
   target. Prefer SwiftUI and AppKit over custom chrome, and do not add a WebView, Chromium runtime,
-  or second UI framework.
+  cross-platform shell, or second UI framework. Do not add a supported Spotify API fallback.
 - Use a Spotify-familiar composition without copying Spotify pixels: artwork-led headers, dense
   track tables, a right Queue/Connect rail, and a full-width player shelf. The app is dark-only,
   with a near-black canvas and no appearance mode or theme system. Preserve macOS inactive-window,

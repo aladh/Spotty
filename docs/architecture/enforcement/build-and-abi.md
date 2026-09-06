@@ -9,7 +9,7 @@
 | `FMT-SWIFT-001`–`003`, `FMT-RUST-001`–`002` | Consistent formatting and warning-clean builds | [Verification](../../development/verification.md), [check.sh](../../../Scripts/check.sh) |
 | `CMP-PLT-001`, `CMP-DEP-001`, `CMP-FFI-001`, `CMP-CHK-001`–`002` | Platform, dependency direction, and non-shipping test targets | [Package.swift](../../../Package.swift), [source policies](source-checks.md) |
 | `CMP-TCA-001` | Keep the domain free of a second effect framework | [ADR 003](../adrs/ADR-003-playback-command-effects.md) |
-| `CMP-LIVE-001` | Production uses live integrations; fixtures remain in tests | [Architecture rules](../../../AGENTS.md#architecture), [test guidance](../../../Tests/AGENTS.md) |
+| `CMP-LIVE-001` | Production uses live integrations; fixtures remain in tests | [Dependency ownership](../adrs/ADR-002-playback-state-and-dependencies.md), [test guidance](../../../Tests/AGENTS.md) |
 | `CMP-PKG-001` | Valid bundle metadata | [check.sh](../../../Scripts/check.sh), [packaging](../../development/releases.md) |
 
 ## ABI and cross-language contracts

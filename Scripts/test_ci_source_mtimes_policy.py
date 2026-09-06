@@ -61,6 +61,7 @@ class SourceTimestampTests(unittest.TestCase):
             for path in backend.iterdir():
                 os.utime(path, ns=(new, new))
             self.assertEqual(restore(root, saved, "rust"), 1)
+            self.assertEqual((backend / "lib.rs").stat().st_mtime_ns, 1_700_000_000_000_000_000)
             self.assertEqual((backend / "changed.rs").stat().st_mtime_ns, new)
 
     def test_invalid_or_future_timestamp_is_ignored(self):

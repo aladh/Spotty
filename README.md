@@ -67,7 +67,8 @@ architecture, and the PR workflow.
 
 Spotty has no analytics, advertising, crash-reporting SDK, or Spotty-operated server. It requests
 account data directly from Spotify and renders it locally. OAuth credentials are stored in macOS
-Keychain. Artwork caching is bounded, and operational logs use Apple Unified Logging locally.
+Keychain. Artwork loads through SwiftUI `AsyncImage` with framework-managed caching; operational logs use
+Apple Unified Logging locally.
 
 Read [PRIVACY.md](PRIVACY.md) before signing in. Report security issues through the private process
 in [SECURITY.md](SECURITY.md), not a public issue.

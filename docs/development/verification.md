@@ -124,11 +124,12 @@ is constructed. The demo uses the same Apple Development certificate selection a
 Its blue [icon source](../../Tests/BrowsingHarness/Icon/SpottyDemo.icon) distinguishes it in the Dock.
 Regenerate its fallback icon with `./Scripts/generate-icon.sh Tests/BrowsingHarness/Icon/SpottyDemo.icon/Assets/SpottyDemo.png Tests/BrowsingHarness/Icon/SpottyDemo.icns` after changing the source.
 Its sandbox caches/preferences are separate from live Spotty and persist across launches. Each run
-gets a new `.build/browsing-runs/` directory for fixtures and `report.json`. The app stays open for inspection.
+gets a new `.build/browsing-runs/` directory for fixtures and `report.json`. The automated command waits for the report and fails if the workload fails or times out;
+the app stays open for inspection.
 
 The report records the scenario, commit/diff identity, machine/OS context, window size/scale,
 checkpoint RSS and physical footprint, cumulative CPU time, store loading time, scroll positions,
-catalog request counts, fixture size, and framework cache footprint. Repeat the same scenario on
+catalog request counts, fixture size, and demo-container cache footprint. Repeat the same scenario on
 the same machine/configuration and compare several runs; Debug timings and synthetic source bytes
 do not measure live network latency or Release performance. First visits are cold-process samples, with potentially warm framework disk caches;
 later cycles show reuse within that process. Framework scheduling and measured timings can vary.

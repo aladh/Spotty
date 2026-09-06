@@ -84,7 +84,7 @@ fi
 # Validate first, then replace only this demo's stable install location.
 installed_app="$project_root/.build/Spotty Demo.app"
 pkill -x SpottyDemo >/dev/null 2>&1 || true
-for _ in {1..20}; do
+for _ in {1..50}; do
     pgrep -x SpottyDemo >/dev/null || break
     sleep 0.1
 done
@@ -106,6 +106,28 @@ app="$installed_app"
 print "Synthetic browsing launched: $app"
 if [[ "$automated" == true ]]; then
     print "Report: $run_root/report.json"
+    python3 - "$run_root/report.json" <<'PYWAIT'
+import json
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+report = Path(sys.argv[1])
+started = time.monotonic()
+# Covers the maximum validated scenario, including bounded view-readiness waits.
+while not report.exists():
+    elapsed = time.monotonic() - started
+    if elapsed > 600:
+        sys.exit("Timed out waiting for the demo workload report")
+    if elapsed > 5 and subprocess.run(["pgrep", "-x", "SpottyDemo"], stdout=subprocess.DEVNULL).returncode:
+        sys.exit("The demo exited without a workload report")
+    time.sleep(0.25)
+result = json.loads(report.read_text())
+if result.get("passed") is not True:
+    sys.exit(result.get("failure") or "The demo workload failed")
+print(f"Passed {len(result['samples'])} browsing checkpoints")
+PYWAIT
 else
     print "Interactive demo; run artifacts: $run_root"
 fi

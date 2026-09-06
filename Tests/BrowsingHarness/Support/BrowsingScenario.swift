@@ -41,11 +41,13 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
 enum BrowsingFailure: Error, LocalizedError {
     case invalidScenario
     case unsupportedAction
+    case artworkResource
     case checkpoint(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidScenario: "Use a valid version-1 browsing or signed-out scenario."
+        case .artworkResource: "Rebuild the demo with its bundled artwork resources."
         case .unsupportedAction: "This browsing-only harness does not support that action."
         case let .checkpoint(name): "Browsing checkpoint failed: \(name)."
         }
@@ -101,7 +103,7 @@ struct BrowsingFixtures: Sendable {
                     "itemV2": [
                         "data": [
                             "uri": "spotify:track:synthetic\(playlistIndex)x\(index)",
-                            "name": String(format: "Synthetic Track %04d", index + 1),
+                            "name": String(format: "Synthetic Track %04d", Int32(index + 1)),
                             "trackDuration": ["totalMilliseconds": 180_000 + index % 60 * 1_000],
                             "albumOfTrack": ["name": "Synthetic Album \(index / 12 + 1)", "coverArt": image(index)],
                             "artists": ["items": [["profile": ["name": "Synthetic Artist \(index % 12 + 1)"]]]],
@@ -151,15 +153,15 @@ struct BrowsingFixtures: Sendable {
                 data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels * 4,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
             )
-        else { throw BrowsingFailure.invalidScenario }
+        else { throw BrowsingFailure.artworkResource }
         context.interpolationQuality = .high
         context.draw(original, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
         let data = NSMutableData()
         guard let image = context.makeImage(),
             let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)
-        else { throw BrowsingFailure.invalidScenario }
+        else { throw BrowsingFailure.artworkResource }
         CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { throw BrowsingFailure.invalidScenario }
+        guard CGImageDestinationFinalize(destination) else { throw BrowsingFailure.artworkResource }
         return data as Data
     }
 }

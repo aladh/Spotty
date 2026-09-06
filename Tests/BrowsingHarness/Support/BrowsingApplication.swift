@@ -72,7 +72,7 @@ private struct BrowsingReport: Encodable {
     let windowHeight: Double
     let displayScale: Double
     let fixtureBytes: Int
-    let frameworkCacheBytes: Int
+    let demoCacheBytes: Int
     let networkSandboxVerified: Bool
     let samples: [BrowsingSample]
     let world: BrowsingWorld.Snapshot
@@ -90,10 +90,10 @@ final class BrowsingRun {
     let navigation = CatalogNavigation()
     @ObservationIgnored private var workload: Task<Void, Never>?
     var status = "Preparing synthetic browsing"
-    var running = false
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var samples: [BrowsingSample] = []
     @ObservationIgnored private var networkSandboxVerified = false
+    @ObservationIgnored private weak var playlistScrollView: NSScrollView?
 
     init(launch: BrowsingLaunch, scenario: BrowsingScenario) throws {
         self.launch = launch
@@ -109,15 +109,14 @@ final class BrowsingRun {
 
     func start() {
         guard launch.automated else { return }
+        // The finite workload retains its app-owned model until the report is written.
         workload = Task { await perform() }
     }
-
-    deinit { workload?.cancel() }
 
     func perform() async {
         guard !hasStarted else { return }
         hasStarted = true
-        running = true
+        defer { workload = nil }
         let started = Date()
         do {
             try verifyNetworkSandbox()
@@ -152,10 +151,11 @@ final class BrowsingRun {
                             player.catalog.playlistStore.error == nil
                         else { throw BrowsingFailure.checkpoint("playlist.ready") }
                         navigation.select(items[index])
+                        playlistScrollView = try await waitForPlaylistScrollView(items[index].uri)
                         try await sample(
                             "cycle.\(cycle).playlist.\(index).ready", started: started, loadSeconds: loadSeconds)
                         for (step, fraction) in [0.25, 0.5, 0.75, 1.0, 0.0].enumerated() {
-                            guard let scroll = scrollView(), let document = scroll.documentView else {
+                            guard let scroll = playlistScrollView, let document = scroll.documentView else {
                                 throw BrowsingFailure.checkpoint("playlist.scroll-view")
                             }
                             let height = max(0, document.frame.height - scroll.contentView.bounds.height)
@@ -175,13 +175,12 @@ final class BrowsingRun {
             guard state.mutationAttempts == 0 else {
                 throw BrowsingFailure.checkpoint("read-only-isolation")
             }
-            try writeReport(failure: nil)
+            try await writeReport(failure: nil)
             status = "Completed — \(samples.count) checkpoints; report.json saved"
         } catch {
             status = error.localizedDescription
-            try? writeReport(failure: status)
+            try? await writeReport(failure: status)
         }
-        running = false
     }
 
     private func sample(_ checkpoint: String, started: Date, loadSeconds: Double = 0) async throws {
@@ -193,7 +192,8 @@ final class BrowsingRun {
         window()?.displayIfNeeded()
         samples.append(
             try BrowsingSample(
-                checkpoint: checkpoint, started: started, loadSeconds: loadSeconds, scroll: scrollView()
+                checkpoint: checkpoint, started: started, loadSeconds: loadSeconds,
+                scroll: navigation.selection == .destination(.home) ? nil : playlistScrollView
             ))
     }
 
@@ -225,31 +225,46 @@ final class BrowsingRun {
         }
     }
 
-    private func scrollView() -> NSScrollView? {
-        func descendants(_ view: NSView) -> [NSScrollView] {
-            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(descendants)
+    private func waitForPlaylistScrollView(_ uri: String) async throws -> NSScrollView {
+        let previous = playlistScrollView
+        for _ in 0..<200 {
+            window()?.contentView?.layoutSubtreeIfNeeded()
+            if navigation.selection == .playlist(uri), player.catalog.playlistStore.loadedURI == uri,
+                let root = window()?.contentView,
+                let scroll = Self.findPlaylistScrollView(in: root), scroll !== previous,
+                let document = scroll.documentView,
+                document.frame.height > scroll.contentView.bounds.height,
+                scroll.window != nil
+            {
+                return scroll
+            }
+            try await ContinuousClock().sleep(for: .milliseconds(50))
         }
-        return window()?.contentView.map(descendants)?.max {
-            ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
-        }
+        throw BrowsingFailure.checkpoint("playlist.view-ready")
     }
 
-    private func writeReport(failure: String?) throws {
+    /// Only playlist headers contain this production observer. TrackTable's per-playlist .id
+    /// replaces its native list; readiness also rejects the previous destination's scroll view.
+    static func findPlaylistScrollView(in root: NSView) -> NSScrollView? {
+        if root is PlaylistScrollObserver.ObserverView { return root.enclosingScrollView }
+        for child in root.subviews {
+            if let scroll = findPlaylistScrollView(in: child) { return scroll }
+        }
+        return nil
+    }
+
+    private func writeReport(failure: String?) async throws {
         let window = window()
         let process = ProcessInfo.processInfo
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-        let files = cache.flatMap { FileManager.default.enumerator(at: $0, includingPropertiesForKeys: [.fileSizeKey]) }
-        let cacheBytes =
-            files?.reduce(0) { result, entry in
-                result + (((entry as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }) ?? 0)
-            } ?? 0
+        let cacheBytes = await BrowsingCacheMeasurement().bytes(at: cache)
         let report = BrowsingReport(
             launch: launch, scenario: world.scenario, os: process.operatingSystemVersionString,
             processorCount: process.processorCount, physicalMemoryBytes: process.physicalMemory,
             windowWidth: Double(window?.contentView?.bounds.width ?? 0),
             windowHeight: Double(window?.contentView?.bounds.height ?? 0),
             displayScale: Double(window?.backingScaleFactor ?? 0),
-            fixtureBytes: world.fixtures.artworkBytes, frameworkCacheBytes: cacheBytes,
+            fixtureBytes: world.fixtures.artworkBytes, demoCacheBytes: cacheBytes,
             networkSandboxVerified: networkSandboxVerified,
             samples: samples, world: world.snapshot(), passed: failure == nil, failure: failure
         )
@@ -257,6 +272,18 @@ final class BrowsingRun {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(report).write(
             to: URL(fileURLWithPath: launch.runRoot).appendingPathComponent("report.json"), options: .atomic)
+    }
+}
+
+/// Runs after all samples, off the UI actor. App Sandbox scopes this URL to the demo container.
+private actor BrowsingCacheMeasurement {
+    func bytes(at directory: URL?) -> Int {
+        guard let directory,
+            let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+        else { return 0 }
+        return files.reduce(0) { result, entry in
+            result + (((entry as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }) ?? 0)
+        }
     }
 }
 

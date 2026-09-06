@@ -9,7 +9,7 @@ signing material as disposable build output:
 - `Backend/lib/*.a` — intermediate static archives for explicit engine builds;
 - `Spotty.app/` and `dist/` — local packages and archives;
 - `diagnostics/` — local reports; review them before sharing;
-- `SpottyArtwork/`, `.DS_Store`, and `.swiftpm/` — artwork cache and local tooling metadata.
+- `.DS_Store` and `.swiftpm/` — local tooling metadata.
 
 For artwork changes, follow the [icon regeneration procedure](../../Assets/README.md). The native
 icon embeds a copy of the master image, so regenerating only the legacy icon is insufficient.

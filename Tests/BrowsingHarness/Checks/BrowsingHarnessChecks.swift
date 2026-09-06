@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ImageIO
 import Testing
@@ -119,7 +120,22 @@ struct BrowsingHarnessTests {
     }
 
     @Test
-    func artworkUsesLocalURLLoading() async throws {
+    func scrollLookupUsesPlaylistObserverInsteadOfDocumentHeight() {
+        let root = NSView()
+        let sidebar = NSScrollView()
+        sidebar.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 10_000))
+        let playlist = NSScrollView()
+        playlist.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 1_000))
+        playlist.documentView?.addSubview(PlaylistScrollObserver.ObserverView())
+        root.addSubview(sidebar)
+        root.addSubview(playlist)
+        #expect(BrowsingRun.findPlaylistScrollView(in: root) === playlist)
+        playlist.removeFromSuperview()
+        #expect(BrowsingRun.findPlaylistScrollView(in: root) == nil)
+    }
+
+    @Test
+    func fixtureFilesAreReadable() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "SpottyBrowsingTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

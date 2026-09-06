@@ -4,39 +4,57 @@
 
 ## Playback presentation and ownership
 
-Spotty mirrors the active Spotify Connect device, including remote playback, without a manual
-refresh. Track information, progress, queue, transport state, and available controls must agree on
-that owner. An identified remote owner is named in the player; unidentified ownership must not be
-presented as local.
-
-Transport commands target that owner and never silently transfer playback to this Mac. A remembered
-remote device may remain an uncertain routing candidate when no active owner is reported, but a
-missing or stale fallback never authorizes local playback. Engine and app responsibilities follow
-[engine ownership](../architecture/playback-engine-ownership.md).
-
+- Follow [engine ownership](../architecture/playback-engine-ownership.md): Rust/librespot owns the playback protocol,
+  Swift owns policy/presentation, and AVFoundation renders decoded PCM through the narrow adapter.
+- Spotty mirrors the active Spotify Connect device automatically, including a device owned by a
+  different computer. The now-playing title, artist, artwork, position, play/pause state, queue,
+  and available controls must follow that owner without requiring a manual refresh.
+- An identified remote owner adds a thin green strip to the player shelf that names the device and
+  its playing or paused state. It disappears for local or unidentified ownership and does not
+  replace the device menu.
+- Transport commands target the device that owns playback. Spotty must not silently transfer
+  playback to this Mac merely because the user pressed a remote control. When no device is marked
+  active but a current track remains, a remembered last remote device stays an uncertain remote
+  candidate so commands remain remote-routable; a missing or stale fallback never becomes local.
 ### Transport and progress
 
-- Disable Play without a current track, and show Pause only for observed playing state. Keep the
-  transport order shuffle, previous, play/pause, next, repeat, with track-skip rather than
-  rewind/fast-forward controls.
-- Progress interpolates between authoritative playing observations and re-anchors on new
-  observations, seeks, pauses, track changes, and ownership changes.
-- Shuffle is a persistent on/off policy favoring fewer repeats. There is no style picker because
-  Connect exposes no shuffle-style parameter.
-- Repeat cycles off → queue → track → off. Partial failures report failure and best-effort restore
-  the previous mode without overwriting a newer authoritative state. Protocol flag ordering and
-  compensation cases belong in the [transition implementation](../../Sources/Spotty/Spotify/RepeatTransitionApplication.swift)
-  and [behavior checks](../../Tests/SpottyBoundaryTests/RepeatTransitionChecks.swift).
-- Queue and Connect share one inspector: switching controls changes its contents, selecting the
-  active control closes it, and closing it clears the active indicator. Queue retains its Recently
-  played selection across switches. Connect lists this computer first; selecting an available
-  device explicitly transfers playback and leaves the inspector open.
+- The black player shelf is 88 points tall, with 56-point artwork, 14-point track titles,
+  12-point artist/time labels, and a 32-point play button. The centered progress area scales
+  with window width; the remote-owner strip remains separate. Queue and device-chooser icons
+  use 16-point filled glyphs in adjacent 32-point targets, with 70% white at rest and white on hover.
+  Open controls use #1db954 with a 4-point dot and brighten to #1ed760 on hover. Connect shows a
+  computer glyph for a remote computer owner and the device/speaker glyph otherwise.
+  Queue and Connect share one inspector: selecting the other icon switches its contents, selecting
+  the active icon closes it, and the header close button clears the active indicator. Queue retains
+  its Recently played tab when switching to Connect. Connect shows the current device in a dark
+  card and available devices in 56-point rows, with this computer first. Selecting an available
+  device invokes the existing explicit transfer action and keeps the sidebar open.
 
-A failed current local track load shows an actionable, dismissible notice offering retry or another
-track through existing controls. Do not claim permanent unavailability, expose upstream details,
-reconnect, or change credentials. Preload failures, superseded requests, stale lifetimes, and
-observations behind a newer optimistic target must not raise the notice. Announce it to VoiceOver,
-keep dismissal keyboard-accessible, and never let dismissal of an old notice clear a new one.
+- With no current track, Play is disabled. Pause appears only for observed playing state.
+- If the active local engine cannot load its current requested track, show an actionable playback
+  notice explaining that the user can retry or choose another track through the existing playback
+  and browsing controls, without raw upstream details or a claim of permanent
+  unavailability. Preload failures, superseded requests, stale account/engine lifetimes, and
+  observations held behind a newer optimistic play target must not surface that notice. The notice
+  appears above the player controls with a keyboard-accessible dismiss button and a VoiceOver
+  announcement; it does not reconnect or change credentials. Dismissal of an older notice must
+  not clear a newer one.
+- The transport order is shuffle, previous, play/pause, next, repeat. Previous and next use the
+  track-skip symbols with an outside bar, not rewind or fast-forward symbols. Repeat stays to the
+  right of Next.
+- Interpolate progress smoothly between authoritative playing snapshots. New snapshots, seeks,
+  pauses, track changes, and ownership changes re-anchor it.
+- Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
+  style picker because Connect exposes no shuffle-style parameter.
+- Repeat cycles off → queue → track → off. Each step sends only the Connect flags that change,
+  planned from the reducer's raw context/track pair rather than the display mode. Ordinary
+  track-repeat (context off, track on) → off is one mutation; a both-true track snapshot → off
+  clears both flags. Queue → track is the only two-flag step and applies context off before track
+  on. If the second mutation fails after the first was accepted, Spotty best-effort restores the
+  captured previous flags and still reports failure. A later snapshot of the requested target is
+  kept; the known intermediate off after a compensated queue → track failure restores queue
+  repeat; a compensated both-true track → off failure whose intermediate snapshot is still
+  displayed as track (`context: false`, `track: true`) restores the captured previous track
+  mode and both-true flags; unrelated newer authoritative repeat state is left intact.
 
-See [queue behavior](queue.md) for ordering and occurrence-safe mutations. The
-[views](../../Sources/Spotty/Views) own player dimensions and visual treatments.
+See [Queue behavior](queue.md) for ordering and occurrence-safe mutations.

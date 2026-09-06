@@ -24,6 +24,7 @@ class RustSelectionTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(self.root))
         self.write("Backend/spotty-playback/src/lib.rs", "// existing unpublished engine\n")
         self.write("Sources/Spotty/View.swift", "// app\n")
+        self.write("Scripts/ci_rust_policy.py", (ROOT / "Scripts/ci_rust_policy.py").read_text())
         self.base = self.commit()
 
     def git(self, *args):
@@ -79,6 +80,43 @@ class RustSelectionTests(unittest.TestCase):
         self.write("unexpected\nSources/Spotty/View.swift")
         self.commit()
         self.assertTrue(rust_needed("pull_request", self.base, self.root))
+
+    def select_via_workflow(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        step = workflow.split("      - name: Select Rust verification\n", 1)[1]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
+        output = self.root / "selection-output"
+        output.unlink(missing_ok=True)
+        result = subprocess.run(["bash", "-c", script], cwd=self.root, capture_output=True, text=True,
+                                env={**os.environ, "EVENT_NAME": "pull_request", "INPUT_BASE_SHA": self.base,
+                                     "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(self.root / "runner-temp")})
+        return result, output.read_text() if output.exists() else ""
+
+    def test_workflow_uses_base_policy_instead_of_changed_head_code(self):
+        (self.root / "runner-temp").mkdir()
+        self.write("Backend/spotty-playback/src/lib.rs", "// changed engine\n")
+        self.write("Scripts/ci_rust_policy.py", 'print("rust_needed=false")\n')
+        self.commit()
+        result, output = self.select_via_workflow()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "rust_needed=true\n")
+
+    def test_workflow_without_a_base_policy_requires_rust(self):
+        (self.root / "Scripts/ci_rust_policy.py").unlink()
+        self.base = self.commit()
+        self.write("Sources/Spotty/View.swift", "// changed app\n")
+        self.commit()
+        result, output = self.select_via_workflow()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "rust_needed=true\n")
+
+    def test_workflow_skips_app_only_changes_with_existing_base_policy(self):
+        (self.root / "runner-temp").mkdir()
+        self.write("Sources/Spotty/View.swift", "// changed app\n")
+        self.commit()
+        result, output = self.select_via_workflow()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "rust_needed=false\n")
 
     def test_main_and_other_events_always_run_without_a_base(self):
         for event in ("push", "workflow_dispatch", "unknown"):

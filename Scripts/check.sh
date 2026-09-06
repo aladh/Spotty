@@ -312,8 +312,9 @@ if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'needs: [policy]' <<< "$rust_job" \
     || ! rg -q --fixed-strings "if: needs.policy.outputs.rust_needed == 'true'" <<< "$rust_job" \
-    || ! rg -q --fixed-strings 'run: python3 -B -m unittest discover -s Scripts -p test_ci_rust_policy.py' <<< "$policy_job" \
-    || ! rg -q --fixed-strings 'run: python3 Scripts/ci_rust_policy.py' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'git show "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py" > "$trusted_policy"' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA"' <<< "$policy_job" \
+    || ! rg -q --fixed-strings -- "-p 'test_*policy.py'" Scripts/check-source-policy.sh \
     || ! rg -q --fixed-strings 'candidate_needed' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'run: ./Scripts/playback-candidate-needed.sh' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}' <<< "$rust_job" \

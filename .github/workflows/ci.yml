@@ -26,15 +26,31 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Test Rust job selection
-        run: python3 -B -m unittest discover -s Scripts -p test_ci_rust_policy.py
-
       - name: Select Rust verification
         id: rust-scope
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 Scripts/ci_rust_policy.py --event "$EVENT_NAME" --base "$INPUT_BASE_SHA" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo "rust_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            if [[ ! "$INPUT_BASE_SHA" =~ ^[0-9a-f]{40}$ || "$INPUT_BASE_SHA" == 0000000000000000000000000000000000000000 ]]; then
+              echo "Rust selection requires a valid PR base SHA" >&2
+              exit 1
+            fi
+            git fetch --no-tags --depth=1 origin "$INPUT_BASE_SHA"
+            if git cat-file -e "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py"; then
+              trusted_policy="$(mktemp "$RUNNER_TEMP/spotty-rust-policy.XXXXXX")"
+              trap 'rm -f "$trusted_policy"' EXIT
+              git show "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py" > "$trusted_policy"
+              python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA" >> "$GITHUB_OUTPUT"
+            else
+              # The first PR introducing this policy must verify Rust too.
+              echo "rust_needed=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Read ast-grep version
         id: ast-grep

@@ -77,7 +77,8 @@ swift test --disable-sandbox --no-parallel --filter AuthFlowTests/testAuthFlow
 ```
 
 CI's required `Debug quality gate` aggregates Linux source policies, Rust, Swift/architecture, and
-Release compilation. The Linux source-policy job classifies PR changes before scheduling Rust.
+Release compilation. The Linux source-policy job classifies PR changes using the base commit's
+policy before scheduling Rust. A base without the policy requires Rust conservatively.
 PRs limited to app sources, app tests, assets, packaging, package pins, or documentation skip Rust;
 engine, shared-header, script, CI, and unknown paths require it. Main always runs Rust. The aggregate
 accepts a skipped Rust job only after an explicit successful app-only classification.

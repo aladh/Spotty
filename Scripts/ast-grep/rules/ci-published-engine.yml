@@ -17,4 +17,4 @@ rule:
         - any:
             - kind: block_scalar
             - kind: flow_node
-        - regex: '(?m)^[ \t]*([^#\n]*[^#[:space:]])?[ \t]*SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK[ \t]*='
+        - regex: '(?m)^[ \t]*(?:[^#\s][^\n]*)?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK[ \t]*='

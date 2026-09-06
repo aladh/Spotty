@@ -16,3 +16,7 @@ invalid:
       SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp/local swift build
   - 'run: export SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp/local'
   - 'env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}'
+  - |
+    run: |
+      FOO="a#b" SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp swift build
+  - 'run: true;SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=/tmp swift build'

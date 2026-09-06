@@ -87,6 +87,8 @@ class CandidateSelectionTests(unittest.TestCase):
 
     def test_unrelated_workflow_change_does_not_build_candidate(self):
         workflow = self.root / ".github/workflows/ci.yml"
+        self.assertIn("ubuntu-latest", workflow.read_text())
+        self.assertIn("id: debug", workflow.read_text())
         workflow.write_text(workflow.read_text().replace("ubuntu-latest", "ubuntu-24.04")
                             .replace("id: debug", "id: debug # consumer change"))
         self.commit()

@@ -104,6 +104,8 @@ class PromotionTests(unittest.TestCase):
 
     def test_consumer_or_linux_image_changes_do_not_invalidate_candidate(self):
         args = self.promotion_inputs()
+        self.assertIn(b"ubuntu-latest", WORKFLOW)
+        self.assertIn(b"id: debug", WORKFLOW)
         args["trusted_ci"] = WORKFLOW.replace(b"ubuntu-latest", b"ubuntu-24.04").replace(
             b"id: debug", b"id: debug # consumer change")
         promote(**args)

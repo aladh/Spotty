@@ -40,7 +40,7 @@ Source and Markdown checks prove lexical boundaries, not runtime behavior. The a
 | Rust lexical guards | `SRC-RUST-FFI-001` and `SRC-RUST-PLAY-001` constrain wrapper/write locations. Panic, nested-runtime, and player-event tests separately cover behavior; text location does not prove ordering. |
 | ABI and fixtures | Signature/layout probes remain ABI evidence. Parser fixtures exercise retained scanners; synthetic payload and persistence reads test data, not implementation spelling. |
 
-Rust lexical guards remain in the Rust suite invoked by `Scripts/check.sh`; do not duplicate their
-scanner in shell. `Backend/spotty-playback/source-input-digest.sh` defines artifact inputs; Rust
+Rust lexical guards run through `Scripts/check-source-policy.sh` locally and the Linux source-policy
+CI job; Rust behavior and ABI tests remain in the Rust suite. `Backend/spotty-playback/source-input-digest.sh` defines artifact inputs; Rust
 tests outside `src/` are excluded from that digest. CI uses the same input list for its diff against
 the pinned engine tag, including source and license directories to catch deletions.

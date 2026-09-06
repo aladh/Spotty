@@ -1,0 +1,15 @@
+id: rust-runtime-owner
+valid:
+  - 'fn work() { block_on_export(future); }'
+  - 'fn work() { other_runtime.block_on(future); }'
+  - '// RUNTIME.block_on(future)'
+  - 'const TEXT: &str = "RUNTIME.block_on(future)";'
+  - '/* outer /* RUNTIME.block_on(future) */ comment */'
+invalid:
+  - 'fn work() { RUNTIME.block_on(future); }'
+  - 'fn work() { crate::RUNTIME.block_on(future); }'
+  - |-
+    fn work() { RUNTIME
+        .block_on(future); }
+  - 'fn work() { RUNTIME /* boundary */ .block_on(future); }'
+  - '#[cfg(test)] mod tests { fn work() { RUNTIME.block_on(future); } }'

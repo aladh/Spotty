@@ -56,9 +56,12 @@ class PromotionTests(unittest.TestCase):
             "head_sha": HEAD, "status": "completed", "conclusion": "failure",
         }
         self.jobs = [{"name": name, "conclusion": "success", "started_at": "2026-09-05T12:00:00Z",
-                      "completed_at": "2026-09-05T12:10:00Z"} for name in ("Rust checks", "Candidate Swift debug", "Candidate Swift release")]
-        for job in self.jobs[1:]:
-            job["started_at"] = "2026-09-05T12:11:00Z"
+                      "completed_at": "2026-09-05T12:10:00Z"} for name in (
+                          "Rust checks", "Candidate Swift debug", "Candidate Swift release", "Source policies")]
+        for job in self.jobs:
+            if job["name"].startswith("Candidate Swift "):
+                job["started_at"] = "2026-09-05T12:11:00Z"
+                job["completed_at"] = "2026-09-05T12:20:00Z"
         self.artifact = {"expired": False, "created_at": "2026-09-05T12:09:00Z"}
 
     def test_failed_published_pin_does_not_block_successful_candidate(self):
@@ -121,15 +124,18 @@ class PromotionTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_run({**self.run, key: value}, self.jobs, "owner/repo", HEAD)
 
-    def test_every_candidate_job_must_pass(self):
+    def test_every_required_job_must_pass(self):
         for index in range(len(self.jobs)):
             for conclusion in ("failure", "skipped", "cancelled", None):
                 jobs = copy.deepcopy(self.jobs)
                 jobs[index]["conclusion"] = conclusion
                 with self.subTest(index=index, conclusion=conclusion), self.assertRaises(ValueError):
                     validate_run(self.run, jobs, "owner/repo", HEAD)
-        with self.assertRaises(ValueError):
-            validate_run(self.run, self.jobs[:-1], "owner/repo", HEAD)
+        for index in range(len(self.jobs)):
+            with self.subTest(missing=index), self.assertRaises(ValueError):
+                validate_run(self.run, self.jobs[:index] + self.jobs[index + 1:], "owner/repo", HEAD)
+            with self.subTest(duplicate=index), self.assertRaises(ValueError):
+                validate_run(self.run, [*self.jobs, self.jobs[index]], "owner/repo", HEAD)
 
     def test_stale_artifact_cannot_borrow_a_rerun_success(self):
         with self.assertRaises(ValueError):

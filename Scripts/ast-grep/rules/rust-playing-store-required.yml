@@ -1,0 +1,53 @@
+id: rust-playing-store-required
+language: Rust
+severity: error
+message: The production PlayerEvent::Playing arm must store IS_PLAYING=true.
+files:
+  - Backend/spotty-playback/src/player_event_pump.rs
+rule:
+  kind: source_file
+  not:
+    has:
+      kind: match_arm
+      all:
+        - inside:
+            kind: function_item
+            has:
+              field: name
+              regex: '^apply_player_event_locked$'
+            stopBy:
+              kind: function_item
+        - has:
+            field: pattern
+            kind: match_pattern
+            has:
+              kind: struct_pattern
+              has:
+                field: type
+                kind: scoped_type_identifier
+                all:
+                  - has:
+                      field: path
+                      regex: '(^|::)PlayerEvent$'
+                  - has:
+                      field: name
+                      kind: type_identifier
+                      regex: '^Playing$'
+        - has:
+            field: value
+            any:
+              - matches: rust-playing-true-store
+              - kind: block
+                has:
+                  matches: rust-playing-true-store
+                  not:
+                    inside:
+                      matches: rust-cfg-test-module
+                      stopBy: end
+                  stopBy:
+                    kind: function_item
+        - not:
+            inside:
+              matches: rust-cfg-test-module
+              stopBy: end
+      stopBy: end

@@ -1,0 +1,59 @@
+id: rust-ffi-panic-barrier
+language: Rust
+severity: error
+message: Public C export bodies must consist of a named FFI panic-barrier call.
+files:
+  - Backend/spotty-playback/src/**/*.rs
+utils:
+  barrier-name:
+    kind: identifier
+    regex: '^(ffi_command|ffi_query_i32|ffi_query_u32|ffi_query_u8|ffi_query_bool|ffi_owned_string|ffi_owned_ptr|ffi_void)$'
+  barrier-call:
+    kind: call_expression
+    has:
+      field: function
+      any:
+        - matches: barrier-name
+        - kind: generic_function
+          has:
+            field: function
+            matches: barrier-name
+rule:
+  kind: function_item
+  all:
+    - has:
+        kind: visibility_modifier
+        regex: '^pub$'
+    - has:
+        kind: function_modifiers
+        has:
+          kind: extern_modifier
+          has:
+            kind: string_literal
+            regex: '^"C"$'
+    - not:
+        has:
+          field: body
+          kind: block
+          not:
+            has:
+              nthChild:
+                position: 2
+                ofRule:
+                  not:
+                    any:
+                      - kind: line_comment
+                      - kind: block_comment
+          has:
+            nthChild:
+              position: 1
+              ofRule:
+                not:
+                  any:
+                    - kind: line_comment
+                    - kind: block_comment
+            any:
+              - matches: barrier-call
+              - kind: expression_statement
+                has:
+                  matches: barrier-call

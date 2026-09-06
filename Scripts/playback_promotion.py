@@ -22,7 +22,8 @@ ASSETS = (
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
 )
-REQUIRED_JOBS = ("Rust checks", "Candidate Swift debug", "Candidate Swift release")
+CANDIDATE_SWIFT_JOBS = ("Candidate Swift debug", "Candidate Swift release")
+REQUIRED_JOBS = ("Source policies", "Rust checks", *CANDIDATE_SWIFT_JOBS)
 
 
 def require(condition, message):
@@ -64,7 +65,7 @@ def validate_artifact(artifact, jobs):
     require(rust["started_at"] <= created <= rust["completed_at"],
             "Artifact was not uploaded by the successful Rust job in this attempt")
     for job in jobs:
-        if job["name"] in REQUIRED_JOBS[1:]:
+        if job["name"] in CANDIDATE_SWIFT_JOBS:
             require(created <= job["started_at"], "Candidate was uploaded after Swift checks started")
 
 

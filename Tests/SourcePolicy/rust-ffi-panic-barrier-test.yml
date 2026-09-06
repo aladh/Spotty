@@ -1,0 +1,32 @@
+id: rust-ffi-panic-barrier
+valid:
+  - 'pub extern "C" fn query() -> i32 { ffi_query_i32("query", || 0) }'
+  - 'pub unsafe extern "C" fn command() -> i32 { ffi_command("command", || 0) }'
+  - 'pub extern "C" fn done() { ffi_void("done", || {}); }'
+  - 'pub extern "C" fn done() { /* before */ ffi_void("done", || {}); }'
+  - |-
+    pub extern "C" fn done() {
+        // before
+        ffi_void("done", || {});
+    }
+  - 'extern "C" fn callback() { work(); }'
+  - 'pub fn internal() { work(); }'
+  - 'pub extern "Rust" fn rust_abi() { work(); }'
+  - 'const TEXT: &str = r#"pub extern "C" fn fake() { work(); }"#;'
+  - '/* pub extern "C" fn fake() { work(); } */'
+  - 'pub(crate) extern "C" fn internal_callback() { work(); }'
+  - 'pub extern "C" fn get() -> *mut u8 { ffi_owned_ptr::<u8>("get", || std::ptr::null_mut()) }'
+  - 'pub extern "C" fn done() { ffi_void("done", || {}); /* after */ }'
+invalid:
+  - 'pub extern "C" fn query() -> i32 { 0 }'
+  - 'pub extern "C" fn done() {}'
+  - 'pub extern "C" fn done() { /* ffi_void("done", || {}); */ }'
+  - 'pub extern "C" fn query() -> i32 { mutate(); ffi_command("query", || 0) }'
+  - 'pub extern "C" fn query() -> i32 { let x = 1; ffi_command("query", || x) }'
+  - 'pub extern "C" fn query() -> i32 { fake_barrier("query", || 0) }'
+  - 'pub extern "C" fn query() -> i32 { if enabled() { ffi_command("query", || 0) } else { 0 } }'
+  - 'pub unsafe extern "C" fn query() -> i32 { work() }'
+  - 'pub extern "C" fn done() { let _ = "ffi_void"; work(); }'
+  - 'pub extern "C" fn done() { ffi_void("done", || {}); panic!("outside barrier"); }'
+  - 'pub extern "C" fn done() { ffi_void("done", || {}); /* comment */ work(); }'
+  - 'pub extern "C" fn done() { ffi_void("done", || {}); ffi_void("again", || {}); }'

@@ -356,6 +356,8 @@ checkout_without_credentials=$'uses: actions/checkout@[0-9a-f]{40} # v[^\n]+\n  
 blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
 if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
+    || ! rg -q --fixed-strings 'paths: Sources Backend/spotty-playback/src' <<< "$policy_job" \
+    || ! rg -q --fixed-strings '"$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src' Scripts/check-source-policy.sh \
     || ! rg -q --fixed-strings 'run: ./Scripts/check-source-policy.sh --test-only' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
     || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \

@@ -23,7 +23,8 @@ export SPOTTY_AST_GREP="$ast_grep"
 for owner in Sources/Spotty/SpottyApp.swift \
     Sources/Spotty/Spotify/PlaybackCore.swift \
     Sources/Spotty/Spotify/KeychainManager.swift \
-    Sources/Spotty/Spotify/RustPlaybackEngine.swift; do
+    Sources/Spotty/Spotify/RustPlaybackEngine.swift \
+    Backend/spotty-playback/src/player_event_pump.rs; do
     [[ -f "$owner" && -s "$owner" ]] || { echo "Missing or empty policy owner: $owner" >&2; exit 1; }
 done
 
@@ -31,5 +32,5 @@ done
 python3 -B -m unittest discover -s Scripts -p test_source_policy.py
 # CI's ast-grep action already scans production and emits GitHub annotations.
 if [[ "${1:-}" != --test-only ]]; then
-    "$ast_grep" scan --config sgconfig.yml Sources
+    "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src
 fi

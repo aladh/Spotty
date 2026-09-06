@@ -1,0 +1,13 @@
+id: rust-cfg-test-module
+language: Rust
+rule:
+  kind: mod_item
+  follows:
+    pattern: '#[cfg(test)]'
+    # Attributes/comments may intervene, but a previous item ends the attribute list.
+    stopBy:
+      not:
+        any:
+          - kind: attribute_item
+          - kind: line_comment
+          - kind: block_comment

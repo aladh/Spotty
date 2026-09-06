@@ -47,8 +47,8 @@ is prompt policy, not a credential restriction. The App remains subject to Spott
 main-branch rules and has no configured bypass. Approval settings are unchanged.
 
 Eligibility lookup uses the read-only Actions token. App authentication happens after
-installation and checkout. Installation and review clear OIDC request credentials from
-their environments. Authentication calls have bounded timeouts and distinct errors.
+installation and checkout. Installation, review, and trace summarization clear OIDC
+request credentials from their environments. Authentication calls have bounded timeouts and distinct errors.
 An always-run cleanup step revokes the App token; cleanup failure warns without failing
 a published review. Forced runner termination can prevent cleanup, in which case the
 token expires normally.
@@ -67,9 +67,12 @@ history. Pure mode and disabled project configuration prevent automatic discover
 candidate configuration, plugins, and skills. Shell, filesystem, edit, websearch, and
 webfetch access remain available; web content is untrusted review data.
 
-Review output stays in a temporary runner log that disappears with the runner. There
-is no separate trace-summary invocation or uploaded trace artifact. Session sharing is
-disabled. Removing the trace summary does not remove either auditor.
+Raw review output stays in a temporary runner log that disappears with the runner. After
+a successful or failed review, a separate trace-summary agent reads that log and exported
+auditor sessions, then summarizes the review and assesses its thoroughness in the
+workflow log, using its judgment about inspection depth and useful detail. The summarizer
+receives no App token and treats trace contents as untrusted data. No raw trace artifact
+is uploaded, and session sharing remains disabled.
 
 Publication is left to Thermos; there is no custom publisher or enforced revision
 recheck. Inline findings can remain after an interrupted review, and a retry may duplicate

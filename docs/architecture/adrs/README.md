@@ -22,8 +22,8 @@ by ADR 005. Consult it for historical reasoning, not current work instructions.
 
 | Need | Owner |
 | --- | --- |
-| Canonical product, ownership, verification, setup, and operations docs | [Repository guide](../AGENTS.md#canonical-documents) |
-| Private extended-metadata protocol notes | [Extended metadata](extended-metadata.md) |
+| Canonical product, ownership, verification, setup, and operations docs | [Repository guide](../../../AGENTS.md#canonical-documents) |
+| Private extended-metadata protocol notes | [Extended metadata](../extended-metadata.md) |
 
 ## Maintaining the decision log
 

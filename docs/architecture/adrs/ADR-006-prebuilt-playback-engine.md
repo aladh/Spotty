@@ -37,6 +37,6 @@ inputs. Adopting an engine change in the app requires a validated artifact and e
 Rust debugging still needs the source toolchain. Apple SDK and signing requirements are unchanged.
 
 CI verifies source-built candidates before publication and published artifacts before merge, with
-Rust blocked in app lanes. See [agent operations](../CONTRIBUTING.md#playback-binary-artifacts) for
-commands and the [enforcement inventory](architecture-enforcement.md) for coverage.
+Rust blocked in app lanes. See [agent operations](../../development/playback-artifacts.md#playback-binary-artifacts) for
+commands and the [enforcement inventory](../enforcement.md) for coverage.
 [ADR 005](ADR-005-retain-librespot.md) still owns engine choice and runtime ownership.

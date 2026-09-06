@@ -1,7 +1,7 @@
 # SpottyDomain agent guidance
 
 `SpottyDomain` is the portable, deterministic policy layer. Read
-[ADR 002](../../docs/ADR-002-playback-state-and-dependencies.md) and relevant product rules before
+[ADR 002](../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md) and relevant product rules before
 changing state transitions, queue/device policy, parsing, sorting, or lifetime semantics.
 
 ## Invariants

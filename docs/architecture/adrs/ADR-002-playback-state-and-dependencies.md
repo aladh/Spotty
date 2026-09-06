@@ -31,6 +31,6 @@ private transport models, while injected ports and import checks enforce the use
 
 ## Implementation and evidence
 
-See [engine ownership](playback-engine-ownership.md) for responsibilities, the
-[enforcement inventory](architecture-enforcement.md) for checks and scoped rules, and
+See [engine ownership](../playback-engine-ownership.md) for responsibilities, the
+[enforcement inventory](../enforcement.md) for checks and scoped rules, and
 [ADR 003](ADR-003-playback-command-effects.md) for command task ownership.

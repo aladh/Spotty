@@ -7,7 +7,7 @@ fallback. Keep the experimental and no-affiliation warnings prominent in public 
 
 Prioritize account/privacy/session safety, then playback and lifetime correctness, then native macOS
 behavior and truthful state. Keep the product surface small; apply the
-[80/20 product principle](docs/product-and-acceptance-contract.md#product-direction) when choosing
+[80/20 product principle](docs/product/scope.md#product-direction) when choosing
 features, and optimize measured, user-visible costs.
 
 ## Working in this repository
@@ -31,7 +31,7 @@ features, and optimize measured, user-visible costs.
 
 ## Live Spotify safety
 
-Follow the [safe acceptance contract](docs/product-and-acceptance-contract.md#safe-acceptance-testing)
+Follow the [safe acceptance contract](docs/product/safe-testing.md#safe-acceptance-testing)
 for live-account work. Launch or read-only acceptance does not authorize playback/account mutations.
 Do not launch merely to prove compilation: `./script/build_and_run.sh` terminates an existing
 process and can disturb an authenticated session. Use it only when the request authorizes launch
@@ -68,21 +68,31 @@ or interactive acceptance.
 ## Local verification
 
 Run the smallest focused check that exercises the change; commands are in
-[agent operations](CONTRIBUTING.md#normal-verification). Reserve `./Scripts/check-clean.sh` for
+[build and verification](docs/development/verification.md#normal-verification). Reserve `./Scripts/check-clean.sh` for
 clean-build changes or diagnosis requiring a clean rebuild. PR CI covers Rust, Swift/Debug, and
 Release compilation but does not run that clean-room gate.
 
 ## Canonical documents
 
+Use the [documentation index](docs/README.md) to browse the full topic tree.
+
 | Need | Owner |
 | --- | --- |
 | Product overview and capabilities | [README](README.md) |
-| UX, scope, and live-account acceptance | [Product contract](docs/product-and-acceptance-contract.md) |
-| Architectural choices and tradeoffs | [Decision log](docs/architecture-decisions.md) |
-| Current Swift/Rust responsibilities | [Playback engine ownership](docs/playback-engine-ownership.md) |
-| Rule owners and verification coverage | [Enforcement inventory](docs/architecture-enforcement.md) |
-| Setup, generated local state, and signing recovery | [Development setup](docs/development-setup.md) |
-| Verification, PRs, packaging, and releases | [Agent operations](CONTRIBUTING.md) |
+| UX and feature scope | [Product contracts](docs/product/README.md) |
+| Live-account acceptance | [Safe testing](docs/product/safe-testing.md) |
+| Architectural choices and tradeoffs | [Decision log](docs/architecture/adrs/README.md) |
+| Current Swift/Rust responsibilities | [Playback engine ownership](docs/architecture/playback-engine-ownership.md) |
+| FFI, lifecycle guarantees, and boundary constraints | [Engine contracts](docs/architecture/engine-contract.md) |
+| Historical measurements and size reporting | [Performance baseline](docs/architecture/performance-baseline.md) |
+| Rule owners and verification coverage | [Enforcement inventory](docs/architecture/enforcement.md) |
+| Toolchains and setup | [Development setup](docs/development/setup.md) |
+| Signing and credential recovery | [Development signing](docs/development/signing.md) |
+| Generated files and artwork regeneration | [Local state](docs/development/local-state.md) |
+| Verification | [Build and verification](docs/development/verification.md) |
+| Engine artifacts and publication | [Playback binary artifacts](docs/development/playback-artifacts.md) |
+| Packaging and releases | [Packaging and releases](docs/development/releases.md) |
+| PR execution and acceptance | [Agent operations](CONTRIBUTING.md) |
 
 ## Maintaining instructions
 

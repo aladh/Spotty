@@ -15,7 +15,7 @@
         "/^\\.github/workflows/(?:ci|playback-artifact)\\.yml$/",
         "/^Backend/spotty-playback/cbindgen\\.toml$/",
         "/^Scripts/generate-c-header\\.sh$/",
-        "/^docs/development-setup\\.md$/"
+        "/^docs/development/setup\\.md$/"
       ],
       "matchStrings": [
         "cargo install cbindgen --locked --version (?<currentValue>\\d+\\.\\d+\\.\\d+)(?:[\\s`.]|$)",

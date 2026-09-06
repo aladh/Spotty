@@ -1,7 +1,8 @@
 # Native UI agent guidance
 
-Read the [product contract](../../../docs/product-and-acceptance-contract.md) for UX changes,
-including the fixed dark appearance, layout, supported actions, and acceptance rules.
+Read [product scope](../../../docs/product/scope.md) and [navigation](../../../docs/product/navigation.md)
+for appearance and layout changes, then the affected [surface contract](../../../docs/product/README.md)
+for supported actions. Live-account acceptance follows [safe testing](../../../docs/product/safe-testing.md).
 
 ## Product taste
 

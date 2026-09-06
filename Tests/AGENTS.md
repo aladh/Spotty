@@ -3,7 +3,7 @@
 `SpottyDomainTests` covers pure policy and is Rust-free. `SpottyBoundaryTests` covers concrete
 SpottyCore adapters, stores, and injected workflows; it needs the playback archive at link time.
 Both targets use Swift Testing and never ship. Filtering commands are in
-[agent operations](../CONTRIBUTING.md#normal-verification).
+[build and verification](../docs/development/verification.md#normal-verification).
 
 - Use reduced, synthetic fixtures following [PRIVACY.md](../PRIVACY.md).
 - Preserve deterministic execution. The complete `Scripts/check.sh` gate must run both targets in

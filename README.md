@@ -43,7 +43,7 @@ indication of affiliation.
 ## Getting started
 
 You need a Spotify Premium account to use Spotty. Building from source is the intended way to run
-it; follow the [development setup guide](docs/development-setup.md#fresh-clone) for build-machine
+it; follow the [development setup guide](docs/development/setup.md#fresh-clone) for build-machine
 requirements, toolchains, and signing setup. Authenticated development launches require an
 Apple Development signing identity with a stable Team ID. A free Xcode Personal Team is sufficient.
 
@@ -57,7 +57,7 @@ cd Spotty
 
 SwiftPM downloads the checksum-pinned playback XCFramework; ordinary app builds need no Rust tools.
 The launch script replaces any running development copy. On first launch, choose **Connect** and
-complete Spotify authorization in the browser. See [build modes](CONTRIBUTING.md#build-and-run).
+complete Spotify authorization in the browser. See [build modes](docs/development/verification.md#build-and-run).
 
 Generated app bundles and engine archives stay out of Git. Version tags publish experimental
 prereleases; until Developer ID and notarization credentials are configured, their hardened-runtime
@@ -74,13 +74,13 @@ in [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Development
 
-- [Development setup](docs/development-setup.md): prerequisites, signing, generated local state,
-  and recovery.
-- [Agent operations](CONTRIBUTING.md): build modes, verification, packaging, and releases.
-- [Product and acceptance contract](docs/product-and-acceptance-contract.md): UX behavior and safe
+- [Development setup](docs/development/setup.md): prerequisites and links to signing and local-state guidance.
+- [Agent operations](CONTRIBUTING.md): development guides and PR workflow.
+- [Documentation index](docs/README.md): development, product, architecture, and ADRs.
+- [Product contracts](docs/product/README.md): UX behavior and safe
   live-account testing.
-- [Architecture decisions](docs/architecture-decisions.md): choices, tradeoffs, and historical context.
-- [Playback engine ownership](docs/playback-engine-ownership.md): current Swift/Rust responsibilities.
+- [Architecture decisions](docs/architecture/adrs/README.md): choices, tradeoffs, and historical context.
+- [Playback engine ownership](docs/architecture/playback-engine-ownership.md): current Swift/Rust responsibilities.
 
 ## License
 

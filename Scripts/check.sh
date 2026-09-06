@@ -297,7 +297,7 @@ rust_job="$(sed -n '/^  rust:/,/^  checks:/p' "$ci_workflow")"
 checks_job="$(sed -n '/^  checks:/,/^  release:/p' "$ci_workflow")"
 release_job="$(sed -n '/^  release:/,/^  gate:/p' "$ci_workflow")"
 gate_job="$(sed -n '/^  gate:/,$p' "$ci_workflow")"
-if rg -q '^[[:space:]]*([^#[:space:]].*)?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK(=|[[:space:]]*:)' <<< "$checks_job$release_job"; then
+if grep -Eq '^[[:space:]]*([^#[:space:]].*)?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK(=|[[:space:]]*:)' <<< "$checks_job$release_job"; then
     print -u2 "Swift CI must consume the published playback pin, not an unpublished engine override"
     exit 1
 fi

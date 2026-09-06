@@ -99,3 +99,43 @@ verification.
 
 Release builds use Unified Logging. `./Scripts/export-diagnostics.sh` writes a bounded report under
 ignored `diagnostics/`. Handle reports according to [PRIVACY.md](../../PRIVACY.md).
+
+## Synthetic browsing
+
+For an explicitly authorized GUI run:
+
+```bash
+./Scripts/browse-synthetic.sh
+```
+
+For interactive browsing without the automated workload, use `./script/build_and_run.sh --demo`.
+Both commands build an isolated Debug-only Spotty demo with the normal window, root view,
+navigation, commands, and lifecycle.
+It never launches or terminates the live Spotty app. The [version-1 scenario](../../Tests/BrowsingHarness/scenario.json)
+defines two playlists, six [AI-generated covers](../../Tests/BrowsingHarness/Support/Artwork/prompts.json)
+repeated across distinct artwork URLs, repeated visits, and a fixed viewing cadence. Pass a JSON
+scenario path to change the bounded workload; `mode: "signed-out"` exercises the real signed-out
+root view. Invalid scenarios fail closed. Playback, search, mutation, and recovery scenarios are
+outside this first slice of [#41](https://github.com/aladh/Spotty/issues/41).
+
+The demo injects all environment ports from one synthetic owner. Artwork loads from local fixture
+files through `AsyncImage`. A separately signed app sandbox denies socket access, which
+the workload verifies before browsing. No live auth, Keychain, engine, or audio-device dependency
+is constructed. The demo uses the same Apple Development certificate selection as Spotty and the stable
+`dev.spotty.demo` identity at `.build/Spotty Demo.app`, preserving macOS permissions across rebuilds.
+Its blue [icon source](../../Tests/BrowsingHarness/Icon/SpottyDemo.icon) distinguishes it in the Dock.
+Regenerate its fallback icon with `./Scripts/generate-icon.sh Tests/BrowsingHarness/Icon/SpottyDemo.icon/Assets/SpottyDemo.png Tests/BrowsingHarness/Icon/SpottyDemo.icns` after changing the source.
+Its sandbox caches/preferences are separate from live Spotty and persist across launches. Each run
+gets a new `.build/browsing-runs/` directory for fixtures and `report.json`. The automated command waits for the report and fails if the workload fails or times out;
+the app stays open for inspection.
+
+The report records the scenario, commit/diff identity, machine/OS context, window size/scale,
+checkpoint RSS and physical footprint, cumulative CPU time, store loading time, scroll positions,
+catalog request counts, fixture size, and demo-container cache footprint. Repeat the same scenario on
+the same machine/configuration and compare several runs; Debug timings and synthetic source bytes
+do not measure live network latency or Release performance. First visits are cold-process samples, with potentially warm framework disk caches;
+later cycles show reuse within that process. Framework scheduling and measured timings can vary.
+A verified network sandbox, zero mutation attempts, and a completed report are acceptance checks, not performance budgets.
+
+`check.sh` runs the harness's headless fixture, port, and read-only browsing checks. The normal
+package graph excludes every harness target; the shipping product has no synthetic launch selector.

@@ -127,8 +127,7 @@ struct MediaDetailHeader: View {
         RemoteArtwork(
             url: item.artworkURL,
             kind: item.kind,
-            cornerRadius: item.kind == .artist ? size / 2 : (style == .playlist ? 8 : 10),
-            pointSize: size
+            cornerRadius: item.kind == .artist ? size / 2 : (style == .playlist ? 8 : 10)
         )
         .frame(width: size, height: size)
         .shadow(

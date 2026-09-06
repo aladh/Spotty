@@ -2,8 +2,8 @@
 set -euo pipefail
 
 project_root="${0:A:h:h}"
-source_icon="$project_root/Assets/SpottyIcon.png"
-output_icon="$project_root/Assets/Spotty.icns"
+source_icon="${1:-$project_root/Assets/SpottyIcon.png}"
+output_icon="${2:-$project_root/Assets/Spotty.icns}"
 temporary_root="${TMPDIR%/}"
 working_dir="$(mktemp -d "$temporary_root/spotty-icon.XXXXXX")"
 iconset_dir="$working_dir/Spotty.iconset"

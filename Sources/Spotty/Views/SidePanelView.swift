@@ -321,7 +321,7 @@ private struct QueueTrackRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            RemoteArtwork(url: artworkURL, kind: .track, cornerRadius: 4, pointSize: 48)
+            RemoteArtwork(url: artworkURL, kind: .track, cornerRadius: 4)
                 .frame(width: 48, height: 48)
                 .overlay {
                     Button(action: play) {
@@ -377,7 +377,7 @@ private struct HistoryRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                RemoteArtwork(url: entry.artworkURL, kind: .track, cornerRadius: 4, pointSize: 48)
+                RemoteArtwork(url: entry.artworkURL, kind: .track, cornerRadius: 4)
                     .frame(width: 48, height: 48)
 
                 VStack(alignment: .leading, spacing: 2) {

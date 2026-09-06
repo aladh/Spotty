@@ -7,7 +7,7 @@ struct NowPlayingTrackIdentity: View {
         HStack(spacing: 14) {
             Group {
                 if player.hasCurrentTrack {
-                    RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 3, pointSize: 56)
+                    RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 3)
                 } else {
                     ZStack {
                         RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.quaternary)

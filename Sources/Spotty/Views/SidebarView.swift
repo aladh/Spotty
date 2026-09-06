@@ -93,8 +93,7 @@ private struct SidebarPlaylistRow: View {
             RemoteArtwork(
                 url: playlist.artworkURL,
                 kind: .playlist,
-                cornerRadius: 4,
-                pointSize: 48
+                cornerRadius: 4
             )
             .frame(width: 48, height: 48)
             .overlay {

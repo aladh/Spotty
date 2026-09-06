@@ -7,24 +7,32 @@ struct RootView: View {
     let catalog: CatalogStore
     let feedback: TransientFeedbackPresenter
 
-    @State private var mediaSelectionRawValue = MediaSelectionModel().rawValue
-    @State private var searchText = ""
-    @State private var backHistory: [String] = []
-    @State private var forwardHistory: [String] = []
+    @State private var navigation: CatalogNavigation
     @SceneStorage("showsPlaybackInspector") private var showsSidePanel = false
     @SceneStorage("playbackInspectorPanel") private var playbackPanel = PlaybackPanel.queue
 
+    init(
+        player: PlaybackStore, catalog: CatalogStore, feedback: TransientFeedbackPresenter,
+        navigation: CatalogNavigation? = nil
+    ) {
+        self.player = player
+        self.catalog = catalog
+        self.feedback = feedback
+        _navigation = State(initialValue: navigation ?? CatalogNavigation())
+    }
+
     var body: some View {
+        @Bindable var navigation = navigation
         VStack(spacing: 0) {
             NavigationBar(
-                searchText: $searchText,
+                searchText: $navigation.searchText,
                 isHome: selection == .destination(.home),
-                canGoBack: !backHistory.isEmpty,
-                canGoForward: !forwardHistory.isEmpty,
-                goBack: goBack,
-                goForward: goForward,
-                goHome: { updateMediaSelection { $0.updateSelection(.destination(.home)) } },
-                showSearch: { updateMediaSelection { $0.updateSelection(.destination(.search)) } }
+                canGoBack: !navigation.backHistory.isEmpty,
+                canGoForward: !navigation.forwardHistory.isEmpty,
+                goBack: navigation.goBack,
+                goForward: navigation.goForward,
+                goHome: { navigation.updateSelection(.destination(.home)) },
+                showSearch: { navigation.updateSelection(.destination(.search)) }
             )
             HSplitView {
                 SidebarView(
@@ -59,13 +67,11 @@ struct RootView: View {
         .foregroundStyle(SpottyPalette.textPrimary)
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: player.accountEpoch) {
-            resetMediaSelection()
+            navigation.reset()
         }
-        .onChange(of: mediaSelectionRawValue) {
+        .onChange(of: navigation.rawValue) {
             SpottyLog.ui.info("Navigation state updated: \(mediaSelection.diagnosticLabel, privacy: .public)")
         }
-        // Window-close artwork purging lives in SpottyAppDelegate, which observes
-        // NSWindow.willCloseNotification; adding a purge here would only duplicate it.
     }
 
     @ViewBuilder
@@ -135,7 +141,7 @@ struct RootView: View {
                 store: catalog.searchStore,
                 metadata: catalog.metadata,
                 playback: catalogPlayback,
-                searchText: $searchText,
+                searchText: Bindable(navigation).searchText,
                 onSelect: select,
                 playlistActions: playlistActions()
             )
@@ -184,10 +190,9 @@ struct RootView: View {
     }
 
     private func select(_ item: CatalogItem) {
-        var model = mediaSelection
-        switch model.select(item) {
+        switch navigation.select(item) {
         case .navigate:
-            navigate(to: model)
+            break
         case let .play(uri):
             catalogPlayback.playURI(uri)
         }
@@ -212,7 +217,7 @@ struct RootView: View {
             actionTitle: "Show \(destination.rawValue)",
             actionSystemImage: "arrow.left"
         ) {
-            updateMediaSelection { $0.updateSelection(.destination(destination)) }
+            navigation.updateSelection(.destination(destination))
         }
         .padding(30)
     }
@@ -231,7 +236,7 @@ struct RootView: View {
     }
 
     private var mediaSelection: MediaSelectionModel {
-        MediaSelectionModel(rawValue: mediaSelectionRawValue) ?? MediaSelectionModel()
+        navigation.model
     }
 
     private var catalogPlayback: CatalogPlaybackAccess {
@@ -256,44 +261,9 @@ struct RootView: View {
         Binding(
             get: { selection },
             set: { selection in
-                updateMediaSelection { $0.updateSelection(selection) }
+                navigation.updateSelection(selection)
             }
         )
     }
 
-    private func updateMediaSelection(_ update: (inout MediaSelectionModel) -> Void) {
-        var model = mediaSelection
-        update(&model)
-        navigate(to: model)
-    }
-
-    private func navigate(to model: MediaSelectionModel) {
-        guard model.selection != selection else {
-            mediaSelectionRawValue = model.rawValue
-            return
-        }
-        backHistory.append(mediaSelectionRawValue)
-        if backHistory.count > 100 { backHistory.removeFirst() }
-        forwardHistory.removeAll()
-        mediaSelectionRawValue = model.rawValue
-    }
-
-    private func goBack() {
-        guard let previous = backHistory.popLast() else { return }
-        forwardHistory.append(mediaSelectionRawValue)
-        mediaSelectionRawValue = previous
-    }
-
-    private func goForward() {
-        guard let next = forwardHistory.popLast() else { return }
-        backHistory.append(mediaSelectionRawValue)
-        mediaSelectionRawValue = next
-    }
-
-    private func resetMediaSelection() {
-        backHistory.removeAll()
-        forwardHistory.removeAll()
-        searchText = ""
-        mediaSelectionRawValue = MediaSelectionModel().rawValue
-    }
 }

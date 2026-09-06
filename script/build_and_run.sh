@@ -1,6 +1,10 @@
 #!/bin/zsh
 set -euo pipefail
 
+if [[ "${1:-}" == "--demo" ]]; then
+    exec "${0:A:h:h}/Scripts/browse-synthetic.sh" --interactive "${@:2}"
+fi
+
 mode="${1:-run}"
 app_name="Spotty"
 previous_app_name="$(printf '\101\165\162\141\154')"
@@ -24,7 +28,7 @@ esac
 case "$mode" in
     run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify|--release|release|--verify-release|verify-release) ;;
     *)
-        print -u2 "usage: $0 [run|--debug|--logs|--telemetry|--verify|--release|--verify-release]"
+        print -u2 "usage: $0 [run|--demo|--debug|--logs|--telemetry|--verify|--release|--verify-release]"
         exit 2
         ;;
 esac
@@ -125,7 +129,7 @@ case "$mode" in
         exit 1
         ;;
     *)
-        print -u2 "usage: $0 [run|--debug|--logs|--telemetry|--verify|--release|--verify-release]"
+        print -u2 "usage: $0 [run|--demo|--debug|--logs|--telemetry|--verify|--release|--verify-release]"
         exit 2
         ;;
 esac

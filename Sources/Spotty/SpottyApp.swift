@@ -64,8 +64,7 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
             window === trackedMainWindow
         else { return }
         trackedMainWindow = nil
-        ArtworkCache.shared.removeAll()
-        SpottyLog.ui.info("Main window closed; artwork cache purged")
+        SpottyLog.ui.info("Main window closed")
     }
 
     func applicationWillTerminate(_: Notification) {
@@ -118,8 +117,20 @@ struct SpottyApp: App {
     }
 
     var body: some Scene {
+        SpottyScene(player: player, feedback: feedback, appDelegate: appDelegate)
+    }
+}
+
+/// Live and isolated demo builds use the same window, root view, commands, and lifecycle.
+struct SpottyScene: Scene {
+    let player: PlaybackStore
+    let feedback: TransientFeedbackPresenter
+    let appDelegate: SpottyAppDelegate
+    var navigation: CatalogNavigation?
+
+    var body: some Scene {
         Window(AppDisplayName.current, id: "main") {
-            RootView(player: player, catalog: player.catalog, feedback: feedback)
+            RootView(player: player, catalog: player.catalog, feedback: feedback, navigation: navigation)
                 .frame(minWidth: 960, minHeight: 640)
                 .task {
                     appDelegate.installTerminationHandler { await player.shutdownForTermination() }

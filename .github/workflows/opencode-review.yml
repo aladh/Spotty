@@ -29,7 +29,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
+      id-token: write
     env:
       PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -53,7 +54,7 @@ jobs:
             jq -r '"BASE_SHA=" + .base.sha, "HEAD_SHA=" + .head.sha' <<< "$pr" >> "$GITHUB_ENV"
           else
             found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-              --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- spotty-thermos-review -->")) | .id')
+              --jq '.[] | select(.user.login == "github-actions[bot]" or .user.login == "opencode-agent[bot]") | select(.body | startswith("<!-- spotty-thermos-review -->")) | .id')
             if [ -n "$found" ]; then
               echo 'Skipping: automatic review already published'
               echo 'skip=true' >> "$GITHUB_OUTPUT"
@@ -87,12 +88,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Authenticate as OpenCode App
+        id: app-token
+        if: steps.eligibility.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          oidc=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=opencode-github-action" | jq -er '.value | select(type == "string" and length > 0)')
+          echo "::add-mask::$oidc"
+          token=$(curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $oidc" \
+            https://api.opencode.ai/exchange_github_app_token | jq -er '.token | select(type == "string" and length > 0)')
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
       - name: Review and comment
         id: review
         if: steps.eligibility.outputs.skip != 'true'
         working-directory: source
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           OPENCODE_DISABLE_PROJECT_CONFIG: 'true'
           OPENCODE_DISABLE_AUTOUPDATE: 'true'
@@ -106,6 +122,12 @@ jobs:
           "$RUNNER_TEMP/thermos-cli/node_modules/.bin/opencode" --pure run \
             --agent thermos \
             "Run Thermos on $GITHUB_REPOSITORY PR #$PR_NUMBER. The gh and rg CLIs are available. Have the parent post actionable findings as inline comments where appropriate (COMMENT, not an approval or change request), and a brief summary via gh pr comment starting with <!-- spotty-thermos-review -->."
+
+      - name: Revoke OpenCode App token
+        if: ${{ always() && steps.app-token.outputs.token != '' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh api --method DELETE /installation/token
 
       - name: Summarize review trace
         if: ${{ !cancelled() && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}

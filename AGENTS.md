@@ -16,7 +16,8 @@ features, and optimize measured, user-visible costs.
 - Before editing, read the applicable `AGENTS.md` chain. Discover tracked instruction files with
   `git ls-files | rg '(^|/)AGENTS\.md$'` from the repository root.
 - Load only relevant documents; inspect the affected implementation, checks, and recent history,
-  using the canonical owners below rather than duplicating their rules.
+  using the [documentation index](docs/README.md) to find canonical owners rather than duplicating
+  their rules.
 - Reviews, explanations, diagnoses, and plans are read-only unless changes are requested.
   For changes, complete in-scope work and non-destructive validation without routine approval.
 - Spotty is maintained exclusively by agents: complete agent-operable work and report unperformed
@@ -71,28 +72,6 @@ Run the smallest focused check that exercises the change; commands are in
 [build and verification](docs/development/verification.md#normal-verification). Reserve `./Scripts/check-clean.sh` for
 clean-build changes or diagnosis requiring a clean rebuild. PR CI covers Rust, Swift/Debug, and
 Release compilation but does not run that clean-room gate.
-
-## Canonical documents
-
-Use the [documentation index](docs/README.md) to browse the full topic tree.
-
-| Need | Owner |
-| --- | --- |
-| Product overview and capabilities | [README](README.md) |
-| UX and feature scope | [Product contracts](docs/product/README.md) |
-| Live-account acceptance | [Safe testing](docs/product/safe-testing.md) |
-| Architectural choices and tradeoffs | [Decision log](docs/architecture/adrs/README.md) |
-| Current Swift/Rust responsibilities | [Playback engine ownership](docs/architecture/playback-engine-ownership.md) |
-| FFI, lifecycle guarantees, and boundary constraints | [Engine contracts](docs/architecture/engine-contract.md) |
-| Historical measurements and size reporting | [Performance baseline](docs/architecture/performance-baseline.md) |
-| Rule owners and verification coverage | [Enforcement inventory](docs/architecture/enforcement.md) |
-| Toolchains and setup | [Development setup](docs/development/setup.md) |
-| Signing and credential recovery | [Development signing](docs/development/signing.md) |
-| Generated files and artwork regeneration | [Local state](docs/development/local-state.md) |
-| Verification | [Build and verification](docs/development/verification.md) |
-| Engine artifacts and publication | [Playback binary artifacts](docs/development/playback-artifacts.md) |
-| Packaging and releases | [Packaging and releases](docs/development/releases.md) |
-| PR execution and acceptance | [Agent operations](CONTRIBUTING.md) |
 
 ## Maintaining instructions
 

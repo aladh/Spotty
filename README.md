@@ -63,6 +63,9 @@ Generated app bundles and engine archives stay out of Git. Version tags publish 
 prereleases; until Developer ID and notarization credentials are configured, their hardened-runtime
 ad-hoc signatures are not automatically trusted by macOS.
 
+See the [documentation index](docs/README.md) for development guides, product contracts,
+architecture, and the PR workflow.
+
 ## Privacy and security
 
 Spotty has no analytics, advertising, crash-reporting SDK, or Spotty-operated server. It requests
@@ -71,16 +74,6 @@ Keychain. Artwork caching is bounded, and operational logs use Apple Unified Log
 
 Read [PRIVACY.md](PRIVACY.md) before signing in. Report security issues through the private process
 in [SECURITY.md](SECURITY.md), not a public issue.
-
-## Development
-
-- [Development setup](docs/development/setup.md): prerequisites and links to signing and local-state guidance.
-- [Agent operations](CONTRIBUTING.md): development guides and PR workflow.
-- [Documentation index](docs/README.md): development, product, architecture, and ADRs.
-- [Product contracts](docs/product/README.md): UX behavior and safe
-  live-account testing.
-- [Architecture decisions](docs/architecture/adrs/README.md): choices, tradeoffs, and historical context.
-- [Playback engine ownership](docs/architecture/playback-engine-ownership.md): current Swift/Rust responsibilities.
 
 ## License
 

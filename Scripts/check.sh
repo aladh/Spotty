@@ -274,7 +274,7 @@ if rg -n '(^|[^[:alnum:]_])(cargo|rustc|rustup|cbindgen)([^[:alnum:]_]|$)|Backen
 fi
 
 # The CI quality gates must keep using an existing runner rg, immutable playback inputs,
-# job-local SwiftPM caches, Rust-free Swift lanes, and credential-free checkouts.
+# one shared Debug/Release SwiftPM cache, Rust-free Swift lanes, and credential-free checkouts.
 ci_workflow="$project_root/.github/workflows/ci.yml"
 if [[ ! -f "$ci_workflow" ]]; then
     print -u2 "CI workflow is missing"
@@ -292,55 +292,49 @@ if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
     print -u2 "CI must use the selected toolchain swift-format, not a Homebrew Swift linter"
     exit 1
 fi
-policy_job="$(sed -n '/^  policy:/,/^  rust:/p' "$ci_workflow")"
-rust_job="$(sed -n '/^  rust:/,/^  checks:/p' "$ci_workflow")"
-checks_job="$(sed -n '/^  checks:/,/^  release:/p' "$ci_workflow")"
-release_job="$(sed -n '/^  release:/,/^  gate:/p' "$ci_workflow")"
+policy_job="$(sed -n '/^  policy:/,/^  macos:/p' "$ci_workflow")"
+macos_job="$(sed -n '/^  macos:/,/^  checks:/p' "$ci_workflow")"
 gate_job="$(sed -n '/^  gate:/,$p' "$ci_workflow")"
-if grep -Eq '^[[:space:]]*([^#[:space:]].*)?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK(=|[[:space:]]*:)' <<< "$checks_job$release_job"; then
+if grep -Eq '^[[:space:]]*([^#[:space:]].*)?SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK(=|[[:space:]]*:)' <<< "$macos_job"; then
     print -u2 "Swift CI must consume the published playback pin, not an unpublished engine override"
     exit 1
 fi
 checkout_without_credentials=$'uses: actions/checkout@[0-9a-f]{40} # v[^\n]+\n        with:\n          persist-credentials: false'
 blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
+if [[ "$(rg -c 'runs-on: macos-' "$ci_workflow")" != 1 ]]; then
+    print -u2 "CI must use exactly one macOS job"
+    exit 1
+fi
 if ! rg -U -q "$checkout_without_credentials" <<< "$policy_job" \
     || ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'paths: Sources Backend/spotty-playback/src' <<< "$policy_job" \
     || ! rg -q --fixed-strings '"$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src' Scripts/check-source-policy.sh \
     || ! rg -q --fixed-strings 'run: ./Scripts/check-source-policy.sh --test-only' <<< "$policy_job" \
-    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$rust_job" \
-    || ! rg -q --fixed-strings 'name: Rust checks' <<< "$rust_job" \
-    || ! rg -q --fixed-strings 'needs: [policy]' <<< "$rust_job" \
-    || ! rg -q --fixed-strings "if: needs.policy.outputs.rust_needed == 'true'" <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$macos_job" \
+    || ! rg -q --fixed-strings 'name: macOS checks' <<< "$macos_job" \
+    || ! rg -q --fixed-strings 'needs: [policy]' <<< "$macos_job" \
+    || ! rg -q --fixed-strings "if: needs.policy.outputs.rust_needed == 'true'" <<< "$macos_job" \
     || ! rg -q --fixed-strings 'git show "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py" > "$trusted_policy"' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA"' <<< "$policy_job" \
     || ! rg -q --fixed-strings -- "-p 'test_*policy.py'" Scripts/check-source-policy.sh \
-    || ! rg -q --fixed-strings 'candidate_needed' <<< "$rust_job" \
-    || ! rg -q --fixed-strings 'run: ./Scripts/playback-candidate-needed.sh' <<< "$rust_job" \
-    || ! rg -q --fixed-strings 'INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}' <<< "$rust_job" \
-    || ! rg -U -q "$checkout_without_credentials" <<< "$rust_job" \
-    || ! rg -q 'key: macos-rust-.*Cargo\.lock' <<< "$rust_job" \
+    || ! rg -q --fixed-strings 'candidate_needed' <<< "$macos_job" \
+    || ! rg -q --fixed-strings 'run: ./Scripts/playback-candidate-needed.sh' <<< "$macos_job" \
+    || ! rg -q --fixed-strings 'INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}' <<< "$macos_job" \
+    || ! rg -U -q "$checkout_without_credentials" <<< "$macos_job" \
+    || ! rg -q 'key: macos-rust-.*Cargo\.lock' <<< "$macos_job" \
     || ! rg -q --fixed-strings 'source-input-digest.sh' Scripts/playback-candidate-needed.sh \
-    || ! rg -q --fixed-strings 'run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh' <<< "$rust_job" \
-    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$checks_job" \
-    || ! rg -q --fixed-strings 'xcode-select -s /Applications/Xcode_26.6.app' <<< "$checks_job" \
-    || ! rg -q --fixed-strings "grep -q 'Apple Swift version 6.3.3'" <<< "$checks_job" \
-    || ! rg -U -q "$checkout_without_credentials" <<< "$checks_job" \
-    || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$checks_job" \
-    || ! rg -q 'key: macos-swiftpm-debug-.*Package\.swift' <<< "$checks_job" \
-    || ! rg -U -q --fixed-strings -- $'- name: Run checks\n        run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh' <<< "$checks_job" \
-    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$release_job" \
-    || ! rg -q --fixed-strings 'xcode-select -s /Applications/Xcode_26.6.app' <<< "$release_job" \
-    || ! rg -q --fixed-strings "grep -q 'Apple Swift version 6.3.3'" <<< "$release_job" \
-    || ! rg -U -q "$checkout_without_credentials" <<< "$release_job" \
-    || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$release_job" \
-    || ! rg -q 'key: macos-swiftpm-release-.*Package\.swift' <<< "$release_job" \
-    || ! rg -U -q --fixed-strings -- $'- name: Compile release Spotty with SPOTTY_DISTRIBUTION\n        run: ./Scripts/compile-release-spotty.sh' <<< "$release_job" \
-    || ! rg -q --fixed-strings 'report-size.sh' <<< "$release_job" \
+    || ! rg -q --fixed-strings 'run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh' <<< "$macos_job" \
+    || ! rg -q --fixed-strings 'xcode-select -s /Applications/Xcode_26.6.app' <<< "$macos_job" \
+    || ! rg -q --fixed-strings "grep -q 'Apple Swift version 6.3.3'" <<< "$macos_job" \
+    || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$macos_job" \
+    || ! rg -q 'key: macos-swiftpm-combined-.*Package\.swift' <<< "$macos_job" \
+    || ! rg -U -q --fixed-strings -- $'- name: Run checks\n        id: debug\n        run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh' <<< "$macos_job" \
+    || ! rg -U -q --fixed-strings -- $'- name: Compile release Spotty with SPOTTY_DISTRIBUTION\n        id: release\n        run: ./Scripts/compile-release-spotty.sh' <<< "$macos_job" \
+    || ! rg -q --fixed-strings 'report-size.sh' <<< "$macos_job" \
     || ! rg -q --fixed-strings 'if: always()' <<< "$gate_job" \
-    || ! rg -q --fixed-strings 'needs: [policy, rust, checks, release]' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'needs: [policy, macos, checks, release]' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}' <<< "$gate_job" \
-    || ! rg -q --fixed-strings 'RUST_RESULT: ${{ needs.rust.result }}' <<< "$gate_job" \
+    || ! rg -q --fixed-strings 'RUST_RESULT: ${{ needs.macos.outputs.rust_result }}' <<< "$gate_job" \
     || ! rg -U -q --fixed-strings -- $'if [[ "$RUST_NEEDED" == true ]]; then\n            test "$RUST_RESULT" = success\n          else\n            test "$RUST_NEEDED" = false\n            test "$RUST_RESULT" = skipped\n          fi\n          test "$CHECKS_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$POLICY_RESULT" = success' <<< "$gate_job" \
     || ! rg -q --fixed-strings 'test "$RELEASE_RESULT" = success' <<< "$gate_job"; then

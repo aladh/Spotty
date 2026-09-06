@@ -22,7 +22,7 @@ Renderer backpressure: of 1,971 one-millisecond playing observations, 1,935 were
 deliberate producer sleep, with no allocator hotspot. Those measurements did not justify a Core
 Media sample-buffer pool at the time; new optimization decisions need a current baseline.
 
-### Binary size
+## Binary size
 
 The CI "Release distribution compile" job uses `Scripts/report-size.sh` to report app/archive sizes,
 binary segments, and archive export count. Read its summary with `gh run view <run-id>` or download

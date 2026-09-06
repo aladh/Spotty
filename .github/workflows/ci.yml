@@ -93,6 +93,9 @@ jobs:
     timeout-minutes: 120
     env:
       CBINDGEN_VERSION: 0.29.4
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
+      CARGO_PROFILE_TEST_DEBUG: "line-tables-only"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,8 +147,8 @@ jobs:
             ~/.cargo/registry
             Backend/spotty-playback/target/debug
             Backend/spotty-playback/target/.rustc_info.json
-          key: macos-rust-debug-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Backend/spotty-playback/Cargo.lock') }}
-          restore-keys: macos-rust-debug-${{ runner.arch }}-
+          key: macos-rust-debug-lean-v1-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: macos-rust-debug-lean-v1-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-
 
       - name: Run Rust checks
         id: rust
@@ -156,8 +159,10 @@ jobs:
         if: steps.inputs.outputs.candidate_needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: Backend/spotty-playback/target/aarch64-apple-darwin/release
-          key: macos-rust-playback-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}
+          path: |
+            Backend/spotty-playback/target/aarch64-apple-darwin/release
+            Backend/spotty-playback/target/release
+          key: macos-rust-playback-host-v1-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}
 
       - name: Build candidate playback XCFramework
         env:
@@ -234,9 +239,15 @@ jobs:
           path: |
             .build/*
             !.build/spotty-signing
-          key: macos-swiftpm-combined-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
+          key: macos-swiftpm-mtimes-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
-            macos-swiftpm-combined-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
+            macos-swiftpm-mtimes-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
+
+      - name: Restore unchanged Swift input timestamps
+        run: python3 Scripts/ci_source_mtimes.py restore
+
+      - name: Snapshot Swift input timestamps
+        run: python3 Scripts/ci_source_mtimes.py save
 
       - name: Run checks
         id: debug

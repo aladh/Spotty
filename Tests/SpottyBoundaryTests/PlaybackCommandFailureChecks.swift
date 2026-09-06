@@ -530,8 +530,9 @@ struct PlaybackCommandFailureTests {
             await cancelled.restore()
             #expect((cancelled.phase) == (.ready), "a granted account restores to ready before cancelled recovery")
             cancelled.recoverEngineAfterCommandFailure()
+            let recoverySettlement = cancelled.effects.settlement(of: .engineRecovery)
             cancelled.effects.cancel(.engineRecovery)
-            try? await Task.sleep(for: .milliseconds(50))
+            await recoverySettlement?.wait()
             #expect((cancelledEngine.forceReconnectCount) == (0), "cancelled engine recovery never reaches the engine")
             await cancelled.shutdownForTermination()
 
@@ -1500,7 +1501,9 @@ struct PlaybackCommandFailureTests {
                 let player = playbackStore(
                     commandEnvironment(local: local, remote: remote, preferences: preferences)
                 )
-                _ = await waitUntil { player.shuffleHistoryCache["restored"] == 1 }
+                player.startLifetimeEffectsIfNeeded()
+                await player.effects.settlement(of: .preferencesRestore)?.wait()
+                #expect(player.shuffleHistoryCache["restored"] == 1, "fixture preferences finished restoring")
                 return player
             }
 

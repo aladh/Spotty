@@ -1,8 +1,10 @@
 # Spotify boundary agent guidance
 
 This directory owns account/auth, catalog, Connect, playback state/effects, queue, audio, and network
-boundaries. Read the relevant ADRs and the
-[product contract](../../../docs/product/README.md).
+boundaries. Read the relevant ADRs and [playback](../../../docs/product/playback.md) or
+[queue](../../../docs/product/queue.md) contract for the affected behavior. Other surfaces are indexed
+in [product contracts](../../../docs/product/README.md); live-account work follows
+[safe testing](../../../docs/product/safe-testing.md).
 
 The pinned Rust/librespot engine is the sole production owner of session, Connect, streaming,
 decryption, and decoding. Keep the existing PCM path through the adapter and do not add a parallel
@@ -41,7 +43,7 @@ audio or protocol implementation.
   rows from unfiltered Connect tracks; metadata must not reorder or erase newer authoritative state.
 - Device, connection, and playback presentation policy stays in Swift. All four observation
   families cross FFI as typed C snapshots. Read
-  [playback engine ownership](../../../docs/architecture/playback-engine-ownership.md) before changing projections,
+  [engine contracts](../../../docs/architecture/engine-contract.md) before changing projections,
   snapshot fields, or reconnect behavior.
 - Resume and reconnect use `ResumeLoadPlan` over sticky resume-load URIs, not presentation
   snapshots. Preserve one rehydration sequence per engine session generation and the readiness

@@ -25,7 +25,7 @@ across the Swift/Rust boundary.
   Connection, playback, device-list, and queue observations are typed C snapshots, not JSON.
   Presentation and resume plans stay in Swift. Preserve the reconnect readiness hold and keep
   sticky context confined to resume-load getters; follow
-  [playback engine ownership](../../docs/architecture/playback-engine-ownership.md) when changing these boundaries.
+  [engine contracts](../../docs/architecture/engine-contract.md) when changing these boundaries.
 - Keep decoded PCM on `proxy_sink`; do not reintroduce a parallel audio/protocol path, debug selector,
   Swift decoder, or player-injection seam.
 - Keep the checked-in C header, exported symbol set, signatures, ownership, allocation, and callback

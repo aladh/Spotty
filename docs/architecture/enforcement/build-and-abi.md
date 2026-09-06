@@ -8,12 +8,12 @@
 | --- | --- | --- | --- |
 | `FMT-SWIFT-001`–`003` | One selected-toolchain `swift-format` contract; Spotty builds fail on warnings; wrapper discovery cannot drift | [Build and verification](../../development/verification.md) | `Scripts/format-swift.sh`, its self-test, and warning flags in `Scripts/swiftpm-env.sh` / build scripts |
 | `FMT-RUST-001`–`002` | Rust is rustfmt-clean and Clippy warning-clean on locked targets | [Build and verification](../../development/verification.md) | `cargo fmt --all -- --check`; `cargo clippy --locked --all-targets -- -D warnings` in `Scripts/check.sh` |
-| `CMP-PLT-001` | macOS 15+ on Apple Silicon is the supported runtime envelope | Product contract | `Package.swift`, ARM64 XCFramework validation and app release checks; Rust source/artifact lanes also enforce the ARM64 target; support wording remains semantic |
+| `CMP-PLT-001` | macOS 15+ on Apple Silicon is the supported runtime envelope | [Product scope](../../product/scope.md) and [README](../../../README.md) | `Package.swift`, ARM64 XCFramework validation and app release checks; Rust source/artifact lanes also enforce the ARM64 target; support wording remains semantic |
 | `CMP-DEP-001`, `CMP-FFI-001` | Target direction is `SpottyApp -> SpottyCore -> SpottyDomain`; only SpottyCore depends on the C module | Root `AGENTS.md` architecture rules and scoped Spotify boundary guidance | SwiftPM target graph plus focused import checks |
 | `CMP-CHK-001`–`002` | Test targets never ship; pure tests do not depend on SpottyCore/Rust; boundary tests remain separate | ADR 002 | SwiftPM targets and `Scripts/check.sh` |
 | `CMP-TCA-001` | No TCA or generic Effect framework | ADR 003 | No external Swift effect-framework dependency in `Package.swift`, plus semantic review of generic effect abstractions |
-| `CMP-LIVE-001` | Shipping code uses live integrations; fakes and synthetic hooks stay in checks | Product contract | Package separation, hygiene checks, deterministic fixture checks, and semantic review |
-| `CMP-PKG-001` | Packaging metadata remains parseable | Agent operations | `plutil -lint Packaging/Info.plist` in `Scripts/check.sh` |
+| `CMP-LIVE-001` | Shipping code uses live integrations; fakes and synthetic hooks stay in checks | [Repository architecture](../../../AGENTS.md#architecture) | Package separation, hygiene checks, deterministic fixture checks, and semantic review |
+| `CMP-PKG-001` | Packaging metadata remains parseable | [Packaging and releases](../../development/releases.md) | `plutil -lint Packaging/Info.plist` in `Scripts/check.sh` |
 
 ## ABI and cross-language contracts
 

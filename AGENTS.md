@@ -74,6 +74,8 @@ Release compilation but does not run that clean-room gate.
 
 ## Canonical documents
 
+Use the [documentation index](docs/README.md) to browse the full topic tree.
+
 | Need | Owner |
 | --- | --- |
 | Product overview and capabilities | [README](README.md) |
@@ -81,6 +83,8 @@ Release compilation but does not run that clean-room gate.
 | Live-account acceptance | [Safe testing](docs/product/safe-testing.md) |
 | Architectural choices and tradeoffs | [Decision log](docs/architecture/adrs/README.md) |
 | Current Swift/Rust responsibilities | [Playback engine ownership](docs/architecture/playback-engine-ownership.md) |
+| FFI, lifecycle guarantees, and boundary constraints | [Engine contracts](docs/architecture/engine-contract.md) |
+| Historical measurements and size reporting | [Performance baseline](docs/architecture/performance-baseline.md) |
 | Rule owners and verification coverage | [Enforcement inventory](docs/architecture/enforcement.md) |
 | Toolchains and setup | [Development setup](docs/development/setup.md) |
 | Signing and credential recovery | [Development signing](docs/development/signing.md) |

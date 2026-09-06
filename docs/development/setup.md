@@ -52,6 +52,6 @@ regeneration: `cargo install cbindgen --locked --version 0.29.4`.
 Producing an engine artifact also requires Python 3.11 or newer for dependency-notice generation.
 It is not an app-build prerequisite.
 
-See [agent operations](verification.md#normal-verification) for Rust checks and
+See [build and verification](verification.md#normal-verification) for Rust checks and
 [playback binary artifacts](playback-artifacts.md#playback-binary-artifacts) for source builds, the local
 override, publication, and pin updates.

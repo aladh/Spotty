@@ -1,7 +1,7 @@
 # Development launch script agent guidance
 
 This directory owns the build, sign, terminate, and launch entry point. Read
-[agent operations](../docs/development/verification.md#build-and-run) and
+[build and verification](../docs/development/verification.md#build-and-run) and
 [development signing](../docs/development/signing.md) before changing it.
 
 - `build_and_run.sh` is not a compile-only helper: it builds Swift against the pinned playback

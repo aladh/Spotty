@@ -6,17 +6,17 @@
 
 | IDs | Decision or judgment | Canonical owner |
 | --- | --- | --- |
-| `DOC-PRI-001`, `DOC-PROD-001` | Safety/correctness/native-small-surface priority; experimental, unofficial, independent, no-affiliation product envelope | Root `AGENTS.md`, README, product contract, ADR 001 and ADR 005 |
-| `DOC-TASTE-001`, `DOC-UI-001`, `DOC-CACHE-001` | Native-Mac restraint, truthful edge states, stable layout, accessibility, and bounded presentation cost | Product contract and `Sources/Spotty/Views/AGENTS.md` |
+| `DOC-PRI-001`, `DOC-PROD-001` | Safety/correctness/native-small-surface priority; experimental, unofficial, independent, no-affiliation product envelope | Root `AGENTS.md`, README, [product scope](../../product/scope.md), ADR 001 and ADR 005 |
+| `DOC-TASTE-001`, `DOC-UI-001`, `DOC-CACHE-001` | Native-Mac restraint, truthful edge states, stable layout, accessibility, and bounded presentation cost | [Product scope](../../product/scope.md), [navigation](../../product/navigation.md), affected [surface contracts](../../product/README.md), and `Sources/Spotty/Views/AGENTS.md` |
 | `DOC-AGENT-001`, `DOC-DOD-001` | Progressive context loading and no invented human handoff | Root `AGENTS.md` |
 | `DOC-MAP-001` | Repository ownership and path-specific instruction placement | Root `AGENTS.md` |
 | `DOC-IMPL-001` | Declarative composition/views, existing store split, real protocols only at boundaries, typed state | `Sources/Spotty/AGENTS.md`, `Sources/Spotty/Spotify/AGENTS.md`, and `Sources/Spotty/Views/AGENTS.md` |
 | `DOC-CONC-001`, `DOC-ESCAPE-001` | Treat Swift concurrency diagnostics as correctness and avoid ownership escapes | Root and scoped Spotify guidance |
 | `DOC-LOG-001` | User-facing errors are actionable and logs are privacy-safe | Scoped Spotify guidance, PRIVACY, SECURITY, sanitization checks |
-| `DOC-SAFE-001` | Live playback/account mutation is explicit-current-request opt-in and bounded | Product contract |
+| `DOC-SAFE-001` | Live playback/account mutation is explicit-current-request opt-in and bounded | [Safe testing](../../product/safe-testing.md) |
 | `DOC-VER-001`, `DOC-PR-001` | Local verification scope and pull-request authorization | Root `AGENTS.md`, [verification](../../development/verification.md), and `CONTRIBUTING.md` |
-| `DOC-GEN-001`, `DOC-DEP-001` | Generated/private state stays untracked; Actions/dependencies remain pinned and deliberately reviewed | Development setup and operations guide |
-| `DOC-SEC-001`–`002` | Credentials/private data never enter Git; authenticated launch uses a stable Apple-issued Team ID | PRIVACY, SECURITY, development setup, `script/AGENTS.md`, signature checks |
+| `DOC-GEN-001`, `DOC-DEP-001` | Generated/private state stays untracked; Actions/dependencies remain pinned and deliberately reviewed | [Local state](../../development/local-state.md), [releases](../../development/releases.md), and [GitHub automation guidance](../../../.github/AGENTS.md) |
+| `DOC-SEC-001`–`002` | Credentials/private data never enter Git; authenticated launch uses a stable Apple-issued Team ID | PRIVACY, SECURITY, [development signing](../../development/signing.md), `script/AGENTS.md`, signature checks |
 | `DOC-ARCH-001` | New async/callback/provider/optimistic flows define owner, lifetime, cancellation, ordering, stale behavior, failure policy, and coverage | `Sources/Spotty/Spotify/AGENTS.md` |
 
 ## Source-reading proof audit (issues 187–188)

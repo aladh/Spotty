@@ -2,8 +2,6 @@
 
 [Product contracts](README.md) · [Safe testing](safe-testing.md)
 
-## Playlist behavior
-
 - The playlist hero starts near the content edge on a roughly 230-point dark blue-gray gradient,
   with roughly 170-point artwork and a responsive title. At roughly 840 points wide and above it uses the
   96-point heavy title treatment, while preserving compact breakpoints and long-title scaling. It shows
@@ -48,3 +46,5 @@
 - No playlist drag-and-drop: SwiftUI Table serializes the dragged row, not occurrence-aware
   multi-selection, and disabled drop targeting was not verified without private hit-testing or pixel
   coordinates. Use the keyboard-accessible context-menu command.
+
+See [transient mutation feedback](navigation.md#transient-mutation-feedback) for shared banner behavior.

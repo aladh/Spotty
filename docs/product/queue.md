@@ -31,3 +31,5 @@
   local command. Any future support must remain within
   the retained engine boundary and pass focused checks. Add to Queue remains available for local
   and remote owners, including multiple selected tracks in visible order.
+
+See [transient mutation feedback](navigation.md#transient-mutation-feedback) for shared banner behavior.

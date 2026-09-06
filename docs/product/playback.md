@@ -16,6 +16,9 @@
   playback to this Mac merely because the user pressed a remote control. When no device is marked
   active but a current track remains, a remembered last remote device stays an uncertain remote
   candidate so commands remain remote-routable; a missing or stale fallback never becomes local.
+  If this Mac has joined Connect but the playback owner is unidentified, commands direct the user
+  to choose a device, including This computer for local playback, rather than claiming startup is
+  still in progress. Selecting a device is the explicit recovery path.
 ### Transport and progress
 
 - The black player shelf is 80 points tall, with 56-point artwork, 14-point track titles,

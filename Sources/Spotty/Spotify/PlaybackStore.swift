@@ -169,6 +169,8 @@ final class PlaybackStore {
     /// Coarse track/transport observation for catalog rows. Timing changes never rewrite this
     /// value, so its observers only wake when the current track or playing state changes.
     private(set) var currentTrackIndicator = CurrentTrackIndicator()
+    /// Accepted playing context for sidebar rows; timing ticks do not invalidate every row.
+    private(set) var playingContextURI: String?
     /// Coarse connection and command capability observation for catalog ancestors. This is a
     /// projection of accepted reducer state, not a second state owner.
     private(set) var catalogPlaybackAvailability = CatalogPlaybackAvailability(
@@ -429,6 +431,12 @@ final class PlaybackStore {
             let nextAvailability = CatalogPlaybackAvailability(state: next)
             if catalogPlaybackAvailability != nextAvailability {
                 catalogPlaybackAvailability = nextAvailability
+            }
+            let nextPlayingContext =
+                nextAvailability.isConnected && next.transport == .playing
+                ? next.playbackContextURI : nil
+            if playingContextURI != nextPlayingContext {
+                playingContextURI = nextPlayingContext
             }
             return true
         }

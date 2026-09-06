@@ -244,6 +244,7 @@ public enum ConnectCommandRoute: Equatable, Sendable {
     case local
     case remote(from: String, to: String)
     case waitingForLocalIdentity
+    case needsDeviceSelection
 }
 
 /// Chooses the command destination without ever mistaking an unidentified remote for local
@@ -281,7 +282,8 @@ public func connectCommandRoute(
         }
         return .remote(from: localDeviceID, to: device.id)
     case .uncertain(nil):
-        return .waitingForLocalIdentity
+        guard let localDeviceID, !localDeviceID.isEmpty else { return .waitingForLocalIdentity }
+        return .needsDeviceSelection
     }
 }
 

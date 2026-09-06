@@ -24,16 +24,6 @@ struct RootView: View {
     var body: some View {
         @Bindable var navigation = navigation
         VStack(spacing: 0) {
-            NavigationBar(
-                searchText: $navigation.searchText,
-                isHome: selection == .destination(.home),
-                canGoBack: !navigation.backHistory.isEmpty,
-                canGoForward: !navigation.forwardHistory.isEmpty,
-                goBack: navigation.goBack,
-                goForward: navigation.goForward,
-                goHome: { navigation.updateSelection(.destination(.home)) },
-                showSearch: { navigation.updateSelection(.destination(.search)) }
-            )
             HSplitView {
                 SidebarView(
                     selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary,
@@ -67,7 +57,26 @@ struct RootView: View {
             NowPlayingBar(player: player, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel)
         }
         .foregroundStyle(SpottyPalette.textPrimary)
-        .ignoresSafeArea(.container, edges: .top)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button("Go back", systemImage: "chevron.left", action: navigation.goBack)
+                    .disabled(navigation.backHistory.isEmpty)
+                    .keyboardShortcut("[", modifiers: .command)
+                Button("Go forward", systemImage: "chevron.right", action: navigation.goForward)
+                    .disabled(navigation.forwardHistory.isEmpty)
+                    .keyboardShortcut("]", modifiers: .command)
+            }
+            ToolbarItem(placement: .principal) {
+                NavigationBar(
+                    searchText: $navigation.searchText,
+                    isHome: selection == .destination(.home),
+                    goHome: { navigation.updateSelection(.destination(.home)) },
+                    showSearch: { navigation.updateSelection(.destination(.search)) }
+                )
+            }
+        }
+        .toolbarBackground(.black, for: .windowToolbar)
+        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .onChange(of: player.accountEpoch) {
             navigation.reset()
         }

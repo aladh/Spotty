@@ -30,6 +30,9 @@ extension PlaybackStore {
         case .waitingForLocalIdentity:
             feedback.failure("Spotty is still joining Spotify Connect.")
             return
+        case .needsDeviceSelection:
+            feedback.failure(QueueMutationRefusal.needsDeviceSelection.feedbackMessage)
+            return
         case let .remote(from, to):
             let effectID = PlaybackEffectID.queueCommand(UUID())
             let epoch = accountEpoch
@@ -91,6 +94,9 @@ extension PlaybackStore {
             switch commandRoute {
             case .waitingForLocalIdentity:
                 feedback.failure(QueueMutationRefusal.joiningConnect.feedbackMessage)
+                return
+            case .needsDeviceSelection:
+                feedback.failure(QueueMutationRefusal.needsDeviceSelection.feedbackMessage)
                 return
             case .local:
                 feedback.failure(QueueMutationRefusal.localOwnerUnsupported.feedbackMessage)

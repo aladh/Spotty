@@ -96,6 +96,8 @@ private struct SidebarPlaylistRow: View {
     let playback: CatalogPlaybackAccess
     @State private var isHovering = false
 
+    private var isPlaying: Bool { playback.isPlayingPlaylist(playlist.uri) }
+
     var body: some View {
         HStack(spacing: 12) {
             RemoteArtwork(
@@ -126,6 +128,7 @@ private struct SidebarPlaylistRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(playlist.title)
+                    .foregroundStyle(isPlaying ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary)
                     .font(.system(size: 16))
                     .lineLimit(1)
                 Text(playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle)
@@ -134,6 +137,12 @@ private struct SidebarPlaylistRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            if isPlaying {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(SpottyPalette.mediaGreen)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(8)
         .background(
@@ -147,7 +156,9 @@ private struct SidebarPlaylistRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityLabel(playlist.title)
-        .accessibilityValue(playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle)
+        .accessibilityValue(
+            (playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle) + (isPlaying ? ", Playing" : "")
+        )
         .help(playlist.title)
     }
 }

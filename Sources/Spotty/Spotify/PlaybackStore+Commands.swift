@@ -98,6 +98,10 @@ extension PlaybackStore {
             SpottyLog.commands.notice("Command delayed while local Connect identity is unavailable")
             showTransientCommandError("Spotty is still joining Spotify Connect.")
             completion(false)
+        case .needsDeviceSelection:
+            SpottyLog.commands.notice("Command refused until a playback device is selected")
+            showTransientCommandError(QueueMutationRefusal.needsDeviceSelection.feedbackMessage)
+            completion(false)
         case let .remote(from, to):
             SpottyLog.commands.info(
                 "Routing \(String(describing: kind), privacy: .public) command remotely; source=\(from, privacy: .private(mask: .hash)); target=\(to, privacy: .private(mask: .hash))"

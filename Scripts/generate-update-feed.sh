@@ -21,7 +21,8 @@ printf '%s' "$SPARKLE_PRIVATE_KEY" | "$sparkle_tools/generate_appcast" \
     --embed-release-notes \
     --link "https://github.com/aladh/Spotty/releases/tag/v$version" \
     "$feed_directory"
-# Do not publish a successful tool invocation that omitted the update or its signature.
+# Sparkle compares the archive's SUPublicEDKey to the derived signing key and omits
+# the archive signature on mismatch. Fail even if generate_appcast itself exits successfully.
 python3 - "$feed_directory/appcast.xml" "$archive" "$project_root/Packaging/Info.plist" <<'PYTHON'
 import base64
 import pathlib
@@ -44,7 +45,7 @@ enclosure = item.find("enclosure")
 require(enclosure is not None, "Missing release enclosure")
 require(item.findtext(namespace + "version") == info["CFBundleVersion"], "Incorrect build")
 require(item.findtext(namespace + "shortVersionString") == info["CFBundleShortVersionString"], "Incorrect version")
-require(len(base64.b64decode(enclosure.attrib[namespace + "edSignature"], validate=True)) == 64, "Missing archive signature")
+require(len(base64.b64decode(enclosure.attrib.get(namespace + "edSignature", ""), validate=True)) == 64, "Missing archive signature: check that the signing key matches the app public key")
 require(int(enclosure.attrib["length"]) == archive.stat().st_size, "Incorrect archive length")
 expected = f'https://github.com/aladh/Spotty/releases/download/v{info["CFBundleShortVersionString"]}/{archive.name}'
 require(enclosure.attrib["url"] == expected, "Incorrect archive URL")

@@ -148,6 +148,8 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertEqual(workflow.count("runs-on: macos-"), 1)
         macos = workflow.split("  macos:\n", 1)[1]
+        self.assertNotRegex(macos, r"(?m)^  [^ #\s]",
+                            "macOS must remain the final CI job; update the job extractor if this changes")
         steps = {}
         for block in macos.split("      - name: ")[1:]:
             name, body = block.split("\n", 1)

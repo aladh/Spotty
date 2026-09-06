@@ -99,6 +99,7 @@ extension PlaybackStore {
             showTransientCommandError("Spotty is still joining Spotify Connect.")
             completion(false)
         case .needsDeviceSelection:
+            SpottyLog.commands.notice("Command refused until a playback device is selected")
             showTransientCommandError(QueueMutationRefusal.needsDeviceSelection.feedbackMessage)
             completion(false)
         case let .remote(from, to):

@@ -13,6 +13,18 @@ from ci_rust_policy import rust_needed
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def workflow_script(step_name):
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    marker = f"      - name: {step_name}\n"
+    if workflow.count(marker) != 1:
+        raise AssertionError(f"Expected one CI step named {step_name!r}; update the fixture extractor after workflow restructuring")
+    step = workflow.split(marker, 1)[1].split("\n      - name:", 1)[0]
+    run_marker = "        run: |\n"
+    if step.count(run_marker) != 1:
+        raise AssertionError(f"Expected an indented run block in CI step {step_name!r}; update the fixture extractor after workflow restructuring")
+    return textwrap.dedent(step.split(run_marker, 1)[1])
+
+
 class RustSelectionTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix="spotty-rust-scope-")
@@ -83,9 +95,7 @@ class RustSelectionTests(unittest.TestCase):
         self.assertTrue(rust_needed("pull_request", self.base, self.root))
 
     def select_via_workflow(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        step = workflow.split("      - name: Select Rust verification\n", 1)[1]
-        script = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
+        script = workflow_script("Select Rust verification")
         output = self.root / "selection-output"
         output.unlink(missing_ok=True)
         result = subprocess.run(["bash", "-c", script], cwd=self.root, capture_output=True, text=True,
@@ -135,9 +145,7 @@ class RustSelectionTests(unittest.TestCase):
 
 class AggregateGateTests(unittest.TestCase):
     def test_only_an_explicit_app_only_decision_allows_skipped_rust(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        gate = workflow.split("      - name: Require every quality lane\n", 1)[1]
-        script = textwrap.dedent(gate.split("        run: |\n", 1)[1])
+        script = workflow_script("Require every quality lane")
         env = {**os.environ, "POLICY_RESULT": "success", "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
         for needed in ("true", "false", "", "invalid"):
             for result in ("success", "skipped", "failure", "cancelled", ""):

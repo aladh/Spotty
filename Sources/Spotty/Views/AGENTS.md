@@ -18,8 +18,9 @@ and capable without advertising every capability.
 - Preserve selection, focus, scroll position, artwork/content anchors, and useful content across
   refresh, metadata arrival, tab changes, resize, and window activation. Motion explains continuity;
   it does not delay input or decorate chrome.
-- For interaction or layout changes, verify the affected keyboard, accessibility, selection, and
-  resize behavior within the authorized acceptance scope.
+- Verify the affected keyboard focus, VoiceOver labels/order, reduced motion, active/inactive
+  selection, disabled state, truncation, and narrow/window-resize behavior within the authorized
+  acceptance scope.
 - Do not use `.draggable`, `.dropDestination`, or `onDrop`; drag-and-drop is deliberately outside the
   current product contract.
 - Views render state and invoke narrow actions. They do not construct network/auth/playback

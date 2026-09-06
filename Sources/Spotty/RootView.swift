@@ -36,7 +36,9 @@ struct RootView: View {
             )
             HSplitView {
                 SidebarView(
-                    selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary, playback: catalogPlayback
+                    selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary,
+                    playback: catalogPlayback,
+                    isLoading: catalog.homeLibrary.isLoading(.playlists)
                 )
                 .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
                 .frame(maxHeight: .infinity)

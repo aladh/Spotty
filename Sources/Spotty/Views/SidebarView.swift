@@ -6,6 +6,7 @@ struct SidebarView: View {
     @Binding var selection: SidebarSelection?
     let library: [PlaylistLibraryNode]
     let playback: CatalogPlaybackAccess
+    var isLoading = false
     @State private var expandedFolders: Set<String> = []
 
     var body: some View {
@@ -41,6 +42,13 @@ struct SidebarView: View {
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 64)
             .accessibilityLabel("Playlists")
+            .overlay {
+                if library.isEmpty && isLoading {
+                    ProgressView("Loading playlists")
+                        .controlSize(.small)
+                        .font(.caption)
+                }
+            }
         }
         .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
     }

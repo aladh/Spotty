@@ -48,6 +48,39 @@ struct PlaylistLibraryTests {
     }
 
     @Test @MainActor
+    func foldersLoadConcurrentlyWithABoundedSharedQueue() async throws {
+        let gate = LibraryFolderGate()
+        let api = libraryAPI { request in
+            let body = try #require(JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
+            let variables = try #require(body["variables"] as? [String: Any])
+            guard let folder = variables["folderUri"] as? String else {
+                return try libraryPage(
+                    (0..<7).map { ("spotify:user:fixture:folder:root-\($0)", "Folder \($0)") },
+                    total: 7, request: request)
+            }
+            await gate.enter(folder)
+            let index = try #require(folder.split(separator: "-").last)
+            let entry =
+                folder.contains("root-")
+                ? ("spotify:user:fixture:folder:nested-\(index)", "Nested \(index)")
+                : ("spotify:playlist:child\(index)", "Child \(index)")
+            return try libraryPage([entry], total: 1, request: request)
+        }
+        let load = Task { try await api.playlistLibrary() }
+        #expect(await waitUntil { await gate.entered.count == 4 })
+        #expect(await gate.peakActive == 4)
+        // Release out of order: the completed fourth folder must not move ahead of the first.
+        await gate.release("spotify:user:fixture:folder:root-3")
+        #expect(await waitUntil { await gate.entered.count == 5 })
+        await gate.releaseAll()
+        let tree = try await load.value
+        #expect(await gate.entered.count == 14)
+        #expect(await gate.peakActive <= 4)
+        #expect(tree.map(\.title) == (0..<7).map { "Folder \($0)" })
+        #expect(tree.flatMap(\.playlists).map(\.title) == (0..<7).map { "Child \($0)" })
+    }
+
+    @Test @MainActor
     func failedChildRequestFailsTheWholeTree() async throws {
         let api = libraryAPI { request in
             let body = try #require(JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
@@ -93,4 +126,31 @@ private func libraryPage(_ entries: [(String, String)], total: Int, request: URL
     let data = try JSONSerialization.data(withJSONObject: payload)
     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
     return (data, response)
+}
+
+private actor LibraryFolderGate {
+    private(set) var entered: [String] = []
+    private(set) var peakActive = 0
+    private var active = 0
+    private var open = false
+    private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
+
+    func enter(_ uri: String) async {
+        entered.append(uri)
+        active += 1
+        peakActive = max(peakActive, active)
+        if !open {
+            await withCheckedContinuation { waiters[uri] = $0 }
+        }
+        active -= 1
+    }
+
+    func release(_ uri: String) { waiters.removeValue(forKey: uri)?.resume() }
+
+    func releaseAll() {
+        open = true
+        let pending = waiters.values
+        waiters.removeAll()
+        for waiter in pending { waiter.resume() }
+    }
 }

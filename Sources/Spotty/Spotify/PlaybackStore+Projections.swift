@@ -35,6 +35,12 @@ extension PlaybackStore {
         }
     }
     var localDeviceID: String? { state.devices.localDeviceID }
+    var defaultLocalPlaybackDevice: ConnectDevice? {
+        guard canStartPlayback else { return nil }
+        return ConnectDeviceProjection.defaultLocalDevice(in: state).map {
+            ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: false)
+        }
+    }
     var isPlaybackCommandPending: Bool { catalogPlaybackAvailability.hasPendingPlaybackCommand }
     var hasCurrentTrackMetadata: Bool { (state.currentTrack?.metadataSource ?? .none) != .none }
     var playbackNotice: PlaybackNotice? { state.notice }

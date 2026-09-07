@@ -80,3 +80,15 @@ Never rotate it
 by simply replacing the public key: existing installations trust the old key. Follow
 [Sparkle's key rotation procedure](https://sparkle-project.org/documentation/) when needed.
 The key authenticates Spotty updates independently of Apple signing or notarization.
+
+## Release-note format
+
+Start each `docs/releases/vX.Y.Z.md` with one sentence summarizing the release. Follow with
+`## Fixes`, `## Improvements`, or `## What’s new` and concise user-facing bullets. Describe
+observable changes and relevant limits, avoiding internal implementation details.
+
+End with `## Install`: list macOS, hardware, and account requirements; explain built-in updates
+when supported; name the versioned archive and checksum and give its verification command.
+Include the current signing/notarization status and the macOS first-launch instructions, with a
+link to the README at that release's tag. Use [v0.2.1](../releases/v0.2.1.md) as the template and
+update every version reference for the new release.

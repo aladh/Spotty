@@ -116,10 +116,21 @@ extension PlaybackStore {
         guard canTogglePlayback else { return }
         let targetIsPlaying = !isPlaying
         let now = environment.clock.now()
+        let resumePlan = resumeLoadPlan()
+        // A cold idle join can retain a displayed track without any engine resume
+        // identity (for example, an empty Connect context). Treat the explicit Play
+        // press as a fresh track selection in that narrow case; do not fabricate a
+        // sticky resume plan or change reconnect rehydration.
+        let startsRetainedTrack =
+            targetIsPlaying && defaultLocalPlaybackDevice != nil
+            && resumePlan.targets().isEmpty && !trackURI.isEmpty
+        let localOperation: LocalPlaybackOperation =
+            !targetIsPlaying ? .pause : (startsRetainedTrack ? .playURI(trackURI) : .resume(resumePlan))
         let expectedTiming: PlaybackTiming
         if targetIsPlaying {
             // A paused anchor may be arbitrarily old; resume interpolation from now.
-            expectedTiming = PlaybackTiming(position: position, duration: duration, anchoredAt: now)
+            expectedTiming = PlaybackTiming(
+                position: startsRetainedTrack ? 0 : position, duration: duration, anchoredAt: now)
         } else {
             // Freeze the smooth UI clock in the same event that applies paused transport. The
             // local player can still refresh an exact position as a follow-up; a remote device
@@ -140,7 +151,7 @@ extension PlaybackStore {
             kind: .transport,
             expecting: targetIsPlaying,
             expectedTiming: expectedTiming,
-            local: targetIsPlaying ? .resume(resumeLoadPlan()) : .pause,
+            local: localOperation,
             remote: targetIsPlaying ? .resume : .pause
         ) { [weak self] accepted in
             guard let self, accepted else { return }

@@ -19,6 +19,22 @@ public struct ConnectProtocolDevice: Equatable, Sendable {
 /// The cluster names one active device; members do not carry `is_active`. Empty
 /// `activeDeviceID` means nothing is active anywhere and must clear activity.
 public enum ConnectDeviceProjection: Sendable {
+    /// A ready Mac is the default destination for a user-initiated play when Connect
+    /// has no owner. This is selection, not protocol activation: opening the app
+    /// must not transfer a session or start audio. Preserve identified remote candidates.
+    public static func defaultLocalDevice(in state: PlaybackState) -> PlaybackDevice? {
+        guard state.session == .ready, state.transport == .paused || state.transport == .stopped,
+            let localID = state.devices.localDeviceID, !localID.isEmpty,
+            !state.devices.devices.contains(where: \.isActive)
+        else { return nil }
+        switch state.owner {
+        case .none, .uncertain(nil):
+            return state.devices.devices.first { $0.id == localID }
+        case .local, .remote, .uncertain(.some):
+            return nil
+        }
+    }
+
     public static func isActive(deviceID: String, activeDeviceID: String) -> Bool {
         !activeDeviceID.isEmpty && deviceID == activeDeviceID
     }

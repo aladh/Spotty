@@ -92,6 +92,12 @@ if [[ -z "$c_module_path" ]]; then
     exit 1
 fi
 
+sparkle_slice="$project_root/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64"
+if [[ ! -d "$sparkle_slice/Sparkle.framework" ]]; then
+    print -u2 "Missing Sparkle framework under $sparkle_slice; run swift package resolve and rebuild the boundary tests"
+    exit 1
+fi
+
 module_cache="$(mktemp -d /tmp/spotty-playback-projection-access.XXXXXX)"
 trap 'rm -rf "$module_cache"' EXIT
 
@@ -105,6 +111,7 @@ swift_arguments=(
     -module-cache-path "$module_cache"
     "${swift_module_paths[@]}"
     -I "$c_module_path"
+    -F "$sparkle_slice"
 )
 
 "$swiftc_path" "${swift_arguments[@]}" "$positive_fixture"

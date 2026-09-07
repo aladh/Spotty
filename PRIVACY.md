@@ -14,6 +14,14 @@ flow is designed for Spotify's own client, not for independently registered appl
 Spotty communicates directly with Spotify-owned account, client-token, catalog, metadata, and
 playback services, plus artwork hosts returned by Spotify. It has no Spotty-operated backend.
 
+## Application updates
+
+Checking for updates contacts GitHub and its download hosts through Sparkle. Automatic checks
+are off by default and can be enabled or disabled in the Spotty menu. Update requests expose
+ordinary connection information such as the IP address and app version; they do not include Spotify
+credentials or listening data. System-profile reporting and automatic installation are disabled.
+Updates require the user to choose installation.
+
 ## Local storage
 
 - Spotify OAuth credentials are stored in macOS Keychain. Authenticated development launches

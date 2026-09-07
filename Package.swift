@@ -97,11 +97,14 @@ let package = Package(
         .library(name: "SpottyCore", targets: ["SpottyCore"]),
         .library(name: "SpottyDomain", targets: ["SpottyDomain"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+    ],
     targets: [
         playbackSelection,
         .target(
             name: "SpottyCore",
-            dependencies: ["SpottyDomain", "SpottyPlaybackCore"],
+            dependencies: ["SpottyDomain", "SpottyPlaybackCore", .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/Spotty",
             exclude: [
                 "AGENTS.md",
@@ -118,7 +121,10 @@ let package = Package(
         .executableTarget(
             name: "SpottyApp",
             dependencies: ["SpottyCore"],
-            path: "Sources/SpottyApp"
+            path: "Sources/SpottyApp",
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+            ]
         ),
         .target(
             name: "SpottyDomain",
@@ -153,7 +159,10 @@ if ProcessInfo.processInfo.environment["SPOTTY_BUILD_BROWSING_HARNESS"] == "1" {
         .executableTarget(
             name: "SpottyBrowsingHarness",
             dependencies: ["SpottyBrowsingSupport"],
-            path: "Tests/BrowsingHarness/App"
+            path: "Tests/BrowsingHarness/App",
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+            ]
         ),
         .testTarget(
             name: "SpottyBrowsingHarnessTests",

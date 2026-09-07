@@ -42,7 +42,8 @@ struct ConnectPanelContent: View {
                         .background(Color(white: 0.122), in: RoundedRectangle(cornerRadius: 8))
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(
-                            "Current device, \(deviceName(device)), \(currentDeviceStatus)")
+                            "\(player.defaultLocalPlaybackDevice != nil ? "Default device" : "Current device"), \(deviceName(device)), \(currentDeviceStatus)"
+                        )
                     }
 
                     VStack(spacing: 0) {

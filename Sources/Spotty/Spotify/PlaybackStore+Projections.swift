@@ -36,7 +36,8 @@ extension PlaybackStore {
     }
     var localDeviceID: String? { state.devices.localDeviceID }
     var defaultLocalPlaybackDevice: ConnectDevice? {
-        ConnectDeviceProjection.defaultLocalDevice(in: state).map {
+        guard canStartPlayback else { return nil }
+        return ConnectDeviceProjection.defaultLocalDevice(in: state).map {
             ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: false)
         }
     }

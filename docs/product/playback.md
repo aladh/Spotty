@@ -22,6 +22,10 @@
   Play or Resume uses the local engine without asking for device selection, even when Spotify
   retains a previous track. Other controls retain ownership-based routing. Unidentified playback
   that is still playing requires explicit device selection; known remote candidates stay remote.
+  If the engine has no resumable context or track, that explicit Play starts the displayed track
+  from the beginning. The ready card is announced as “Default device” by VoiceOver and is hidden
+  while playback commands are unavailable. With no displayed track, it remains ready for a new
+  track selection; the player shelf's Play button stays disabled.
 ### System media controls
 
 - macOS Play/Pause, Previous, and Next media keys use the same capabilities and Connect routing

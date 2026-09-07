@@ -41,10 +41,24 @@ private final class LifecycleLocalEngine: LocalPlaybackEngine, @unchecked Sendab
     private var storedEnteredCount = 0
     private var storedExecuteCount = 0
     private var storedForceReconnectCount = 0
+    private var storedPlayURI: String?
+    private let rejectsEmptyResume: Bool
+    private let resumeContext: String?
 
-    init(result: PlaybackEngineResult, gated: Bool) {
+    init(
+        result: PlaybackEngineResult, gated: Bool, rejectsEmptyResume: Bool = false,
+        resumeContext: String? = nil
+    ) {
         self.result = result
+        self.rejectsEmptyResume = rejectsEmptyResume
+        self.resumeContext = resumeContext
         allowed = !gated
+    }
+
+    var playedURI: String? {
+        condition.lock()
+        defer { condition.unlock() }
+        return storedPlayURI
     }
 
     var enteredCount: Int {
@@ -71,19 +85,24 @@ private final class LifecycleLocalEngine: LocalPlaybackEngine, @unchecked Sendab
 
     func authorizeStreaming(with _: String) -> Int32 { 0 }
     func initialize() -> PlaybackEngineResult { .ok }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult {
+    func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
         condition.lock()
         storedEnteredCount += 1
         while !allowed {
             condition.wait()
         }
         storedExecuteCount += 1
-        let result = self.result
+        var result = self.result
+        if case let .playURI(uri) = operation { storedPlayURI = uri }
+        if rejectsEmptyResume, case let .resume(plan) = operation, plan.targets().isEmpty {
+            result = .error
+        }
         allowed = false
         condition.unlock()
         return result
     }
     func positionMilliseconds() -> UInt32 { 0 }
+    func resumeContextURI() -> String? { resumeContext }
     func queueSnapshot() -> RustQueueState? { nil }
     func shutdown() -> PlaybackEngineResult { .ok }
     func cleanup() {}
@@ -434,10 +453,12 @@ private func supersede(_ player: PlaybackStore, kind: LifecycleKind, revision: U
 
 @Suite("Playback Command Lifecycle Parity")
 struct PlaybackCommandLifecycleParityTests {
-    @Test(arguments: [false, true])
+    @Test(arguments: [false, true], [false, true])
     @MainActor
-    func idleStartupPlayUsesLocalEngineWithoutSelection(resume: Bool) async {
-        let local = LifecycleLocalEngine(result: .ok, gated: false)
+    func idleStartupPlayUsesLocalEngineWithoutSelection(resume: Bool, hasResumeContext: Bool) async {
+        let local = LifecycleLocalEngine(
+            result: .ok, gated: false, rejectsEmptyResume: true,
+            resumeContext: hasResumeContext ? "spotify:playlist:retained" : nil)
         let remote = LifecycleRemoteClient(.succeed)
         let player = lifecycleStore(lifecycleEnvironment(local: local, remote: remote))
         _ = player.send(.session(.ready), source: .account)
@@ -462,6 +483,15 @@ struct PlaybackCommandLifecycleParityTests {
         #expect(!player.isActiveDevice)
         #expect(local.executeCount == 0, "joining and projecting Connect must stay silent")
         #expect(player.commandRoute == .needsDeviceSelection, "non-play controls retain ownership routing")
+        let optionsID = UUID()
+        _ = player.send(
+            .commandStarted(
+                PendingPlaybackCommand(
+                    id: optionsID, kind: .options, expectedTransport: nil, startedAt: lifecycleTiming.anchoredAt)),
+            source: .command)
+        #expect(player.defaultLocalPlaybackDevice == nil, "unavailable commands must not advertise readiness")
+        _ = player.send(.commandFinished(id: optionsID, accepted: false, notice: nil), source: .command)
+        #expect(player.defaultLocalPlaybackDevice?.id == "mac")
 
         if resume {
             player.togglePlayback()
@@ -473,8 +503,12 @@ struct PlaybackCommandLifecycleParityTests {
         }
         #expect(finished)
         #expect(player.transientCommandError == nil)
+        let expectedURI: String? =
+            resume && hasResumeContext ? nil : (resume ? lifecycleTrackA.uri : "spotify:track:new")
+        #expect(local.playedURI == expectedURI)
         #expect(await remote.sendCount == 0)
         await player.shutdownForTermination()
+        #expect(player.defaultLocalPlaybackDevice == nil)
     }
 
     @Test

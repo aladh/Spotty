@@ -16,9 +16,12 @@
   playback to this Mac merely because the user pressed a remote control. When no device is marked
   active but a current track remains, a remembered last remote device stays an uncertain remote
   candidate so commands remain remote-routable; a missing or stale fallback never becomes local.
-  If this Mac has joined Connect but the playback owner is unidentified, commands direct the user
-  to choose a device, including This computer for local playback, rather than claiming startup is
-  still in progress. Selecting a device is the explicit recovery path.
+  When this Mac is ready and present in the Connect device list, nothing is playing, and no device
+  is active or identified as a remote candidate, This computer is the green default destination
+  with “Ready to play” status. Opening Spotty does not activate or transfer playback. An explicit
+  Play or Resume uses the local engine without asking for device selection, even when Spotify
+  retains a previous track. Other controls retain ownership-based routing. Unidentified playback
+  that is still playing requires explicit device selection; known remote candidates stay remote.
 ### System media controls
 
 - macOS Play/Pause, Previous, and Next media keys use the same capabilities and Connect routing

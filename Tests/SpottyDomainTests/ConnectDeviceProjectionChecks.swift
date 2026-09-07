@@ -2,6 +2,48 @@ import Testing
 import SpottyDomain
 import Foundation
 
+@Suite("Idle Connect destination")
+struct IdleConnectDestinationTests {
+    @Test
+    func localDefaultRequiresReadyIdleConnectAndPreservesRemoteOwnership() {
+        let mac = PlaybackDevice(id: "mac", name: "Mac", type: "computer")
+        let phone = PlaybackDevice(id: "phone", name: "Phone", type: "smartphone")
+        var state = PlaybackState(
+            session: .ready, owner: .uncertain(nil), transport: .paused,
+            currentTrack: CurrentTrack(uri: "spotify:track:retained"),
+            devices: PlaybackDeviceSnapshot(devices: [mac, phone], localDeviceID: "mac", revision: 1)
+        )
+        #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == mac)
+        #expect(state.owner == .uncertain(nil), "selection must not invent protocol ownership")
+        state.currentTrack = nil
+        state.owner = .none
+        #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == mac)
+        for owner: PlaybackOwner in [.remote(phone), .uncertain(phone), .local(mac)] {
+            state.owner = owner
+            #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == nil)
+        }
+        state.owner = .uncertain(nil)
+        state.transport = .playing
+        #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == nil)
+        state.transport = .buffering
+        #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == nil)
+        state.transport = .paused
+        for phase: PlaybackSessionPhase in [.connecting, .recovering, .signedOut, .failed("test")] {
+            state.session = phase
+            #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == nil)
+        }
+        state.session = .ready
+        state.devices = PlaybackDeviceSnapshot(devices: [phone], localDeviceID: "mac", revision: 2)
+        #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == nil)
+        state.devices = PlaybackDeviceSnapshot(devices: [mac], localDeviceID: nil, revision: 3)
+        #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == nil)
+        state.devices = PlaybackDeviceSnapshot(
+            devices: [mac, PlaybackDevice(id: "phone", name: "Phone", type: "phone", isActive: true)],
+            localDeviceID: "mac", revision: 4)
+        #expect(ConnectDeviceProjection.defaultLocalDevice(in: state) == nil)
+    }
+}
+
 @Suite("Connect device projection")
 struct ConnectDeviceProjectionTests {
     @Test(arguments: ["", "TOASTER", "Unknown"])

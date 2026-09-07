@@ -434,6 +434,49 @@ private func supersede(_ player: PlaybackStore, kind: LifecycleKind, revision: U
 
 @Suite("Playback Command Lifecycle Parity")
 struct PlaybackCommandLifecycleParityTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    func idleStartupPlayUsesLocalEngineWithoutSelection(resume: Bool) async {
+        let local = LifecycleLocalEngine(result: .ok, gated: false)
+        let remote = LifecycleRemoteClient(.succeed)
+        let player = lifecycleStore(lifecycleEnvironment(local: local, remote: remote))
+        _ = player.send(.session(.ready), source: .account)
+        _ = player.send(
+            .devices(
+                PlaybackDeviceSnapshot(
+                    devices: [PlaybackDevice(id: "mac", name: "Mac", type: "computer")],
+                    localDeviceID: "mac", revision: 1)),
+            source: .engineDevices, revision: 1)
+        _ = player.send(
+            .enginePlayback(
+                EnginePlaybackSnapshot(
+                    transport: .paused, trackURI: lifecycleTrackA.uri, timing: lifecycleTiming)),
+            source: .enginePlayback, revision: 1)
+        _ = player.send(
+            .presentation(
+                PlaybackPresentationSnapshot(
+                    currentTrack: lifecycleTrackA, transport: .paused, timing: lifecycleTiming)),
+            source: .user)
+        #expect(player.state.owner == .uncertain(nil))
+        #expect(player.defaultLocalPlaybackDevice?.id == "mac")
+        #expect(!player.isActiveDevice)
+        #expect(local.executeCount == 0, "joining and projecting Connect must stay silent")
+        #expect(player.commandRoute == .needsDeviceSelection, "non-play controls retain ownership routing")
+
+        if resume {
+            player.togglePlayback()
+        } else {
+            player.play(uri: "spotify:track:new")
+        }
+        let finished = await waitUntil {
+            local.executeCount == 1 && player.state.pendingCommands[.transport] == nil
+        }
+        #expect(finished)
+        #expect(player.transientCommandError == nil)
+        #expect(await remote.sendCount == 0)
+        await player.shutdownForTermination()
+    }
+
     @Test
     @MainActor
     func testPlaybackCommandLifecycleParity() async {

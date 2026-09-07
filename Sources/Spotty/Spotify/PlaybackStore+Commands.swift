@@ -79,7 +79,11 @@ extension PlaybackStore {
         remote: @escaping @Sendable (any RemotePlaybackClient, String, String) async throws -> Void,
         completion: @escaping @MainActor (Bool) -> Void = { _ in }
     ) {
-        switch commandRoute {
+        // Only an explicit play/resume may activate the idle default destination.
+        // Other controls retain the ownership route and cannot implicitly transfer.
+        let route: ConnectCommandRoute =
+            expectedPlaybackState == true && defaultLocalPlaybackDevice != nil ? .local : commandRoute
+        switch route {
         case .local:
             SpottyLog.commands.info("Routing \(String(describing: kind), privacy: .public) command locally")
             performCommand(

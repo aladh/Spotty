@@ -6,6 +6,11 @@ struct ConnectPanelContent: View {
 
     private var currentDevice: ConnectDevice? {
         player.activeRemoteDevice ?? player.connectDevices.first(where: \.isActive)
+            ?? player.defaultLocalPlaybackDevice
+    }
+
+    private var currentDeviceStatus: String {
+        player.defaultLocalPlaybackDevice != nil ? "Ready to play" : (player.isPlaying ? "Playing" : "Paused")
     }
 
     private var availableDevices: [ConnectDevice] {
@@ -28,7 +33,7 @@ struct ConnectPanelContent: View {
                                 Spacer(minLength: 0)
                             }
                             .foregroundStyle(SpottyPalette.mediaGreen)
-                            Text("\(player.isPlaying ? "Playing" : "Paused") on \(deviceName(device))")
+                            Text("\(currentDeviceStatus) on \(deviceName(device))")
                                 .font(.system(size: 14))
                                 .foregroundStyle(Color(white: 0.7))
                         }
@@ -37,7 +42,7 @@ struct ConnectPanelContent: View {
                         .background(Color(white: 0.122), in: RoundedRectangle(cornerRadius: 8))
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(
-                            "Current device, \(deviceName(device)), \(player.isPlaying ? "Playing" : "Paused")")
+                            "Current device, \(deviceName(device)), \(currentDeviceStatus)")
                     }
 
                     VStack(spacing: 0) {

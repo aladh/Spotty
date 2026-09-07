@@ -17,7 +17,8 @@
 - Use a Spotify-familiar composition without copying Spotify pixels: artwork-led headers, dense
   track tables, a right Queue/Connect rail, and a full-width player shelf. The app is dark-only,
   with a near-black canvas and no appearance mode or theme system. Preserve macOS inactive-window,
-  focus, and selection behavior. Fixed green denotes media actions and current playback only.
+  focus, and selection behavior. Fixed green denotes media actions, current playback, and the
+  ready local Connect destination.
 - Keep the surface small: no in-app volume control, manual refresh, Settings scene, or custom
   accent-color preference. Playlist creation, renaming, cover editing, collaborative permissions,
   and arbitrary reordering are out of scope. Occurrence-safe add/remove is allowed only for

@@ -20,13 +20,19 @@ final class AppUpdater {
         )
         let updater = controller.updater
         observations = [
-            updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, change in
-                MainActor.assumeIsolated { self?.canCheckForUpdates = change.newValue ?? false }
+            updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.refreshState() }
             },
-            updater.observe(\.automaticallyChecksForUpdates, options: [.initial, .new]) { [weak self] _, change in
-                MainActor.assumeIsolated { self?.automaticallyChecksForUpdates = change.newValue ?? false }
+            updater.observe(\.automaticallyChecksForUpdates, options: [.initial, .new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.refreshState() }
             },
         ]
+    }
+
+    private func refreshState() {
+        // Read current values after the actor hop; queued notifications must not replay stale state.
+        canCheckForUpdates = controller.updater.canCheckForUpdates
+        automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
     }
 
     func start() {
@@ -40,7 +46,7 @@ final class AppUpdater {
     }
 
     func checkForUpdates() {
-        guard canCheckForUpdates else { return }
+        guard controller.updater.canCheckForUpdates else { return }
         controller.checkForUpdates(nil)
     }
 

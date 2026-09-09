@@ -267,7 +267,7 @@ pub(crate) async fn build_player_async(
         current_generation
     );
 
-    let device_id = format!("spotty_playback_{}", std::process::id());
+    let device_id = configured_device_id().ok_or(InitializationFailure::Transient)?;
     let (session, credentials) =
         create_session(&device_id, access_token).map_err(|_| InitializationFailure::Transient)?;
     let mut session_guard = SessionShutdownGuard::new(session.clone());

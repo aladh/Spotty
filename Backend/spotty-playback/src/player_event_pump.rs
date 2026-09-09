@@ -428,10 +428,19 @@ fn apply_player_event_locked(
             // one, and a retry after a load that never plays still finds it.
             RESUME_POSITION_MS.store(0, Ordering::SeqCst);
         }
-        PlayerEvent::Unavailable {
-            track_id,
-            play_request_id,
-        } => {
+        failure @ (PlayerEvent::Unavailable { .. } | PlayerEvent::AudioKeyRefused { .. }) => {
+            let audio_key_refused = matches!(failure, PlayerEvent::AudioKeyRefused { .. });
+            let (track_id, play_request_id) = match failure {
+                PlayerEvent::Unavailable {
+                    track_id,
+                    play_request_id,
+                }
+                | PlayerEvent::AudioKeyRefused {
+                    track_id,
+                    play_request_id,
+                } => (track_id, play_request_id),
+                _ => unreachable!(),
+            };
             let track_uri = track_id.to_string();
             // The listener identity and the shared logical track must agree before this event
             // can mutate any playback state. Keeping this comparison inside the generation gate
@@ -453,6 +462,7 @@ fn apply_player_event_locked(
                 if let Some(notification) = capture_local_playback_unavailable(
                     POSITION_MS.load(Ordering::SeqCst),
                     event_listener_generation,
+                    audio_key_refused,
                 ) {
                     applied
                         .notifications
@@ -775,13 +785,67 @@ mod player_event_pump_policy {
 
     #[test]
     fn current_unavailable_emits_one_flagged_local_snapshot() {
+        assert_current_failure_snapshot(false);
+    }
+
+    #[test]
+    fn key_refusal_rejects_remote_stale_preload_and_superseded_engine_events() {
+        let _guard = lock_lifecycle_test_globals();
+        let _restore = RestorePlaybackGlobals(capture_playback_globals());
+        let uri = "spotify:track:0000000000000000000003";
+        let current_generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        for (active, request, loading, generation, event_uri) in [
+            (false, 40, true, current_generation, uri),
+            (true, 39, true, current_generation, uri),
+            (true, 40, false, current_generation, uri),
+            (true, 40, true, current_generation.wrapping_sub(1), uri),
+            (
+                true,
+                40,
+                true,
+                current_generation,
+                "spotify:track:0000000000000000000004",
+            ),
+        ] {
+            set_current_track_uri(uri.to_string());
+            store_active_device(active);
+            IS_PLAYING.store(true, Ordering::SeqCst);
+            POSITION_MS.store(4_321, Ordering::SeqCst);
+            let mut state = PlayerRequestState::default();
+            state.play_request_id_changed(40);
+            state.loading(40, uri.to_string());
+            if !loading {
+                state.playing_or_paused(40);
+            }
+            apply_player_event(
+                PlayerEvent::AudioKeyRefused {
+                    play_request_id: request,
+                    track_id: parse_spotify_uri(event_uri).unwrap(),
+                },
+                generation,
+                &mut state,
+            );
+            assert!(IS_PLAYING.load(Ordering::SeqCst));
+            assert_eq!(POSITION_MS.load(Ordering::SeqCst), 4_321);
+            assert!(current_track_uri_matches(uri));
+        }
+    }
+
+    #[test]
+    fn current_key_refusal_emits_once_and_preserves_queue_occurrences() {
+        assert_current_failure_snapshot(true);
+    }
+
+    fn assert_current_failure_snapshot(refused: bool) {
         static CALLBACK_COUNT: AtomicU32 = AtomicU32::new(0);
         static CALLBACK_UNAVAILABLE: AtomicU8 = AtomicU8::new(0);
+        static CALLBACK_REFUSED: AtomicU8 = AtomicU8::new(0);
 
         extern "C" fn capture(snapshot: *const SpottyPlaybackSnapshot) {
             let snapshot = unsafe { &*snapshot };
             CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst);
             CALLBACK_UNAVAILABLE.store(snapshot.track_unavailable, Ordering::SeqCst);
+            CALLBACK_REFUSED.store(snapshot.audio_key_refused, Ordering::SeqCst);
         }
 
         struct RestorePlaybackCallback(Option<PlaybackSnapshotCallback>);
@@ -797,6 +861,14 @@ mod player_event_pump_policy {
 
         let _guard = lock_lifecycle_test_globals();
         let _restore_globals = RestorePlaybackGlobals(capture_playback_globals());
+        struct RestoreQueue(Option<QueueState>);
+        impl Drop for RestoreQueue {
+            fn drop(&mut self) {
+                *LAST_QUEUE.lock().unwrap() = self.0.take();
+            }
+        }
+        let queue = crate::queue_snapshot_tests::fixture_queue_state();
+        let _restore_queue = RestoreQueue(LAST_QUEUE.lock().unwrap().replace(queue.clone()));
         let previous_callback = *CONTROL_CALLBACKS
             .playback_state
             .lock()
@@ -812,6 +884,19 @@ mod player_event_pump_policy {
         store_active_device(true);
         let track_uri = "spotify:track:0000000000000000000003";
         let track_id = parse_spotify_uri(track_uri).expect("synthetic track URI");
+        let failure = |track_id| {
+            if refused {
+                PlayerEvent::AudioKeyRefused {
+                    play_request_id: 15,
+                    track_id,
+                }
+            } else {
+                PlayerEvent::Unavailable {
+                    play_request_id: 15,
+                    track_id,
+                }
+            }
+        };
         let mut state = PlayerRequestState::default();
         apply_current_generation_event_with_state(
             PlayerEvent::PlayRequestIdChanged {
@@ -841,25 +926,13 @@ mod player_event_pump_policy {
         );
         assert!(current_track_uri_matches(track_uri));
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 0);
-        apply_current_generation_event_with_state(
-            PlayerEvent::Unavailable {
-                play_request_id: 15,
-                track_id: track_id.clone(),
-            },
-            1,
-            &mut state,
-        );
-        apply_current_generation_event_with_state(
-            PlayerEvent::Unavailable {
-                play_request_id: 15,
-                track_id,
-            },
-            1,
-            &mut state,
-        );
+        apply_current_generation_event_with_state(failure(track_id.clone()), 1, &mut state);
+        apply_current_generation_event_with_state(failure(track_id), 1, &mut state);
 
         assert_eq!(CALLBACK_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(CALLBACK_UNAVAILABLE.load(Ordering::SeqCst), 1);
+        assert_eq!(CALLBACK_REFUSED.load(Ordering::SeqCst), u8::from(refused));
+        assert_eq!(*LAST_QUEUE.lock().unwrap(), Some(queue));
     }
 
     fn synthetic_track() -> SpotifyUri {

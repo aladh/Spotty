@@ -445,7 +445,14 @@ def collect_package(
     elif kind == "git":
         revision = source_revision_from_source(source)
         record["git_revision"] = revision
-    elif kind != "registry":
+    elif kind == "path":
+        retained = {"librespot-core": "core", "librespot-playback": "playback"}
+        directory = retained.get(package["name"])
+        expected = ROOT / "Backend/spotty-playback/vendor/librespot" / (directory or "") / "Cargo.toml"
+        if directory is None or Path(package["manifest_path"]).resolve() != expected.resolve():
+            fail(f"unsupported local dependency for {key}")
+        record["source_path"] = expected.parent.relative_to(ROOT).as_posix()
+    else:
         fail(f"unsupported non-workspace package source for {key}: {source!r}")
 
     package_dir = Path(package["manifest_path"]).resolve().parent
@@ -464,7 +471,7 @@ def collect_package(
     override_key: str | None = None
     override_files: list[dict[str, Any]] = []
     expected_override: str | None = None
-    if override_match:
+    if override_match and kind != "path":
         override_key, override = override_match
         expected_override, override_files = validate_override(
             override_key, override, package, vcs

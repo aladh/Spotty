@@ -10,6 +10,10 @@ App tags use `vMAJOR.MINOR.PATCH`; engine tags use `playback-vMAJOR.MINOR.PATCH`
 three-component version without leading zeroes. Never overwrite published assets or remove assets
 that older checkouts still use.
 
+The retained [librespot patch record](../../Backend/spotty-playback/vendor/librespot/README.md)
+identifies the upstream base and narrow changes. Local crate sources and their license material
+participate in the candidate source digest; the production dependency versions remain locked.
+
 ## Local engine development
 
 Install the [engine tools](setup.md#engine-development), run the Rust checks, and build the

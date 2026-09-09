@@ -841,6 +841,11 @@ fn exported_c_function_signatures() -> Vec<ExportedCFunctionSignature> {
         "SpottyPlaybackResult (uint32_t)"
     );
     signature!(
+        spotty_playback_set_device_id,
+        extern "C" fn(*const c_char) -> i32,
+        "int32_t (const char *)"
+    );
+    signature!(
         spotty_playback_set_device_name,
         extern "C" fn(*const c_char),
         "void (const char *)"
@@ -911,7 +916,7 @@ fn parse_abi_signature_fixture(fixture: &str) -> Vec<ExportedCFunctionSignature>
 #[test]
 fn exported_c_function_signatures_are_stable() {
     let signatures = exported_c_function_signatures();
-    assert_eq!(signatures.len(), 35);
+    assert_eq!(signatures.len(), 36);
 }
 
 /// The checked-in C fixture is compared to the header by `Scripts/check.sh`; this Rust-side
@@ -1034,6 +1039,7 @@ int main(void) {
     EMIT_FIELD(SpottyPlaybackSnapshot, is_playing);
     EMIT_FIELD(SpottyPlaybackSnapshot, is_paused);
     EMIT_FIELD(SpottyPlaybackSnapshot, track_unavailable);
+    EMIT_FIELD(SpottyPlaybackSnapshot, audio_key_refused);
     EMIT_FIELD(SpottyPlaybackSnapshot, shuffle);
     EMIT_FIELD(SpottyPlaybackSnapshot, repeat_track);
     EMIT_FIELD(SpottyPlaybackSnapshot, repeat_context);
@@ -1216,6 +1222,7 @@ int main(void) {
         is_playing,
         is_paused,
         track_unavailable,
+        audio_key_refused,
         shuffle,
         repeat_track,
         repeat_context,
@@ -1435,6 +1442,7 @@ fn playback_snapshot_callback_copies_nullable_fields() {
             is_playing: true,
             is_paused: false,
             track_unavailable: false,
+            audio_key_refused: false,
             track_uri: "spotify:track:fixtureNow".to_string(),
             context_uri: None,
             position_ms: 1_250,
@@ -1464,6 +1472,7 @@ fn playback_snapshot_callback_copies_nullable_fields() {
             is_playing: false,
             is_paused: true,
             track_unavailable: true,
+            audio_key_refused: false,
             track_uri: "spotify:track:fixtureUnavailable".to_string(),
             context_uri: None,
             position_ms: 0,
@@ -1496,6 +1505,7 @@ fn playback_snapshot_callback_copies_nullable_fields() {
                 is_playing: false,
                 is_paused: false,
                 track_unavailable: false,
+                audio_key_refused: false,
                 track_uri: track_uri.to_string(),
                 context_uri: None,
                 position_ms: 0,

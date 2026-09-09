@@ -38,6 +38,7 @@ pub(crate) fn send_playback_state(player_state: &PlayerState, is_active_device: 
                 is_playing: player_state.is_playing,
                 is_paused: player_state.is_paused,
                 track_unavailable: false,
+                audio_key_refused: false,
                 track_uri,
                 context_uri: Some(player_state.context_uri.clone()),
                 position_ms: player_state.position_as_of_timestamp,
@@ -102,8 +103,16 @@ pub(crate) fn capture_local_playback_state(
 pub(crate) fn capture_local_playback_unavailable(
     position_ms: u32,
     session_generation: u64,
+    audio_key_refused: bool,
 ) -> Option<LocalPlaybackStateNotification> {
-    capture_local_playback_state_with_owner(false, position_ms, Some(session_generation), true)
+    let mut notification = capture_local_playback_state_with_owner(
+        false,
+        position_ms,
+        Some(session_generation),
+        true,
+    )?;
+    notification.observation.audio_key_refused = audio_key_refused;
+    Some(notification)
 }
 
 fn capture_local_playback_state_with_owner(
@@ -139,6 +148,7 @@ fn capture_local_playback_state_with_owner(
                 // Local PlayerEvent has one bit; shape it as the protocol pair Swift already projects.
                 is_paused: !is_playing,
                 track_unavailable,
+                audio_key_refused: false,
                 track_uri,
                 context_uri: None,
                 position_ms: position_ms as i64,

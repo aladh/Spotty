@@ -86,6 +86,8 @@ typedef struct SpottyPlaybackSnapshot {
   uint8_t is_playing;
   uint8_t is_paused;
   uint8_t track_unavailable;
+  // Explicit key refusal followed by decoder failure; never a preload or protocol event.
+  uint8_t audio_key_refused;
   uint8_t shuffle;
   uint8_t repeat_track;
   uint8_t repeat_context;
@@ -350,6 +352,12 @@ SpottyPlaybackResult spotty_playback_resume(void);
 // Seeks to the given position in milliseconds.
 // Returns 0 on success, -1 on error, -2 if channel closed (needs reinit).
 SpottyPlaybackResult spotty_playback_seek(uint32_t position_ms);
+
+// Installs the non-secret opaque installation identity before any session starts. The input
+// is copied during the call and must be a valid NUL-terminated string of 40 ASCII hex digits.
+// Repeating the same identity succeeds; changing it during the process lifetime fails.
+// Returns 0 on success and -1 for missing, invalid, or conflicting identity.
+int32_t spotty_playback_set_device_id(const char *device_id);
 
 // Sets the user-facing device name advertised to Spotify Connect. Must be called before
 // `spotty_playback_init_player` to affect the next Spirc instance. The string is copied during

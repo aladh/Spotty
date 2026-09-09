@@ -9,6 +9,15 @@
   Teardown invalidates the generation and drains work, giving Spirc a bounded opportunity to finish
   gracefully before forced shutdown. The old Dealer connection closes before replacement.
   A failed activation cannot publish readiness.
+- Each AP connection attempt bounds socket/proxy setup and handshake together at five seconds.
+  Retry count, authentication, token fetching, and total initialization remain separate budgets.
+  Timeouts are transient failures and do not clear credentials.
+- Swift supplies a validated, opaque installation identity before authorization or playback
+  sessions begin. The engine copies it once and rejects a conflicting process-lifetime value.
+  Authorization and playback share this identity: the authorization session obtains reusable
+  AP credentials and is shut down before the playback session starts under the lifecycle lock.
+  Logout removes account credentials but retains the non-secret identity. It is independent of
+  the advertised computer name and of the separately scoped client-token identifier.
 - Closed command channels and failed rehydration request engine reinitialization through typed
   outcomes. Rehydrate before announcing readiness; fetching Web playback state afterward would
   reopen the stale-position window.
@@ -37,7 +46,11 @@ Preserve these distinctions when changing the boundary:
   source of ordinary playback presentation.
 - Track-unavailable is a one-observation indication of a failed current local load. Rust filters
   request identity and preload failures; Swift owns lifetime/optimistic-target gating and the
-  [user-facing notice](../product/playback.md#transport-and-progress).
+  [user-facing notice](../product/playback.md#transport-and-progress). The accompanying audio-key-refused
+  bit distinguishes explicit key refusal followed by decoder failure. This stops the current
+  player and sink without advancing or marking queue occurrences unavailable. Refused preloads
+  neither stop the current track nor mark the upcoming occurrence unavailable. An unencrypted
+  playable file is accepted; transient key errors do not acquire this classification.
 - A null cached queue snapshot means no cluster observation has arrived, not an empty queue. That
   cache can recover from a provisional empty replacement but is not another app-facing store.
 

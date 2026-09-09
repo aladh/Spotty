@@ -6,7 +6,7 @@ cd "$project_root"
 candidate_paths() {
     ./Backend/spotty-playback/source-input-digest.sh --print-inputs || return 1
     # Whole directories catch deletions; infrastructure changes revalidate candidate creation.
-    printf '%s\n' Backend/spotty-playback/src Scripts/playback-license-overrides \
+    printf '%s\n' Backend/spotty-playback/src Backend/spotty-playback/vendor Scripts/playback-license-overrides \
         Backend/spotty-playback/validate-xcframework.sh \
         Scripts/ci_playback_definition.py Scripts/playback-candidate-needed.sh
 }

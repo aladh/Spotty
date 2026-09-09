@@ -26,8 +26,7 @@ struct PlaybackPositionSlider: NSViewRepresentable {
         slider.setAccessibilityEnabled(isEnabled)
         slider.accessibleDuration = duration
         guard !slider.isTrackingPosition else { return }
-        slider.maxValue = max(1, duration)
-        slider.doubleValue = min(max(0, position), max(0, duration))
+        slider.updatePosition(position, duration: duration)
     }
 
     final class PositionSlider: NSSlider {
@@ -47,9 +46,20 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             super.mouseDown(with: event)
         }
 
+        func updatePosition(_ position: Double, duration: Double) {
+            maxValue = duration > 0 ? duration : 1
+            doubleValue = min(max(0, position), max(0, duration))
+        }
+
         override func accessibilityValueDescription() -> String? {
-            guard accessibleDuration > 0 else { return "No current track" }
-            return "\(formatDuration(doubleValue)) of \(formatDuration(accessibleDuration))"
+            guard accessibleDuration > 0 else { return "Duration unavailable" }
+            let formatter = DateComponentsFormatter()
+            formatter.allowedUnits = [.minute, .second]
+            formatter.unitsStyle = .full
+            formatter.zeroFormattingBehavior = .dropAll
+            let position = formatter.string(from: max(0, doubleValue)) ?? "0 seconds"
+            let duration = formatter.string(from: accessibleDuration) ?? "0 seconds"
+            return "\(position) of \(duration)"
         }
 
         @objc func commitPosition() {

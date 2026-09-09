@@ -5,6 +5,16 @@ import Testing
 @Suite("Native playback position")
 @MainActor
 struct PlaybackPositionSliderChecks {
+    @Test func shortTrackRangeAndUnknownDuration() {
+        let slider = PlaybackPositionSlider.PositionSlider()
+        slider.updatePosition(0.25, duration: 0.5)
+        #expect(slider.maxValue == 0.5)
+        #expect(slider.doubleValue == 0.25)
+        slider.updatePosition(0, duration: 0)
+        #expect(slider.maxValue == 1)
+        #expect(slider.accessibilityValueDescription() == "Duration unavailable")
+    }
+
     @Test func nativeAccessibilityAdjustmentAndDisabledCommit() {
         let slider = PlaybackPositionSlider.PositionSlider()
         slider.minValue = 0
@@ -16,7 +26,7 @@ struct PlaybackPositionSliderChecks {
         slider.action = #selector(PlaybackPositionSlider.PositionSlider.commitPosition)
         var positions: [Double] = []
         slider.commit = { positions.append($0) }
-        #expect(slider.accessibilityValueDescription() == "1:00 of 3:00")
+        #expect(slider.accessibilityValueDescription() == "1 minute of 3 minutes")
         _ = slider.accessibilityPerformIncrement()
         #expect(positions.count == 1)
         #expect(slider.doubleValue > 60)

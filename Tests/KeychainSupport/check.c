@@ -1,15 +1,34 @@
 #include "SpottyKeychainSupport.h"
 #include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <sched.h>
 
 static Boolean allowed;
 static OSStatus getStatus, disableStatus, restoreStatus, operationStatus;
 static int calls, sets;
 static Boolean transientRestoreFailure;
+static Boolean concurrentMode;
+static atomic_int activeSequence;
+static _Thread_local int threadSets;
 OSStatus SecKeychainGetUserInteractionAllowed(Boolean *value) {
+    if (concurrentMode) {
+        assert(atomic_fetch_add(&activeSequence, 1) == 0);
+        threadSets = 0;
+        sched_yield();
+    }
     *value = allowed;
     return getStatus;
 }
 OSStatus SecKeychainSetUserInteractionAllowed(Boolean value) {
+    if (concurrentMode) {
+        allowed = value;
+        if (++threadSets == 2) {
+            assert(allowed);
+            assert(atomic_fetch_sub(&activeSequence, 1) == 1);
+        }
+        return errSecSuccess;
+    }
     sets++;
     OSStatus status = sets == 1 ? disableStatus :
         (transientRestoreFailure && sets > 2 ? errSecSuccess : restoreStatus);
@@ -39,6 +58,13 @@ static OSStatus run(int operation) {
         default: return SpottyKeychainDelete(NULL);
     }
 }
+static void *concurrentOperations(void *unused) {
+    (void)unused;
+    for (int iteration = 0; iteration < 100; iteration++) {
+        assert(run(iteration % 4) == errSecSuccess);
+    }
+    return NULL;
+}
 int main(void) {
     for (int operation = 0; operation < 4; operation++) {
         for (int prior = 0; prior < 2; prior++) {
@@ -59,5 +85,14 @@ int main(void) {
             }
         }
     }
+    concurrentMode = true;
+    allowed = true;
+    getStatus = operationStatus = errSecSuccess;
+    pthread_t workers[8];
+    for (int index = 0; index < 8; index++) {
+        assert(pthread_create(&workers[index], NULL, concurrentOperations, NULL) == 0);
+    }
+    for (int index = 0; index < 8; index++) assert(pthread_join(workers[index], NULL) == 0);
+    assert(atomic_load(&activeSequence) == 0 && allowed);
     return 0;
 }

@@ -136,7 +136,12 @@ import sys
 import tempfile
 
 target, previous = map(Path, sys.argv[1:])
-identity = previous.read_text().strip() if previous.is_file() else secrets.token_hex(20)
+if previous.exists() or previous.is_symlink():
+    if not previous.is_file():
+        raise SystemExit(f"Invalid development Connect identity at {previous}")
+    identity = previous.read_text().strip()
+else:
+    identity = secrets.token_hex(20)
 if not re.fullmatch(r"[0-9a-f]{40}", identity):
     raise SystemExit(f"Invalid development Connect identity at {previous}")
 with tempfile.NamedTemporaryFile(mode="w", dir=target.parent) as staged:

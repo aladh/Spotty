@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+from datetime import datetime, timedelta
 import hashlib
 import io
 import json
@@ -76,8 +77,13 @@ def validate_artifact(artifact, jobs):
     require(not artifact["expired"], "Candidate artifact expired; run CI again")
     upload = next(step for step in producer_job(jobs)["steps"]
                   if step["name"] == "Upload candidate playback artifact")
-    created = artifact["created_at"]
-    require(upload["started_at"] <= created <= upload["completed_at"],
+    timestamp_format = "%Y-%m-%dT%H:%M:%SZ"
+    created = datetime.strptime(artifact["created_at"], timestamp_format)
+    started = datetime.strptime(upload["started_at"], timestamp_format)
+    completed = datetime.strptime(upload["completed_at"], timestamp_format)
+    # GitHub's artifact and job services can disagree by one second at finalization.
+    # Keep the start strict and reject anything beyond that bounded discrepancy.
+    require(started <= created <= completed + timedelta(seconds=1),
             "Artifact was not uploaded by the successful candidate upload step in this attempt")
 
 

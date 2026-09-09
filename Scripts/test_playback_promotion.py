@@ -169,6 +169,18 @@ class PromotionTests(unittest.TestCase):
                 with self.subTest(index=index, duplicate=duplicate), self.assertRaises(ValueError):
                     validate_run(self.run, jobs, "owner/repo", HEAD)
 
+    def test_artifact_finalization_timestamp_skew_is_bounded(self):
+        validate_artifact({**self.artifact, "created_at": "2026-09-05T12:10:01Z"}, self.jobs)
+        for created in ("2026-09-05T12:07:59Z", "2026-09-05T12:10:02Z"):
+            with self.subTest(created=created), self.assertRaises(ValueError):
+                validate_artifact({**self.artifact, "created_at": created}, self.jobs)
+
+    def test_artifact_timestamp_tolerance_crosses_midnight(self):
+        self.jobs[1]["steps"][2]["completed_at"] = "2026-09-05T23:59:59Z"
+        validate_artifact({**self.artifact, "created_at": "2026-09-06T00:00:00Z"}, self.jobs)
+        with self.assertRaises(ValueError):
+            validate_artifact({**self.artifact, "created_at": "2026-09-06T00:00:01Z"}, self.jobs)
+
     def test_stale_artifact_cannot_borrow_a_rerun_success(self):
         with self.assertRaises(ValueError):
             validate_artifact({**self.artifact, "created_at": "2026-09-04T12:09:00Z"}, self.jobs)

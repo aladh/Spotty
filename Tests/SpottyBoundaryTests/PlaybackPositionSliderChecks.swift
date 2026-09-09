@@ -15,6 +15,13 @@ struct PlaybackPositionSliderChecks {
         #expect(slider.accessibilityValueDescription() == "Duration unavailable")
     }
 
+    @Test func spokenLongDuration() {
+        let slider = PlaybackPositionSlider.PositionSlider()
+        slider.accessibleDuration = 5_400
+        slider.updatePosition(3_600, duration: 5_400)
+        #expect(slider.accessibilityValueDescription() == "1 hour of 1 hour, 30 minutes")
+    }
+
     @Test func nativeAccessibilityAdjustmentAndDisabledCommit() {
         let slider = PlaybackPositionSlider.PositionSlider()
         slider.minValue = 0

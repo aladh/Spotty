@@ -1,4 +1,3 @@
-import AppKit
 import SpottyDomain
 import SwiftUI
 
@@ -60,68 +59,24 @@ extension View {
     }
 }
 
-@MainActor
-private final class PointingHandRegion {
-    var parent: PointingHandRegion?
-    weak var hoveredChild: PointingHandRegion?
-    var isInside = false
-    var points = false
-
-    private var root: PointingHandRegion { parent?.root ?? self }
-    private var subtreePoints: Bool { points || (hoveredChild?.subtreePoints ?? false) }
-    var hasPointingCursor: Bool { root.subtreePoints }
-}
-
-private struct PointingHandRegionKey: EnvironmentKey {
-    static var defaultValue: PointingHandRegion? { nil }
-}
-
-private extension EnvironmentValues {
-    var containingPointingHand: PointingHandRegion? {
-        get { self[PointingHandRegionKey.self] }
-        set { self[PointingHandRegionKey.self] = newValue }
-    }
-}
-
 private struct PointingHandCursor: ViewModifier {
     let enabled: Bool
     let isHovering: Binding<Bool>?
-    @State private var region = PointingHandRegion()
-    @Environment(\.containingPointingHand) private var containingPointingHand
+    @State private var isInside = false
 
     func body(content: Content) -> some View {
         content
-            .environment(\.containingPointingHand, region)
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    region.parent = containingPointingHand
-                    containingPointingHand?.hoveredChild = region
-                    region.isInside = true
-                    region.points = enabled
-                    if region.hasPointingCursor { NSCursor.pointingHand.set() }
-                    isHovering?.wrappedValue = enabled
-                case .ended:
-                    resetCursor()
-                }
+            .pointerStyle(enabled ? .link : nil)
+            .onHover { inside in
+                isInside = inside
+                isHovering?.wrappedValue = enabled && inside
             }
             .onChange(of: enabled) { _, enabled in
-                guard region.isInside else { return }
-                region.points = enabled
-                (region.hasPointingCursor ? NSCursor.pointingHand : NSCursor.arrow).set()
-                isHovering?.wrappedValue = enabled
+                isHovering?.wrappedValue = enabled && isInside
             }
-            .onDisappear { resetCursor() }
-    }
-
-    private func resetCursor() {
-        let wasInside = region.isInside
-        region.isInside = false
-        region.points = false
-        if region.parent?.hoveredChild === region { region.parent?.hoveredChild = nil }
-        if wasInside {
-            (region.hasPointingCursor ? NSCursor.pointingHand : NSCursor.arrow).set()
-        }
-        isHovering?.wrappedValue = false
+            .onDisappear {
+                isInside = false
+                isHovering?.wrappedValue = false
+            }
     }
 }

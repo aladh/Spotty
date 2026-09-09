@@ -1,26 +1,17 @@
 # Spotify boundary agent guidance
 
-This directory owns account/auth, catalog, Connect, playback state/effects, queue, audio, and network
-boundaries. Read the relevant ADRs and [playback](../../../docs/product/playback.md) or
-[queue](../../../docs/product/queue.md) contract for the affected behavior. Other surfaces are indexed
-in [product contracts](../../../docs/product/README.md); live-account work follows
-[safe testing](../../../docs/product/safe-testing.md).
+Follow the affected [product contract](../../../docs/product/README.md) and
+[engine contract](../../../docs/architecture/engine-contract.md) for auth, catalog, Connect, queue,
+and playback boundaries.
 
 ## State, effects, and dependencies
 
-- `SpottyDomain.PlaybackState` is the single atomic presentation snapshot and `PlaybackReducer` its
-  only mutation entrance. `PlaybackStore` is the `@MainActor` state/action surface; never add a
-  second writer or partial in-place updates.
+- Follow [ADR 002](../../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md) for
+  reducer-owned state, lifetime revalidation, injected dependencies, and transient feedback.
 - `PlaybackCoordinator` serializes commands and `PlaybackEffectRegistry` owns store-level tasks.
   Reducer acceptance normally gates follow-ups; only documented same-lifetime transport
   reconciliation may succeed after a rejected finish. Other stale, superseded, teardown,
   cancellation, and epoch-invalidated outcomes stay inert.
-- Suspended account-, engine-, selection-, or request-scoped work captures and revalidates identity
-  immediately before each stateful apply.
-- Assemble live dependencies once in `PlaybackEnvironment.live` and the composition root. Feature
-  stores consume narrow injected boundaries; preserve the existing store split and keep transient
-  mutation feedback in `TransientFeedbackPresenter`.
-
 ## Boundary invariants
 
 - `PlaybackCore.swift` is the only Swift importer of `SpottyPlaybackCore`;
@@ -34,15 +25,11 @@ in [product contracts](../../../docs/product/README.md); live-account work follo
   `AsyncStream.Continuation.yield` or `onTermination` while the fan-out lock is held.
 - `QueueService` owns precedence and context identity. `QueueProtocolProjection` projects upcoming
   rows from unfiltered Connect tracks; metadata must not reorder or erase newer authoritative state.
-- Device, connection, and playback presentation policy stays in Swift. All four observation
-  families cross FFI as typed C snapshots. Read
-  [engine contracts](../../../docs/architecture/engine-contract.md) before changing projections,
-  snapshot fields, or reconnect behavior.
-- Resume and reconnect use `ResumeLoadPlan` over sticky resume-load URIs, not presentation
-  snapshots. Preserve one rehydration sequence per engine session generation and the readiness
-  hold; do not widen `spotty_playback_resume`.
+- Follow the engine contract for typed observations, Swift presentation policy, and the single
+  reconnect rehydration sequence. Resume targets come from sticky resume-load URIs via
+  `ResumeLoadPlan`, never presentation snapshots.
 - Keep read-only catalog access separate from playlist mutation. Writes use `PlaylistMutating` and
   `PlaylistMutationController`; Pathfinder mutation DTOs do not enter views.
 - PCM goes directly from the retained engine adapter to `AudioRenderer`, never observable UI state.
   Keep callbacks bounded and never block the Rust callback thread.
-- Never log tokens, cookies, redirects, raw payloads, or private identifiers.
+- Follow [privacy](../../../PRIVACY.md) for logging; never log credentials or private identifiers.

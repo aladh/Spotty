@@ -122,6 +122,45 @@ cp "$selected_xcframework/spotty_playback_provenance.json" \
     "$app_path/Contents/Resources/PlaybackNotices/spotty_playback_provenance.json"
 cp "$info_template" "$app_path/Contents/Info.plist"
 
+# Debug builds have a checkout-scoped non-secret identity, separate from installed Release defaults.
+# Persist outside the replaced bundle so rebuilds and launches retain it, including in worktrees.
+if [[ "$build_configuration" == debug ]]; then
+    development_id_file="$project_root/.spotty-connect-device-id"
+    if [[ ! -f "$development_id_file" ]]; then
+        python3 - "$development_id_file" "$project_root/.build/connect-device-id" <<'PYID'
+import os
+from pathlib import Path
+import re
+import secrets
+import sys
+import tempfile
+
+target, previous = map(Path, sys.argv[1:])
+if previous.exists() or previous.is_symlink():
+    if previous.is_symlink() or not previous.is_file():
+        raise SystemExit(f"Invalid development Connect identity at {previous}")
+    identity = previous.read_text().strip()
+else:
+    identity = secrets.token_hex(20)
+if not re.fullmatch(r"[0-9a-f]{40}", identity):
+    raise SystemExit(f"Invalid development Connect identity at {previous}")
+with tempfile.NamedTemporaryFile(mode="w", dir=target.parent) as staged:
+    staged.write(identity + "\n")
+    staged.flush()
+    try:
+        os.link(staged.name, target)
+    except FileExistsError:
+        pass  # Another package invocation already published its complete identity.
+PYID
+    fi
+    development_id="$(cat "$development_id_file")"
+    if [[ ! "$development_id" =~ '^[0-9a-f]{40}$' ]]; then
+        print -u2 "Invalid development Connect identity at $development_id_file"
+        exit 1
+    fi
+    plutil -insert SpottyConnectDeviceID -string "$development_id" "$app_path/Contents/Info.plist"
+fi
+
 plutil -replace CFBundleShortVersionString -string "$app_version" "$app_path/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$app_build_number" "$app_path/Contents/Info.plist"
 plutil -lint "$app_path/Contents/Info.plist"

@@ -75,6 +75,7 @@ extension PlaybackStore {
             repeatContext: state.repeatContext,
             repeatTrack: state.repeatTrack,
             trackUnavailable: state.trackUnavailable,
+            audioKeyRefused: state.audioKeyRefused,
             isInitialSnapshot: isInitialSnapshot,
             isActiveDevice: snapshotIsActiveDevice,
             receivedAt: receivedAt,

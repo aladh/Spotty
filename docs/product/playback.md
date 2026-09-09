@@ -64,14 +64,16 @@
   appears above the player controls with a keyboard-accessible dismiss button and a VoiceOver
   announcement; it does not reconnect or change credentials. Dismissal of an older notice must
   not clear a newer one.
+- An explicit audio-key refusal that also prevents decoding stops the current attempt, preserves
+  the queue, and asks the user to try again later. It never automatically skips through subsequent
+  tracks. Ordinary unavailable-track handling remains separate.
 - The transport order is shuffle, previous, play/pause, next, repeat. Previous and next use the
   track-skip symbols with an outside bar, not rewind or fast-forward symbols. Repeat stays to the
   right of Next.
-- Interpolate progress smoothly between authoritative playing snapshots. New snapshots, seeks,
-  pauses, track changes, and ownership changes re-anchor it. Progress drawing uses
-  [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift) so interpolation
-  does not repeatedly lay out the SwiftUI hierarchy. Reduce Motion disables interpolation;
-  authoritative position and time-label updates continue.
+- Playback position uses a native macOS slider with keyboard and VoiceOver adjustment and an
+  accessible elapsed/total description. Authoritative snapshots update it while idle. Dragging owns
+  the thumb until release and commits once; a track, account, engine, or ownership change rejects
+  that obsolete gesture. Disabled playback cannot seek. Progress never animates speculatively.
 - Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
   style picker because Connect exposes no shuffle-style parameter.
 - Repeat cycles off → queue → track → off. Each step sends only the Connect flags that change,

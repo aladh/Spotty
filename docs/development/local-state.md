@@ -5,6 +5,11 @@
 The following are ignored local outputs. Remove them only when cleanup is authorized; do not treat
 signing material as disposable build output:
 
+- `.spotty-connect-device-id` — nonsecret Debug Connect identity, stable per checkout; preserve it
+  across rebuilds and build-directory resets. Packaging preserves an existing legacy
+  `.build/connect-device-id` when first moving to this location. Debug bundles embed this value and do not use the installed app’s identity.
+  Release builds persist a separate nonsecret `connectInstallationID` in standard preferences;
+  logout retains it. Unbundled Debug tools/tests use an ephemeral identity.
 - `.build/` and `Backend/spotty-playback/target/` — Swift and Rust build products;
 - `Backend/lib/*.a` — intermediate static archives for explicit engine builds;
 - `Spotty.app/` and `dist/` — local packages and archives;

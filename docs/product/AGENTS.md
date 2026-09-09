@@ -1,8 +1,7 @@
 # Product documentation
 
-These documents specify intended product behavior. Within this directory, preserving precise
-requirements takes precedence over the root documentation rule's preference for brevity and
-linking to implementation.
+Preserve intended product requirements even when brevity or links to implementation would
+otherwise suffice.
 
 - Keep explicit interaction, state-transition, failure, accessibility, and visual requirements,
   including dimensions, timing, ordering, and edge cases when they express deliberate product choices.

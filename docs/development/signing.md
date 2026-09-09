@@ -39,6 +39,17 @@ Sandboxed development tools may need permission for the packaging or launch scri
 `security` and `codesign`. Apple Development signing can require private-key access once; Spotty
 should not reauthorize its stored Spotify credential after later rebuilds.
 
+Spotty performs legacy Keychain reads and writes without interaction. An inaccessible grant
+returns a denied state instead of showing a launch-time password prompt or deleting the grant.
+[The compatibility wrapper](../../Sources/SpottyKeychainSupport/SpottyKeychainSupport.c) serializes
+Spotty’s operations and temporarily disables the legacy process-wide interaction flag; `LAContext`
+alone does not control file-based Keychain UI. Existing item ACLs remain unchanged. Restoration of
+the prior interaction setting retries once; if both attempts fail, the wrapper logs the failure and
+process-wide Keychain UI may remain disabled. Later operations may return a denied state instead
+of displaying a password prompt. The operation result remains authoritative, so a successfully
+saved credential is not reported as unsaved.
+The synthetic wrapper check substitutes every Security operation and never opens a real Keychain.
+
 If the current item's authorization cannot be repaired, delete only that item as a fallback:
 
 ```bash

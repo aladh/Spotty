@@ -1,8 +1,7 @@
 # Development launch script agent guidance
 
-This directory owns the build, sign, terminate, and launch entry point. Read
-[build and verification](../docs/development/verification.md#build-and-run) and
-[development signing](../docs/development/signing.md) before changing it.
+Follow [build and run](../docs/development/verification.md#build-and-run) and
+[development signing](../docs/development/signing.md) for the launch entry point.
 
 - `build_and_run.sh` replaces a running app and can touch an authenticated session. Require explicit
   current-request authorization for launch or interactive acceptance; do not use it for compile checks.

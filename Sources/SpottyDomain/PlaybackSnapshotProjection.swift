@@ -48,6 +48,7 @@ public enum PlaybackSnapshotProjection: Sendable {
         repeatContext: Bool,
         repeatTrack: Bool,
         trackUnavailable: Bool = false,
+        audioKeyRefused: Bool = false,
         isInitialSnapshot: Bool,
         isActiveDevice: Bool,
         receivedAt: Date,
@@ -79,6 +80,7 @@ public enum PlaybackSnapshotProjection: Sendable {
             // The Rust flag is meaningful only for a local active observation with a concrete
             // track identity. This prevents remote and empty-URI samples from becoming notices.
             trackUnavailable: trackUnavailable && isActiveDevice && resolvedURI != nil,
+            audioKeyRefused: audioKeyRefused && trackUnavailable && isActiveDevice && resolvedURI != nil,
             shuffle: shuffle,
             repeatMode: RepeatMode(context: flags.context, track: flags.track),
             repeatFlags: flags,

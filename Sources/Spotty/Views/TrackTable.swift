@@ -489,10 +489,9 @@ private struct PlaylistTrackRowHighlight: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(
-                Color.white.opacity(isSelected ? 0.2 : (isHovering ? 0.1 : 0)),
+                Color.white.opacity(!isSelected && isHovering ? 0.1 : 0),
                 in: RoundedRectangle(cornerRadius: 4)
             )
-            .background { PlaylistSelectionAppearance() }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {

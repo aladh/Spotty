@@ -85,6 +85,8 @@ public enum PlaybackTransportCommandResolution: Equatable, Sendable {
 }
 
 public struct PlaybackNotice: Equatable, Sendable {
+    public static let audioKeyRefusedMessage =
+        "Spotify declined this playback attempt. Your queue is preserved. Try the track again later."
     public static let trackUnavailableMessage =
         "Spotify could not play that track. Try it again or choose another track."
 

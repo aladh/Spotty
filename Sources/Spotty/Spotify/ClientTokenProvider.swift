@@ -120,7 +120,10 @@ nonisolated struct UserDefaultsDeviceIdStore: DeviceIdStoring {
     /// 40 hex characters, matching what the desktop client sends.
     static func generate() -> String {
         var bytes = [UInt8](repeating: 0, count: 20)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            return String((UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").prefix(40))
+                .lowercased()
+        }
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 }

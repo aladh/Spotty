@@ -22,6 +22,7 @@ nonisolated struct RustPlaybackState: Sendable {
     /// One-shot local current-request failure from the retained engine. Synthetic callers that
     /// predate the wire field receive the safe default.
     let trackUnavailable: Bool
+    let audioKeyRefused: Bool
     /// Active-member fact captured with the same Connect player observation.
     /// The initializer defaults this for synthetic callers that predate the wire field.
     let isActiveDevice: Bool
@@ -39,6 +40,7 @@ nonisolated struct RustPlaybackState: Sendable {
         repeatTrack: Bool,
         repeatContext: Bool,
         trackUnavailable: Bool = false,
+        audioKeyRefused: Bool = false,
         isActiveDevice: Bool = false,
         contextURI: String? = nil
     ) {
@@ -55,6 +57,7 @@ nonisolated struct RustPlaybackState: Sendable {
         self.repeatTrack = repeatTrack
         self.repeatContext = repeatContext
         self.trackUnavailable = trackUnavailable
+        self.audioKeyRefused = audioKeyRefused
         self.isActiveDevice = isActiveDevice
     }
 }

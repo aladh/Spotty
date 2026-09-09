@@ -1,18 +1,12 @@
 # GitHub automation agent guidance
 
-GitHub workflows and pull-request metadata are part of the verification and release boundary. Read
-[agent operations](../CONTRIBUTING.md) and the
-[enforcement inventory](../docs/architecture/enforcement.md) before changing them.
+Follow [PR acceptance](../CONTRIBUTING.md#pr-acceptance) and the
+[enforcement inventory](../docs/architecture/enforcement.md) for workflows and PR metadata.
 
 - Pin every GitHub Action to a full commit SHA and keep a readable version comment.
 - Use least permissions and never expose credentials to untrusted pull-request code or logs.
-- Require `Source policies` and `macOS checks`; the final macOS step must validate Rust,
-  Swift/architecture verification, and Release outcomes. Rust may be skipped only for an explicit
-  app-only PR classification from the successful Linux job. A trusted documentation-only decision
-  may skip the macOS job; main always verifies both toolchains. Unknown paths require verification,
-  and detection failures must fail the Linux job.
-- Swift CI consumes only the app's published engine pin. Producer validation and engine publication
-  must not depend on app compatibility with an unpublished candidate.
+- Preserve the [required CI aggregate](../docs/architecture/enforcement/build-and-abi.md#ci-and-release-workflow),
+  fail-closed change classification, and separation of published app pins from engine production.
 - Preserve content-keyed Rust archive reuse and configuration-safe SwiftPM cache isolation. Treat
   cache contents, restore prefixes, and timestamp refreshes as correctness-sensitive build behavior.
 - Use the selected Xcode toolchain for Swift formatting. The pinned ast-grep rules own migrated

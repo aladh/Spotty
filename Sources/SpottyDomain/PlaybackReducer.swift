@@ -94,7 +94,10 @@ public enum PlaybackReducer {
                     in: &candidate
                 )
                 if snapshot.trackUnavailable, incomingURI != nil {
-                    candidate.notice = PlaybackNotice(message: PlaybackNotice.trackUnavailableMessage)
+                    candidate.notice = PlaybackNotice(
+                        message: snapshot.audioKeyRefused
+                            ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage
+                    )
                 }
             }
         case let .engineConnection(snapshot):

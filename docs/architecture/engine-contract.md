@@ -62,3 +62,7 @@ resume export or use presentation snapshots as resume identity. Reconnect backof
 its loop; connection presentation must not acquire duplicate device-name, retry-counter, timestamp,
 or session-identity state. New protocol or ownership boundaries require an explicit architectural
 decision, not another engine or state machine alongside the existing one.
+
+The app supplies this identity through
+[ConnectInstallationIDStore](../../Sources/Spotty/Spotify/ConnectInstallationIDStore.swift).
+Debug checkout and unbundled-test isolation are documented in [local state](../development/local-state.md).

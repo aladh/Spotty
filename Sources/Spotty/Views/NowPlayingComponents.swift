@@ -44,58 +44,25 @@ struct NowPlayingTrackIdentity: View {
 
 struct NowPlayingProgress: View {
     let player: PlaybackStore
-    @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.clear
-                PlaybackProgressDrawing(
-                    position: player.displayedPosition(at: Date()),
-                    duration: player.duration,
-                    isPlaying: player.showsPauseControl && !reduceMotion,
-                    hasTrack: player.hasCurrentTrack,
-                    isHovering: isHovering,
-                    reduceMotion: reduceMotion
-                )
-                .allowsHitTesting(false)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { point in
-                guard player.canStartPlayback, player.hasCurrentTrack, player.duration > 0 else { return }
-                player.seek(to: point.x / max(proxy.size.width, 1))
-            }
+        let accountEpoch = player.state.accountEpoch
+        let engineEpoch = player.state.engineEpoch
+        let owner = player.state.owner
+        let trackURI = player.trackURI
+        let duration = player.duration
+        PlaybackPositionSlider(
+            position: player.displayedPosition(at: Date()), duration: duration,
+            isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0
+        ) { position in
+            // A drag belongs to the track, owner, and lifetime where it began.
+            guard player.canStartPlayback, player.hasCurrentTrack,
+                player.state.accountEpoch == accountEpoch, player.state.engineEpoch == engineEpoch,
+                player.state.owner == owner, player.trackURI == trackURI,
+                player.duration == duration, duration > 0
+            else { return }
+            player.seek(to: position / duration)
         }
-        .pointingHandCursor(
-            enabled: player.canStartPlayback && player.hasCurrentTrack && player.duration > 0,
-            isHovering: $isHovering
-        )
-        .onDisappear { isHovering = false }
-        .accessibilityElement()
-        .accessibilityHidden(!player.hasCurrentTrack)
-        .accessibilityLabel("Playback position")
-        .accessibilityValue(accessibilityValue)
-        .accessibilityAdjustableAction(adjust)
-        .frame(height: 16)
-    }
-
-    private func fraction(at date: Date) -> Double {
-        guard player.hasCurrentTrack, player.duration > 0 else { return 0 }
-        return min(max(player.displayedPosition(at: date) / player.duration, 0), 1)
-    }
-    private var accessibilityValue: String {
-        guard player.hasCurrentTrack else { return "No current track" }
-        return "\(formatDuration(player.position)) of \(formatDuration(player.duration))"
-    }
-    private func adjust(_ direction: AccessibilityAdjustmentDirection) {
-        guard player.canStartPlayback, player.duration > 0 else { return }
-        let step = 10 / player.duration
-        switch direction {
-        case .increment: player.seek(to: fraction(at: Date()) + step)
-        case .decrement: player.seek(to: fraction(at: Date()) - step)
-        @unknown default: break
-        }
+        .frame(height: 20)
     }
 }
 

@@ -1263,9 +1263,9 @@ struct PlaybackEventOutcomeTests {
         await player.shutdownForTermination()
     }
 
-    @Test
+    @Test(arguments: [false, true])
     @MainActor
-    func testPlaybackUnavailableIntakeSurfacesOnlyAcceptedLocalFailures() async {
+    func testPlaybackUnavailableIntakeSurfacesOnlyAcceptedLocalFailures(audioKeyRefused: Bool) async {
         let receivedAt = Date(timeIntervalSince1970: 1_800_000_100)
         let localURI = "spotify:track:boundary-unavailable"
         let local = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
@@ -1285,13 +1285,15 @@ struct PlaybackEventOutcomeTests {
                 repeatTrack: false,
                 repeatContext: false,
                 trackUnavailable: true,
+                audioKeyRefused: audioKeyRefused,
                 isActiveDevice: true
             ),
             revision: 11,
             receivedAt: receivedAt
         )
         #expect(
-            (local.playbackNotice?.message) == (PlaybackNotice.trackUnavailableMessage),
+            (local.playbackNotice?.message)
+                == (audioKeyRefused ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage),
             "an accepted local engine failure reaches the store notice"
         )
         let noticeID = local.playbackNotice?.id
@@ -1322,6 +1324,7 @@ struct PlaybackEventOutcomeTests {
                 repeatTrack: false,
                 repeatContext: false,
                 trackUnavailable: true,
+                audioKeyRefused: audioKeyRefused,
                 isActiveDevice: false
             ),
             revision: 1,
@@ -1345,6 +1348,7 @@ struct PlaybackEventOutcomeTests {
                 repeatTrack: false,
                 repeatContext: false,
                 trackUnavailable: true,
+                audioKeyRefused: audioKeyRefused,
                 isActiveDevice: true
             ),
             revision: 1,

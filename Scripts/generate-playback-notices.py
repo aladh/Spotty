@@ -459,9 +459,12 @@ def collect_package(
     vcs = read_vcs_details(package_dir, kind)
     if kind == "path":
         upstream_file = expected.parent.parent / "UPSTREAM"
-        upstream = upstream_file.read_text().splitlines()[0]
-        retained_manifest = tomllib.loads((ROOT / "Backend/spotty-playback/Cargo.toml").read_text())
-        pinned = retained_manifest["dependencies"][package["name"]]["rev"]
+        try:
+            upstream = upstream_file.read_text().splitlines()[0]
+            retained_manifest = tomllib.loads(MANIFEST.read_text())
+            pinned = retained_manifest["dependencies"][package["name"]]["rev"]
+        except (OSError, UnicodeError, IndexError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
+            fail(f"cannot read retained upstream metadata for {key}: {error}")
         if not REVISION_RE.fullmatch(upstream) or upstream != pinned:
             fail(f"retained upstream revision mismatch for {key}")
         vcs = {"revision": upstream, "path_in_vcs": directory}

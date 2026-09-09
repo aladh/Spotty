@@ -25,3 +25,7 @@ files, and normal Rust verification runs the `spotty_` regression tests in both 
 `playback/tests/fixtures/silence.flac` is a synthetic 50 ms, 44.1 kHz stereo silence
 fixture generated with `ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 0.05 -c:a flac`.
 Tests decode it in memory; they do not open an audio output device.
+
+`UPSTREAM` records the retained revision and commit date. The core build script uses these rather
+than discovering Spotty's enclosing Git repository; the notice generator validates the revision
+against the engine's Cargo pin and attaches it to each retained package and license record.

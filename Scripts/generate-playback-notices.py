@@ -457,6 +457,15 @@ def collect_package(
 
     package_dir = Path(package["manifest_path"]).resolve().parent
     vcs = read_vcs_details(package_dir, kind)
+    if kind == "path":
+        upstream_file = expected.parent.parent / "UPSTREAM"
+        upstream = upstream_file.read_text().splitlines()[0]
+        retained_manifest = tomllib.loads((ROOT / "Backend/spotty-playback/Cargo.toml").read_text())
+        pinned = retained_manifest["dependencies"][package["name"]]["rev"]
+        if not REVISION_RE.fullmatch(upstream) or upstream != pinned:
+            fail(f"retained upstream revision mismatch for {key}")
+        vcs = {"revision": upstream, "path_in_vcs": directory}
+        override_inputs.add(upstream_file)
     if vcs.get("revision"):
         record["source_revision"] = vcs["revision"]
     if vcs.get("path_in_vcs"):

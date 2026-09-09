@@ -1,12 +1,16 @@
 use rand::Rng;
 use rand_distr::Alphanumeric;
-use vergen_gitcl::{BuildBuilder, Emitter, GitclBuilder};
+use vergen_gitcl::{BuildBuilder, Emitter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let gitcl = GitclBuilder::default()
-        .sha(true) // outputs 'VERGEN_GIT_SHA', and sets the 'short' flag true
-        .commit_date(true) // outputs 'VERGEN_GIT_COMMIT_DATE'
-        .build()?;
+    // This path dependency lives inside Spotty's checkout, not librespot's Git tree.
+    let mut upstream = include_str!("../UPSTREAM").lines();
+    let revision = upstream.next().expect("retained upstream revision");
+    let date = upstream.next().expect("retained upstream commit date");
+    assert!(revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    println!("cargo:rustc-env=VERGEN_GIT_SHA={}", &revision[..8]);
+    println!("cargo:rustc-env=VERGEN_GIT_COMMIT_DATE={date}");
+    println!("cargo:rerun-if-changed=../UPSTREAM");
 
     let build = BuildBuilder::default()
         .build_date(true) // outputs 'VERGEN_BUILD_DATE'
@@ -14,7 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Emitter::default()
         .add_instructions(&build)?
-        .add_instructions(&gitcl)?
         .emit()
         .expect("Unable to generate the cargo keys!");
     let build_id = match std::env::var("SOURCE_DATE_EPOCH") {

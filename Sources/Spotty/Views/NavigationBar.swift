@@ -22,14 +22,13 @@ struct NavigationBar: View {
                     .foregroundStyle(
                         isHome || homeIsHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
                     )
-                    .frame(width: 48, height: 48)
+                    .frame(width: 36, height: 36)
                     .background(SpottyPalette.navigationControl, in: Circle())
             }
             .onHover { homeIsHovered = $0 }
             .accessibilityLabel("Home")
             .help("Home")
             .focusable()
-            .focusEffectDisabled()
             .focused($focusedControl, equals: .home)
             HStack(spacing: 12) {
                 Button {
@@ -57,7 +56,7 @@ struct NavigationBar: View {
             .onHover { searchIsHovered = $0 }
             .padding(.horizontal, 16)
             .frame(maxWidth: 460)
-            .frame(height: 48)
+            .frame(height: 36)
             .background(SpottyPalette.navigationControl, in: Capsule())
             .overlay {
                 Capsule().strokeBorder(focusedControl == .search ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
@@ -66,7 +65,8 @@ struct NavigationBar: View {
         .labelStyle(.iconOnly)
         .buttonStyle(.plain)
         .font(.system(size: 18))
-        .frame(width: 516)
+        .frame(width: 504)
+        .padding(.vertical, 6)
         .onChange(of: searchText) {
             if !searchText.isEmpty { showSearch() }
         }

@@ -1,12 +1,8 @@
 # Rust playback leaf agent guidance
 
-This crate is the contained Rust/librespot protocol, Connect, streaming, decoding, recovery, and
-C-ABI leaf. Read [ADR 001](../../docs/architecture/adrs/ADR-001-playback-engine.md),
-[ADR 005](../../docs/architecture/adrs/ADR-005-retain-librespot.md), and
-[playback engine ownership](../../docs/architecture/playback-engine-ownership.md) before moving responsibility
-across the Swift/Rust boundary.
-
-## Lifecycle and ownership
+Keep the Rust/librespot leaf within [engine ownership](../../docs/architecture/playback-engine-ownership.md)
+and [ADR 005](../../docs/architecture/adrs/ADR-005-retain-librespot.md). ABI changes follow the
+[engine contract](../../docs/architecture/engine-contract.md).
 
 - Lifecycle operations that write `SESSION`, `SPIRC`, `PLAYER`, `MIXER`, or `PLAYER_EVENT_TX`
   serialize through one async lifecycle mutex. Do not hold a per-global guard across `await`, and do
@@ -21,11 +17,8 @@ across the Swift/Rust boundary.
   would have reached. Nested runtime re-entry returns `ERROR_GENERAL` and is not supersession.
 - Map panics to the defined sentinel. Do not replace the process panic hook, hold Rust locks while
   invoking Swift, or assume the barrier makes invalid foreign pointers safe.
-- Rust emits bounded PCM and immutable protocol/state envelopes; callbacks stay non-blocking.
-  Connection, playback, device-list, and queue observations are typed C snapshots, not JSON.
-  Presentation and resume plans stay in Swift. Preserve the reconnect readiness hold and keep
-  sticky context confined to resume-load getters; follow
-  [engine contracts](../../docs/architecture/engine-contract.md) when changing these boundaries.
+- Emit bounded PCM and immutable typed observations with non-blocking callbacks. Preserve the
+  engine contract's readiness hold and sticky resume identity.
 - Keep decoded PCM on `proxy_sink`; do not reintroduce a parallel audio/protocol path, debug selector,
   Swift decoder, or player-injection seam.
 - Keep the checked-in C header, exported symbol set, signatures, ownership, allocation, and callback

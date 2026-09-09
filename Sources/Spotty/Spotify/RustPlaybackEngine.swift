@@ -34,11 +34,15 @@ nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Send
     private init() {}
 
     func authorizeStreaming(with accessToken: String) -> Int32 {
-        PlaybackCore.authorizeStreaming(with: accessToken)
+        guard PlaybackCore.configureDeviceID(ConnectInstallationIDStore.liveDeviceID) == 0 else { return -1 }
+        return PlaybackCore.authorizeStreaming(with: accessToken)
     }
 
     func initialize() -> PlaybackEngineResult {
-        engineResult(PlaybackCore.initialize())
+        guard PlaybackCore.configureDeviceID(ConnectInstallationIDStore.liveDeviceID) == 0 else {
+            return PlaybackEngineResult(rawValue: -1)
+        }
+        return engineResult(PlaybackCore.initialize())
     }
 
     func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {

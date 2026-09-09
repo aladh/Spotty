@@ -29,6 +29,7 @@ fi
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
 if [[ "$check_scope" != rust ]]; then
+    "$project_root/Scripts/check-keychain-support.sh"
     "$project_root/Scripts/format-swift-self-test.sh"
     "$project_root/Scripts/format-swift.sh" --check
 fi

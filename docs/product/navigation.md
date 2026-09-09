@@ -14,7 +14,8 @@
   Home and Search live in that bar; the library sidebar uses an opaque neutral near-black surface.
   Empty top-bar space supports dragging and double-clicking to toggle native window zoom.
   Navigation history clears when the account changes. Command-[ and Command-] navigate history;
-  Command-L focuses search.
+  Command-L focuses search. The search field has vertical breathing room, and Home retains its
+  native keyboard focus indicator.
 - The sidebar reads Spotify’s saved custom playlist order and folder hierarchy. Folder rows
   expand and collapse locally, including nested folders, without changing the Spotify library.
   Sibling order follows the service across pagination; folder failures preserve the previous
@@ -25,8 +26,8 @@
   Rows use 48-point artwork, a 16-point title, and a muted 14-point owner or fallback label, with
   native keyboard selection and scrolling. Sidebar rows use a pointing-hand cursor and reveal
   a play button over playlist artwork on hover; clicking the rest of the row opens its details.
-  Selection uses an inset, rounded charcoal highlight;
-  hover uses a darker surface. The playlist matching the playing context has a green title and
+  Selection uses the native active/inactive highlight; hover uses a darker surface only on
+  unselected rows. The playlist matching the playing context has a green title and
   trailing green speaker icon for both local and Connect playback, independent of navigation
   selection. The indicator clears when playback pauses, disconnects, or changes context.
   Home and Search remain in the top bar; the sidebar
@@ -39,8 +40,9 @@
   Queue artist credits and playlist artist/album names navigate to their catalog pages. Each
   known artist is a separate link; links underline and turn white on hover, with a pointing-hand
   cursor. Missing destination metadata stays plain text. Queue row hover also uses the pointer.
-  Playlist table cells retain the arrow except for links; playback buttons and the seek bar use
-  a pointer when enabled. Hovering the seek bar reveals a white handle and green played portion.
+  Playlist table cells retain the arrow except for links; enabled playback buttons use a pointer.
+  Nested links use native pointer regions so leaving a link restores its parent’s cursor.
+  The seek bar uses the native slider thumb, focus, pointer, and disabled appearance.
   Current and upcoming queue rows show an inset rounded highlight and dimmed artwork with a
   play/pause button on hover. Row clicks still select; the artwork
   button, Return, or double-click invokes playback.

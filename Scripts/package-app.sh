@@ -122,6 +122,22 @@ cp "$selected_xcframework/spotty_playback_provenance.json" \
     "$app_path/Contents/Resources/PlaybackNotices/spotty_playback_provenance.json"
 cp "$info_template" "$app_path/Contents/Info.plist"
 
+# Debug builds have a checkout-scoped non-secret identity, separate from installed Release defaults.
+# Persist outside the replaced bundle so rebuilds and launches retain it, including in worktrees.
+if [[ "$build_configuration" == debug ]]; then
+    development_id_file="$project_root/.build/connect-device-id"
+    if [[ ! -f "$development_id_file" ]]; then
+        development_id="$(python3 -c 'import secrets; print(secrets.token_hex(20))')"
+        (set -o noclobber; print -r -- "$development_id" > "$development_id_file") 2>/dev/null || true
+    fi
+    development_id="$(cat "$development_id_file")"
+    if [[ ! "$development_id" =~ '^[0-9a-f]{40}$' ]]; then
+        print -u2 "Invalid development Connect identity at $development_id_file"
+        exit 1
+    fi
+    plutil -insert SpottyConnectDeviceID -string "$development_id" "$app_path/Contents/Info.plist"
+fi
+
 plutil -replace CFBundleShortVersionString -string "$app_version" "$app_path/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$app_build_number" "$app_path/Contents/Info.plist"
 plutil -lint "$app_path/Contents/Info.plist"

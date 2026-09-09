@@ -6,8 +6,8 @@
 //
 
 import Foundation
-import LocalAuthentication
 import Security
+import SpottyKeychainSupport
 
 /// Manages secure storage of authentication tokens in the Keychain
 nonisolated enum KeychainManager {
@@ -71,7 +71,7 @@ nonisolated enum KeychainManager {
         var addQuery = makeQuery(key: key, service: service)
         addQuery.merge(attributes) { _, new in new }
 
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        let addStatus = SpottyKeychainAdd(addQuery as CFDictionary)
         if addStatus == errSecSuccess {
             return
         }
@@ -80,9 +80,8 @@ nonisolated enum KeychainManager {
         }
 
         // Update in place so Keychain keeps existing trusted app ACL entries.
-        var updateQuery = makeQuery(key: key, service: service)
-        updateQuery[kSecUseAuthenticationContext as String] = noninteractiveContext()
-        let updateStatus = SecItemUpdate(
+        let updateQuery = makeQuery(key: key, service: service)
+        let updateStatus = SpottyKeychainUpdate(
             updateQuery as CFDictionary,
             attributes as CFDictionary,
         )
@@ -96,12 +95,12 @@ nonisolated enum KeychainManager {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        var result: Unmanaged<CFTypeRef>?
+        let status = SpottyKeychainCopyMatching(query as CFDictionary, &result)
 
         switch status {
         case errSecSuccess:
-            guard let data = result as? Data else {
+            guard let data = result?.takeRetainedValue() as? Data else {
                 SpottyLog.authentication.error(
                     "Keychain read failed category=failed status=unexpected-data"
                 )
@@ -128,15 +127,8 @@ nonisolated enum KeychainManager {
     }
 
     private static func delete(key: String, service: String) {
-        var query = makeQuery(key: key, service: service)
-        query[kSecUseAuthenticationContext as String] = noninteractiveContext()
-        SecItemDelete(query as CFDictionary)
-    }
-
-    private static func noninteractiveContext() -> LAContext {
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        return context
+        let query = makeQuery(key: key, service: service)
+        SpottyKeychainDelete(query as CFDictionary)
     }
 
     /// File-based generic-password items, authorized by this process's code signature.

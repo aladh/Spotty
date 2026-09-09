@@ -21,13 +21,14 @@ private func unavailableEnvelope(
     )
 }
 
-private func unavailableSnapshot(_ uri: String?, flagged: Bool = true) -> PlaybackEvent {
+private func unavailableSnapshot(_ uri: String?, flagged: Bool = true, audioKeyRefused: Bool = false) -> PlaybackEvent {
     .enginePlayback(
         EnginePlaybackSnapshot(
             transport: uri == nil ? .stopped : .paused,
             trackURI: uri,
             timing: PlaybackTiming(anchoredAt: unavailableTraceDate),
-            trackUnavailable: flagged
+            trackUnavailable: flagged,
+            audioKeyRefused: audioKeyRefused
         )
     )
 }
@@ -55,8 +56,8 @@ private func reduceUnavailableCommand(
 
 @Suite("Playback Unavailable")
 struct PlaybackUnavailableTests {
-    @Test
-    func testAcceptedLocalUnavailableSampleSetsActionableNotice() {
+    @Test(arguments: [false, true])
+    func testAcceptedLocalUnavailableSampleSetsActionableNotice(audioKeyRefused: Bool) {
         let currentURI = "spotify:track:unavailable"
         let local = PlaybackDevice(id: "local", name: "Spotty", type: "computer", isActive: true)
         var state = PlaybackState(
@@ -73,13 +74,14 @@ struct PlaybackUnavailableTests {
                 &state,
                 envelope: unavailableEnvelope(
                     revision: 1,
-                    event: unavailableSnapshot(currentURI)
+                    event: unavailableSnapshot(currentURI, audioKeyRefused: audioKeyRefused)
                 )
             ),
             "a current local unavailable sample is accepted"
         )
         #expect(
-            (state.notice?.message) == (PlaybackNotice.trackUnavailableMessage),
+            (state.notice?.message)
+                == (audioKeyRefused ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage),
             "an accepted unavailable sample uses the privacy-safe actionable message"
         )
 
@@ -89,7 +91,7 @@ struct PlaybackUnavailableTests {
                 &state,
                 envelope: unavailableEnvelope(
                     revision: 1,
-                    event: unavailableSnapshot(currentURI)
+                    event: unavailableSnapshot(currentURI, audioKeyRefused: audioKeyRefused)
                 )
             )) == true,
             "a duplicate unavailable revision is rejected"
@@ -103,7 +105,7 @@ struct PlaybackUnavailableTests {
                     account: 0,
                     engine: 99,
                     revision: 2,
-                    event: unavailableSnapshot(currentURI)
+                    event: unavailableSnapshot(currentURI, audioKeyRefused: audioKeyRefused)
                 )
             )) == true,
             "an unavailable sample from an old account is rejected before engine adoption"
@@ -117,7 +119,7 @@ struct PlaybackUnavailableTests {
                     account: 1,
                     engine: 0,
                     revision: 2,
-                    event: unavailableSnapshot(currentURI)
+                    event: unavailableSnapshot(currentURI, audioKeyRefused: audioKeyRefused)
                 )
             )) == true,
             "an unavailable sample from an old engine generation is rejected"
@@ -125,8 +127,8 @@ struct PlaybackUnavailableTests {
         #expect((state) == (afterAccepted), "an old engine unavailable sample cannot mutate state")
     }
 
-    @Test
-    func testUnavailableSampleCannotReplaceAnOptimisticPlayTarget() {
+    @Test(arguments: [false, true])
+    func testUnavailableSampleCannotReplaceAnOptimisticPlayTarget(audioKeyRefused: Bool) {
         let oldURI = "spotify:track:old"
         let targetURI = "spotify:track:target"
         let unrelatedURI = "spotify:track:unrelated"
@@ -149,7 +151,7 @@ struct PlaybackUnavailableTests {
                 &staleFailure,
                 envelope: unavailableEnvelope(
                     revision: 1,
-                    event: unavailableSnapshot(oldURI)
+                    event: unavailableSnapshot(oldURI, audioKeyRefused: audioKeyRefused)
                 )
             )) == true,
             "a failed old URI is rejected while a newer play target is pending"
@@ -161,7 +163,7 @@ struct PlaybackUnavailableTests {
                 &staleFailure,
                 envelope: unavailableEnvelope(
                     revision: 2,
-                    event: unavailableSnapshot(targetURI)
+                    event: unavailableSnapshot(targetURI, audioKeyRefused: audioKeyRefused)
                 )
             ),
             "a failed optimistic target is accepted"
@@ -173,7 +175,8 @@ struct PlaybackUnavailableTests {
             "the unavailable snapshot leaves command completion responsible for clearing the pending play"
         )
         #expect(
-            (staleFailure.notice?.message) == (PlaybackNotice.trackUnavailableMessage),
+            (staleFailure.notice?.message)
+                == (audioKeyRefused ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage),
             "the matching target failure is surfaced"
         )
         #expect(
@@ -192,7 +195,8 @@ struct PlaybackUnavailableTests {
             "command completion does not restore the optimistic playing state"
         )
         #expect(
-            (staleFailure.notice?.message) == (PlaybackNotice.trackUnavailableMessage),
+            (staleFailure.notice?.message)
+                == (audioKeyRefused ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage),
             "command completion preserves the unavailable-track notice"
         )
 
@@ -212,7 +216,7 @@ struct PlaybackUnavailableTests {
                 &unrelatedFailure,
                 envelope: unavailableEnvelope(
                     revision: 1,
-                    event: unavailableSnapshot(unrelatedURI)
+                    event: unavailableSnapshot(unrelatedURI, audioKeyRefused: audioKeyRefused)
                 )
             )) == true,
             "an unrelated failed URI is rejected while a newer play target is pending"
@@ -224,8 +228,8 @@ struct PlaybackUnavailableTests {
         #expect((unrelatedFailure.notice) == nil, "an unrelated failed URI does not create a notice")
     }
 
-    @Test
-    func testUnavailableSampleCanIntroduceAConcreteTrackWithoutExistingPresentation() {
+    @Test(arguments: [false, true])
+    func testUnavailableSampleCanIntroduceAConcreteTrackWithoutExistingPresentation(audioKeyRefused: Bool) {
         let uri = "spotify:track:first-failure"
         let local = PlaybackDevice(id: "local", name: "Spotty", type: "computer", isActive: true)
         var state = PlaybackState(
@@ -240,14 +244,15 @@ struct PlaybackUnavailableTests {
                 &state,
                 envelope: unavailableEnvelope(
                     revision: 1,
-                    event: unavailableSnapshot(uri)
+                    event: unavailableSnapshot(uri, audioKeyRefused: audioKeyRefused)
                 )
             ),
             "a first concrete unavailable track is accepted"
         )
         #expect((state.currentTrack?.uri) == (uri), "the failed track identity remains available for retry")
         #expect(
-            (state.notice?.message) == (PlaybackNotice.trackUnavailableMessage),
+            (state.notice?.message)
+                == (audioKeyRefused ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage),
             "a first concrete local failure is actionable"
         )
 
@@ -263,7 +268,7 @@ struct PlaybackUnavailableTests {
                 &emptyState,
                 envelope: unavailableEnvelope(
                     revision: 1,
-                    event: unavailableSnapshot(nil)
+                    event: unavailableSnapshot(nil, audioKeyRefused: audioKeyRefused)
                 )
             ),
             "an empty identity snapshot is still a valid playback update"

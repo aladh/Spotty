@@ -148,10 +148,12 @@ struct PlaybackSnapshotProjectionTests {
                 repeatContext: false,
                 repeatTrack: false,
                 trackUnavailable: true,
+                audioKeyRefused: true,
                 isInitialSnapshot: false,
                 isActiveDevice: true,
                 receivedAt: receivedAt
             )
+            #expect(localUnavailable.audioKeyRefused)
             #expect((localUnavailable.trackUnavailable) == true, "an active track failure crosses projection")
 
             let remoteUnavailable = PlaybackSnapshotProjection.snapshot(
@@ -165,10 +167,12 @@ struct PlaybackSnapshotProjectionTests {
                 repeatContext: false,
                 repeatTrack: false,
                 trackUnavailable: true,
+                audioKeyRefused: true,
                 isInitialSnapshot: false,
                 isActiveDevice: false,
                 receivedAt: receivedAt
             )
+            #expect(!remoteUnavailable.audioKeyRefused)
             #expect((remoteUnavailable.trackUnavailable) == false, "a remote track failure stays out of notices")
 
             let emptyUnavailable = PlaybackSnapshotProjection.snapshot(
@@ -182,10 +186,12 @@ struct PlaybackSnapshotProjectionTests {
                 repeatContext: false,
                 repeatTrack: false,
                 trackUnavailable: true,
+                audioKeyRefused: true,
                 isInitialSnapshot: false,
                 isActiveDevice: true,
                 receivedAt: receivedAt
             )
+            #expect(!emptyUnavailable.audioKeyRefused)
             #expect((emptyUnavailable.trackUnavailable) == false, "an empty URI cannot become a failure notice")
         }
     }

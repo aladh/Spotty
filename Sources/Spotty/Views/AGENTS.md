@@ -1,13 +1,8 @@
 # Native UI agent guidance
 
-Read [product scope](../../../docs/product/scope.md) and [navigation](../../../docs/product/navigation.md)
-for appearance and layout changes, then the affected [surface contract](../../../docs/product/README.md)
-for supported actions. Live-account acceptance follows [safe testing](../../../docs/product/safe-testing.md).
-
-## Product taste
-
-Spotty should have quiet confidence: native, visually calm, information-dense without feeling cramped,
-and capable without advertising every capability.
+Follow [product scope](../../../docs/product/scope.md), [navigation](../../../docs/product/navigation.md),
+and the affected [surface contract](../../../docs/product/README.md). Keep the UI native, calm,
+and information-dense without crowding.
 
 - Start with established macOS structure, typography, controls, menus, focus, keyboard behavior,
   accessibility, and inactive-window semantics. Prefer system behavior over custom chrome.

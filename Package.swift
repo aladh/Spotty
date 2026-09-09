@@ -102,9 +102,13 @@ let package = Package(
     ],
     targets: [
         playbackSelection,
+        .target(name: "SpottyKeychainSupport", linkerSettings: [.linkedFramework("Security")]),
         .target(
             name: "SpottyCore",
-            dependencies: ["SpottyDomain", "SpottyPlaybackCore", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: [
+                "SpottyDomain", "SpottyPlaybackCore", "SpottyKeychainSupport",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/Spotty",
             exclude: [
                 "AGENTS.md",

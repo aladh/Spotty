@@ -146,10 +146,9 @@ private struct SidebarPlaylistRow: View {
         }
         .padding(8)
         .background(
-            isSelected ? Color(white: 0.157) : (isHovering ? Color(white: 0.122) : .clear),
+            !isSelected && isHovering ? Color(white: 0.122) : .clear,
             in: RoundedRectangle(cornerRadius: 4)
         )
-        .background { PlaylistSelectionAppearance() }
         .contentShape(Rectangle())
         .pointingHandCursor(isHovering: $isHovering)
         .onDisappear { isHovering = false }

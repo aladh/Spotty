@@ -40,6 +40,7 @@ nonisolated enum PlaybackCore {
             repeatTrack: snapshot.repeat_track != 0,
             repeatContext: snapshot.repeat_context != 0,
             trackUnavailable: snapshot.track_unavailable != 0,
+            audioKeyRefused: snapshot.audio_key_refused != 0,
             isActiveDevice: snapshot.is_active_device != 0,
             contextURI: optionalCString(snapshot.context_uri)
         )
@@ -126,6 +127,10 @@ nonisolated enum PlaybackCore {
             activeDeviceID: optionalCString(snapshot.active_device_id) ?? "",
             devices: devices
         )
+    }
+
+    static func configureDeviceID(_ deviceID: String) -> Int32 {
+        deviceID.withCString { spotty_playback_set_device_id($0) }
     }
 
     static func authorizeStreaming(with accessToken: String) -> Int32 {

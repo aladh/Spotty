@@ -11,6 +11,7 @@ public struct EnginePlaybackSnapshot: Equatable, Sendable {
     /// True for the one-shot local playback sample that reports the current requested track could
     /// not be played. The intake projection filters this to an active device and non-empty URI.
     public let trackUnavailable: Bool
+    public let audioKeyRefused: Bool
     public let shuffle: Bool?
     public let repeatMode: RepeatMode?
     public let repeatFlags: RepeatFlags?
@@ -20,6 +21,7 @@ public struct EnginePlaybackSnapshot: Equatable, Sendable {
         trackURI: String?,
         timing: PlaybackTiming,
         trackUnavailable: Bool = false,
+        audioKeyRefused: Bool = false,
         shuffle: Bool? = nil,
         repeatMode: RepeatMode? = nil,
         repeatFlags: RepeatFlags? = nil,
@@ -30,6 +32,7 @@ public struct EnginePlaybackSnapshot: Equatable, Sendable {
         self.contextURI = contextURI
         self.timing = timing
         self.trackUnavailable = trackUnavailable
+        self.audioKeyRefused = audioKeyRefused
         self.shuffle = shuffle
         self.repeatMode = repeatMode
         self.repeatFlags = repeatFlags

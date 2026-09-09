@@ -16,7 +16,11 @@ Changes from that source:
   the queue. Refused preloads are discarded without marking the upcoming occurrence unavailable.
 - Standalone crate manifests expand workspace metadata and pin sibling dependencies to the
   same upstream revision. The redundant tokio dev-dependency is omitted (its macros feature is
-  already enabled), allowing Cargo to run retained-crate tests without a second workspace. One obsolete deprecation expectation is an allowance instead.
+  already enabled), allowing Cargo to run retained-crate tests without a second workspace.
+  `playback/Cargo.toml` expands the inherited `redundant_closure_for_method_calls` Clippy warning.
+  `playback/src/audio_backend/mod.rs` turns an obsolete deprecation expectation into an allowance.
+- `playback/src/spotty_player_tests.rs` supplies the synthetic current/preload/refusal/unencrypted
+  decode regression cases, included by the player module only under `cfg(test)`.
 
 Do not import unrelated fork changes. Review the upstream diff when updating the pin and remove
 patches when equivalent upstream behavior is available. The engine source digest includes these

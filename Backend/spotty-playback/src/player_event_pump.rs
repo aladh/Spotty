@@ -864,11 +864,16 @@ mod player_event_pump_policy {
         struct RestoreQueue(Option<QueueState>);
         impl Drop for RestoreQueue {
             fn drop(&mut self) {
-                *LAST_QUEUE.lock().unwrap() = self.0.take();
+                *LAST_QUEUE.lock().unwrap_or_else(|error| error.into_inner()) = self.0.take();
             }
         }
         let queue = crate::queue_snapshot_tests::fixture_queue_state();
-        let _restore_queue = RestoreQueue(LAST_QUEUE.lock().unwrap().replace(queue.clone()));
+        let _restore_queue = RestoreQueue(
+            LAST_QUEUE
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .replace(queue.clone()),
+        );
         let previous_callback = *CONTROL_CALLBACKS
             .playback_state
             .lock()
@@ -932,7 +937,10 @@ mod player_event_pump_policy {
         assert_eq!(CALLBACK_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(CALLBACK_UNAVAILABLE.load(Ordering::SeqCst), 1);
         assert_eq!(CALLBACK_REFUSED.load(Ordering::SeqCst), u8::from(refused));
-        assert_eq!(*LAST_QUEUE.lock().unwrap(), Some(queue));
+        assert_eq!(
+            *LAST_QUEUE.lock().unwrap_or_else(|error| error.into_inner()),
+            Some(queue)
+        );
     }
 
     fn synthetic_track() -> SpotifyUri {

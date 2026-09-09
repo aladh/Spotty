@@ -19,7 +19,12 @@ struct PlaybackPositionSliderChecks {
         let slider = PlaybackPositionSlider.PositionSlider()
         slider.accessibleDuration = 5_400
         slider.updatePosition(3_600, duration: 5_400)
-        #expect(slider.accessibilityValueDescription() == "1 hour of 1 hour, 30 minutes")
+        let position = DateComponentsFormatter.localizedString(
+            from: DateComponents(hour: 1), unitsStyle: .full)
+        let duration = DateComponentsFormatter.localizedString(
+            from: DateComponents(hour: 1, minute: 30), unitsStyle: .full)
+        #expect(position != nil && duration != nil)
+        #expect(slider.accessibilityValueDescription() == "\(position ?? "") of \(duration ?? "")")
     }
 
     @Test func nativeAccessibilityAdjustmentAndDisabledCommit() {
@@ -33,7 +38,12 @@ struct PlaybackPositionSliderChecks {
         slider.action = #selector(PlaybackPositionSlider.PositionSlider.commitPosition)
         var positions: [Double] = []
         slider.commit = { positions.append($0) }
-        #expect(slider.accessibilityValueDescription() == "1 minute of 3 minutes")
+        let position = DateComponentsFormatter.localizedString(
+            from: DateComponents(minute: 1), unitsStyle: .full)
+        let duration = DateComponentsFormatter.localizedString(
+            from: DateComponents(minute: 3), unitsStyle: .full)
+        #expect(position != nil && duration != nil)
+        #expect(slider.accessibilityValueDescription() == "\(position ?? "") of \(duration ?? "")")
         _ = slider.accessibilityPerformIncrement()
         #expect(positions.count == 1)
         #expect(slider.doubleValue > 60)

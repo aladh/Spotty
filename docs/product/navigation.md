@@ -14,7 +14,7 @@
   Home and Search live in that bar; the library sidebar uses an opaque neutral near-black surface.
   Empty top-bar space supports dragging and double-clicking to toggle native window zoom.
   Navigation history clears when the account changes. Command-[ and Command-] navigate history;
-  Command-L focuses search. The search field has vertical breathing room, and Home retains its
+  Command-L focuses search. Home and Search retain 48-point control heights with vertical breathing room; Home retains its
   native keyboard focus indicator.
 - The sidebar reads Spotify’s saved custom playlist order and folder hierarchy. Folder rows
   expand and collapse locally, including nested folders, without changing the Spotify library.
@@ -26,7 +26,7 @@
   Rows use 48-point artwork, a 16-point title, and a muted 14-point owner or fallback label, with
   native keyboard selection and scrolling. Sidebar rows use a pointing-hand cursor and reveal
   a play button over playlist artwork on hover; clicking the rest of the row opens its details.
-  Selection uses the native active/inactive highlight; hover uses a darker surface only on
+  Selection uses a neutral gray highlight with native active/inactive behavior; hover uses a darker surface only on
   unselected rows. The playlist matching the playing context has a green title and
   trailing green speaker icon for both local and Connect playback, independent of navigation
   selection. The indicator clears when playback pauses, disconnects, or changes context.
@@ -42,7 +42,9 @@
   cursor. Missing destination metadata stays plain text. Queue row hover also uses the pointer.
   Playlist table cells retain the arrow except for links; enabled playback buttons use a pointer.
   Nested links use native pointer regions so leaving a link restores its parent’s cursor.
-  The seek bar uses the native slider thumb, focus, pointer, and disabled appearance.
+  The seek bar has a 4-point gray rail and white played portion; hover, keyboard focus, or dragging
+  reveals a 12-point white handle and green played portion. Enabled seeking uses a pointing hand.
+  Native focus and disabled semantics remain; disabled seeking shows the rail without an active handle.
   Current and upcoming queue rows show an inset rounded highlight and dimmed artwork with a
   play/pause button on hover. Row clicks still select; the artwork
   button, Return, or double-click invokes playback.

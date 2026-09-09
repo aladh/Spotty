@@ -483,15 +483,18 @@ private func attributeText(_ value: String?) -> String {
 }
 
 private struct PlaylistTrackRowHighlight: ViewModifier {
+    @Environment(\.controlActiveState) private var controlActiveState
     let isSelected: Bool
     @State private var isHovering = false
 
     func body(content: Content) -> some View {
         content
             .background(
-                Color.white.opacity(!isSelected && isHovering ? 0.1 : 0),
+                Color.white.opacity(
+                    isSelected ? (controlActiveState == .inactive ? 0.13 : 0.2) : (isHovering ? 0.1 : 0)),
                 in: RoundedRectangle(cornerRadius: 4)
             )
+            .background { PlaylistSelectionAppearance() }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {

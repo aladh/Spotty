@@ -70,10 +70,15 @@
 - The transport order is shuffle, previous, play/pause, next, repeat. Previous and next use the
   track-skip symbols with an outside bar, not rewind or fast-forward symbols. Repeat stays to the
   right of Next.
-- Playback position uses a native macOS slider with keyboard and VoiceOver adjustment and an
+- Playback position uses a Spotify-styled native macOS slider with keyboard and VoiceOver adjustment and an
   accessible elapsed/total description. Authoritative snapshots update it while idle. Dragging owns
   the thumb until release and commits once; a track, account, engine, or ownership change rejects
-  that obsolete gesture. Disabled playback cannot seek. Progress never animates speculatively.
+  that obsolete gesture. Disabled playback cannot seek.
+  Interpolate idle progress smoothly from confirmed playing snapshots using
+  [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift), without per-frame
+  SwiftUI layout. New snapshots, pauses, seeks, track/owner changes re-anchor it. Reduce Motion
+  disables interpolation. During interaction the native slider owns the visible position and
+  commit; interpolation never changes playback state or sends a seek.
 - Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
   style picker because Connect exposes no shuffle-style parameter.
 - Repeat cycles off → queue → track → off. Each step sends only the Connect flags that change,

@@ -2,9 +2,8 @@ import SwiftUI
 
 /// Small, bounded color vocabulary for catalog media surfaces.
 ///
-/// System colors remain the default for text, separators, selection, and window materials. The
-/// fixed media green is reserved for actions and the current-track indicator, so it never becomes
-/// a second global accent or selection system.
+/// Media surfaces follow Spotify colors; native APIs retain interaction and window semantics.
+/// Fixed media green is reserved for actions and playback; selection stays neutral gray.
 enum SpottyPalette {
     static let textPrimary = Color.white
     static let textSecondary = Color(white: 0.7)

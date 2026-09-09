@@ -44,23 +44,34 @@ struct NowPlayingTrackIdentity: View {
 
 struct NowPlayingProgress: View {
     let player: PlaybackStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let accountEpoch = player.state.accountEpoch
         let engineEpoch = player.state.engineEpoch
         let owner = player.state.owner
         let trackURI = player.trackURI
         let duration = player.duration
-        PlaybackPositionSlider(
-            position: player.displayedPosition(at: Date()), duration: duration,
-            isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0
-        ) { position in
-            // A drag belongs to the track, owner, and lifetime where it began.
-            guard player.canStartPlayback, player.hasCurrentTrack,
-                player.state.accountEpoch == accountEpoch, player.state.engineEpoch == engineEpoch,
-                player.state.owner == owner, player.trackURI == trackURI,
-                player.duration == duration, duration > 0
-            else { return }
-            player.seek(to: position / duration)
+        ZStack {
+            PlaybackProgressDrawing(
+                position: player.displayedPosition(at: Date()), duration: duration,
+                isPlaying: player.showsPauseControl && !reduceMotion,
+                hasTrack: player.hasCurrentTrack
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            PlaybackPositionSlider(
+                position: player.displayedPosition(at: Date()), duration: duration,
+                isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0,
+                drawsIdleProgress: false
+            ) { position in
+                // A drag belongs to the track, owner, and lifetime where it began.
+                guard player.canStartPlayback, player.hasCurrentTrack,
+                    player.state.accountEpoch == accountEpoch, player.state.engineEpoch == engineEpoch,
+                    player.state.owner == owner, player.trackURI == trackURI,
+                    player.duration == duration, duration > 0
+                else { return }
+                player.seek(to: position / duration)
+            }
         }
         .frame(height: 20)
     }

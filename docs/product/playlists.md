@@ -30,7 +30,7 @@
   Time columns.
 - Playlist tables initially show newest Date Added first, matching Spotify's Recently added view.
   Rows have a 56-point minimum height, no row separators, and a quiet 36-point header with a
-  clock for Duration and a green sort indicator. Aligned header buttons handle local sorting; rows retain native list selection and context menus, with native active/inactive selection highlights and rounded neutral-gray hover backgrounds on unselected rows. This local display projection never changes source order. Clicking **Date Added** sorts directly and reverses on the next click through native sorting; it never opens a
+  clock for Duration and a green sort indicator. Aligned header buttons handle local sorting; rows retain native list selection and context menus, with neutral-gray selection highlights with native active/inactive behavior and rounded neutral-gray hover backgrounds on unselected rows. This local display projection never changes source order. Clicking **Date Added** sorts directly and reverses on the next click through native sorting; it never opens a
   picker or menu.
 - Track tables use native multi-selection. **Add to Playlist** is a context-menu command listing
   library playlists whose owner URI matches the signed-in profile. The selected rows are batched

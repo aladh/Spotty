@@ -3,8 +3,10 @@
 Follow [build and run](../docs/development/verification.md#build-and-run) and
 [development signing](../docs/development/signing.md) for the launch entry point.
 
-- `build_and_run.sh` replaces a running app and can touch an authenticated session. Require explicit
-  current-request authorization for launch or interactive acceptance; do not use it for compile checks.
+- Live `build_and_run.sh` modes replace a running app and can touch an authenticated session. Require
+  explicit current-request authorization for live launch or interactive acceptance; do not use them
+  for compile checks. `--demo` is always authorized under the
+  [demo testing contract](../docs/product/safe-testing.md#spotty-demo-standing-authorization).
 - Authenticated launches require an Apple-issued development identity with a stable Team ID. Do not
   weaken anchor or Team-ID validation, silently fall back to self-signing, or install generated
   identities in the login keychain to suppress prompts.

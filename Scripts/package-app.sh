@@ -137,7 +137,7 @@ import tempfile
 
 target, previous = map(Path, sys.argv[1:])
 if previous.exists() or previous.is_symlink():
-    if not previous.is_file():
+    if previous.is_symlink() or not previous.is_file():
         raise SystemExit(f"Invalid development Connect identity at {previous}")
     identity = previous.read_text().strip()
 else:

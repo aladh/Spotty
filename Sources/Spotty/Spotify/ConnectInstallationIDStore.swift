@@ -23,9 +23,10 @@ nonisolated struct ConnectInstallationIDStore: DeviceIdStoring, @unchecked Senda
     }
 
     static func isValid(_ value: String) -> Bool {
-        value.utf8.count == 40 && value.utf8.allSatisfy {
-            (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
-        }
+        value.utf8.count == 40
+            && value.utf8.allSatisfy {
+                (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0)
+            }
     }
 
     static let liveDeviceID: String = {

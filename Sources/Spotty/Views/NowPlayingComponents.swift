@@ -51,27 +51,18 @@ struct NowPlayingProgress: View {
         let owner = player.state.owner
         let trackURI = player.trackURI
         let duration = player.duration
-        ZStack {
-            PlaybackProgressDrawing(
-                position: player.displayedPosition(at: Date()), duration: duration,
-                isPlaying: player.showsPauseControl && !reduceMotion,
-                hasTrack: player.hasCurrentTrack
-            )
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            PlaybackPositionSlider(
-                position: player.displayedPosition(at: Date()), duration: duration,
-                isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0,
-                drawsIdleProgress: false
-            ) { position in
-                // A drag belongs to the track, owner, and lifetime where it began.
-                guard player.canStartPlayback, player.hasCurrentTrack,
-                    player.state.accountEpoch == accountEpoch, player.state.engineEpoch == engineEpoch,
-                    player.state.owner == owner, player.trackURI == trackURI,
-                    player.duration == duration, duration > 0
-                else { return }
-                player.seek(to: position / duration)
-            }
+        PlaybackPositionSlider(
+            position: player.displayedPosition(at: Date()), duration: duration,
+            isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0,
+            isPlaying: player.showsPauseControl, reduceMotion: reduceMotion
+        ) { position in
+            // A drag belongs to the track, owner, and lifetime where it began.
+            guard player.canStartPlayback, player.hasCurrentTrack,
+                player.state.accountEpoch == accountEpoch, player.state.engineEpoch == engineEpoch,
+                player.state.owner == owner, player.trackURI == trackURI,
+                player.duration == duration, duration > 0
+            else { return }
+            player.seek(to: position / duration)
         }
         .frame(height: 20)
     }

@@ -1,101 +1,65 @@
 import AppKit
 import QuartzCore
-import SwiftUI
 
-/// Render-server interpolation avoids a SwiftUI layout pass on every progress frame.
-/// Playback and accessibility remain owned by NowPlayingProgress.
-struct PlaybackProgressDrawing: NSViewRepresentable {
-    let position: TimeInterval
-    let duration: TimeInterval
-    let isPlaying: Bool
-    let hasTrack: Bool
+/// One renderer owns idle and interactive chrome. Geometry comes from the native slider cell;
+/// Core Animation advances the fill/handle without per-frame SwiftUI layout or playback commands.
+@MainActor
+final class PlaybackProgressDrawing: NSView {
+    private let rail = CALayer()
+    private let fill = CALayer()
+    private let thumb = CALayer()
 
-    func makeNSView(context: Context) -> ProgressView { ProgressView(frame: .zero) }
-
-    func updateNSView(_ view: ProgressView, context: Context) {
-        view.update(self)
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        for sublayer in [rail, fill, thumb] { layer?.addSublayer(sublayer) }
+        rail.cornerRadius = 2
+        fill.cornerRadius = 2
+        fill.anchorPoint = CGPoint(x: 0, y: 0.5)
+        thumb.cornerRadius = 6
+        setAccessibilityElement(false)
     }
 
-    static func dismantleNSView(_ view: ProgressView, coordinator: ()) {
-        view.stopAnimation()
-    }
+    required init?(coder: NSCoder) { nil }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    final class ProgressView: NSView {
-        private let rail = CALayer()
-        private let fill = CALayer()
-        private var state: PlaybackProgressDrawing?
-        private var anchoredAt = Date()
-
-        override init(frame: NSRect) {
-            super.init(frame: frame)
-            wantsLayer = true
-            for sublayer in [rail, fill] { layer?.addSublayer(sublayer) }
-            rail.backgroundColor = NSColor(SpottyPalette.progressTrack).cgColor
-            rail.cornerRadius = 2
-            fill.cornerRadius = 2
-            fill.anchorPoint = CGPoint(x: 0, y: 0.5)
-            setAccessibilityElement(false)
-        }
-
-        required init?(coder: NSCoder) { nil }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        func update(_ state: PlaybackProgressDrawing) {
-            self.state = state
-            anchoredAt = Date()
-            render()
-        }
-
-        override func layout() {
-            super.layout()
-            render()
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            render()
-        }
-
-        override func viewDidChangeBackingProperties() {
-            super.viewDidChangeBackingProperties()
-            render()
-        }
-
-        func stopAnimation() {
-            fill.removeAllAnimations()
-        }
-
-        private func render() {
-            guard let state else { return }
-            let elapsed = state.isPlaying ? max(0, Date().timeIntervalSince(anchoredAt)) : 0
-            let position = min(max(0, state.position + elapsed), max(0, state.duration))
-            let fraction = state.duration > 0 ? position / state.duration : 0
-            let width = bounds.width
-            let x = width * fraction
-            let remaining = max(0, state.duration - position)
-            let animates = state.hasTrack && state.isPlaying && remaining > 0 && window != nil
-
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            fill.removeAnimation(forKey: "playbackProgress")
-            for sublayer in [rail, fill] {
-                sublayer.contentsScale = window?.backingScaleFactor ?? 1
-            }
-            rail.frame = CGRect(x: 0, y: bounds.midY - 2, width: width, height: 4)
-            fill.isHidden = !state.hasTrack
-            fill.backgroundColor = NSColor(SpottyPalette.playerPrimary).cgColor
-            fill.position = CGPoint(x: 0, y: bounds.midY)
-            fill.bounds = CGRect(x: 0, y: 0, width: animates ? width : x, height: 4)
-            if animates {
-                let animation = CABasicAnimation(keyPath: "bounds.size.width")
-                animation.fromValue = x
-                animation.toValue = width
+    func update(bar: NSRect, knob: NSRect, remaining: Double, hasTrack: Bool, engaged: Bool, animates: Bool) {
+        // NSSlider's knob center travels between these endpoints. Both drawing states use
+        // this range, so a native interaction cannot switch to a different progress geometry.
+        let track = NSRect(
+            x: bar.minX + knob.width / 2, y: bar.midY - 2,
+            width: max(0, bar.width - knob.width), height: 4
+        )
+        let x = min(max(knob.midX, track.minX), track.maxX)
+        let runs = animates && hasTrack && remaining > 0 && window != nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fill.removeAnimation(forKey: "progress")
+        thumb.removeAnimation(forKey: "progress")
+        for sublayer in [rail, fill, thumb] { sublayer.contentsScale = window?.backingScaleFactor ?? 1 }
+        rail.frame = track
+        rail.backgroundColor = NSColor(SpottyPalette.progressTrack).cgColor
+        fill.isHidden = !hasTrack
+        fill.backgroundColor = NSColor(engaged ? SpottyPalette.mediaGreen : SpottyPalette.playerPrimary).cgColor
+        fill.position = CGPoint(x: track.minX, y: track.midY)
+        fill.bounds = CGRect(x: 0, y: 0, width: runs ? track.width : x - track.minX, height: 4)
+        thumb.isHidden = !hasTrack || !engaged
+        thumb.backgroundColor = NSColor(SpottyPalette.playerPrimary).cgColor
+        thumb.bounds = CGRect(x: 0, y: 0, width: 12, height: 12)
+        thumb.position = CGPoint(x: runs ? track.maxX : x, y: track.midY)
+        if runs {
+            for (target, keyPath, start, end) in [
+                (fill, "bounds.size.width", x - track.minX, track.width),
+                (thumb, "position.x", x, track.maxX),
+            ] {
+                let animation = CABasicAnimation(keyPath: keyPath)
+                animation.fromValue = start
+                animation.toValue = end
                 animation.duration = remaining
                 animation.timingFunction = CAMediaTimingFunction(name: .linear)
-                fill.add(animation, forKey: "playbackProgress")
+                target.add(animation, forKey: "progress")
             }
-            CATransaction.commit()
         }
+        CATransaction.commit()
     }
 }

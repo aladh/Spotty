@@ -10,6 +10,7 @@ struct PlaylistSelectionAppearance: NSViewRepresentable {
     static func dismantleNSView(_ view: SelectionView, coordinator: ()) { view.detach() }
 
     final class SelectionView: NSView {
+        @MainActor
         private final class Lease {
             let previous: NSTableView.SelectionHighlightStyle
             var count = 0

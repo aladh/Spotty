@@ -26,6 +26,7 @@ struct PlaybackPositionSliderChecks {
             NSColor.black.setFill()
             NSBezierPath(rect: slider.bounds).fill()
             cell.draw(withFrame: slider.bounds, in: slider)
+            slider.progressDrawing.layer?.render(in: context.cgContext)
             return bitmap
         }
 
@@ -43,9 +44,6 @@ struct PlaybackPositionSliderChecks {
         let resting = try render()
         #expect(coloredPixels(resting, matching: white) > 200)
         #expect(coloredPixels(resting, matching: green) == 0)
-        slider.drawsIdleProgress = false
-        let underlayOwned = try render()
-        #expect(coloredPixels(underlayOwned, matching: white) == 0)
         slider.isHovering = true
         let hovered = try render()
         #expect(coloredPixels(hovered, matching: green) > 200)
@@ -53,11 +51,44 @@ struct PlaybackPositionSliderChecks {
         slider.isEnabled = false
         let disabled = try render()
         #expect(coloredPixels(disabled, matching: green) == 0)
-        #expect(coloredPixels(disabled, matching: white) == 0)
+        #expect(coloredPixels(disabled, matching: white) > 200)
+    }
+
+    @Test func animationAnchorIsSynchronizedBeforeHoverAndAccessibility() {
+        let slider = PlaybackPositionSlider.PositionSlider(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
+        var time = Date(timeIntervalSince1970: 1_000)
+        slider.now = { time }
+        slider.updatePosition(60, duration: 180, isPlaying: true)
+        time = time.addingTimeInterval(0.75)
+        slider.isHovering = true
+        #expect(slider.doubleValue == 60.75)
+        slider.target = slider
+        slider.action = #selector(PlaybackPositionSlider.PositionSlider.commitPosition)
+        var committed: Double?
+        slider.commit = { committed = $0 }
+        time = time.addingTimeInterval(1)
+        _ = slider.accessibilityPerformIncrement()
+        #expect(slider.doubleValue > 61.75)
+        #expect(committed == slider.doubleValue)
+        let incremented = slider.doubleValue
+        _ = slider.accessibilityPerformDecrement()
+        #expect(slider.doubleValue < incremented)
+        #expect(slider.doubleValue >= 61.75)
+        slider.updatePosition(10, duration: 180, isPlaying: false)
+        time = time.addingTimeInterval(2)
+        slider.isHovering = false
+        #expect(slider.doubleValue == 10)
+    }
+
+    @Test func trackingAreaRefreshClearsHoverWithoutAnActiveWindow() {
+        let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
+        slider.isHovering = true
+        slider.updateTrackingAreas()
+        #expect(!slider.isHovering)
     }
 
     @Test func shortTrackRangeAndUnknownDuration() {
-        let slider = PlaybackPositionSlider.PositionSlider()
+        let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
         slider.updatePosition(0.25, duration: 0.5)
         #expect(slider.maxValue == 0.5)
         #expect(slider.doubleValue == 0.25)
@@ -67,7 +98,7 @@ struct PlaybackPositionSliderChecks {
     }
 
     @Test func spokenLongDuration() {
-        let slider = PlaybackPositionSlider.PositionSlider()
+        let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
         slider.accessibleDuration = 5_400
         slider.updatePosition(3_600, duration: 5_400)
         let position = DateComponentsFormatter.localizedString(
@@ -79,11 +110,11 @@ struct PlaybackPositionSliderChecks {
     }
 
     @Test func nativeAccessibilityAdjustmentAndDisabledCommit() {
-        let slider = PlaybackPositionSlider.PositionSlider()
+        let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
         slider.minValue = 0
         slider.maxValue = 180
         slider.accessibleDuration = 180
-        slider.doubleValue = 60
+        slider.updatePosition(60, duration: 180)
         slider.isContinuous = false
         slider.target = slider
         slider.action = #selector(PlaybackPositionSlider.PositionSlider.commitPosition)

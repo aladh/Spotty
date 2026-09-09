@@ -7,7 +7,8 @@ struct PlaybackPositionSlider: NSViewRepresentable {
     let position: Double
     let duration: Double
     let isEnabled: Bool
-    var drawsIdleProgress = true
+    var isPlaying = false
+    var reduceMotion = false
     let commit: (Double) -> Void
 
     func makeNSView(context: Context) -> PositionSlider {
@@ -22,7 +23,6 @@ struct PlaybackPositionSlider: NSViewRepresentable {
     }
 
     func updateNSView(_ slider: PositionSlider, context: Context) {
-        slider.drawsIdleProgress = drawsIdleProgress
         slider.commit = commit
         if slider.isEnabled != isEnabled {
             slider.isEnabled = isEnabled
@@ -31,23 +31,36 @@ struct PlaybackPositionSlider: NSViewRepresentable {
         slider.setAccessibilityEnabled(isEnabled)
         slider.accessibleDuration = duration
         guard !slider.isTrackingPosition else { return }
-        slider.updatePosition(position, duration: duration)
+        slider.updatePosition(position, duration: duration, isPlaying: isPlaying, reduceMotion: reduceMotion)
     }
 
     final class PositionSlider: NSSlider {
+        let progressDrawing = PlaybackProgressDrawing(frame: .zero)
+        var now: () -> Date = Date.init
+        private var anchorPosition = 0.0
+        private var anchoredAt = Date()
+        private var plays = false
+        private var reduceMotion = false
+        private var hasDuration = false
+        private var hasKeyboardFocus = false
+        private weak var observedWindow: NSWindow?
+        private var hoverArea: NSTrackingArea?
+        var isHovering = false {
+            didSet { synchronizePosition(); needsDisplay = true }
+        }
+
         override init(frame: NSRect) {
             super.init(frame: frame)
             cell = PositionSliderCell()
+            addSubview(progressDrawing)
         }
-
         required init?(coder: NSCoder) { nil }
 
-        var drawsIdleProgress = true
-
-        var isHovering = false {
-            didSet { needsDisplay = true }
+        override func layout() {
+            super.layout()
+            progressDrawing.frame = bounds
+            synchronizePosition()
         }
-        private var hoverArea: NSTrackingArea?
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
@@ -58,18 +71,68 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             )
             addTrackingArea(area)
             hoverArea = area
+            refreshHover()
         }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if window == nil { isHovering = false }
+            NotificationCenter.default.removeObserver(
+                self, name: NSWindow.didResignKeyNotification, object: observedWindow)
+            NotificationCenter.default.removeObserver(
+                self, name: NSWindow.didBecomeKeyNotification, object: observedWindow)
+            observedWindow = window
+            if let window {
+                for name in [NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification] {
+                    NotificationCenter.default.addObserver(
+                        self, selector: #selector(windowActivationChanged), name: name, object: window)
+                }
+            }
+            refreshHover()
+            renderProgress()
+        }
+
+        @objc private func windowActivationChanged(_ notification: Notification) { refreshHover() }
+
+        func refreshHover() {
+            guard let window, window.isKeyWindow, !isHiddenOrHasHiddenAncestor else {
+                isHovering = false
+                return
+            }
+            isHovering = visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
         }
 
         override func mouseEntered(with event: NSEvent) { isHovering = true }
         override func mouseExited(with event: NSEvent) { isHovering = false }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: isEnabled ? .pointingHand : .arrow) }
 
-        override func resetCursorRects() {
-            addCursorRect(bounds, cursor: isEnabled ? .pointingHand : .arrow)
+        override func becomeFirstResponder() -> Bool {
+            synchronizePosition()
+            let accepted = super.becomeFirstResponder()
+            hasKeyboardFocus = accepted
+            renderProgress()
+            return accepted
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let accepted = super.resignFirstResponder()
+            if accepted { hasKeyboardFocus = false }
+            synchronizePosition()
+            return accepted
+        }
+
+        override func keyDown(with event: NSEvent) {
+            synchronizePosition()
+            super.keyDown(with: event)
+        }
+
+        override func accessibilityPerformIncrement() -> Bool {
+            synchronizePosition()
+            return super.accessibilityPerformIncrement()
+        }
+
+        override func accessibilityPerformDecrement() -> Bool {
+            synchronizePosition()
+            return super.accessibilityPerformDecrement()
         }
 
         var commit: ((Double) -> Void)?
@@ -79,19 +142,47 @@ struct PlaybackPositionSlider: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             guard isEnabled else { return }
+            synchronizePosition()
             isTrackingPosition = true
             trackingCommit = commit
             defer {
                 isTrackingPosition = false
                 trackingCommit = nil
+                renderProgress()
                 needsDisplay = true
             }
             super.mouseDown(with: event)
         }
 
-        func updatePosition(_ position: Double, duration: Double) {
+        func updatePosition(_ position: Double, duration: Double, isPlaying: Bool = false, reduceMotion: Bool = false) {
             maxValue = duration > 0 ? duration : 1
-            doubleValue = min(max(0, position), max(0, duration))
+            hasDuration = duration > 0
+            anchorPosition = min(max(0, position), max(0, duration))
+            anchoredAt = now()
+            plays = isPlaying
+            self.reduceMotion = reduceMotion
+            synchronizePosition()
+        }
+
+        /// The same anchor drives animation and native interaction, including VoiceOver.
+        func synchronizePosition() {
+            if !isTrackingPosition {
+                let elapsed = plays ? max(0, now().timeIntervalSince(anchoredAt)) : 0
+                doubleValue = min(maxValue, anchorPosition + elapsed)
+            }
+            renderProgress()
+        }
+
+        func renderProgress() {
+            guard let cell = cell as? NSSliderCell else { return }
+            progressDrawing.frame = bounds
+            let engaged =
+                isEnabled && (isTrackingPosition || isHovering || (hasKeyboardFocus && window?.isKeyWindow == true))
+            progressDrawing.update(
+                bar: cell.barRect(flipped: isFlipped), knob: cell.knobRect(flipped: isFlipped),
+                remaining: max(0, maxValue - doubleValue), hasTrack: hasDuration, engaged: engaged,
+                animates: plays && !reduceMotion && !isTrackingPosition
+            )
         }
 
         override func accessibilityValueDescription() -> String? {
@@ -107,35 +198,20 @@ struct PlaybackPositionSlider: NSViewRepresentable {
 
         @objc func commitPosition() {
             guard isEnabled else { return }
+            anchorPosition = doubleValue
+            anchoredAt = now()
             (isTrackingPosition ? trackingCommit : commit)?(doubleValue)
+            renderProgress()
         }
     }
 
-    /// Only drawing is customized; NSSliderCell retains hit testing and tracking geometry.
+    /// The cell keeps native geometry/tracking; the one overlay owns all visible chrome.
     final class PositionSliderCell: NSSliderCell {
-        private var engaged: Bool {
-            guard let slider = controlView as? PositionSlider, slider.isEnabled else { return false }
-            return slider.isHovering || slider.isTrackingPosition || slider.window?.firstResponder === slider
-        }
-
         override func drawBar(inside rect: NSRect, flipped: Bool) {
-            guard (controlView as? PositionSlider)?.drawsIdleProgress != false || engaged else { return }
-            let rail = NSRect(x: rect.minX, y: rect.midY - 2, width: rect.width, height: 4)
-            NSColor(SpottyPalette.progressTrack).setFill()
-            NSBezierPath(roundedRect: rail, xRadius: 2, yRadius: 2).fill()
-            guard isEnabled else { return }
-            let knob = knobRect(flipped: flipped)
-            let fill = NSRect(
-                x: rail.minX, y: rail.minY,
-                width: min(rail.width, max(0, knob.midX - rail.minX)), height: rail.height)
-            NSColor(engaged ? SpottyPalette.mediaGreen : SpottyPalette.playerPrimary).setFill()
-            NSBezierPath(roundedRect: fill, xRadius: 2, yRadius: 2).fill()
+            (controlView as? PositionSlider)?.renderProgress()
         }
-
         override func drawKnob(_ knobRect: NSRect) {
-            guard engaged else { return }
-            NSColor(SpottyPalette.playerPrimary).setFill()
-            NSBezierPath(ovalIn: NSRect(x: knobRect.midX - 6, y: knobRect.midY - 6, width: 12, height: 12)).fill()
+            (controlView as? PositionSlider)?.renderProgress()
         }
     }
 }

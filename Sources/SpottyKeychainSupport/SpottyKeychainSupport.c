@@ -1,5 +1,6 @@
 #include "SpottyKeychainSupport.h"
 #include <pthread.h>
+#include <os/log.h>
 
 // File-based Keychain ignores LAContext.interactionNotAllowed. These deprecated
 // APIs remain its documented UI control; confine them to this compatibility leaf.
@@ -26,7 +27,15 @@ static OSStatus perform(enum Operation operation, CFDictionaryRef query,
             }
             // Report the actual operation's result even if restoration fails:
             // a successfully rotated credential must not be treated as unsaved.
-            SecKeychainSetUserInteractionAllowed(wasAllowed);
+            OSStatus restoreStatus = SecKeychainSetUserInteractionAllowed(wasAllowed);
+            if (restoreStatus != errSecSuccess) {
+                restoreStatus = SecKeychainSetUserInteractionAllowed(wasAllowed);
+                if (restoreStatus != errSecSuccess) {
+                    os_log_error(OS_LOG_DEFAULT,
+                                 "Keychain interaction restoration failed: %{public}d; UI remains disabled",
+                                 (int)restoreStatus);
+                }
+            }
         }
     }
     pthread_mutex_unlock(&keychainMutex);

@@ -4,13 +4,15 @@
 static Boolean allowed;
 static OSStatus getStatus, disableStatus, restoreStatus, operationStatus;
 static int calls, sets;
+static Boolean transientRestoreFailure;
 OSStatus SecKeychainGetUserInteractionAllowed(Boolean *value) {
     *value = allowed;
     return getStatus;
 }
 OSStatus SecKeychainSetUserInteractionAllowed(Boolean value) {
     sets++;
-    OSStatus status = sets == 1 ? disableStatus : restoreStatus;
+    OSStatus status = sets == 1 ? disableStatus :
+        (transientRestoreFailure && sets > 2 ? errSecSuccess : restoreStatus);
     if (status == errSecSuccess) allowed = value;
     return status;
 }
@@ -40,17 +42,18 @@ static OSStatus run(int operation) {
 int main(void) {
     for (int operation = 0; operation < 4; operation++) {
         for (int prior = 0; prior < 2; prior++) {
-            for (int failure = 0; failure < 5; failure++) {
+            for (int failure = 0; failure < 6; failure++) {
                 allowed = prior; calls = sets = 0;
                 getStatus = failure == 1 ? errSecNotAvailable : errSecSuccess;
                 disableStatus = failure == 2 ? errSecNotAvailable : errSecSuccess;
-                restoreStatus = failure == 3 ? errSecNotAvailable : errSecSuccess;
+                transientRestoreFailure = failure == 5;
+                restoreStatus = failure == 3 || failure == 5 ? errSecNotAvailable : errSecSuccess;
                 operationStatus = failure == 4 ? errSecInteractionNotAllowed : errSecSuccess;
                 OSStatus status = run(operation);
                 if (failure == 1 || failure == 2) {
                     assert(status == errSecNotAvailable && calls == 0 && allowed == prior);
                 } else {
-                    assert(status == operationStatus && calls == 1 && sets == 2);
+                    assert(status == operationStatus && calls == 1 && sets == (failure == 3 || failure == 5 ? 3 : 2));
                     assert(allowed == (failure == 3 ? false : prior));
                 }
             }

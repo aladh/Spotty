@@ -125,10 +125,28 @@ cp "$info_template" "$app_path/Contents/Info.plist"
 # Debug builds have a checkout-scoped non-secret identity, separate from installed Release defaults.
 # Persist outside the replaced bundle so rebuilds and launches retain it, including in worktrees.
 if [[ "$build_configuration" == debug ]]; then
-    development_id_file="$project_root/.build/connect-device-id"
+    development_id_file="$project_root/.spotty-connect-device-id"
     if [[ ! -f "$development_id_file" ]]; then
-        development_id="$(python3 -c 'import secrets; print(secrets.token_hex(20))')"
-        (set -o noclobber; print -r -- "$development_id" > "$development_id_file") 2>/dev/null || true
+        python3 - "$development_id_file" "$project_root/.build/connect-device-id" <<'PYID'
+import os
+from pathlib import Path
+import re
+import secrets
+import sys
+import tempfile
+
+target, previous = map(Path, sys.argv[1:])
+identity = previous.read_text().strip() if previous.is_file() else secrets.token_hex(20)
+if not re.fullmatch(r"[0-9a-f]{40}", identity):
+    raise SystemExit(f"Invalid development Connect identity at {previous}")
+with tempfile.NamedTemporaryFile(mode="w", dir=target.parent) as staged:
+    staged.write(identity + "\n")
+    staged.flush()
+    try:
+        os.link(staged.name, target)
+    except FileExistsError:
+        pass  # Another package invocation already published its complete identity.
+PYID
     fi
     development_id="$(cat "$development_id_file")"
     if [[ ! "$development_id" =~ '^[0-9a-f]{40}$' ]]; then

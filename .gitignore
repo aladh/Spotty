@@ -9,3 +9,4 @@ SpottyArtwork/
 Backend/spotty-playback/target/
 DerivedData/
 dist/
+.spotty-connect-device-id

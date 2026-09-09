@@ -445,11 +445,30 @@ def collect_package(
     elif kind == "git":
         revision = source_revision_from_source(source)
         record["git_revision"] = revision
-    elif kind != "registry":
+    elif kind == "path":
+        retained = {"librespot-core": "core", "librespot-playback": "playback"}
+        directory = retained.get(package["name"])
+        expected = ROOT / "Backend/spotty-playback/vendor/librespot" / (directory or "") / "Cargo.toml"
+        if directory is None or Path(package["manifest_path"]).resolve() != expected.resolve():
+            fail(f"unsupported local dependency for {key}")
+        record["source_path"] = expected.parent.relative_to(ROOT).as_posix()
+    else:
         fail(f"unsupported non-workspace package source for {key}: {source!r}")
 
     package_dir = Path(package["manifest_path"]).resolve().parent
     vcs = read_vcs_details(package_dir, kind)
+    if kind == "path":
+        upstream_file = expected.parent.parent / "UPSTREAM"
+        try:
+            upstream = upstream_file.read_text().splitlines()[0]
+            retained_manifest = tomllib.loads(MANIFEST.read_text())
+            pinned = retained_manifest["dependencies"][package["name"]]["rev"]
+        except (OSError, UnicodeError, IndexError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
+            fail(f"cannot read retained upstream metadata for {key}: {error}")
+        if not REVISION_RE.fullmatch(upstream) or upstream != pinned:
+            fail(f"retained upstream revision mismatch for {key}")
+        vcs = {"revision": upstream, "path_in_vcs": directory}
+        override_inputs.add(upstream_file)
     if vcs.get("revision"):
         record["source_revision"] = vcs["revision"]
     if vcs.get("path_in_vcs"):
@@ -464,7 +483,7 @@ def collect_package(
     override_key: str | None = None
     override_files: list[dict[str, Any]] = []
     expected_override: str | None = None
-    if override_match:
+    if override_match and kind != "path":
         override_key, override = override_match
         expected_override, override_files = validate_override(
             override_key, override, package, vcs

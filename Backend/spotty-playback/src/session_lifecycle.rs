@@ -61,7 +61,12 @@ pub extern "C" fn spotty_playback_authorize_streaming(access_token: *const c_cha
                     return Err(-2);
                 }
 
-                let device_id = format!("spotty_{}", std::process::id());
+                let device_id = configured_device_id().ok_or_else(|| {
+                    debug!(
+                        "Streaming authorization error: installation identity is not configured"
+                    );
+                    -1
+                })?;
                 let (session, credentials) = match create_session(&device_id, Some(&token)) {
                     Ok(value) => value,
                     Err(_) => return Err(-1),

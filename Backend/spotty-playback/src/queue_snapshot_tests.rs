@@ -18,7 +18,7 @@ fn string_list(ptr: *const *const c_char, count: usize) -> Vec<String> {
         .collect()
 }
 
-fn fixture_queue_state() -> QueueState {
+pub(crate) fn fixture_queue_state() -> QueueState {
     let mut metadata = std::collections::HashMap::new();
     metadata.insert("is_queued".to_string(), "true".to_string());
     let mut restrictions = std::collections::HashMap::new();

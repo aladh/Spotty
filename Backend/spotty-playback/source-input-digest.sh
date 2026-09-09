@@ -35,6 +35,8 @@ input_paths=(
 
 source_paths=("${(@f)$(find "$backend_root/src" -type f -name '*.rs' -print | LC_ALL=C sort)}")
 input_paths+=("${source_paths[@]}")
+vendor_paths=("${(@f)$(find "$backend_root/vendor" -type f -not -path '*/target/*' -print | LC_ALL=C sort)}")
+input_paths+=("${vendor_paths[@]}")
 notice_license_paths=("${(@f)$(find "$project_root/Scripts/playback-license-overrides" -type f -print | LC_ALL=C sort)}")
 input_paths+=("${notice_license_paths[@]}")
 

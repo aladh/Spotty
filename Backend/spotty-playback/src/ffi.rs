@@ -192,6 +192,7 @@ pub(crate) struct PlaybackObservation {
     /// unavailable event. Protocol snapshots and ordinary local transport updates keep this
     /// false; Swift owns the presentation of the actionable notice.
     pub track_unavailable: bool,
+    pub audio_key_refused: bool,
     pub track_uri: String,
     pub context_uri: Option<String>,
     pub position_ms: i64,
@@ -223,6 +224,8 @@ pub struct SpottyPlaybackSnapshot {
     pub is_playing: u8,
     pub is_paused: u8,
     pub track_unavailable: u8,
+    /// Explicit key refusal followed by decoder failure; never a preload or protocol event.
+    pub audio_key_refused: u8,
     pub shuffle: u8,
     pub repeat_track: u8,
     pub repeat_context: u8,
@@ -256,6 +259,7 @@ pub(crate) fn send_playback_snapshot(
         is_playing: u8::from(observation.is_playing),
         is_paused: u8::from(observation.is_paused),
         track_unavailable: u8::from(observation.track_unavailable),
+        audio_key_refused: u8::from(observation.audio_key_refused),
         shuffle: u8::from(observation.shuffle),
         repeat_track: u8::from(observation.repeat_track),
         repeat_context: u8::from(observation.repeat_context),

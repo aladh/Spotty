@@ -6,6 +6,7 @@
 //! runtime contract.
 
 mod connect;
+mod device_identity;
 mod engine_resources;
 mod ffi;
 mod lifecycle_serialization;
@@ -20,6 +21,7 @@ mod state;
 mod transport;
 
 pub(crate) use connect::*;
+pub(crate) use device_identity::*;
 pub(crate) use engine_resources::*;
 pub(crate) use ffi::*;
 pub(crate) use lifecycle_serialization::*;

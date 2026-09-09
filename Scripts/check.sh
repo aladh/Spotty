@@ -66,6 +66,8 @@ if [[ "$check_scope" != swift ]]; then
     "$cargo_bin" clippy --locked --manifest-path "$project_root/Backend/spotty-playback/Cargo.toml" \
         --all-targets -- -D warnings
     "$cargo_bin" test --locked --manifest-path "$project_root/Backend/spotty-playback/Cargo.toml"
+    "$cargo_bin" test --locked --manifest-path "$project_root/Backend/spotty-playback/Cargo.toml" \
+        -p librespot-core -p librespot-playback --lib spotty_
 
     if [[ "$check_scope" == rust ]]; then
         print "Spotty Rust checks passed: formatting, warning-clean clippy, and locked tests are green"

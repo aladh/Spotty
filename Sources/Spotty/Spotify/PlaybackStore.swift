@@ -507,20 +507,26 @@ final class PlaybackStore {
                 else { return nil }
                 return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
             }
+            let queueEntriesChanged = next.queue.entries != state.queue.entries
+            let devicesChanged = next.devices.devices != state.devices.devices
             state = next
             let nextSemantic = PlaybackSemanticProjection(state: next)
             if semantic != nextSemantic { semantic = nextSemantic }
             if timeline != next.timing { timeline = next.timing }
             if playbackDuration != next.timing.duration { playbackDuration = next.timing.duration }
-            let nextQueue = QueueEntry.uniquelyIdentified(
-                next.queue.entries.map {
-                    QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
-                })
-            if presentedQueueEntries != nextQueue { presentedQueueEntries = nextQueue }
-            let nextDevices = next.devices.devices.map {
-                ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
+            if queueEntriesChanged {
+                let nextQueue = QueueEntry.uniquelyIdentified(
+                    next.queue.entries.map {
+                        QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
+                    })
+                if presentedQueueEntries != nextQueue { presentedQueueEntries = nextQueue }
             }
-            if presentedDevices != nextDevices { presentedDevices = nextDevices }
+            if devicesChanged {
+                let nextDevices = next.devices.devices.map {
+                    ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
+                }
+                if presentedDevices != nextDevices { presentedDevices = nextDevices }
+            }
             if presentedLocalDeviceID != next.devices.localDeviceID {
                 presentedLocalDeviceID = next.devices.localDeviceID
             }

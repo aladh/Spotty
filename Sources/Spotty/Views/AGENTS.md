@@ -1,11 +1,12 @@
 # Native UI agent guidance
 
 Follow [product scope](../../../docs/product/scope.md), [navigation](../../../docs/product/navigation.md),
-and the affected [surface contract](../../../docs/product/README.md). Keep the UI native, calm,
-and information-dense without crowding.
+and the affected [surface contract](../../../docs/product/README.md). Keep supported surfaces visually close to Spotify and information-dense without crowding.
 
-- Start with established macOS structure, typography, controls, menus, focus, keyboard behavior,
-  accessibility, and inactive-window semantics. Prefer system behavior over custom chrome.
+- Preserve Spotify layout, typography, colors, control proportions, and interaction states. Use
+  native macOS APIs for menus, focus, keyboard behavior, accessibility, tracking, and window semantics;
+  do not substitute system appearance as a side effect of an interaction repair. Follow the
+  [visual fidelity procedure](../../../docs/product/scope.md#visual-fidelity-and-interaction).
 - Keep one clear hierarchy. At a glance, the user should know where they are, what is playing, and the
   primary action. Remove persistent controls that do not earn their space.
 - Make state honest. Loading, empty, stale, disabled, error, reconnecting, and remote-owner states are

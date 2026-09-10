@@ -9,6 +9,29 @@ create a manual PR acceptance gate.
 Spotify Connect controls a live account and can interrupt playback on another device. Playback and
 account mutations are therefore **opt-in**, not part of routine acceptance testing.
 
+### Spotty Demo: standing authorization
+
+Agents may build, launch, relaunch, browse, and interact with the isolated Spotty Demo whenever
+useful, without asking for permission. This includes synthetic control interactions and fixture
+changes for verification. Use `./script/build_and_run.sh --demo` for interactive inspection or
+`./Scripts/browse-synthetic.sh` for the automated workload. Existing development signing is part
+of this workflow; changing signing identities or Keychain configuration is not.
+
+This authorization relies on the demo's synthetic dependencies, separate container and identity,
+and network sandbox. Do not weaken that isolation or substitute the live app. Demo controls may
+be deliberately disabled or unsupported; testing them cannot establish live playback correctness.
+The live-account permissions below apply only to real account actions.
+
+### Spotify read-only reference
+
+Agents may launch the official Spotify app, browse its existing signed-in Home/library/detail
+surfaces, inspect visible states, and capture visual references whenever useful without asking.
+Use it read-only: do not start or alter playback, seek, transfer, change shuffle/repeat, mutate
+queues or libraries, sign out, change settings, or authorize a new account as part of comparison.
+If sign-in is required, report the unavailable reference and use the established Spotty baseline.
+Keep reference captures local and follow [privacy guidance](../../PRIVACY.md); prefer synthetic
+Spotty screenshots for committed or published evidence.
+
 ### Default: automated and read-only
 
 Without explicit playback permission, it is safe to:

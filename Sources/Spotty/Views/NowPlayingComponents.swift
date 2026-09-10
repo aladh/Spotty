@@ -44,15 +44,17 @@ struct NowPlayingTrackIdentity: View {
 
 struct NowPlayingProgress: View {
     let player: PlaybackStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let accountEpoch = player.state.accountEpoch
         let engineEpoch = player.state.engineEpoch
         let owner = player.state.owner
         let trackURI = player.trackURI
-        let duration = player.duration
+        let duration = player.hasCurrentTrack ? player.duration : 0
         PlaybackPositionSlider(
             position: player.displayedPosition(at: Date()), duration: duration,
-            isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0
+            isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0,
+            isPlaying: player.showsPauseControl, reduceMotion: reduceMotion
         ) { position in
             // A drag belongs to the track, owner, and lifetime where it began.
             guard player.canStartPlayback, player.hasCurrentTrack,

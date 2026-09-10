@@ -1,5 +1,6 @@
-Prioritize account/privacy/session safety, playback and lifetime correctness, then native macOS
-behavior and truthful state. Keep scope small using the
+Prioritize account/privacy/session safety, playback and lifetime correctness, then truthful state,
+Spotify-familiar appearance, and native macOS interaction. Native implementation does not imply
+replacing Spotify styling with macOS defaults. Keep scope small using the
 [80/20 product principle](docs/product/scope.md#product-direction); optimize measured, user-visible costs.
 
 ## Development

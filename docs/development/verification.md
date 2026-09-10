@@ -17,6 +17,10 @@ See [launch constraints](../../script/AGENTS.md) and
 
 ## Normal verification
 
+For UI changes, follow the [visual fidelity procedure](../product/scope.md#visual-fidelity-and-interaction).
+Standing permissions cover [Spotty Demo](../product/safe-testing.md#spotty-demo-standing-authorization)
+and [read-only Spotify comparison](../product/safe-testing.md#spotify-read-only-reference).
+
 Use the smallest focused check per [AGENTS.md](../../AGENTS.md#development). Available gate scopes:
 
 ```bash
@@ -106,7 +110,7 @@ ignored `diagnostics/`. Handle reports according to [PRIVACY.md](../../PRIVACY.m
 
 ## Synthetic browsing
 
-For an explicitly authorized GUI run:
+Run the isolated demo under its [standing authorization](../product/safe-testing.md#spotty-demo-standing-authorization):
 
 ```bash
 ./Scripts/browse-synthetic.sh

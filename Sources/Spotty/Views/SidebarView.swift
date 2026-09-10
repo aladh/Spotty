@@ -96,6 +96,8 @@ private struct SidebarPlaylistRow: View {
     let playback: CatalogPlaybackAccess
     @State private var isHovering = false
 
+    @Environment(\.controlActiveState) private var controlActiveState
+
     private var isPlaying: Bool { playback.isPlayingPlaylist(playlist.uri) }
 
     var body: some View {
@@ -146,9 +148,12 @@ private struct SidebarPlaylistRow: View {
         }
         .padding(8)
         .background(
-            !isSelected && isHovering ? Color(white: 0.122) : .clear,
+            isSelected
+                ? Color(white: controlActiveState == .inactive ? 0.13 : 0.157)
+                : (isHovering ? Color(white: 0.122) : .clear),
             in: RoundedRectangle(cornerRadius: 4)
         )
+        .background { PlaylistSelectionAppearance() }
         .contentShape(Rectangle())
         .pointingHandCursor(isHovering: $isHovering)
         .onDisappear { isHovering = false }

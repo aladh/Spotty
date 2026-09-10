@@ -36,3 +36,16 @@ happen after merge. Live-account work still follows the
 [safe acceptance contract](docs/product/safe-testing.md#safe-acceptance-testing).
 Meeting these criteria establishes readiness, not permission to merge: merge authorization remains
 separate as described above.
+
+### UI changes
+
+Review visual fidelity separately from functional correctness. For an affected UI surface, the PR
+must identify the Spotify reference (or established baseline when unavailable), describe the visible
+before/after change, and explain any deliberate deviation under the
+[visual fidelity contract](docs/product/scope.md#visual-fidelity-and-interaction).
+Check resting, hover, selected, focused, disabled, and inactive states as applicable, plus narrow
+layout. Interaction fixes must retain visual requirements; contract edits need task authorization,
+not just an implementation that now looks different. Report which states were actually inspected
+and which remain unverified. Passing behavior tests does not establish visual parity.
+Use synthetic fixtures for repeatable visual evidence within the authorized acceptance scope;
+this does not add a human approval or live-account testing gate.

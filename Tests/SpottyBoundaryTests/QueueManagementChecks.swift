@@ -309,6 +309,60 @@ private func connectQueueState(revision: UInt64, sessionGeneration: UInt64) -> R
 
 @Suite("Queue Management")
 struct QueueManagementTests {
+    @Test @MainActor
+    func confirmedRemovalCannotHoldAdmissionAfterItsDeadline() async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRemoteClient(.park)
+        let player = PlaybackStore(
+            environment: queueEnvironment(remote: remote, clock: clock),
+            feedback: TransientFeedbackPresenter(clock: clock))
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        player.removeUpcomingQueueOccurrences(selectedIDs: [player.queueNextEntries[0].id])
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        var observed = player.state.queue
+        observed.entries.removeFirst()
+        observed.revision += 1
+        observed.receivedAt = clock.now()
+        #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        #expect(await waitUntil { clock.requestedSleeps.contains(8) })
+        clock.releaseAll()
+        #expect(await waitUntil { player.queueReplacementToken == nil })
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        #expect(player.feedback.message == nil)
+        await player.shutdownForTermination()
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func observedQueueChangeSurvivesLateTransportFailure(removal: Bool) async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRemoteClient(.park)
+        let feedback = TransientFeedbackPresenter(clock: clock)
+        let player = PlaybackStore(environment: queueEnvironment(remote: remote, clock: clock), feedback: feedback)
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        var observed = player.state.queue
+        let addedURI = "spotify:track:added"
+        if removal {
+            player.removeUpcomingQueueOccurrences(selectedIDs: [player.queueNextEntries[0].id])
+            observed.entries.removeFirst()
+        } else {
+            player.addToQueue(uris: [addedURI])
+            observed.entries.append(PlaybackQueueItem(uri: addedURI, provider: "queue", uid: "added"))
+        }
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        observed.revision += 1
+        observed.receivedAt = clock.now()
+        #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        await remote.completePark(success: false)
+        #expect(await waitUntil { feedback.message?.kind == .success })
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        #expect(player.state.queue.entries == observed.entries)
+        await player.shutdownForTermination()
+    }
+
     @Test
     @MainActor
     func testQueueManagement() async {

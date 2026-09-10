@@ -34,7 +34,7 @@ struct BrowsingHarnessTests {
         #expect(
             checkpoints.prefix(3).allSatisfy {
                 $0.admissionToDispatchMilliseconds != nil
-                    && $0.admissionToSettlementMilliseconds != nil && $0.admissionToFeedbackMilliseconds != nil
+                    && $0.admissionToSettlementMilliseconds != nil && $0.actionToStateFeedbackMilliseconds != nil
             })
         #expect(world.snapshot().mutationAttempts == 0)
         #expect(world.playback.snapshot().rejectedCount == 1)

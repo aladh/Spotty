@@ -35,7 +35,10 @@ Synthetic Demo playback scenario at `a526fb762a1d52c841a811615cee0f6c63480435`, 
 macOS 27.0 (26A5425a), run `Lb6EK3WN`. All 40 browsing checkpoints and seven playback traces passed.
 [PlaybackTrace](../../Tests/BrowsingHarness/Support/PlaybackTrace.swift) separates synchronous
 optimistic-state feedback from the permit claim and the timestamp of the accepted matching engine
-observation. Times below are milliseconds from admission. Observation receipt is not UI paint or
+observation. Feedback is the action-call duration; dispatch and observation are milliseconds from
+reducer admission. The original report names its feedback field `admissionToFeedbackMilliseconds`;
+the harness now names that field `actionToStateFeedbackMilliseconds` to reflect its measurement.
+Observation receipt is not UI paint or
 remote-service latency; the synthetic engine publishes immediately after applying its operation.
 
 | Intent | Immediate state feedback | Dispatch | Matching observation |

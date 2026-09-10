@@ -70,9 +70,11 @@ extension PlaybackStore {
                                     permit: permit
                                 )
                             else { return }
-                            self.finishQueueIntent(
-                                intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
-                            guard case .success = outcome else {
+                            guard
+                                let accepted = self.finishQueueIntent(
+                                    intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
+                            else { return }
+                            guard accepted else {
                                 guard
                                     self.queueDispatchStillCurrent(
                                         accountEpoch: epoch,
@@ -144,9 +146,11 @@ extension PlaybackStore {
                                 permit: permit
                             )
                         else { return }
-                        self.finishQueueIntent(
-                            intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
-                        guard case .success = outcome else {
+                        guard
+                            let accepted = self.finishQueueIntent(
+                                intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
+                        else { return }
+                        guard accepted else {
                             guard
                                 self.queueDispatchStillCurrent(
                                     accountEpoch: epoch,
@@ -215,9 +219,22 @@ extension PlaybackStore {
                 defer { self.effects.complete(deadlineID) }
                 do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
                 guard !Task.isCancelled, self.playbackLifetime == lifetime, !self.isTearingDown else { return }
+                if self.state.intents.first(where: { $0.command.id == id })?.outcome.isTerminal == true {
+                    // Observation already settled the request, but an unreturned transport must
+                    // not hold the replacement admission slot forever.
+                    if timeoutEffect == .queueReplacement, self.queueReplacementToken == id {
+                        self.effects.cancel(.queueReplacement)
+                        self.queueReplacementToken = nil
+                    }
+                    return
+                }
                 if self.send(.commandTimedOut(id: id), source: .command, playbackLifetime: lifetime) {
-                    self.effects.cancel(timeoutEffect)
-                    if timeoutEffect == .queueReplacement { self.queueReplacementToken = nil }
+                    // A sent replacement may already have returned and released its slot.
+                    // Its observation deadline cannot cancel a newer replacement registration.
+                    if timeoutEffect != .queueReplacement || self.queueReplacementToken == id {
+                        self.effects.cancel(timeoutEffect)
+                        if timeoutEffect == .queueReplacement { self.queueReplacementToken = nil }
+                    }
                     let dispatched = self.state.intents.first { $0.command.id == id }?.dispatchedAt != nil
                     self.feedback.informational(
                         dispatched
@@ -231,12 +248,22 @@ extension PlaybackStore {
     private func finishQueueIntent(
         _ id: UUID, outcome: Result<Void, PlaybackCommandFailure>,
         accountEpoch: UInt64, engineEpoch: UInt64
-    ) {
+    ) -> Bool? {
+        guard !Task.isCancelled, !isTearingDown, self.accountEpoch == accountEpoch,
+            engineGeneration == engineEpoch
+        else { return nil }
         let accepted: Bool
         if case .success = outcome { accepted = true } else { accepted = false }
         send(
             .queueIntentFinished(id: id, accepted: accepted), source: .command,
             engineEpoch: engineEpoch, accountEpoch: accountEpoch)
+        guard let intent = state.intents.first(where: { $0.command.id == id }) else { return nil }
+        switch intent.outcome {
+        case .superseded, .timedOut: return nil
+        default: break
+        }
+        if case .failure(.reconnectRequired) = outcome { recoverEngineAfterCommandFailure() }
+        return intent.outcome == .observedConfirmed || accepted
     }
 
     func removeUpcomingQueueOccurrences(selectedIDs: Set<String>) {
@@ -262,12 +289,12 @@ extension PlaybackStore {
                 let epoch = accountEpoch
                 let engineEpoch = engineGeneration
                 let beforeEntries = presentationEntries
-                let token = UUID()
                 guard
                     let intentID = startQueueIntent(
                         removing: Set(beforeEntries.filter { selectedIDs.contains($0.id) }.map(\.uid)),
                         timeoutEffect: .queueReplacement, accountEpoch: epoch, engineEpoch: engineEpoch)
                 else { return }
+                let token = intentID
                 queueReplacementToken = token
                 effects.replace(
                     .queueReplacement,
@@ -304,13 +331,11 @@ extension PlaybackStore {
                                     permit: permit
                                 )
                             else { return }
-                            self.finishQueueIntent(
-                                intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
-                            if case let .failure(error) = outcome {
-                                // Keep failures on the existing catch path so queue feedback
-                                // remains unchanged.
-                                throw error
-                            }
+                            guard
+                                let accepted = self.finishQueueIntent(
+                                    intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
+                            else { return }
+                            if !accepted, case let .failure(error) = outcome { throw error }
                             guard
                                 self.queueReplacementStillCurrent(
                                     token: token,

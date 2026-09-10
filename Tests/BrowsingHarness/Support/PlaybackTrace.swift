@@ -10,7 +10,7 @@ struct PlaybackTraceCheckpoint: Codable, Sendable {
     let intentOutcome: String?
     let admissionToDispatchMilliseconds: Double?
     let admissionToSettlementMilliseconds: Double?
-    let admissionToFeedbackMilliseconds: Double?
+    let actionToStateFeedbackMilliseconds: Double?
 }
 
 /// A finite scenario through production action entry points. Conditions, not scheduler turns,
@@ -37,7 +37,7 @@ struct PlaybackTrace {
                     admissionToSettlementMilliseconds: intent.flatMap { intent in
                         intent.settledAt.map { $0.timeIntervalSince(intent.command.startedAt) * 1_000 }
                     },
-                    admissionToFeedbackMilliseconds: feedbackMilliseconds))
+                    actionToStateFeedbackMilliseconds: feedbackMilliseconds))
         }
         try await until("playback.ready") { player.isConnected && player.canTogglePlayback && player.duration > 0 }
         func milliseconds(since start: ContinuousClock.Instant) -> Double {

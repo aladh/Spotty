@@ -129,4 +129,30 @@ struct PlaybackIntentChecks {
         #expect(state.pendingCommands.isEmpty)
     }
 
+    @Test func navigationNeedsATrackChangeOrRestart() {
+        var intent = PlaybackIntent(
+            command: PendingPlaybackCommand(
+                id: UUID(), kind: .navigation,
+                expectedTransport: nil, startedAt: now), baselineTrackURI: "spotify:track:a")
+        intent.baselinePosition = 45
+        intent.dispatchedAt = now
+        intent.outcome = .dispatched
+        func observation(uri: String = "spotify:track:a", position: Double) -> PlaybackEventEnvelope {
+            PlaybackEventEnvelope(
+                accountEpoch: 0, engineEpoch: 0, source: .enginePlayback,
+                receivedAt: now,
+                event: .enginePlayback(
+                    EnginePlaybackSnapshot(
+                        transport: .playing,
+                        trackURI: uri, timing: PlaybackTiming(position: position))))
+        }
+        intent.observe(observation(position: 46))
+        #expect(intent.outcome == .dispatched)
+        var restart = intent
+        intent.observe(observation(uri: "spotify:track:b", position: 0))
+        restart.observe(observation(position: 0))
+        #expect(intent.outcome == .observedConfirmed)
+        #expect(restart.outcome == .observedConfirmed)
+    }
+
 }

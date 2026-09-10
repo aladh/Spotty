@@ -1740,8 +1740,12 @@ struct PlaybackCommandFailureTests {
                 (rawURI.history.entries.contains { $0.uri == trackB.uri }) == false,
                 "accepted raw play(uri:) waits for observed history")
             sendEnginePlayback(
-                rawURI, uri: trackB.uri, transport: .playing,
+                rawURI, uri: trackA.uri, transport: .playing,
                 timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 1)
+            #expect(rawURI.state.intents.last?.outcome == .sent)
+            sendEnginePlayback(
+                rawURI, uri: trackB.uri, transport: .playing,
+                timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 2)
             #expect(rawURI.history.entries.contains { $0.uri == trackB.uri })
             await rawURI.shutdownForTermination()
 

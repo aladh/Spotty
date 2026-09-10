@@ -53,7 +53,12 @@ final class SyntheticPlayback: @unchecked Sendable {
 
     func inject(_ fault: Fault) { lock.withLock { nextFault = fault } }
 
-    func publish() { fanout.emit(lock.withLock { clusterLocked() }) }
+    @discardableResult
+    func publish() -> UInt64 {
+        let (event, publishedRevision) = lock.withLock { (clusterLocked(), revision) }
+        fanout.emit(event)
+        return publishedRevision
+    }
 
     func handoff(to deviceID: String) {
         let event = lock.withLock {

@@ -64,8 +64,7 @@ struct PlaybackTrace {
         world.playback.handoff(to: SyntheticPlayback.localID)
         try await until("playback.handoff") { player.isActiveDevice }
         world.playback.releaseHeldObservations(reversed: true)
-        world.playback.publish()
-        let barrierRevision = world.playback.snapshot().revision
+        let barrierRevision = world.playback.publish()
         try await until("playback.stale-drained") {
             (player.state.sourceRevisions[.engineCluster] ?? 0) >= barrierRevision
         }
@@ -97,8 +96,7 @@ struct PlaybackTrace {
         await player.restore()
         try await until("account.replacement-ready") { player.isConnected && player.canTogglePlayback }
         world.playback.releaseHeldObservations()
-        world.playback.publish()
-        let replacementBarrier = world.playback.snapshot().revision
+        let replacementBarrier = world.playback.publish()
         try await until("account.old-observation-drained") {
             (player.state.sourceRevisions[.engineCluster] ?? 0) >= replacementBarrier
         }

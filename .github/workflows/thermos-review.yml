@@ -149,9 +149,10 @@ jobs:
                   id isResolved isOutdated path line originalLine
                   comments(first: 50) { pageInfo { hasNextPage } nodes { author { login } body url } } } } } } }' \
             > "$THERMOS_IN/threads-response.json"
-          # Fail closed rather than review against a truncated thread history.
-          if jq -e '.data.repository.pullRequest.reviewThreads
-              | .pageInfo.hasNextPage or any(.nodes[]; .comments.pageInfo.hasNextPage)' \
+          # Fail closed rather than review against a truncated Thermos thread history.
+          if jq -e --arg login "$REVIEWER_LOGIN" '.data.repository.pullRequest.reviewThreads
+              | .pageInfo.hasNextPage or any(.nodes[];
+                  .isResolved == false and .comments.nodes[0].author.login == $login and .comments.pageInfo.hasNextPage)' \
               "$THERMOS_IN/threads-response.json" > /dev/null; then
             echo '::error::PR has more review threads or replies than one page; refusing to review a truncated history.'
             exit 1

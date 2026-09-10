@@ -7,18 +7,18 @@ app_path="${2:-${0:A:h:h}/Spotty.app}"
 case "$validation_mode" in
     --local|local)
         require_distribution=false
-        require_keychain_stable=false
+        require_development_signature=false
         ;;
-    --keychain-stable|keychain-stable)
+    --development-signed|development-signed)
         require_distribution=false
-        require_keychain_stable=true
+        require_development_signature=true
         ;;
     --distribution|distribution)
         require_distribution=true
-        require_keychain_stable=true
+        require_development_signature=true
         ;;
     *)
-        print -u2 "usage: $0 [--local|--keychain-stable|--distribution] [path-to-app]"
+        print -u2 "usage: $0 [--local|--development-signed|--distribution] [path-to-app]"
         exit 2
         ;;
 esac
@@ -125,14 +125,14 @@ if [[ "$require_distribution" == true ]]; then
     spctl --assess --type execute --verbose=2 "$app_path"
 fi
 
-if [[ "$require_keychain_stable" == true ]]; then
+if [[ "$require_development_signature" == true ]]; then
     team_identifier="$(print -r -- "$signing_details" | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
     if [[ -z "$team_identifier" || "$team_identifier" == "not set" ]]; then
-        print -u2 "Keychain-stable validation requires an Apple-issued signature with a Team ID"
+        print -u2 "Development validation requires an Apple-issued signature with a Team ID"
         exit 1
     fi
     if ! codesign --verify --strict -R '=anchor apple generic' "$app_path"; then
-        print -u2 "Keychain-stable validation requires an Apple-issued signing identity"
+        print -u2 "Development validation requires an Apple-issued signing identity"
         exit 1
     fi
 fi

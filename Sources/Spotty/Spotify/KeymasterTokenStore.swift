@@ -8,7 +8,7 @@
 import Foundation
 import Dispatch
 
-/// The four outcomes that matter to account restoration. A Keychain denial or service failure is
+/// The four outcomes that matter to account restoration. A filesystem denial or service failure is
 /// deliberately distinct from a genuine missing item so restore cannot silently replace a stored
 /// grant after an access problem.
 nonisolated enum KeymasterGrantLoadResult: Equatable, Sendable {
@@ -24,7 +24,7 @@ nonisolated enum KeymasterGrantLoadResult: Equatable, Sendable {
 }
 
 /// Short account-facing state used by the connection workflow. It has no credential payload or
-/// storage status text, which keeps the UI and logs independent of Keychain implementation details.
+/// storage status text, which keeps the UI and logs independent of storage implementation details.
 nonisolated enum KeymasterGrantState: Equatable, Sendable {
     case available
     case absent
@@ -34,8 +34,8 @@ nonisolated enum KeymasterGrantState: Equatable, Sendable {
 
 /// Storage for the keymaster tokens.
 ///
-/// A protocol rather than a direct `KeychainManager` call so the rotation policy can be
-/// tested without a keychain — the rule that matters (the response's refresh token replaces
+/// A protocol rather than a direct filesystem call so the rotation policy can be
+/// tested without real session storage — the rule that matters (the response's refresh token replaces
 /// the stored one) is a property of the *sequence* of refreshes, and a test that cannot
 /// observe what was written cannot check it.
 nonisolated protocol KeymasterTokenStoring: Sendable {
@@ -47,10 +47,10 @@ nonisolated protocol KeymasterTokenStoring: Sendable {
 /// Privacy-safe persistence diagnostics. Messages name a storage category and a reason;
 /// they must never include a token, username, payload, account id, or request data.
 enum KeymasterGrantPersistenceDiagnostics {
-    static let unreadableGrant = "Stored grant is unreadable source=secure"
-    static let deniedGrant = "Stored grant access denied source=secure"
-    static let failedGrant = "Stored grant read failed source=secure"
-    static let saveFailed = "Stored grant save failed source=secure"
+    static let unreadableGrant = "Stored grant is unreadable source=file"
+    static let deniedGrant = "Stored grant access denied source=file"
+    static let failedGrant = "Stored grant read failed source=file"
+    static let saveFailed = "Stored grant save failed source=file"
 }
 
 enum KeymasterStoredGrantCodec {
@@ -63,53 +63,6 @@ enum KeymasterStoredGrantCodec {
             )
             return nil
         }
-    }
-}
-
-/// The real store, in the same keychain service the Web API half uses.
-nonisolated struct KeymasterKeychainStore: KeymasterTokenStoring {
-    private static let retiredDefaultsKey = "keymaster.tokens.v1"
-
-    func loadResult() -> KeymasterGrantLoadResult {
-        switch KeychainManager.loadKeymasterTokens() {
-        case let .found(tokens):
-            clearRetiredPlaintextGrant()
-            return .found(tokens)
-        case .absent:
-            clearRetiredPlaintextGrant()
-            return .absent
-        case .denied:
-            SpottyLog.authentication.error(
-                "\(KeymasterGrantPersistenceDiagnostics.deniedGrant, privacy: .public)"
-            )
-            return .denied
-        case .failed:
-            SpottyLog.authentication.error(
-                "\(KeymasterGrantPersistenceDiagnostics.failedGrant, privacy: .public)"
-            )
-            return .failed
-        }
-    }
-
-    func save(_ tokens: KeymasterTokens) throws {
-        clearRetiredPlaintextGrant()
-        do {
-            try KeychainManager.saveKeymasterTokens(tokens)
-        } catch {
-            SpottyLog.authentication.error(
-                "\(KeymasterGrantPersistenceDiagnostics.saveFailed, privacy: .public)"
-            )
-            throw error
-        }
-    }
-
-    func clear() {
-        clearRetiredPlaintextGrant()
-        KeychainManager.clearKeymasterTokens()
-    }
-
-    private func clearRetiredPlaintextGrant() {
-        UserDefaults.standard.removeObject(forKey: Self.retiredDefaultsKey)
     }
 }
 

@@ -24,11 +24,12 @@ Updates require the user to choose installation.
 
 ## Local storage
 
-- Spotify OAuth credentials are stored in macOS Keychain. Authenticated development launches
-  use an Apple-issued signing identity with a stable Team ID so Keychain authorization survives
-  rebuilds; see [signing setup](docs/development/signing.md). Self-signed packages are
-  build-only and must not be used to sign in. Retired plaintext and Keychain credentials are
-  deleted without being imported.
+- Spotify OAuth credentials are stored in
+  `~/Library/Application Support/Spotty/Session/session.json`, with owner-only file permissions
+  (0600) inside a private directory (0700). Writes atomically replace the complete grant. The file
+  is not encrypted; other processes running as the same macOS user can read it. Do not share or
+  commit this directory. Existing Keychain grants are no longer read, imported, or modified;
+  upgrading from Keychain storage requires one browser authorization.
 - Local preferences also retain a random installation/device identifier, UI preferences, shuffle
   history, and playback preferences.
 - Artwork loads through SwiftUI `AsyncImage`. macOS frameworks manage any image and response

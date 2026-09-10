@@ -26,7 +26,7 @@ struct KeymasterPersistenceTests {
         let sentinel = "SPOTTY_PRIVACY_SENTINEL_stored-grant_9b2e"
         let payload = Data("{\"access_token\":\"\(sentinel)\"}".utf8)
         #expect(KeymasterStoredGrantCodec.decode(payload) == nil, "corrupt secure blobs fail closed")
-        #expect(KeymasterGrantPersistenceDiagnostics.unreadableGrant == "Stored grant is unreadable source=secure")
+        #expect(KeymasterGrantPersistenceDiagnostics.unreadableGrant == "Stored grant is unreadable source=file")
         #expect(!KeymasterGrantPersistenceDiagnostics.unreadableGrant.contains(sentinel))
 
         let secure = RecordingTokenStore()

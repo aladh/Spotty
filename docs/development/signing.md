@@ -24,8 +24,8 @@ so use it only for an authorized launch or interactive acceptance:
 ./script/build_and_run.sh
 ```
 
-The launch script requires an Apple-issued identity with a Team ID. That stable identity preserves
-the Keychain authorization boundary across rebuilds; self-signed certificates do not.
+The launch script retains its Apple-issued identity requirement for development app validation.
+Session persistence is independent of code signing; see [local storage](../../PRIVACY.md#local-storage).
 
 `Scripts/package-app.sh` can create a build-only self-signed bundle with an isolated identity and
 keychain under `.build/spotty-signing/`. It is local-only, unsuitable for distribution or sign-in.
@@ -36,33 +36,15 @@ Packaging needs full Xcode selected through `xcode-select` or `DEVELOPER_DIR` to
 native icon. See [icon maintenance](../../Assets/README.md) when changing artwork.
 
 Sandboxed development tools may need permission for the packaging or launch script to invoke
-`security` and `codesign`. Apple Development signing can require private-key access once; Spotty
-should not reauthorize its stored Spotify credential after later rebuilds.
+`security` and `codesign`. Apple Development signing can require private-key access once. That build-time access is separate
+from Spotty’s runtime session storage.
 
-Spotty performs legacy Keychain reads and writes without interaction. An inaccessible grant
-returns a denied state instead of showing a launch-time password prompt or deleting the grant.
-[The compatibility wrapper](../../Sources/SpottyKeychainSupport/SpottyKeychainSupport.c) serializes
-Spotty’s operations and temporarily disables the legacy process-wide interaction flag; `LAContext`
-alone does not control file-based Keychain UI. Existing item ACLs remain unchanged. Restoration of
-the prior interaction setting retries once; if both attempts fail, the wrapper logs the failure and
-process-wide Keychain UI may remain disabled. Later operations may return a denied state instead
-of displaying a password prompt. The operation result remains authoritative, so a successfully
-saved credential is not reported as unsaved.
-The synthetic wrapper check substitutes every Security operation and never opens a real Keychain.
+## Session restoration
 
-If the current item's authorization cannot be repaired, delete only that item as a fallback:
+OAuth grants use the private file store described in [privacy](../../PRIVACY.md#local-storage).
+A Keychain-based installation requires one new browser authorization after upgrading. Spotty does
+not attempt to migrate inaccessible grants or modify the old Keychain entries. Subsequent launches
+restore the file-backed grant, and Sign Out removes it. Do not delete session files as routine
+troubleshooting; read failures remain distinct from missing sessions.
 
-```bash
-security delete-generic-password \
-  -s dev.spotty.app.keymaster \
-  -a keymaster_tokens
-```
-
-Deleting the item removes the stored Spotify grant and requires browser authorization again. Do not
-repeat it for later prompts; diagnose those with `codesign -dvvv Spotty.app` and the selected Team
-identity.
-
-On first launch, choose Connect and authorize Spotify in the browser. The grant stays in the macOS
-Keychain and is never stored in Git. Before exercising a live account, follow the
-[safe testing contract](../product/safe-testing.md); playback is opt-in during
-acceptance testing.
+Before exercising a live account, follow the [safe testing contract](../product/safe-testing.md).

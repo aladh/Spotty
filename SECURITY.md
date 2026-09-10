@@ -27,7 +27,7 @@ Useful reports include:
 
 - Exposure of OAuth credentials, tokens, or account data beyond the local user
 - Loopback OAuth callback validation or local-request attacks
-- Unsafe Keychain or development credential-storage behavior
+- Unsafe session-file permissions or credential-storage behavior
 - Code execution, arbitrary file access, or memory-safety bugs reachable from network data
 - Rust/Swift FFI lifetime, ownership, bounds, or concurrency vulnerabilities
 - Diagnostics or logs that include credentials or private response payloads

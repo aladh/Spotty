@@ -49,7 +49,7 @@ private actor QueueRemoteClient: RemotePlaybackClient {
     }
 
     private let behavior: Behavior
-    private var parked: CheckedContinuation<Void, Error>?
+    private var parked: [UInt64: CheckedContinuation<Void, Error>] = [:]
     private var parkID: UInt64 = 0
     private(set) var commands: [SpotifyConnectCommand] = []
 
@@ -75,8 +75,7 @@ private actor QueueRemoteClient: RemotePlaybackClient {
             let id = parkID
             try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    parked?.resume(throwing: CancellationError())
-                    parked = continuation
+                    parked[id] = continuation
                 }
             } onCancel: {
                 Task { await self.completePark(id: id, success: false, cancelled: true) }
@@ -85,12 +84,12 @@ private actor QueueRemoteClient: RemotePlaybackClient {
     }
 
     func completePark(success: Bool) {
-        completePark(id: parkID, success: success, cancelled: false)
+        guard let id = parked.keys.min() else { return }
+        completePark(id: id, success: success, cancelled: false)
     }
 
     private func completePark(id: UInt64, success: Bool, cancelled: Bool) {
-        guard id == parkID, let parked else { return }
-        self.parked = nil
+        guard let parked = parked.removeValue(forKey: id) else { return }
         if cancelled {
             parked.resume(throwing: CancellationError())
         } else if success {

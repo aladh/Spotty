@@ -32,9 +32,10 @@ workflow presence, tool selection, cache integrity, and complete verification. T
 owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
 [check.sh](../../../Scripts/check.sh). [Source policies](source-checks.md) cover the syntax-only
 facets of `CI-TOOL-001` and `ABI-ARC-001`; artifact validation and build execution remain here. The required aggregate includes source policies, Rust,
-Swift/architecture, and Release compilation, except that
-[ci_rust_policy.py](../../../Scripts/ci_rust_policy.py) sets `macos_needed=false` for docs-only PR
-changes, which skips that whole aggregate. Rust runs on main and on PRs outside the
+Swift/architecture, and Release compilation. Source policies run unconditionally in the `policy`
+job; [ci_rust_policy.py](../../../Scripts/ci_rust_policy.py) sets `macos_needed=false` for
+docs-only PR changes, which skips the `macos` job and with it Rust, Swift/architecture, and Release
+compilation. Rust runs on main and on PRs outside the
 [app-only scope](../../development/verification.md#normal-verification); detection failures cannot
 authorize a skip. Swift CI uses only published engines. Candidate builds
 are selected by [input comparison](../../../Scripts/playback-candidate-needed.sh); producer validation

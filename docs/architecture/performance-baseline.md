@@ -113,9 +113,9 @@ publication to one update per result; it is a benchmark fixture, not a shipped m
 Three runs per variant completed 40 browsing checkpoints, eight playback/lifetime traces and six
 96-track hydration waves. Configuration: M1 Max, 10 logical processors, 32 GiB, macOS 27.0
 (26A5425a), Xcode 27.0 (27A5252f), macOS 26.5 SDK, Debug, 960 × 692 window, inspector closed.
-Xcode 27.0 and the macOS 26.5 SDK are the local toolchain versions selected via
-[Scripts/swiftpm-env.sh](../../Scripts/swiftpm-env.sh); CI (`.github/workflows/ci.yml`) instead
-runs on the `macos-26` runner with Xcode 26.6 selected explicitly.
+Xcode 27.0 is the local `xcode-select` toolchain, and the macOS 26.5 SDK is the `SDKROOT` that
+[Scripts/swiftpm-env.sh](../../Scripts/swiftpm-env.sh) selects; CI (`.github/workflows/ci.yml`)
+instead runs on the `macos-26` runner with Xcode 26.6 selected explicitly.
 Each fresh process uses new artwork paths; framework disk caches may be warm. The source emits
 on independent 200 ms deadlines: measured offered rates were 4.97–5.00 Hz. Synthetic metadata
 waits 15 ms per lookup with production concurrency of eight. App Nap is suppressed for the finite

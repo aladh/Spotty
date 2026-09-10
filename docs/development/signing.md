@@ -42,8 +42,9 @@ from Spotty’s runtime session storage.
 
 ## Session restoration
 
-See [local storage](../../PRIVACY.md#local-storage) for the file-backed OAuth grant, the
-Keychain-to-file migration, and Sign Out. Do not delete session files as routine troubleshooting;
-read failures remain distinct from missing sessions.
+See [local storage](../../PRIVACY.md#local-storage) for the file-backed OAuth grant and Sign Out.
+Retired Keychain grants are not read or migrated; upgrading from Keychain storage requires one new
+browser authorization. Do not delete session files as routine troubleshooting; read failures remain
+distinct from missing sessions.
 
 Before exercising a live account, follow the [safe testing contract](../product/safe-testing.md).

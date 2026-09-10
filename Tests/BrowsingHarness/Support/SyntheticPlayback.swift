@@ -243,13 +243,13 @@ final class SyntheticPlayback: @unchecked Sendable {
                 devices: RustDevicesState(
                     revision: revision, sessionGeneration: generation, activeDeviceID: activeID,
                     devices: [
-                        ConnectProtocolDevice(id: Self.localID, name: "Spotty Demo", type: "computer"),
-                        ConnectProtocolDevice(id: Self.remoteID, name: "Demo Speaker", type: "speaker"),
+                        ConnectProtocolDevice(id: Self.localID, name: "Jerry's MacBook", type: "computer"),
+                        ConnectProtocolDevice(id: Self.remoteID, name: "Living Room", type: "speaker"),
                     ]),
                 connection: RustConnectionState(
                     revision: revision, sessionGeneration: generation,
                     sessionConnected: connected, spircReady: connected, isActiveDevice: activeID == Self.localID,
-                    resumePending: false, lastError: connected ? nil : "Synthetic disconnect", deviceID: Self.localID),
+                    resumePending: false, lastError: connected ? nil : "Speaker disconnected", deviceID: Self.localID),
                 playback: playbackLocked(), queue: queueLocked()))
     }
 }

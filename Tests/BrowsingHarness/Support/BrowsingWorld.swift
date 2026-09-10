@@ -121,8 +121,8 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
         }
         let suffix = uri.split(separator: "x").last.flatMap { Int($0) } ?? 0
         return SpotifyConnectTrackMetadata(
-            uri: uri, title: String(format: "Synthetic Track %04d", Int32(suffix + 1)),
-            artist: "Synthetic Artist \(suffix % 12 + 1)",
+            uri: uri, title: BrowsingFixtures.trackName(at: suffix),
+            artist: BrowsingFixtures.artistName(at: suffix),
             artworkURL: fixtures.artworkURLs[suffix % fixtures.artworkURLs.count],
             duration: 180)
     }
@@ -173,7 +173,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
     }
 
     func profile() async throws -> PathfinderProfile {
-        PathfinderProfile(username: "synthetic", name: "Synthetic Listener", uri: "spotify:user:synthetic", avatar: nil)
+        PathfinderProfile(username: "synthetic", name: "Jerry Seinfeld", uri: "spotify:user:synthetic", avatar: nil)
     }
     func playlist(id: String) async throws -> PathfinderPlaylistUnion {
         record("playlist.\(id)")

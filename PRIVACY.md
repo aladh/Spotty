@@ -29,7 +29,8 @@ Updates require the user to choose installation.
   (0600) inside a private directory (0700). Writes atomically replace the complete grant. The file
   is not encrypted; other processes running as the same macOS user can read it. Do not share or
   commit this directory. Existing Keychain grants are no longer read, imported, or modified;
-  upgrading from Keychain storage requires one browser authorization.
+  upgrading from Keychain storage requires one browser authorization. Retired plaintext preferences
+  are removed without importing their grant.
 - Local preferences also retain a random installation/device identifier, UI preferences, shuffle
   history, and playback preferences.
 - Artwork loads through SwiftUI `AsyncImage`. macOS frameworks manage any image and response

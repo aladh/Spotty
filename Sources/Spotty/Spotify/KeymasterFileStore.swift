@@ -9,14 +9,23 @@ nonisolated struct KeymasterFileStore: KeymasterTokenStoring {
     private static let maximumBytes = 65_536
     let directory: URL
 
-    init(
-        directory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Spotty/Session", isDirectory: true)
-    ) {
+    private static let temporary = ".session.pending"
+    private let clearLegacyGrant: @Sendable () -> Void
+
+    init() {
+        self.init(
+            directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Spotty/Session", isDirectory: true),
+            clearLegacyGrant: { UserDefaults.standard.removeObject(forKey: "keymaster.tokens.v1") })
+    }
+
+    init(directory: URL, clearLegacyGrant: @escaping @Sendable () -> Void = {}) {
         self.directory = directory
+        self.clearLegacyGrant = clearLegacyGrant
     }
 
     func loadResult() -> KeymasterGrantLoadResult {
+        clearLegacyGrant()
         do {
             let parent = try openDirectory(create: false)
             defer { close(parent) }
@@ -50,26 +59,28 @@ nonisolated struct KeymasterFileStore: KeymasterTokenStoring {
         } catch StoreError.system(ENOENT) {
             return .absent
         } catch StoreError.system(EACCES), StoreError.system(EPERM) {
-            SpottyLog.authentication.error("Stored grant access denied source=file")
+            SpottyLog.authentication.error("\(KeymasterGrantPersistenceDiagnostics.deniedGrant, privacy: .public)")
             return .denied
         } catch {
-            SpottyLog.authentication.error("Stored grant read failed source=file")
+            SpottyLog.authentication.error("\(KeymasterGrantPersistenceDiagnostics.failedGrant, privacy: .public)")
             return .failed
         }
     }
 
     func save(_ tokens: KeymasterTokens) throws {
+        clearLegacyGrant()
         let data = try JSONEncoder().encode(tokens)
         guard data.count <= Self.maximumBytes else { throw StoreError.invalidFile }
         let parent = try openDirectory(create: true)
         defer { close(parent) }
-        let temporary = ".session-\(UUID().uuidString)"
+        let temporary = Self.temporary
         let file = openat(parent, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard file >= 0 else { throw StoreError.system(errno) }
         defer {
             close(file)
             unlinkat(parent, temporary, 0)
         }
+        guard fchmod(file, 0o600) == 0 else { throw StoreError.system(errno) }
         try data.withUnsafeBytes { buffer in
             var offset = 0
             while offset < buffer.count {
@@ -84,15 +95,18 @@ nonisolated struct KeymasterFileStore: KeymasterTokenStoring {
         }
         guard fsync(file) == 0 else { throw StoreError.system(errno) }
         guard renameat(parent, temporary, parent, Self.filename) == 0 else { throw StoreError.system(errno) }
+        guard fsync(parent) == 0 else { throw StoreError.system(errno) }
     }
 
     func clear() {
+        clearLegacyGrant()
         do {
             let parent = try openDirectory(create: false)
             defer { close(parent) }
             guard unlinkat(parent, Self.filename, 0) == 0 || errno == ENOENT else {
                 throw StoreError.system(errno)
             }
+            guard fsync(parent) == 0 else { throw StoreError.system(errno) }
         } catch StoreError.system(ENOENT) {
             return
         } catch {
@@ -101,19 +115,36 @@ nonisolated struct KeymasterFileStore: KeymasterTokenStoring {
     }
 
     private func openDirectory(create: Bool) throws -> Int32 {
-        if create {
-            try FileManager.default.createDirectory(
-                at: directory, withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700])
-        }
-        let descriptor = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        // Walk from root using directory descriptors: O_NOFOLLOW on only the final
+        // component would still permit a symlinked Spotty parent to redirect writes.
+        guard directory.isFileURL, !directory.pathComponents.contains("..") else { throw StoreError.invalidFile }
+        var descriptor = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard descriptor >= 0 else { throw StoreError.system(errno) }
-        var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_uid == geteuid(), fchmod(descriptor, 0o700) == 0 else {
+        do {
+            for component in directory.pathComponents.dropFirst() {
+                if create, mkdirat(descriptor, component, 0o700) != 0, errno != EEXIST {
+                    throw StoreError.system(errno)
+                }
+                let child = openat(descriptor, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+                guard child >= 0 else { throw StoreError.system(errno) }
+                close(descriptor)
+                descriptor = child
+            }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0 else { throw StoreError.system(errno) }
+            guard info.st_uid == geteuid() else { throw StoreError.system(EACCES) }
+            guard fchmod(descriptor, 0o700) == 0 else { throw StoreError.system(errno) }
+            // Serialize store instances/processes before reclaiming a crash-orphaned
+            // staging file. A live writer cannot lose its staging name to cleanup.
+            guard flock(descriptor, LOCK_EX) == 0 else { throw StoreError.system(errno) }
+            guard unlinkat(descriptor, Self.temporary, 0) == 0 || errno == ENOENT else {
+                throw StoreError.system(errno)
+            }
+            return descriptor
+        } catch {
             close(descriptor)
-            throw StoreError.invalidFile
+            throw error
         }
-        return descriptor
     }
 
     private enum StoreError: Error {

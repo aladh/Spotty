@@ -14,13 +14,15 @@ filesystem protection in place of Keychain's per-app access controls.
 Store the complete OAuth grant in a private Application Support directory through
 [KeymasterFileStore](../../../Sources/Spotty/Spotify/KeymasterFileStore.swift). The directory uses
 0700 permissions and the file uses 0600. Bound reads, reject symlinks and nonregular files, and
-publish replacements atomically. Keep the existing serialized persistence worker, rotation ordering,
+publish replacements atomically, syncing the file and containing directory. A directory lock
+serializes store operations across processes, and a fixed staging file is reclaimed after a crash. Keep the existing serialized persistence worker, rotation ordering,
 reauthentication marker, and account-lifetime checks. Missing, denied, and corrupt sessions remain
 distinct outcomes.
 
 Do not read, migrate, or modify old Keychain entries. Upgrading requires one browser authorization;
 subsequent launches restore the file. Sign Out removes the active file. Existing historical entries
-are inert and can be removed separately by their owner.
+are inert and can be removed separately by their owner. Retired plaintext preferences are still
+removed without being imported.
 
 ## Tradeoffs and verification
 

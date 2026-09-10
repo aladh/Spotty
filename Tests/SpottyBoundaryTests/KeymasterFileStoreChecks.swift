@@ -68,8 +68,18 @@ struct KeymasterFileStoreChecks {
             accessToken: "synthetic", refreshToken: "synthetic",
             expiresAt: Date(), username: "synthetic")
         #expect(throws: (any Error).self) { try store.save(grant) }
-        store.clear()
         #expect(try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty)
+        let targetSession = target.appendingPathComponent("Session")
+        try FileManager.default.createDirectory(at: targetSession, withIntermediateDirectories: true)
+        let marker = Data("must survive cleanup through a symlink".utf8)
+        let protectedFiles = ["session.json", ".session.pending"]
+        for name in protectedFiles {
+            try marker.write(to: targetSession.appendingPathComponent(name))
+        }
+        store.clear()
+        for name in protectedFiles {
+            #expect(try Data(contentsOf: targetSession.appendingPathComponent(name)) == marker)
+        }
     }
 
     @Test func restrictiveUmaskAndOrphanedStageDoNotBreakRestoration() throws {

@@ -29,7 +29,7 @@ struct BrowsingHarnessTests {
             await player.shutdownForTermination()
             throw error
         }
-        #expect(checkpoints.count == 7)
+        #expect(checkpoints.count == 8)
         #expect(checkpoints.prefix(3).allSatisfy { $0.intentOutcome == "observedConfirmed" })
         #expect(
             checkpoints.prefix(3).allSatisfy {

@@ -5,6 +5,23 @@ import Foundation
 @Suite("Queue Mutation")
 struct QueueMutationTests {
     @Test
+    func stableUIDSelectionFollowsTheOccurrenceAcrossReorder() {
+        let uri = "spotify:track:duplicate"
+        let first = QueueEntry(uri: uri, provider: "queue", occurrence: 0, uid: "first")
+        let second = QueueEntry(uri: uri, provider: "queue", occurrence: 1, uid: "second")
+        let reordered = [
+            QueueEntry(uri: uri, provider: "queue", occurrence: 0, uid: "second"),
+            QueueEntry(uri: uri, provider: "queue", occurrence: 1, uid: "first"),
+        ]
+        #expect(first.id != second.id)
+        #expect(reordered[1].id == first.id)
+        #expect(QueueMutationSelection.orderedUpcoming(selectedIDs: [first.id], in: reordered).map(\.uid) == ["first"])
+        let malformed = QueueEntry.uniquelyIdentified([first, first])
+        #expect(Set(malformed.map(\.id)).count == 2)
+        #expect(malformed.map(\.uid) == ["first", "first"], "mutation policy still sees and rejects ambiguous UIDs")
+    }
+
+    @Test
     func testQueueMutation() {
         func entry(_ uri: String, provider: String = "queue", occurrence: Int, uid: String = "") -> QueueEntry {
             QueueEntry(uri: uri, provider: provider, occurrence: occurrence, uid: uid)

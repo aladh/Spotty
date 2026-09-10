@@ -96,7 +96,21 @@ protocol QueueServiceHook: Sendable {
     func beforeRecordCommittedReplacement() async
 }
 
+nonisolated struct QueueRefreshDiagnostics: Codable, Sendable {
+    var starts = 0
+    var joins = 0
+    var cancellations = 0
+    var publications = 0
+    var metadataResults = 0
+}
+
 actor QueueService {
+    private enum HydrationResult: Sendable {
+        case metadata(SpotifyConnectTrackMetadata?)
+        case flush
+    }
+
+    private(set) var refreshDiagnostics = QueueRefreshDiagnostics()
     private struct RefreshKey: Equatable, Sendable {
         let accountEpoch: UInt64
         let contextURI: String?
@@ -309,8 +323,10 @@ actor QueueService {
 
         let flightID: UUID
         if let existingID = refreshFlightID {
+            refreshDiagnostics.joins += 1
             flightID = existingID
         } else {
+            refreshDiagnostics.starts += 1
             let createdID = UUID()
             refreshFlightID = createdID
             refreshFlightKey = key
@@ -478,17 +494,21 @@ actor QueueService {
         let hydrationInterval = SpottyLog.queueSignposter.beginInterval("Queue metadata hydration")
         defer { SpottyLog.queueSignposter.endInterval("Queue metadata hydration", hydrationInterval) }
         let maximumConcurrentRequests = 8
-        await withTaskGroup(of: SpotifyConnectTrackMetadata?.self) { group in
+        await withTaskGroup(of: HydrationResult.self) { group in
             var pending = missing
             var scheduled = Set(missing)
             var nextRequest = 0
+            var activeRequests = 0
+            var needsPublication = false
+            var flushScheduled = false
             for _ in 0..<min(maximumConcurrentRequests, missing.count) {
                 let uri = pending[nextRequest]
                 nextRequest += 1
-                group.addTask { [metadata] in try? await metadata.metadata(for: uri) }
+                activeRequests += 1
+                group.addTask { [metadata] in .metadata(try? await metadata.metadata(for: uri)) }
             }
 
-            while let value = await group.next() {
+            while let result = await group.next() {
                 guard !Task.isCancelled,
                     requestedEpoch == accountEpoch,
                     requestedContext == contextURI
@@ -496,14 +516,24 @@ actor QueueService {
                     group.cancelAll()
                     return
                 }
-                if let value {
-                    hydrated[value.uri] = Self.catalogTrack(from: value)
-                    if let update = updateFallbackSnapshot(
-                        entries: fallbackEntries,
-                        tracks: Array(hydrated.values),
-                        requestedEpoch: requestedEpoch,
-                        requestedContext: requestedContext
-                    ) {
+                switch result {
+                case let .metadata(value):
+                    activeRequests -= 1
+                    if let value {
+                        refreshDiagnostics.metadataResults += 1
+                        hydrated[value.uri] = Self.catalogTrack(from: value)
+                        needsPublication = true
+                    }
+                case .flush:
+                    flushScheduled = false
+                    if needsPublication,
+                        let update = updateFallbackSnapshot(
+                            entries: fallbackEntries,
+                            tracks: Array(hydrated.values),
+                            requestedEpoch: requestedEpoch,
+                            requestedContext: requestedContext)
+                    {
+                        needsPublication = false
                         await onUpdate(update)
                     }
                 }
@@ -512,10 +542,21 @@ actor QueueService {
                 where hydrated[uri] == nil && scheduled.insert(uri).inserted {
                     pending.append(uri)
                 }
-                if nextRequest < pending.count {
+                while activeRequests < maximumConcurrentRequests, nextRequest < pending.count {
                     let uri = pending[nextRequest]
                     nextRequest += 1
-                    group.addTask { [metadata] in try? await metadata.metadata(for: uri) }
+                    activeRequests += 1
+                    group.addTask { [metadata] in .metadata(try? await metadata.metadata(for: uri)) }
+                }
+                // One short timer exists only while metadata awaits publication. Ordering was
+                // published immediately above; this bounds enrichment to 20 batches per second
+                // and flushes a partial batch even while the remaining network requests stall.
+                if needsPublication && !flushScheduled {
+                    flushScheduled = true
+                    group.addTask { [clock] in
+                        try? await clock.sleep(seconds: 0.05)
+                        return .flush
+                    }
                 }
             }
         }
@@ -529,6 +570,7 @@ actor QueueService {
 
     private func publishRefreshUpdate(_ snapshot: ProvenanceQueueSnapshot, flightID: UUID) async {
         guard refreshFlightID == flightID else { return }
+        refreshDiagnostics.publications += 1
         for subscriberID in Array(refreshSubscribers.keys) {
             guard refreshFlightID == flightID,
                 let subscriber = refreshSubscribers[subscriberID]
@@ -555,6 +597,7 @@ actor QueueService {
     }
 
     private func cancelRefreshFlight() {
+        if refreshTask != nil { refreshDiagnostics.cancellations += 1 }
         refreshTask?.cancel()
         refreshFlightID = nil
         refreshFlightKey = nil

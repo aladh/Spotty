@@ -774,8 +774,8 @@ struct WorkflowTests {
             if let first = initiallyRequested.first { await remote.complete(first) }
             while await remote.requestedURIs.count < 9 { await Task.yield() }
             #expect(
-                (updates.contains { $0.tracks.count == 3 }) == true,
-                "a completed lookup publishes an incremental update")
+                await waitUntil { updates.contains { $0.tracks.count == 3 } },
+                "a completed lookup publishes in a bounded batch while other requests remain pending")
 
             var completed: Set<String> = Set(initiallyRequested.prefix(1))
             while completed.count < expectedRequestedURIs.count {

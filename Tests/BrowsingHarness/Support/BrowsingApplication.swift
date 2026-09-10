@@ -79,6 +79,7 @@ private struct BrowsingReport: Encodable {
     let playback: SyntheticPlayback.Snapshot
     let playbackCheckpoints: [PlaybackTraceCheckpoint]
     let responsiveness: BrowsingResponsivenessReport?
+    let queueRefresh: QueueRefreshDiagnostics
     let passed: Bool
     let failure: String?
 }
@@ -292,6 +293,7 @@ final class BrowsingRun {
             networkSandboxVerified: networkSandboxVerified,
             samples: samples, world: world.snapshot(), playback: world.playback.snapshot(),
             playbackCheckpoints: playbackCheckpoints, responsiveness: responsivenessReport,
+            queueRefresh: await player.queueService.refreshDiagnostics,
             passed: failure == nil, failure: failure
         )
         let encoder = JSONEncoder()

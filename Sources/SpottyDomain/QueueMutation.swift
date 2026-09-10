@@ -247,7 +247,7 @@ public enum QueueProtocolProjection: Sendable {
         return items
     }
 
-    /// Occurrence-indexed presentation rows derived from protocol `next` tracks.
+    /// Presentation rows retain their current index and stable Connect occurrence identity.
     public static func upcomingEntries(from protocolNext: [QueueProtocolTrack]) -> [QueueEntry] {
         upcoming(from: protocolNext).enumerated().map { index, track in
             QueueEntry(uri: track.uri, provider: track.provider, occurrence: index, uid: track.uid)

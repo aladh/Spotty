@@ -184,14 +184,31 @@ public struct QueueEntry: Identifiable, Equatable, Sendable {
         self.uid = uid
     }
 
-    /// Selectable identity. A non-empty Connect uid is part of the id so a later
-    /// snapshot with the same URI order cannot keep an old selection aimed at a
-    /// different occurrence.
+    /// A Connect occurrence keeps its identity when ordering changes. Without a UID, the
+    /// positional fallback deliberately does not promise continuity across reorder.
     public static func identity(occurrence: Int, provider: String, uri: String, uid: String) -> String {
         if uid.isEmpty {
             return "\(occurrence)-\(provider)-\(uri)"
         }
-        return "\(occurrence)-\(uid)-\(provider)-\(uri)"
+        return "uid-\(uid)-\(provider)-\(uri)"
+    }
+
+    /// Malformed duplicate UIDs cannot produce duplicate SwiftUI row IDs. Their original UID
+    /// remains available to the mutation policy, which refuses ambiguous protocol identities.
+    public static func uniquelyIdentified(_ entries: [Self]) -> [Self] {
+        let counts = Dictionary(entries.map { ($0.id, 1) }, uniquingKeysWith: +)
+        return entries.enumerated().map { index, entry in
+            guard counts[entry.id, default: 0] > 1 else { return entry }
+            return Self(entry, id: "ambiguous-\(index)-\(entry.id)")
+        }
+    }
+
+    private init(_ entry: Self, id: String) {
+        self.id = id
+        uri = entry.uri
+        provider = entry.provider
+        occurrence = entry.occurrence
+        uid = entry.uid
     }
 
     /// What fed this entry, in listener-facing words.

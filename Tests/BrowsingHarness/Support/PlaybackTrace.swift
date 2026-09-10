@@ -144,6 +144,12 @@ struct PlaybackTrace {
         }
         if !player.isPlaying { player.togglePlayback() }
         try await until("playback.workload-ready") { player.isPlaying && player.state.pendingCommands.isEmpty }
+        started = .now
+        player.refreshQueue()
+        try await until("queue.enriched") {
+            player.queueNextEntries.allSatisfy { player.catalog.metadata.knownTrack(for: $0.uri) != nil }
+        }
+        checkpoint("queue.enriched", since: started)
         return checkpoints
     }
 

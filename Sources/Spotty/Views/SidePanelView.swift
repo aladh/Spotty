@@ -21,11 +21,11 @@ struct SidePanelView: View {
     let metadata: CatalogMetadataRepository
     let player: PlaybackStore
     let panel: PlaybackPanel
+    @Binding var upcomingSelection: Set<QueueEntry.ID>
     let onSelect: (CatalogItem) -> Void
     let onClose: () -> Void
 
     @State private var tab: Tab = .queue
-    @State private var upcomingSelection: Set<QueueEntry.ID> = []
 
     enum Tab: String, CaseIterable {
         case queue = "Queue"
@@ -143,6 +143,7 @@ struct SidePanelView: View {
                         }
                         QueueUpcomingRow(entry: entry, metadata: metadata, player: player, onSelect: onSelect)
                             .tag(entry.id)
+                            .accessibilityIdentifier("queue-occurrence-\(entry.id)")
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
                     }
@@ -193,9 +194,6 @@ struct SidePanelView: View {
                     return
                 }
                 player.removeUpcomingQueueOccurrences(selectedIDs: upcomingSelection)
-            }
-            .onChange(of: player.queueNextEntries.map(\.id), initial: true) { _, ids in
-                upcomingSelection.formIntersection(Set(ids))
             }
             .accessibilityLabel("Queue")
         }

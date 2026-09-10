@@ -515,9 +515,10 @@ final class PlaybackStore {
             if timeline != next.timing { timeline = next.timing }
             if playbackDuration != next.timing.duration { playbackDuration = next.timing.duration }
             if queueEntriesChanged {
-                let nextQueue = next.queue.entries.map {
-                    QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
-                }
+                let nextQueue = QueueEntry.uniquelyIdentified(
+                    next.queue.entries.map {
+                        QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
+                    })
                 if presentedQueueEntries != nextQueue { presentedQueueEntries = nextQueue }
             }
             if devicesChanged {

@@ -9,10 +9,29 @@ struct RecoveryOwner {
 
 static RECOVERY: Lazy<Mutex<RecoveryOwner>> = Lazy::new(|| Mutex::new(RecoveryOwner::default()));
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecoveryOutcome {
+    Ready,
+    CredentialsRejected,
+    Stopped,
+    Superseded,
+    Interrupted,
+}
+
+#[derive(Debug)]
+pub(crate) struct RecoveryReport {
+    pub(crate) outcome: RecoveryOutcome,
+    pub(crate) attempts: u32,
+    pub(crate) elapsed: Duration,
+}
+
 /// A lease can finish only its own run, even after sleep/logout has admitted a replacement.
 pub(crate) struct RecoveryLease {
     ticket: u64,
     cancelled: tokio::sync::watch::Receiver<bool>,
+    started: std::time::Instant,
+    attempts: u32,
+    reported: bool,
 }
 
 pub(crate) fn recovery_is_active() -> bool {
@@ -45,7 +64,42 @@ impl RecoveryLease {
         let ticket = owner.next_ticket;
         let (sender, cancelled) = tokio::sync::watch::channel(false);
         owner.active = Some((ticket, sender));
-        Some(Self { ticket, cancelled })
+        Some(Self {
+            ticket,
+            cancelled,
+            started: std::time::Instant::now(),
+            attempts: 0,
+            reported: false,
+        })
+    }
+
+    pub(crate) fn next_delay(&self) -> Duration {
+        recovery_delay(self.attempts)
+    }
+
+    pub(crate) fn begin_attempt(&mut self) -> u32 {
+        self.attempts = self.attempts.saturating_add(1);
+        self.attempts
+    }
+
+    pub(crate) fn finish(mut self, outcome: RecoveryOutcome) -> RecoveryReport {
+        self.report(outcome)
+    }
+
+    fn report(&mut self, outcome: RecoveryOutcome) -> RecoveryReport {
+        self.reported = true;
+        let report = RecoveryReport {
+            outcome,
+            attempts: self.attempts,
+            elapsed: self.started.elapsed(),
+        };
+        debug!(
+            "Recovery settled: outcome={:?}; attempts={}; elapsed_ms={}",
+            report.outcome,
+            report.attempts,
+            report.elapsed.as_millis()
+        );
+        report
     }
 
     pub(crate) fn is_cancelled(&self) -> bool {
@@ -66,6 +120,14 @@ impl RecoveryLease {
 
 impl Drop for RecoveryLease {
     fn drop(&mut self) {
+        if !self.reported {
+            let outcome = if self.is_cancelled() {
+                RecoveryOutcome::Stopped
+            } else {
+                RecoveryOutcome::Interrupted
+            };
+            self.report(outcome);
+        }
         let mut owner = RECOVERY.lock().unwrap_or_else(|e| e.into_inner());
         if owner
             .active

@@ -336,3 +336,38 @@ fn retired_recovery_does_not_begin_session_construction() {
     assert_eq!(result, Err(InitializationFailure::Transient));
     assert_eq!(SESSION_GENERATION.load(Ordering::SeqCst), before);
 }
+
+#[test]
+fn recovery_attempt_does_not_require_a_registered_connection_callback() {
+    let _guard = lock_globals();
+    cancel_recovery();
+    let old_callback = CONTROL_CALLBACKS.connection_state.lock().unwrap().take();
+    let old_error = with_connection(|c| c.last_error.clone());
+    let lease = RecoveryLease::claim().expect("recovery");
+    let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+    assert!(publish_recovery_attempt(generation, &lease, 1));
+    assert!(recovery_is_active());
+    cancel_recovery();
+    assert!(!publish_recovery_attempt(generation, &lease, 2));
+    *CONTROL_CALLBACKS.connection_state.lock().unwrap() = old_callback;
+    with_connection(|c| c.last_error = old_error);
+}
+
+#[test]
+fn recovery_reports_named_terminal_outcomes_and_attempt_count() {
+    let _guard = lock_globals();
+    cancel_recovery();
+    for outcome in [
+        RecoveryOutcome::Ready,
+        RecoveryOutcome::CredentialsRejected,
+        RecoveryOutcome::Stopped,
+    ] {
+        let mut lease = RecoveryLease::claim().expect("recovery");
+        assert_eq!(lease.begin_attempt(), 1);
+        assert_eq!(lease.begin_attempt(), 2);
+        let report = lease.finish(outcome);
+        assert_eq!(report.outcome, outcome);
+        assert_eq!(report.attempts, 2);
+        assert!(!recovery_is_active());
+    }
+}

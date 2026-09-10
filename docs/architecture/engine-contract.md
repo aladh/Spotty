@@ -16,7 +16,10 @@
   flight; construction still settles transactionally under the lifecycle mutex. A retired
   task cannot clear its replacement's ownership. Transient outages retry indefinitely with
   delays of 0, 2, 5, 10, then 30 seconds; credential rejection terminates the owning run.
-  Swift owns account admission and child-work drain, not a competing engine retry loop.
+  Each lease reports one named terminal outcome and monotonic elapsed time with its attempt
+  count, without account/device identifiers. This measures trigger-to-settlement when diagnostics
+  are enabled; it is not a network latency guarantee. The silent-session detector retains its
+  60-second cadence. Swift owns account admission and child-work drain, not a competing engine retry loop.
 - Each AP connection attempt bounds socket/proxy setup and handshake together at five seconds.
   Retry count, authentication, token fetching, and total initialization remain separate budgets.
   Timeouts are transient failures and do not clear credentials.

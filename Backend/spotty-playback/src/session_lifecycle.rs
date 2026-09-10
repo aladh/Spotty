@@ -253,12 +253,8 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
         // back, and only a manual play would recover it. The loop is not idle polling: it
         // exists only while disconnected and exits on any lifecycle event, because every
         // iteration re-checks the generation and the teardown flags below.
-        let mut attempt: u32 = 0;
-
         loop {
-            let delay = recovery_delay(attempt);
-            let attempt_number = attempt.saturating_add(1);
-            attempt = attempt.saturating_add(1);
+            let delay = lease.next_delay();
             if !lease.wait(delay).await {
                 return;
             }
@@ -273,22 +269,19 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                     elapsed_since_wake_ms(),
                     recovering_generation
                 );
+                lease.finish(RecoveryOutcome::Superseded);
                 return;
             }
 
+            let attempt_number = lease.begin_attempt();
             debug!(
                 "[WAKE +{}ms] Reconnect attempt {}",
                 elapsed_since_wake_ms(),
                 attempt_number
             );
-            let Some(Some(notification)) = with_current_generation_mutation(recovering_generation, || {
-                if lease.is_cancelled() || teardown_in_progress() { return None; }
-                with_connection(|c| {
-                    c.last_error = Some(format!("Reconnecting (attempt {})", attempt_number));
-                });
-                capture_connection_state_notification(recovering_generation)
-            }) else { return; };
-            deliver_connection_state_notification(notification);
+            if !publish_recovery_attempt(recovering_generation, &lease, attempt_number) {
+                return;
+            }
 
             // No token is fetched here. A rebuild connects from the AP credentials cached by
             // the streaming grant, which is the only login path this reconnection flow
@@ -340,7 +333,8 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                         elapsed_since_wake_ms(),
                         recovering_generation
                     );
-                        return;
+                    lease.finish(RecoveryOutcome::Superseded);
+                    return;
                 }
                 ReconnectUnitOutcome::Ran((_, Ok(_))) => {
                     debug!(
@@ -348,7 +342,8 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                         elapsed_since_wake_ms(),
                         attempt_number
                     );
-                        return;
+                    lease.finish(RecoveryOutcome::Ready);
+                    return;
                 }
                 ReconnectUnitOutcome::Ran((attempt_generation, Err(e))) => {
                     debug!(
@@ -362,7 +357,8 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                         // `build_player_async` publishes the typed snapshot only after checking
                         // this attempt's generation; the reconnect owner must then stop rather
                         // than feeding the same unusable credential through the backoff forever.
-                                return;
+                        lease.finish(RecoveryOutcome::CredentialsRejected);
+                        return;
                     }
                     // Adopt the generation this attempt created. build_player_async bumps it
                     // before it can fail, so leaving the old value here would make the next
@@ -378,6 +374,27 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
             }
         }
     });
+}
+
+/// Callback absence is optional delivery, not a failed recovery-admission gate.
+pub(crate) fn publish_recovery_attempt(
+    generation: u64,
+    lease: &RecoveryLease,
+    attempt: u32,
+) -> bool {
+    let Some(Ok(notification)) = with_current_generation_mutation(generation, || {
+        if lease.is_cancelled() || teardown_in_progress() {
+            return Err(());
+        }
+        with_connection(|c| c.last_error = Some(format!("Reconnecting (attempt {})", attempt)));
+        Ok(capture_connection_state_notification(generation))
+    }) else {
+        return false;
+    };
+    if let Some(notification) = notification {
+        deliver_connection_state_notification(notification);
+    }
+    true
 }
 
 /// Forces a reconnection to Spotify servers.

@@ -429,6 +429,19 @@ pub(crate) fn mark_disconnected(reason: &str) {
     notify_connection_state_change();
 }
 
+/// Pins the connection fields that identify the local Connect role to the cluster facts used
+/// for the corresponding playback observation. The canonical connection state can be updated by
+/// a player event between its read and aggregate callback delivery.
+pub(crate) fn pin_connection_to_cluster(
+    mut connection: ConnectionState,
+    local_device_id: Option<&str>,
+    is_active_device: bool,
+) -> ConnectionState {
+    connection.is_active_device = is_active_device;
+    connection.device_id = local_device_id.map(str::to_owned);
+    connection
+}
+
 /// Sends cluster members to Swift, skipping an update that says nothing new.
 ///
 /// Presentation (activity, empty-type fallback, unused Web API fields) is Swift-owned.
@@ -436,7 +449,6 @@ pub(crate) fn mark_disconnected(reason: &str) {
 pub(crate) fn notify_devices(
     devices: &std::collections::HashMap<String, librespot_protocol::connect::DeviceInfo>,
     active_device_id: &str,
-    emit_callback: bool,
 ) {
     let list = protocol_devices(devices);
 
@@ -459,11 +471,9 @@ pub(crate) fn notify_devices(
     *last = Some(fingerprint);
     drop(last);
 
-    if emit_callback {
-        if let Some(callback) = registered_callback(&CONTROL_CALLBACKS.devices) {
-            let stamp = stamped_snapshot(|stamp| stamp);
-            send_devices_snapshot(callback, stamp, active_device_id, &list);
-        }
+    if let Some(callback) = registered_callback(&CONTROL_CALLBACKS.devices) {
+        let stamp = stamped_snapshot(|stamp| stamp);
+        send_devices_snapshot(callback, stamp, active_device_id, &list);
     }
 }
 
@@ -686,7 +696,11 @@ pub(crate) fn apply_cluster(generation: u64, origin: ClusterOrigin, cluster: Clu
     let aggregate_registered = aggregate_callback.is_some();
     let aggregate_payload = aggregate_callback.map(|_| {
         stamped_snapshot_for_generation(generation, |stamp| {
-            let connection = with_connection(|state| state.clone());
+            let connection = pin_connection_to_cluster(
+                with_connection(|state| state.clone()),
+                local_device_id.as_deref(),
+                is_active_device,
+            );
             let playback = player_state
                 .as_ref()
                 .map(|state| playback_observation_from_player_state(state, is_active_device));
@@ -748,29 +762,25 @@ pub(crate) fn apply_cluster(generation: u64, origin: ClusterOrigin, cluster: Clu
         return;
     }
 
-    // Existing stream callbacks remain available during migration. They are intentionally sent
-    // after the aggregate callback and retain their existing per-stream revisions.
-    if active_changed && !aggregate_registered {
+    // Existing stream callbacks remain the fallback when no aggregate callback is registered,
+    // retaining their existing per-stream revisions.
+    if active_changed {
         notify_connection_state_change();
     }
     if !cluster_generation_current(generation) {
         return;
     }
-    notify_devices(
-        &cluster.device,
-        &cluster.active_device_id,
-        !aggregate_registered,
-    );
+    notify_devices(&cluster.device, &cluster.active_device_id);
 
     if let Some(player_state) = player_state {
         if !cluster_generation_current(generation) {
             return;
         }
-        send_playback_state_with_callback(&player_state, is_active_device, !aggregate_registered);
+        send_playback_state_with_callback(&player_state, is_active_device);
         if !cluster_generation_current(generation) {
             return;
         }
-        process_and_send_queue_with_callback(player_state, !aggregate_registered);
+        process_and_send_queue_with_callback(player_state);
     }
 }
 

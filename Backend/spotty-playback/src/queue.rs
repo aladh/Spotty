@@ -3,16 +3,13 @@ use std::collections::HashMap;
 
 #[cfg(test)]
 pub(crate) fn send_playback_state(player_state: &PlayerState, is_active_device: bool) {
-    send_playback_state_with_callback(player_state, is_active_device, true);
+    send_playback_state_with_callback(player_state, is_active_device);
 }
 
-/// Publishes protocol playback facts, optionally omitting the legacy callback. Cluster mapping
-/// uses `emit_callback = false` once the aggregate Connect callback is registered so one cluster
-/// update cannot be consumed twice through two competing delivery paths.
+/// Publishes protocol playback facts through the legacy callback.
 pub(crate) fn send_playback_state_with_callback(
     player_state: &PlayerState,
     is_active_device: bool,
-    emit_callback: bool,
 ) {
     debug!("send_playback_state called");
 
@@ -26,11 +23,7 @@ pub(crate) fn send_playback_state_with_callback(
     let (shuffle, repeat_track, repeat_context) = playback_options(player_state);
     update_playback_options(shuffle, repeat_track, repeat_context);
 
-    let callback = if emit_callback {
-        registered_callback(&CONTROL_CALLBACKS.playback_state)
-    } else {
-        None
-    };
+    let callback = registered_callback(&CONTROL_CALLBACKS.playback_state);
     let Some(callback) = callback else {
         debug!("No playback state callback registered, skipping update");
         return;
@@ -726,12 +719,11 @@ pub(crate) fn free_queue_snapshot(snapshot: *mut SpottyQueueSnapshot) {
 /// are required for occurrence-safe `set_queue` replacement.
 #[cfg(test)]
 pub(crate) fn process_and_send_queue(player_state: PlayerState) {
-    process_and_send_queue_with_callback(player_state, true);
+    process_and_send_queue_with_callback(player_state);
 }
 
-/// Applies and caches a queue snapshot, optionally omitting its legacy callback while an
-/// aggregate Connect callback is active.
-pub(crate) fn process_and_send_queue_with_callback(player_state: PlayerState, emit_callback: bool) {
+/// Applies and caches a queue snapshot through the legacy callback.
+pub(crate) fn process_and_send_queue_with_callback(player_state: PlayerState) {
     debug!("process_and_send_queue called");
 
     // Log context URI for queue processing too
@@ -750,11 +742,7 @@ pub(crate) fn process_and_send_queue_with_callback(player_state: PlayerState, em
     // Cache even when Swift has not registered a callback yet. The getter replaces
     // `/me/player/queue` for bootstrap after a provisional empty SetQueue, so a cluster
     // tick that arrives before registration must still be recoverable.
-    let callback = if emit_callback {
-        registered_callback(&CONTROL_CALLBACKS.queue)
-    } else {
-        None
-    };
+    let callback = registered_callback(&CONTROL_CALLBACKS.queue);
     if let Some(callback) = callback {
         send_queue_snapshot(callback, &state);
     } else {

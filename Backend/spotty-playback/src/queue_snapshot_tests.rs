@@ -296,7 +296,7 @@ fn process_and_send_queue_caches_before_reentrant_legacy_callback() {
 }
 
 #[test]
-fn legacy_queue_cleanup_reentry_is_not_followed_by_a_stale_cache_write() {
+fn legacy_queue_cleanup_reentry_refuses_nested_cleanup_without_losing_cache() {
     let _guard = lock_lifecycle_test_globals();
     extern "C" fn cleanup(_snapshot: *const SpottyQueueSnapshot) {
         spotty_playback_cleanup();
@@ -310,9 +310,18 @@ fn legacy_queue_cleanup_reentry_is_not_followed_by_a_stale_cache_write() {
 
     let mut player = PlayerState::new();
     player.queue_revision = "cleanup-reentry-rev".to_string();
-    process_and_send_queue(player);
+    // Legacy callbacks run on the engine's Tokio workers. Cleanup intentionally refuses a
+    // nested runtime call, leaving the live session and its cache untouched for its owner.
+    RUNTIME.block_on(async { process_and_send_queue(player) });
 
-    assert!(spotty_playback_get_queue_snapshot().is_null());
+    let pointer = spotty_playback_get_queue_snapshot();
+    assert!(!pointer.is_null());
+    let snapshot = unsafe { &*pointer };
+    assert_eq!(
+        cstr_text(snapshot.queue_revision).as_deref(),
+        Some("cleanup-reentry-rev")
+    );
+    spotty_playback_free_queue_snapshot(pointer);
     *CONTROL_CALLBACKS
         .queue
         .lock()

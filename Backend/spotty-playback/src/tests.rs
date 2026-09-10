@@ -1454,9 +1454,34 @@ fn aggregate_connect_snapshot_is_reentrant_and_keeps_nested_rows_borrowed() {
         assert_eq!(playback.revision, snapshot.cluster_revision);
         assert_eq!(playback.session_generation, snapshot.session_generation);
         assert_eq!(playback.is_active_device, 1);
+        assert!(!snapshot.devices.is_null());
+        let device = unsafe { &*snapshot.devices };
+        assert_eq!(
+            unsafe { CStr::from_ptr(device.id) }.to_str().unwrap(),
+            "fixture-device"
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(device.name) }.to_str().unwrap(),
+            "Fixture"
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(device.device_type) }
+                .to_str()
+                .unwrap(),
+            "Computer"
+        );
 
-        // A foreign callback may synchronously re-enter Rust. This must not deadlock on the
-        // revision lock used to capture the aggregate payload.
+        let connection = unsafe { &*snapshot.connection };
+        assert_eq!(connection.is_active_device, 1);
+        assert_eq!(
+            unsafe { CStr::from_ptr(connection.device_id) }
+                .to_str()
+                .unwrap(),
+            "fixture-local"
+        );
+
+        // A foreign callback may synchronously re-enter Rust. Aggregate payload construction
+        // owns SNAPSHOT_REVISION only while copying state; delivery itself is outside that lock.
         let _ = stamped_snapshot(|stamp| stamp);
     }
 
@@ -1502,6 +1527,20 @@ fn aggregate_connect_snapshot_is_reentrant_and_keeps_nested_rows_borrowed() {
         Some(&playback),
         None,
     );
+}
+
+#[test]
+fn aggregate_connection_pins_cluster_role_and_device_identity() {
+    let connection = ConnectionState {
+        is_active_device: true,
+        device_id: Some("stale-device".to_string()),
+        ..Default::default()
+    };
+
+    let pinned = pin_connection_to_cluster(connection, Some("cluster-device"), false);
+
+    assert!(!pinned.is_active_device);
+    assert_eq!(pinned.device_id.as_deref(), Some("cluster-device"));
 }
 
 #[test]

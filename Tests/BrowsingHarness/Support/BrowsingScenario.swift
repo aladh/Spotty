@@ -8,10 +8,11 @@ import ImageIO
 import UniformTypeIdentifiers
 @testable import SpottyCore
 
-/// Version one deliberately covers browsing and a signed-out shell, not playback simulation.
+/// Version one retains browsing compatibility; version two adds isolated playback scenarios.
 struct BrowsingScenario: Codable, Equatable, Sendable {
     enum Mode: String, Codable, Sendable {
         case browsing
+        case playback
         case signedOut = "signed-out"
     }
 
@@ -25,7 +26,7 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var dwellMilliseconds = 250
 
     func validate() throws {
-        guard version == 1, (1...5_000).contains(trackCount),
+        guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),
             (1...96).contains(artworkCount), [64, 640, 1_280].contains(artworkPixels),
             (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds)
         else { throw BrowsingFailure.invalidScenario }
@@ -46,9 +47,9 @@ enum BrowsingFailure: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidScenario: "Use a valid version-1 browsing or signed-out scenario."
+        case .invalidScenario: "Use a valid browsing, signed-out, or version-2 playback scenario."
         case .artworkResource: "Rebuild the demo with its bundled artwork resources."
-        case .unsupportedAction: "This browsing-only harness does not support that action."
+        case .unsupportedAction: "This synthetic scenario does not support that action."
         case let .checkpoint(name): "Browsing checkpoint failed: \(name)."
         }
     }

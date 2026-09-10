@@ -123,8 +123,7 @@ It never launches or terminates the live Spotty app. The [version-1 scenario](..
 defines two playlists, six [AI-generated covers](../../Tests/BrowsingHarness/Support/Artwork/prompts.json)
 repeated across distinct artwork URLs, repeated visits, and a fixed viewing cadence. Pass a JSON
 scenario path to change the bounded workload; `mode: "signed-out"` exercises the real signed-out
-root view. Invalid scenarios fail closed. Playback, search, mutation, and recovery scenarios are
-outside this first slice of [#41](https://github.com/aladh/Spotty/issues/41).
+root view. Invalid scenarios fail closed. The version-2 playback scenario below extends this foundation; search and playlist mutation remain outside its scope.
 
 The demo injects all environment ports from one synthetic owner. Artwork loads from local fixture
 files through `AsyncImage`. A separately signed app sandbox denies socket access, which
@@ -147,3 +146,23 @@ A verified network sandbox, zero mutation attempts, and a completed report are a
 
 `check.sh` runs the harness's headless fixture, port, and read-only browsing checks. The normal
 package graph excludes every harness target; the shipping product has no synthetic launch selector.
+
+### Synthetic playback and fault traces
+
+Run `./Scripts/browse-synthetic.sh Tests/BrowsingHarness/playback.json` for real controls and store
+intake backed by one synthetic playback authority. Add `--interactive` before the scenario path to
+browse freely. The Demo menu injects rejection, holds/releases observations, changes the observed
+owner, disconnects, and starts a replacement generation. Normal transport, seek, shuffle/repeat,
+transfer and queue commands operate only on that synthetic authority; no audio is rendered.
+
+The automated workload checks play/pause, seek acceptance and rollback, old observations crossing a
+handoff, disconnect/recovery, and logout/account replacement before browsing under 5 Hz playback
+samples. `report.json` includes named command/observation settlement durations, playback counters,
+observer invalidations, and main-run-loop display callback gap percentiles. Gaps are display
+opportunities, **not measured GPU frame presentation**; settlement durations are not proof of
+input-to-pixel latency. Reports declare refresh rate, reduced-motion state and hardware context.
+Compare repeated runs on the same configuration without concurrent UI inspection or compilation.
+The synthetic clock continues after the report so the completed Demo remains usable interactively.
+
+The original version-1 browsing and signed-out scenarios remain read-only. All versions retain the
+same OS network sandbox, injected environment ports, separate Demo identity and non-shipping graph.

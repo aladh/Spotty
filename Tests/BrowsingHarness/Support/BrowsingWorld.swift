@@ -3,17 +3,19 @@ import SpottyDomain
 @testable import SpottyCore
 
 /// One lock owns every mutable port value, including the synchronous engine boundary.
-/// This world is deliberately read-only: unsupported commands fail rather than simulate success.
+/// Playback scenarios delegate to one synthetic authority; browsing remains read-only.
 final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, TrackAttributesProviding,
     RemotePlaybackClient, LocalPlaybackEngine, WebQueueClient, AudioOutputPreparing,
     PlaybackPreferences, SystemLifecycleEvents, PlaybackClock, @unchecked Sendable
 {
     let scenario: BrowsingScenario
+    let playback = SyntheticPlayback()
     let fixtures: BrowsingFixtures
     private let lock = NSLock()
     private var trace: [String] = []
     private var requestCounts: [String: Int] = [:]
     private var mutationAttempts = 0
+    private var grantAvailable: Bool
     private var shuffle = false
     private var lastDevice: String?
     private var history: [String: TimeInterval] = [:]
@@ -27,6 +29,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
 
     init(scenario: BrowsingScenario, artworkDirectory: URL) throws {
         self.scenario = scenario
+        grantAvailable = scenario.mode != .signedOut
         fixtures = try BrowsingFixtures(scenario: scenario, artworkDirectory: artworkDirectory)
     }
 
@@ -58,27 +61,67 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
         return .unsupportedAction
     }
 
-    func hasGrant() async -> Bool { record("account.has-grant"); return scenario.mode == .browsing }
+    func hasGrant() async -> Bool { record("account.has-grant"); return lock.withLock { grantAvailable } }
     func authorizeInteractively() async throws -> KeymasterTokens { throw rejectMutation() }
     func accessToken() async throws -> String { throw BrowsingFailure.unsupportedAction }
     func adopt(_: KeymasterTokens) async throws { throw rejectMutation() }
-    func clear() async { _ = rejectMutation() }
+    func clear() async {
+        guard scenario.mode == .playback else { _ = rejectMutation(); return }
+        lock.withLock { grantAvailable = false }
+        record("account.synthetic-clear")
+    }
+
+    func restoreSyntheticAccount() {
+        guard scenario.mode == .playback else { return }
+        lock.withLock { grantAvailable = true }
+        playback.replaceSession(publish: false)
+        record("account.synthetic-replacement")
+    }
     func revocations() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
     func prepareForPlayback() throws { record("audio.no-device") }
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> { AsyncStream { $0.finish() } }
+    func events() -> AsyncStream<RustPlaybackEventEnvelope> { playback.events() }
     func events() -> AsyncStream<SystemLifecycleEvent> { AsyncStream { $0.finish() } }
-    func initialize() -> PlaybackEngineResult { record("engine.synthetic-initialize"); return .ok }
+    func initialize() -> PlaybackEngineResult {
+        record("engine.synthetic-initialize")
+        if scenario.mode == .playback { playback.publish() }
+        return .ok
+    }
     func authorizeStreaming(with _: String) -> Int32 { _ = rejectMutation(); return -1 }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { _ = rejectMutation(); return .error }
-    func positionMilliseconds() -> UInt32 { 0 }
+    func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
+        guard scenario.mode == .playback else { _ = rejectMutation(); return .error }
+        record("playback.local-command")
+        return playback.execute(operation)
+    }
+    func positionMilliseconds() -> UInt32 { UInt32(clamping: playback.snapshot().positionMS) }
+    func queueSnapshot() -> RustQueueState? { scenario.mode == .playback ? playback.queueSnapshot() : nil }
     func shutdown() -> PlaybackEngineResult { record("engine.synthetic-shutdown"); return .ok }
     func cleanup() {}
-    func clearStreamingCredentials() { _ = rejectMutation() }
+    func clearStreamingCredentials() {
+        if scenario.mode == .playback { record("engine.synthetic-clear") } else { _ = rejectMutation() }
+    }
     func disconnect() -> PlaybackEngineResult { _ = rejectMutation(); return .error }
-    func forceReconnect() -> Int32 { _ = rejectMutation(); return -1 }
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws { throw rejectMutation() }
-    func trackMetadata(for _: String) async throws -> SpotifyConnectTrackMetadata {
-        throw BrowsingFailure.unsupportedAction
+    func forceReconnect() -> Int32 {
+        guard scenario.mode == .playback else { _ = rejectMutation(); return -1 }
+        record("playback.reconnect")
+        playback.replaceSession(preservingPlayback: true)
+        return 0
+    }
+    func send(_ command: SpotifyConnectCommand, from source: String, to target: String) async throws {
+        guard scenario.mode == .playback, source == SyntheticPlayback.localID else { throw rejectMutation() }
+        record("playback.remote-command")
+        try playback.send(command, to: target)
+    }
+    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
+        guard scenario.mode == .playback, uri.hasPrefix("spotify:track:synthetic") else {
+            throw BrowsingFailure.unsupportedAction
+        }
+        record("playback.metadata")
+        let suffix = uri.split(separator: "x").last.flatMap { Int($0) } ?? 0
+        return SpotifyConnectTrackMetadata(
+            uri: uri, title: String(format: "Synthetic Track %04d", Int32(suffix + 1)),
+            artist: "Synthetic Artist \(suffix % 12 + 1)",
+            artworkURL: fixtures.artworkURLs[suffix % fixtures.artworkURLs.count],
+            duration: 180)
     }
     func queue() async throws -> [CatalogTrack] { [] }
     func shuffleEnabled() async -> Bool { lock.withLock { shuffle } }
@@ -87,10 +130,14 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
     func setLastRemoteDeviceID(_ value: String?) async { lock.withLock { lastDevice = value } }
     func shuffleHistory() async -> [String: TimeInterval] { lock.withLock { history } }
     func setShuffleHistory(_ value: [String: TimeInterval]) async { lock.withLock { history = value } }
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
+    func now() -> Date { scenario.mode == .playback ? Date() : Date(timeIntervalSince1970: 1_800_000_000) }
 
     /// Browsing has no playback time events. Park background timers until their owner cancels.
-    func sleep(seconds _: TimeInterval) async throws {
+    func sleep(seconds: TimeInterval) async throws {
+        if scenario.mode == .playback {
+            try await ContinuousClock().sleep(for: .seconds(seconds))
+            return
+        }
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

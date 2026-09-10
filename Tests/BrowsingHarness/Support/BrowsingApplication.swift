@@ -76,6 +76,9 @@ private struct BrowsingReport: Encodable {
     let networkSandboxVerified: Bool
     let samples: [BrowsingSample]
     let world: BrowsingWorld.Snapshot
+    let playback: SyntheticPlayback.Snapshot
+    let playbackCheckpoints: [PlaybackTraceCheckpoint]
+    let responsiveness: BrowsingResponsivenessReport?
     let passed: Bool
     let failure: String?
 }
@@ -90,6 +93,9 @@ final class BrowsingRun {
     let navigation = CatalogNavigation()
     @ObservationIgnored private var workload: Task<Void, Never>?
     var status = "Preparing synthetic browsing"
+    @ObservationIgnored private var responsiveness: BrowsingResponsiveness?
+    @ObservationIgnored private var playbackClock: Task<Void, Never>?
+    @ObservationIgnored private var playbackCheckpoints: [PlaybackTraceCheckpoint] = []
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var samples: [BrowsingSample] = []
     @ObservationIgnored private var networkSandboxVerified = false
@@ -108,6 +114,15 @@ final class BrowsingRun {
     var items: [CatalogItem] { world.fixtures.playlists.compactMap(CatalogMapping.item(from:)) }
 
     func start() {
+        if world.scenario.mode == .playback {
+            playbackClock = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await ContinuousClock().sleep(for: .milliseconds(200)) } catch { return }
+                    guard let self else { return }
+                    self.world.playback.advance(milliseconds: 200)
+                }
+            }
+        }
         guard launch.automated else { return }
         // The finite workload retains its app-owned model until the report is written.
         workload = Task { await perform() }
@@ -123,7 +138,7 @@ final class BrowsingRun {
             networkSandboxVerified = true
             for _ in 0..<200 {
                 if window() != nil, world.snapshot().requests["account.has-grant"] != nil,
-                    player.accountStore.phase == (world.scenario.mode == .browsing ? .ready : .signedOut)
+                    player.accountStore.phase == (world.scenario.mode != .signedOut ? .ready : .signedOut)
                 {
                     break
                 }
@@ -133,6 +148,11 @@ final class BrowsingRun {
                 throw BrowsingFailure.checkpoint("window.startup")
             }
             await player.effects.settlement(of: .catalogLoad)?.wait()
+            if let window = window() {
+                let measurement = BrowsingResponsiveness(player: player)
+                responsiveness = measurement
+                measurement.start(window: window)
+            }
             if world.scenario.mode == .signedOut {
                 guard player.accountStore.phase == .signedOut else { throw BrowsingFailure.checkpoint("signed-out") }
                 try await sample("signed-out.ready", started: started)
@@ -142,6 +162,9 @@ final class BrowsingRun {
                     player.catalog.homeLibrary.homeSections.count == 1
                 else { throw BrowsingFailure.checkpoint("home.ready") }
                 try await sample("home.ready", started: started)
+                if world.scenario.mode == .playback {
+                    playbackCheckpoints = try await PlaybackTrace.run(player: player, world: world)
+                }
                 for cycle in 1...world.scenario.cycles {
                     for index in items.indices {
                         let before = Date()
@@ -254,6 +277,7 @@ final class BrowsingRun {
     }
 
     private func writeReport(failure: String?) async throws {
+        let responsivenessReport = responsiveness?.stop()
         let window = window()
         let process = ProcessInfo.processInfo
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -266,7 +290,9 @@ final class BrowsingRun {
             displayScale: Double(window?.backingScaleFactor ?? 0),
             fixtureBytes: world.fixtures.artworkBytes, demoCacheBytes: cacheBytes,
             networkSandboxVerified: networkSandboxVerified,
-            samples: samples, world: world.snapshot(), passed: failure == nil, failure: failure
+            samples: samples, world: world.snapshot(), playback: world.playback.snapshot(),
+            playbackCheckpoints: playbackCheckpoints, responsiveness: responsivenessReport,
+            passed: failure == nil, failure: failure
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -305,6 +331,22 @@ private struct BrowsingApp: App {
 
     var body: some Scene {
         SpottyScene(player: run.player, feedback: run.feedback, appDelegate: delegate, navigation: run.navigation)
+            .commands {
+                CommandMenu("Demo") {
+                    if run.world.scenario.mode == .playback {
+                        Button("Reject Next Playback Command") { run.world.playback.inject(.reject) }
+                        Button("Hold Next Observation") { run.world.playback.inject(.holdObservation) }
+                        Button("Release Held Observations") {
+                            run.world.playback.releaseHeldObservations(reversed: true)
+                        }
+                        Divider()
+                        Button("Observe Local Handoff") { run.world.playback.handoff(to: SyntheticPlayback.localID) }
+                        Button("Observe Remote Handoff") { run.world.playback.handoff(to: SyntheticPlayback.remoteID) }
+                        Button("Observe Disconnect") { run.world.playback.setConnected(false) }
+                        Button("Recover Session") { run.world.playback.replaceSession() }
+                    }
+                }
+            }
     }
 }
 

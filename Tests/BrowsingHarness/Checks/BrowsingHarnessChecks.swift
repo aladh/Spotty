@@ -13,13 +13,36 @@ struct BrowsingHarnessTests {
     }
 
     @Test
+    func playbackControlsAndFaultsUseProductionIntake() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyPlaybackDemo-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.version = 2
+        input.mode = .playback
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let player = PlaybackStore(environment: world.environment, feedback: TransientFeedbackPresenter(clock: world))
+        await player.restore()
+        let checkpoints: [PlaybackTraceCheckpoint]
+        do {
+            checkpoints = try await PlaybackTrace.run(player: player, world: world)
+        } catch {
+            await player.shutdownForTermination()
+            throw error
+        }
+        #expect(checkpoints.count == 7)
+        #expect(world.snapshot().mutationAttempts == 0)
+        #expect(world.playback.snapshot().rejectedCount == 1)
+        await player.shutdownForTermination()
+    }
+
+    @Test
     func fixtureValidationAndRepeatability() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "SpottyBrowsingTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         var input = scenario()
         #expect(try BrowsingScenario.decode(JSONEncoder().encode(input)) == input)
-        input.version = 2
+        input.version = 3
         #expect(throws: (any Error).self) { try input.validate() }
         input = scenario()
         input.trackCount = 0

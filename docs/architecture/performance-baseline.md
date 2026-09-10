@@ -95,8 +95,8 @@ revision, diff digest, checkpoints, and measurement fields.
 ## Queue hydration and lifecycle acceptance (2026-09-10)
 
 The [reviewed measurements](measurements/2026-09-10-acceptance.json) retain every completed wave,
-per-run counters, source digests and lifecycle samples. Both queue variants use this delivery's
-harness and queue revision correction on top of `9c7334a`. The
+per-run counters, source digests and lifecycle samples. Both queue variants were measured with
+the `4402fd1` harness and queue revision correction, on top of `9c7334a`. The
 [control patch](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) changes only metadata
 publication to one update per result; it is a benchmark fixture, not a shipped mode.
 

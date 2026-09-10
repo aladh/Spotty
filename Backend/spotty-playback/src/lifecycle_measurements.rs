@@ -3,9 +3,7 @@ use super::*;
 use serde_json::json;
 use std::sync::atomic::AtomicBool;
 
-#[test]
-fn named_lifecycle_fault_measurements() {
-    let _guard = lock_lifecycle_test_globals();
+fn silent_detection_samples() -> Vec<serde_json::Value> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .start_paused(true)
@@ -16,15 +14,17 @@ fn named_lifecycle_fault_measurements() {
         let elapsed = runtime.block_on(async {
             let invalid = Arc::new(AtomicBool::new(false));
             let observed = Arc::clone(&invalid);
-            let watcher = tokio::spawn(run_session_health_check(move || {
+            let watcher = run_session_health_check(move || {
                 health_check_should_recover(observed.load(Ordering::SeqCst), true, false, false)
-            }));
-            // Register the production sleep before advancing the fault's phase.
-            tokio::task::yield_now().await;
+            });
+            tokio::pin!(watcher);
+            // Poll the shared watcher through its first sleep registration before advancing
+            // time. Yielding to a spawned task would not guarantee it had registered yet.
+            assert!(futures_util::poll!(&mut watcher).is_pending());
             tokio::time::advance(Duration::from_millis(phase_ms)).await;
             invalid.store(true, Ordering::SeqCst);
             let started = tokio::time::Instant::now();
-            watcher.await.unwrap();
+            watcher.await;
             started.elapsed().as_millis() as u64
         });
         assert_eq!(elapsed, 60_000 - phase_ms);
@@ -34,6 +34,19 @@ fn named_lifecycle_fault_measurements() {
         );
     }
 
+    detection
+}
+
+#[test]
+fn silent_session_fault_detection_uses_production_cadence() {
+    let _samples = silent_detection_samples();
+}
+
+#[test]
+#[ignore = "wall-clock lifecycle measurement; run explicitly with --ignored"]
+fn named_lifecycle_fault_measurements() {
+    let _guard = lock_lifecycle_test_globals();
+    let detection = silent_detection_samples();
     let mut wake = Vec::new();
     let mut drain = Vec::new();
     // The test owns no Session, credentials, Spirc or renderer. It measures serialized

@@ -46,9 +46,11 @@ struct QueueHydrationMeasurement: Codable {
         let complete = milliseconds()
         await player.effects.settlement(of: .queueRefresh)?.wait()
         let after = await player.queueService.refreshDiagnostics
-        return Self(wave: wave, tracks: 96, orderingMilliseconds: order, firstMetadataMilliseconds: first,
+        return Self(
+            wave: wave, tracks: 96, orderingMilliseconds: order, firstMetadataMilliseconds: first,
             completeMilliseconds: complete, starts: after.starts - before.starts, joins: after.joins - before.joins,
-            cancellations: after.cancellations - before.cancellations, publications: after.publications - before.publications,
+            cancellations: after.cancellations - before.cancellations,
+            publications: after.publications - before.publications,
             metadataResults: after.metadataResults - before.metadataResults)
     }
 }

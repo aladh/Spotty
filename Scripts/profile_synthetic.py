@@ -7,6 +7,11 @@ import sys
 import time
 
 
+# Match the ordinary Demo report watchdog, including long validated scenarios.
+WORKLOAD_TIMEOUT_SECONDS = 600
+RECORDER_START_TIMEOUT_SECONDS = 50
+
+
 def interruptible_child():
     # Noninteractive shells start background jobs with SIGINT ignored. xctrace needs
     # its default disposition when launched so it can save a trace on our interrupt.
@@ -23,18 +28,19 @@ def profile(root):
     with log_path.open("w") as log:
         recorder = subprocess.Popen(
             ["xcrun", "xctrace", "record", "--template", "Animation Hitches",
-             "--attach", "SpottyDemo", "--time-limit", "120s",
+             "--attach", "SpottyDemo", "--time-limit",
+             f"{WORKLOAD_TIMEOUT_SECONDS + RECORDER_START_TIMEOUT_SECONDS + 10}s",
              "--output", str(root / "animation.trace")],
             stdout=log, stderr=subprocess.STDOUT, preexec_fn=interruptible_child,
         )
         try:
-            deadline = time.monotonic() + 50
+            deadline = time.monotonic() + RECORDER_START_TIMEOUT_SECONDS
             while "Ctrl-C to stop the recording" not in log_path.read_text():
                 if recorder.poll() is not None or time.monotonic() >= deadline:
                     raise RuntimeError("Profiler did not start; inspect profiler.log")
                 time.sleep(0.1)
             (root / "profiler-ready").touch()
-            deadline = time.monotonic() + 110
+            deadline = time.monotonic() + WORKLOAD_TIMEOUT_SECONDS
             while not (root / "report.json").exists():
                 if recorder.poll() is not None or time.monotonic() >= deadline:
                     raise RuntimeError("Profiler ended before the report; inspect profiler.log")

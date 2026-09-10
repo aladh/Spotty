@@ -183,7 +183,7 @@ but cannot validate a rendered-frame budget.
 
 Add `--profile` before the scenario path to attach the local Xcode Animation Hitches template.
 The workload waits for the profiler before starting and requires an unoccluded window. Profiling
-has a 110-second workload limit. The trace remains beside `report.json`;
+uses the ordinary 600-second report watchdog. The trace remains beside `report.json`;
 inspect table availability before claiming rendered-frame statistics. A successful capture can
 contain no supported presentation events. Instruments adds overhead: compare profiled runs with
 profiled runs and ordinary runs with ordinary runs. Raw traces may include host/process metadata;
@@ -194,15 +194,16 @@ serialized reconnect seam, recovery lease and owned-child teardown:
 
 ```bash
 SPOTTY_LIFECYCLE_REPORT=/tmp/spotty-lifecycle.json cargo test --locked \
-  --manifest-path Backend/spotty-playback/Cargo.toml named_lifecycle_fault_measurements
+  --manifest-path Backend/spotty-playback/Cargo.toml named_lifecycle_fault_measurements -- --ignored
 SPOTTY_STALLED_SHUTDOWN_REPORT=/tmp/spotty-stalled-shutdown.json cargo test --locked \
   --manifest-path Backend/spotty-playback/Cargo.toml measure_stalled_spirc_task_deadline -- --ignored
 SPOTTY_SWIFT_LIFECYCLE_REPORT=/tmp/spotty-swift-drain.json swift test --disable-sandbox \
   --no-parallel --filter PlaybackEffectDrainTests
 ```
 
-The first test uses paused Tokio time for silent-fault detection and monotonic wall time for
-30 recovery/drain samples. Recovery injects 5 ms cleanup and 20 ms construction; its result
+The first measurement uses paused Tokio time for silent-fault detection and monotonic wall time for
+30 recovery/drain samples. Its wall-clock loop is opt-in; the normal suite independently checks
+the production cadence with explicit timer registration and paused time. Recovery injects 5 ms cleanup and 20 ms construction; its result
 measures orchestration, not Spotify network connection or real session readiness. The ignored
 measurement spends three real four-second deadlines on parked task shutdown; it creates no
 actual Spirc/dealer. Swift records 12 cooperative and noncancelable drains with the production

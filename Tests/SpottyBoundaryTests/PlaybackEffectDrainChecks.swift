@@ -86,6 +86,9 @@ struct PlaybackEffectDrainTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["SPOTTY_SWIFT_LIFECYCLE_REPORT"] != nil))
     @MainActor
     func measureNamedDrainFaults() async throws {
+        func milliseconds(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+        }
         var rows: [[String: Double]] = []
         for _ in 0..<12 {
             let effects = PlaybackEffectRegistry()
@@ -106,9 +109,6 @@ struct PlaybackEffectDrainTests {
             park.release()
             await parked.value
             #expect(park.didFinish)
-            func milliseconds(_ duration: Duration) -> Double {
-                Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
-            }
             rows.append([
                 "cooperativeMilliseconds": milliseconds(cooperativeElapsed),
                 "fencedNoncancelableMilliseconds": milliseconds(fencedElapsed),

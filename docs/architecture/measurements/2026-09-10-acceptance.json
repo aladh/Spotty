@@ -794,7 +794,7 @@
     "controlPatchSHA256": "1857185c46b2d88ac9aa49dadc44d2139a9a3e0b45a2f353aac87ce26619588d",
     "harnessDigestMethod": "SHA256(sorted relative path + NUL + file bytes + NUL): harness Swift files, measurement.json, browse-synthetic.sh and profile_synthetic.py",
     "harnessSHA256": "826fbaa97e8300a7280ca3790ac32fa77698b01921506b27f7722f3b5f41bffa",
-    "note": "Both variants include the accompanying queue presentation revision fix. The control applies only queue-unbatched.patch. Per-run tracked diffs exclude then-untracked harness files; the harness digest above identifies their shared final contents.",
+    "note": "Both variants include the accompanying queue presentation revision fix. The control applies only queue-unbatched.patch. Per-run tracked diffs exclude then-untracked harness files; the harness digest above identifies their shared measured contents at 4402fd1.",
     "queueServiceSHA256": "2472e038fda9c80ee8c8cb176355105cd73480dcd4a6a11a654ac2db0bd95717"
   },
   "stalledShutdown": {

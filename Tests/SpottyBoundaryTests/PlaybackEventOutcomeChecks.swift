@@ -1441,6 +1441,39 @@ struct CoherentConnectIntakeTests {
 
     @Test
     @MainActor
+    func staleAggregateDevicesDoNotPersistRemoteIdentity() async {
+        let preferences = RecordingOwnerPreferences()
+        let store = playbackStore(
+            outcomeEnvironment(remote: ImmediateMetadataRemote(), preferences: preferences)
+        )
+        store.receive(cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a"), receivedAt: Date())
+        #expect(await waitUntil { await preferences.lastRemoteDeviceID() == "phone" })
+
+        let acceptedDevices = store.state.devices
+        store.receive(
+            cluster(
+                revision: 2,
+                activeID: "tablet",
+                trackURI: "spotify:track:b",
+                devicesRevision: 0
+            ),
+            receivedAt: Date()
+        )
+
+        #expect(
+            store.state.devices == acceptedDevices,
+            "a stale devices component does not replace the accepted device snapshot"
+        )
+        #expect(store.lastRemoteDeviceID == "phone", "the rejected component cannot change the saved route")
+        #expect(
+            await preferences.lastRemoteDeviceID() == "phone",
+            "a stale aggregate devices component does not persist its remote identity"
+        )
+        await store.shutdownForTermination()
+    }
+
+    @Test
+    @MainActor
     func pressureGapReconstructsTruthWithoutRestartingEngine() async {
         let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
         let authoritative = cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a")
@@ -1476,19 +1509,25 @@ struct CoherentConnectIntakeTests {
         await store.shutdownForTermination()
     }
 
-    private func cluster(revision: UInt64, activeID: String, trackURI: String) -> RustConnectClusterState {
+    private func cluster(
+        revision: UInt64,
+        activeID: String,
+        trackURI: String,
+        devicesRevision: UInt64? = nil
+    ) -> RustConnectClusterState {
         RustConnectClusterState(
             revision: revision,
             sessionGeneration: 1,
             source: 2,
             localDeviceID: "local",
             devices: RustDevicesState(
-                revision: revision,
+                revision: devicesRevision ?? revision,
                 sessionGeneration: 1,
                 activeDeviceID: activeID,
                 devices: [
                     ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer"),
                     ConnectProtocolDevice(id: "phone", name: "Phone", type: "smartphone"),
+                    ConnectProtocolDevice(id: "tablet", name: "Tablet", type: "tablet"),
                 ]
             ),
             connection: RustConnectionState(

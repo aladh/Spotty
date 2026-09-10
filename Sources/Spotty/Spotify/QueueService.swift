@@ -108,15 +108,41 @@ actor QueueService {
         let callback: @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void
         private let lock = NSLock()
         private var active = true
+        private var completed = false
+        private var result: ProvenanceQueueSnapshot?
+        private var continuation: CheckedContinuation<ProvenanceQueueSnapshot?, Never>?
 
         init(callback: @escaping @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void) {
             self.callback = callback
         }
 
-        func deactivate() {
+        func complete(_ result: ProvenanceQueueSnapshot?) {
             lock.lock()
+            guard !completed else {
+                lock.unlock()
+                return
+            }
+            completed = true
             active = false
+            self.result = result
+            let waiting = continuation
+            continuation = nil
             lock.unlock()
+            waiting?.resume(returning: result)
+        }
+
+        func wait() async -> ProvenanceQueueSnapshot? {
+            await withCheckedContinuation { waiting in
+                lock.lock()
+                if completed {
+                    let result = result
+                    lock.unlock()
+                    waiting.resume(returning: result)
+                } else {
+                    continuation = waiting
+                    lock.unlock()
+                }
+            }
         }
 
         private var isActive: Bool {
@@ -155,7 +181,7 @@ actor QueueService {
     private var mutation: QueueMutationSnapshot?
     private var refreshFlightID: UUID?
     private var refreshFlightKey: RefreshKey?
-    private var refreshTask: Task<ProvenanceQueueSnapshot?, Never>?
+    private var refreshTask: Task<Void, Never>?
     private var refreshSubscribers: [UUID: RefreshSubscriber] = [:]
 
     init(
@@ -282,16 +308,14 @@ actor QueueService {
         }
 
         let flightID: UUID
-        let task: Task<ProvenanceQueueSnapshot?, Never>
-        if let existingID = refreshFlightID, let existingTask = refreshTask {
+        if let existingID = refreshFlightID {
             flightID = existingID
-            task = existingTask
         } else {
             let createdID = UUID()
             refreshFlightID = createdID
             refreshFlightKey = key
-            let createdTask: Task<ProvenanceQueueSnapshot?, Never> = Task { [weak self, flightID = createdID] in
-                guard let self else { return nil }
+            refreshTask = Task { [weak self, flightID = createdID] in
+                guard let self else { return }
                 let result = await self.performRefresh(
                     fallbackEntries: fallbackEntries,
                     cachedTracks: cachedTracks,
@@ -301,21 +325,22 @@ actor QueueService {
                         await self?.publishRefreshUpdate(update, flightID: flightID)
                     }
                 )
-                await self.finishRefreshFlight(flightID)
-                return result
+                await self.finishRefreshFlight(flightID, result: result)
             }
-            refreshTask = createdTask
             flightID = createdID
-            task = createdTask
         }
 
         let subscriberID = UUID()
-        refreshSubscribers[subscriberID] = RefreshSubscriber(callback: onUpdate)
+        let subscriber = RefreshSubscriber(callback: onUpdate)
+        refreshSubscribers[subscriberID] = subscriber
         return await withTaskCancellationHandler {
-            let result = await task.value
+            let result = await subscriber.wait()
             removeRefreshSubscriber(subscriberID, flightID: flightID)
             return Task.isCancelled ? nil : result
         } onCancel: {
+            // Cancellation settles this caller immediately; it does not wait for the shared
+            // request or a hop back to QueueService before releasing the caller's effect.
+            subscriber.complete(nil)
             Task { [weak self] in
                 await self?.removeRefreshSubscriber(subscriberID, flightID: flightID)
             }
@@ -342,7 +367,7 @@ actor QueueService {
                     requestedEpoch == accountEpoch,
                     requestedContext == contextURI
                 else { return nil }
-                var fallbackCachedTracks = cachedTracks
+                var fallbackCachedTracks = (snapshot?.tracks ?? []) + cachedTracks
                 webCapability = .available
                 webRetryNotBefore = nil
                 revision &+= 1
@@ -500,6 +525,8 @@ actor QueueService {
         return snapshot
     }
 
+    var refreshSubscriberCount: Int { refreshSubscribers.count }
+
     private func publishRefreshUpdate(_ snapshot: ProvenanceQueueSnapshot, flightID: UUID) async {
         guard refreshFlightID == flightID else { return }
         for subscriberID in Array(refreshSubscribers.keys) {
@@ -511,19 +538,19 @@ actor QueueService {
     }
 
     private func removeRefreshSubscriber(_ subscriberID: UUID, flightID: UUID) {
-        refreshSubscribers.removeValue(forKey: subscriberID)?.deactivate()
+        refreshSubscribers.removeValue(forKey: subscriberID)?.complete(nil)
         guard refreshFlightID == flightID else { return }
         // Keep a detached flight alive for replacement callers with identical inputs. A changed
         // context or fallback invalidates it through RefreshKey instead of silently reusing the
         // first caller's captured inputs.
     }
 
-    private func finishRefreshFlight(_ flightID: UUID) {
+    private func finishRefreshFlight(_ flightID: UUID, result: ProvenanceQueueSnapshot?) {
         guard refreshFlightID == flightID else { return }
         refreshFlightID = nil
         refreshFlightKey = nil
         refreshTask = nil
-        refreshSubscribers.values.forEach { $0.deactivate() }
+        refreshSubscribers.values.forEach { $0.complete(result) }
         refreshSubscribers.removeAll()
     }
 
@@ -532,7 +559,7 @@ actor QueueService {
         refreshFlightID = nil
         refreshFlightKey = nil
         refreshTask = nil
-        refreshSubscribers.values.forEach { $0.deactivate() }
+        refreshSubscribers.values.forEach { $0.complete(nil) }
         refreshSubscribers.removeAll()
     }
 

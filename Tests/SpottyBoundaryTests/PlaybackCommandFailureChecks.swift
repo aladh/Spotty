@@ -348,6 +348,38 @@ struct PlaybackDispatchRoutingTests {
             await player.shutdownForTermination()
         }
     }
+
+    @Test
+    @MainActor
+    func idleLocalOwnershipConfirmationKeepsQueuedLocalPermit() async {
+        let player = playbackStore(
+            commandEnvironment(
+                local: ScriptedLocalEngine(result: .ok),
+                remote: ScriptedRemoteClient(.succeed)
+            )
+        )
+        seedIdleLocalCandidate(player)
+        let queuedLocalPermit = player.makePlaybackDispatchPermit(ifStillWanted: { true })
+
+        _ = player.send(
+            .devices(
+                PlaybackDeviceSnapshot(
+                    devices: [
+                        PlaybackDevice(id: "mac", name: "This Mac", type: "computer", isActive: true)
+                    ],
+                    localDeviceID: "mac",
+                    revision: 2
+                )),
+            source: .engineDevices,
+            revision: 2
+        )
+
+        #expect(
+            queuedLocalPermit?.claim() == true,
+            "confirming the same idle local destination keeps a queued local permit valid"
+        )
+        await player.shutdownForTermination()
+    }
 }
 
 private final class GatedLocalEngine: LocalPlaybackEngine, @unchecked Sendable {

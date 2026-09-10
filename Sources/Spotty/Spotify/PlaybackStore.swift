@@ -658,9 +658,14 @@ final class PlaybackStore {
             && state.pendingCommands[.transport]?.expectedTransport == .playing
             && (state.owner == .none || state.owner == .uncertain(nil))
         let route = isOptimisticIdleLocalPlay ? .local : rawRoute
+        // A local command's effective destination is this local Connect identity. Keep that
+        // identity stable when an idle candidate (`.none`/`.uncertain(nil)`) becomes confirmed
+        // `.local`; ownership certainty changes, but the command is still headed to the same Mac.
+        // Remote routes retain their exact source/target identity through `route`.
         let defaultLocalDeviceID =
-            ConnectDeviceProjection.defaultLocalDevice(in: state)?.id
-            ?? (isOptimisticIdleLocalPlay ? state.devices.localDeviceID : nil)
+            route == .local
+            ? state.devices.localDeviceID
+            : ConnectDeviceProjection.defaultLocalDevice(in: state)?.id
         return PlaybackDispatchContext(
             lifetime: PlaybackLifetime(
                 accountEpoch: accountEpoch,

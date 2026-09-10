@@ -219,12 +219,16 @@ final class PlaybackEffectRegistry {
         }
 
         for (id, settlement) in settlements {
-            Task {
+            // These monitors must not inherit the registry's MainActor isolation. A cancelled
+            // effect can be waiting on MainActor work; if the monitor is actor-bound too, the
+            // timeout cannot make progress while that work is stalled and teardown is no longer
+            // bounded by the grace period.
+            Task.detached {
                 await settlement.wait()
                 await state.markSettled(id)
             }
         }
-        let timeoutTask = Task {
+        let timeoutTask = Task.detached {
             do {
                 try await Task.sleep(nanoseconds: timeoutNanoseconds)
             } catch {

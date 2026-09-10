@@ -111,6 +111,16 @@ extension PlaybackStore {
                     revision: $0.revision
                 )
             } ?? false
+        // The aggregate revision can be newer even when its devices component is stale. Do not
+        // persist an active remote from that rejected component; the preference must follow the
+        // same acceptance boundary as the devices snapshot that established it.
+        let acceptsDevices = PlaybackReducer.accepts(
+            state,
+            accountEpoch: accountEpoch,
+            engineEpoch: cluster.sessionGeneration,
+            source: .engineDevices,
+            revision: cluster.devices.revision
+        )
         guard
             send(
                 .engineCluster(
@@ -147,7 +157,7 @@ extension PlaybackStore {
                 effects.cancel(.trackMetadata)
             }
         }
-        if let remote = devices.first(where: { $0.isActive && $0.id != localID }) {
+        if acceptsDevices, let remote = devices.first(where: { $0.isActive && $0.id != localID }) {
             lastRemoteDeviceID = remote.id
             Task { await environment.preferences.setLastRemoteDeviceID(remote.id) }
         }

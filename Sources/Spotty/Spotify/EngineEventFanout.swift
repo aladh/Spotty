@@ -1,4 +1,5 @@
 import Foundation
+import SpottyDomain
 
 /// A bounded snapshot of fan-out pressure. Counters saturate instead of wrapping, so a long
 /// lived engine cannot turn diagnostics into a false negative after `UInt64` overflow.
@@ -251,7 +252,7 @@ nonisolated final class EngineEventFanout: @unchecked Sendable {
                 ))
         case let .queue(state):
             guard !generationChanged else { return .critical }
-            return .replaceable(.queue(state.sessionGeneration))
+            return .replaceable(.queue(QueueIdentity(state)))
         case let .connection(state):
             let lifecycle = ConnectionLifecycleIdentity(
                 generation: state.sessionGeneration,
@@ -271,7 +272,7 @@ nonisolated final class EngineEventFanout: @unchecked Sendable {
             return .replaceable(.connection(lifecycle))
         case let .devices(state):
             guard !generationChanged else { return .critical }
-            return .replaceable(.devices(state.sessionGeneration))
+            return .replaceable(.devices(DevicesIdentity(state)))
         case let .cluster(state):
             guard !generationChanged, !stateContainsCriticalFailure(state) else { return .critical }
             return .replaceable(.cluster(ClusterIdentity(state)))
@@ -377,7 +378,7 @@ private enum EventSlot: Hashable, Sendable {
     case cluster
 }
 
-private struct PlaybackTimingIdentity: Hashable, Sendable {
+private struct PlaybackTimingIdentity: Equatable, Sendable {
     let generation: UInt64
     let trackURI: String
     let contextURI: String?
@@ -390,7 +391,39 @@ private struct PlaybackTimingIdentity: Hashable, Sendable {
     let isActiveDevice: Bool
 }
 
-private struct ConnectionLifecycleIdentity: Hashable, Sendable {
+private struct QueueItemIdentity: Equatable, Sendable {
+    let uri: String
+    let provider: String
+    let uid: String
+
+    init(_ item: RustQueueState.Item) {
+        uri = item.uri
+        provider = item.provider
+        uid = item.uid
+    }
+}
+
+private struct QueueIdentity: Equatable, Sendable {
+    let generation: UInt64
+    let track: QueueItemIdentity?
+    let protocolNextTracks: [QueueProtocolTrack]
+    let protocolPrevTracks: [QueueProtocolTrack]
+    let queueRevision: String
+    let disallowSetQueue: Bool
+    let disallowRemovingFromNextTracks: Bool
+
+    init(_ state: RustQueueState) {
+        generation = state.sessionGeneration
+        track = state.track.map(QueueItemIdentity.init)
+        protocolNextTracks = state.protocolNextTracks
+        protocolPrevTracks = state.protocolPrevTracks
+        queueRevision = state.queueRevision
+        disallowSetQueue = state.disallowSetQueue
+        disallowRemovingFromNextTracks = state.disallowRemovingFromNextTracks
+    }
+}
+
+private struct ConnectionLifecycleIdentity: Equatable, Sendable {
     let generation: UInt64
     let sessionConnected: Bool
     let spircReady: Bool
@@ -399,7 +432,7 @@ private struct ConnectionLifecycleIdentity: Hashable, Sendable {
     let deviceID: String?
 }
 
-private struct ClusterIdentity: Hashable, Sendable {
+private struct ClusterIdentity: Equatable, Sendable {
     let generation: UInt64
     let source: UInt8
     let localDeviceID: String?
@@ -407,7 +440,7 @@ private struct ClusterIdentity: Hashable, Sendable {
     let devices: [DeviceIdentity]
     let connection: ConnectionLifecycleIdentity?
     let playback: PlaybackTimingIdentity?
-    let queueRevision: String?
+    let queue: QueueIdentity?
 
     init(_ state: RustConnectClusterState) {
         generation = state.sessionGeneration
@@ -443,14 +476,26 @@ private struct ClusterIdentity: Hashable, Sendable {
         } else {
             self.playback = nil
         }
-        queueRevision = state.queue?.queueRevision
+        queue = state.queue.map(QueueIdentity.init)
     }
 }
 
-private struct DeviceIdentity: Hashable, Sendable {
+private struct DeviceIdentity: Equatable, Sendable {
     let id: String
     let name: String
     let type: String
+}
+
+private struct DevicesIdentity: Equatable, Sendable {
+    let generation: UInt64
+    let activeDeviceID: String
+    let devices: [DeviceIdentity]
+
+    init(_ state: RustDevicesState) {
+        generation = state.sessionGeneration
+        activeDeviceID = state.activeDeviceID
+        devices = state.devices.map { DeviceIdentity(id: $0.id, name: $0.name, type: $0.type) }
+    }
 }
 
 private enum DeliveryClassification: Equatable, Sendable {
@@ -458,11 +503,11 @@ private enum DeliveryClassification: Equatable, Sendable {
     case critical
 }
 
-private enum CoalescingKey: Hashable, Sendable {
+private enum CoalescingKey: Equatable, Sendable {
     case playback(PlaybackTimingIdentity)
-    case queue(UInt64)
+    case queue(QueueIdentity)
     case connection(ConnectionLifecycleIdentity)
-    case devices(UInt64)
+    case devices(DevicesIdentity)
     case cluster(ClusterIdentity)
 }
 

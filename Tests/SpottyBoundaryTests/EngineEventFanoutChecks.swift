@@ -89,6 +89,62 @@ struct EngineEventFanoutTests {
         #expect(latest?.event.sourceRevision == 4)
     }
 
+    @Test
+    @MainActor
+    func distinctQueueFactsAreNotCoalesced() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(queueEvent(nextURI: "spotify:track:first"))
+        fanout.emit(queueEvent(revision: 2, nextURI: "spotify:track:second"))
+
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 2)
+        var iterator = stream.makeAsyncIterator()
+        let first = await iterator.next()
+        let second = await iterator.next()
+        if case let .queue(state) = first?.event {
+            #expect(state.protocolNextTracks.first?.uri == "spotify:track:first")
+        } else {
+            #expect(Bool(false), "first queue fact is delivered")
+        }
+        if case let .queue(state) = second?.event {
+            #expect(state.protocolNextTracks.first?.uri == "spotify:track:second")
+        } else {
+            #expect(Bool(false), "second queue fact is delivered")
+        }
+    }
+
+    @Test
+    @MainActor
+    func distinctDeviceFactsAreNotCoalesced() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(devicesEvent(activeDeviceID: "local"))
+        fanout.emit(devicesEvent(activeDeviceID: "local", deviceIDs: ["local", "remote"]))
+        fanout.emit(devicesEvent(activeDeviceID: "remote", deviceIDs: ["local", "remote"]))
+
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 3)
+        var iterator = stream.makeAsyncIterator()
+        let first = await iterator.next()
+        let second = await iterator.next()
+        let third = await iterator.next()
+        if case let .devices(state) = first?.event {
+            #expect(state.activeDeviceID == "local")
+        } else {
+            #expect(Bool(false), "first device fact is delivered")
+        }
+        if case let .devices(state) = second?.event {
+            #expect(state.activeDeviceID == "local")
+            #expect(state.devices.map(\.id) == ["local", "remote"])
+        } else {
+            #expect(Bool(false), "second device fact is delivered")
+        }
+        if case let .devices(state) = third?.event {
+            #expect(state.activeDeviceID == "remote")
+        } else {
+            #expect(Bool(false), "third device fact is delivered")
+        }
+    }
+
 }
 
 private protocol TestableEventFanout: AnyObject, Sendable {
@@ -499,6 +555,7 @@ private func runPressureRecovery() {
     }
     let failure = failureFanout.diagnostics()
     #expect((failure.queuedEnvelopeCount) <= (64), "critical failure flood remains bounded")
+    #expect((failure.resynchronizationCount) == (0), "equivalent timing pressure needs no recovery marker")
     let failureSeen = DispatchSemaphore(value: 0)
     let failureTask = Task.detached {
         var sawFailure = false
@@ -510,7 +567,7 @@ private func runPressureRecovery() {
         }
         if sawFailure { failureSeen.signal() }
     }
-    #expect((wait(failureSeen)) == true, "critical playback failure survives timing pressure")
+    #expect((wait(failureSeen)) == true, "critical playback failure stays ahead of coalesced timing")
     failureTask.cancel()
 }
 
@@ -588,13 +645,18 @@ private func playbackEvent(
     )
 }
 
-private func queueEvent(revision: UInt64 = 1) -> RustPlaybackEvent {
+private func queueEvent(
+    revision: UInt64 = 1,
+    nextURI: String? = nil
+) -> RustPlaybackEvent {
     .queue(
         RustQueueState(
             revision: revision,
             sessionGeneration: 1,
             track: nil,
-            protocolNextTracks: [],
+            protocolNextTracks: nextURI.map {
+                [QueueProtocolTrack(uri: $0, uid: "uid-\($0)", provider: "queue")]
+            } ?? [],
             protocolPrevTracks: [],
             queueRevision: "",
             disallowSetQueue: false,
@@ -618,15 +680,22 @@ private func connectionEvent(generation: UInt64 = 1, revision: UInt64 = 1) -> Ru
     )
 }
 
-private func devicesEvent() -> RustPlaybackEvent {
+private func devicesEvent(
+    activeDeviceID: String = "local",
+    deviceIDs: [String] = ["local"]
+) -> RustPlaybackEvent {
     .devices(
         RustDevicesState(
             revision: 1,
             sessionGeneration: 1,
-            activeDeviceID: "local",
-            devices: [
-                ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer")
-            ]
+            activeDeviceID: activeDeviceID,
+            devices: deviceIDs.map {
+                ConnectProtocolDevice(
+                    id: $0,
+                    name: $0 == "local" ? "Spotty" : "Remote",
+                    type: $0 == "local" ? "computer" : "speaker"
+                )
+            }
         )
     )
 }

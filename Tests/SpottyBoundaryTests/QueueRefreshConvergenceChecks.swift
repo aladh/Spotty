@@ -122,6 +122,42 @@ private func queueRefreshTrack(_ uri: String) -> CatalogTrack {
 struct QueueRefreshConvergenceTests {
     @Test
     @MainActor
+    func webFallbackRetainsAlreadyKnownConnectMetadata() async {
+        let web = QueueRefreshWebQueue()
+        let remote = QueueRefreshMetadataRemote()
+        let service = QueueService(webQueue: web, metadata: TrackMetadataService(remote: remote))
+        await service.reset(accountEpoch: 1)
+        let context = "spotify:track:current"
+        let known = "spotify:track:known"
+        let missing = "spotify:track:missing"
+        let first = Task {
+            await service.refresh(fallbackEntries: [], currentTrackURI: context, accountEpoch: 1)
+        }
+        #expect(await waitUntil { await web.requestCount == 1 })
+        await web.complete(1, with: [queueRefreshTrack(known)])
+        _ = await first.value
+        _ = await service.acceptConnect(
+            [
+                QueueEntry(uri: known, provider: "connect", occurrence: 0),
+                QueueEntry(uri: missing, provider: "connect", occurrence: 1),
+            ],
+            accountEpoch: 1, sourceRevision: 2, contextURI: context
+        )
+        let second = Task {
+            await service.refresh(fallbackEntries: [], currentTrackURI: context, accountEpoch: 1)
+        }
+        #expect(await waitUntil { await web.requestCount == 2 })
+        await web.complete(2, with: [])
+        #expect(await waitUntil { await remote.requestedURIs.contains(missing) })
+        #expect(await remote.requestedURIs == [missing])
+        await remote.completeAll(missing)
+        let result = await second.value
+        #expect(result?.entries.map(\.uri) == [known, missing])
+        #expect(Set(result?.tracks.map(\.uri) ?? []) == Set([known, missing]))
+    }
+
+    @Test
+    @MainActor
     func changedFallbackReplacesTheSharedFlight() async {
         let web = QueueRefreshLateFailureWebQueue()
         let service = QueueService(
@@ -186,7 +222,7 @@ struct QueueRefreshConvergenceTests {
                 onUpdate: { _ in secondUpdates += 1 }
             )
         }
-        for _ in 0..<10 { await Task.yield() }
+        #expect(await waitUntil { await service.refreshSubscriberCount == 2 })
         #expect((await web.requestCount) == 1, "concurrent callers share one Web queue request")
 
         await web.complete(1, with: [queueRefreshTrack("spotify:track:joined")])
@@ -209,13 +245,16 @@ struct QueueRefreshConvergenceTests {
         await service.reset(accountEpoch: 1)
 
         var cancelledUpdates = 0
+        var cancelledSettled = false
         let cancelled = Task {
-            await service.refresh(
+            let result = await service.refresh(
                 fallbackEntries: [],
                 currentTrackURI: "spotify:track:current",
                 accountEpoch: 1,
                 onUpdate: { _ in cancelledUpdates += 1 }
             )
+            cancelledSettled = true
+            return result
         }
         #expect(await waitUntil { await web.requestCount == 1 })
         let joined = Task {
@@ -225,9 +264,10 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        for _ in 0..<10 { await Task.yield() }
+        #expect(await waitUntil { await service.refreshSubscriberCount == 2 })
         cancelled.cancel()
-        for _ in 0..<10 { await Task.yield() }
+        #expect(await waitUntil { cancelledSettled }, "cancellation settles before the shared Web request finishes")
+        #expect(await waitUntil { await service.refreshSubscriberCount == 1 })
 
         #expect((await web.requestCount) == 1, "rejoin does not start a duplicate Web request")
         await web.complete(1, with: [queueRefreshTrack("spotify:track:rejoined")])

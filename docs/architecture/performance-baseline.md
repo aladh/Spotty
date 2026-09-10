@@ -216,6 +216,11 @@ Apple's [frame-lifetime explanation](https://developer.apple.com/documentation/x
 distinguishes the pipeline's acceptable latency from hitch duration. The reported hitch incidence
 is already incompatible with claiming the proposed smoothness target satisfied. These are
 single profiled runs on a beta OS/toolchain, not a statistically established effect of Reduce Motion.
+The [workload](../../Tests/BrowsingHarness/Support/BrowsingApplication.swift) makes large programmatic
+scroll jumps and forces synchronous layout/display at checkpoints and view readiness. The CPU
+trace includes substantial work under those harness calls. These stress results cannot identify
+ordinary-input latency or attribute the hitches solely to production invalidation; profile native
+input and separate harness-forced layout costs before choosing a rendering fix.
 
 The proposed 20-enrichment-publications/second ceiling passed these visible workload samples.
 This does not establish that a 50 ms batching policy is sufficient for the overall rendering budget:

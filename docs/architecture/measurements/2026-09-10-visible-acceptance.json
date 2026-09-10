@@ -47,7 +47,8 @@
     "frameLifetimeMeaning": "Full pipelined lifetime from frame begin to presentation; it is not one display interval or measured control-input-to-visible latency.",
     "batchWindow": "Maximum event count in any half-open rolling one-second window within the workload; ordering and terminal snapshots are not metadata batch events.",
     "exclusions": "Preparation, earlier calibration captures and incomplete trace saves are excluded. No UI inspection, compilation or export ran during either marked workload.",
-    "settingsRestored": "Reduce Motion restored to its original off state after comparison."
+    "settingsRestored": "Reduce Motion restored to its original off state after comparison.",
+    "workloadLimit": "The harness uses programmatic scroll jumps and forces synchronous layout/display at checkpoints and view readiness. Captured CPU stacks include work under these calls; the trace does not isolate ordinary-input behavior or attribute all hitches to production invalidation."
   },
   "runs": [
     {

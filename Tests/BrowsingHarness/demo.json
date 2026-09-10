@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "mode": "playback",
+  "trackCount": 1000,
+  "artworkCount": 48,
+  "artworkPixels": 640,
+  "cycles": 3,
+  "dwellMilliseconds": 250,
+  "expandedLibrary": true
+}

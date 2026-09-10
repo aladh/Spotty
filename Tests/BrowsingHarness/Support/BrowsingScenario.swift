@@ -25,6 +25,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     /// A declared viewing cadence, not a readiness timeout or simulated network delay.
     var dwellMilliseconds = 250
     var combinedHydration: Bool? = nil
+    /// Rich interactive library; omitted in historical measurement scenarios.
+    var expandedLibrary: Bool? = nil
     /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
     var forceSynchronousLayout: Bool? = nil
 
@@ -89,7 +91,8 @@ struct BrowsingFixtures: Sendable {
                 ]
             ]
         }
-        let records: [[String: Any]] = (0..<2).map { index in
+        let playlistCount = scenario.expandedLibrary == true ? 28 : 2
+        let records: [[String: Any]] = (0..<playlistCount).map { index in
             [
                 "uri": "spotify:playlist:synthetic\(index)", "name": "Synthetic Mix \(index + 1)",
                 "description": "Deterministic browsing fixture",

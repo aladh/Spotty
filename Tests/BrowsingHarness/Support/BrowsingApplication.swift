@@ -203,7 +203,7 @@ final class BrowsingRun {
                 try await sample("signed-out.ready", started: started)
             } else {
                 guard player.accountStore.phase == .ready,
-                    player.catalog.homeLibrary.playlists.count == 2,
+                    player.catalog.homeLibrary.playlists.count == world.fixtures.playlists.count,
                     player.catalog.homeLibrary.homeSections.count == 1
                 else { throw BrowsingFailure.checkpoint("home.ready") }
                 try await sample("home.ready", started: started)

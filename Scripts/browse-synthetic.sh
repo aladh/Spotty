@@ -19,7 +19,11 @@ if (( $# > 1 )); then
     print -u2 "Usage: $0 [--profile] [--interactive] [scenario.json]"
     exit 2
 fi
-scenario="${1:-$project_root/Tests/BrowsingHarness/scenario.json}"
+default_scenario="$project_root/Tests/BrowsingHarness/scenario.json"
+if [[ "$automated" == false && "$profile" == false ]]; then
+    default_scenario="$project_root/Tests/BrowsingHarness/demo.json"
+fi
+scenario="${1:-$default_scenario}"
 [[ -f "$scenario" ]] || { print -u2 "Scenario file does not exist"; exit 2; }
 
 signing_identity="${SPOTTY_DEVELOPMENT_SIGNING_IDENTITY:-${SPOTTY_SIGNING_IDENTITY:-}}"

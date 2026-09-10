@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import OSLog
 import QuartzCore
 @testable import SpottyCore
 
@@ -32,6 +33,8 @@ final class BrowsingResponsiveness: NSObject {
     private var refreshRate = 0
     private weak var window: NSWindow?
     private var visibleAtStart = false
+    private let signposter = OSSignposter(subsystem: "dev.spotty.demo", category: "Measurement")
+    private var interval: OSSignpostIntervalState?
 
     init(player: PlaybackStore) { self.player = player }
 
@@ -40,6 +43,7 @@ final class BrowsingResponsiveness: NSObject {
         active = true
         self.window = window
         visibleAtStart = window.occlusionState.contains(.visible)
+        interval = signposter.beginInterval("Demo workload")
         refreshRate = window.screen?.maximumFramesPerSecond ?? 0
         for key in ["nowPlaying", "devices", "queue", "catalogIndicator", "timing"] { observe(key) }
         let link = window.displayLink(target: self, selector: #selector(displayTick(_:)))
@@ -48,6 +52,10 @@ final class BrowsingResponsiveness: NSObject {
     }
 
     func stop() -> BrowsingResponsivenessReport {
+        if let interval {
+            signposter.endInterval("Demo workload", interval)
+            self.interval = nil
+        }
         active = false
         link?.invalidate()
         link = nil

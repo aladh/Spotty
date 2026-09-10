@@ -16,11 +16,7 @@ if [[ "${1:-}" == "--interactive" ]]; then
     shift
 fi
 if (( $# > 1 )); then
-    print -u2 "Usage: $0 [--profile | --interactive] [scenario.json]"
-    exit 2
-fi
-if [[ "$profile" == true && "$automated" == false ]]; then
-    print -u2 "--profile requires the automated workload"
+    print -u2 "Usage: $0 [--profile] [--interactive] [scenario.json]"
     exit 2
 fi
 scenario="${1:-$project_root/Tests/BrowsingHarness/scenario.json}"
@@ -117,9 +113,12 @@ app="$installed_app"
 /usr/bin/open -n "$app"
 print "Synthetic browsing launched: $app"
 if [[ "$profile" == true ]]; then
+    if [[ "$automated" == false ]]; then
+        print "Prepare the Demo window, then choose Demo > Run Measurement."
+    fi
     python3 "$project_root/Scripts/profile_synthetic.py" "$run_root"
 fi
-if [[ "$automated" == true ]]; then
+if [[ "$automated" == true || "$profile" == true ]]; then
     print "Report: $run_root/report.json"
     python3 - "$run_root/report.json" <<'PYWAIT'
 import json

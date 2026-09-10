@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "date": "2026-09-10",
+  "configuration": {
+    "processor": "Apple M1 Max",
+    "logicalProcessors": 10,
+    "physicalMemoryGiB": 32,
+    "display": "Built-in Liquid Retina XDR",
+    "physicalPixels": [
+      3456,
+      2234
+    ],
+    "logicalDisplayPoints": [
+      1728,
+      1117
+    ],
+    "nominalRefreshHz": 120,
+    "scale": 2,
+    "windowPoints": [
+      960,
+      692
+    ],
+    "queueInspector": "open throughout measured workload",
+    "configuration": "Debug",
+    "xcode": "27.0 (27A5252f)",
+    "sdk": "macOS 26.5",
+    "template": "Animation Hitches + os_signpost",
+    "os": "Version 27.0 (Build 26A5425a)"
+  },
+  "source": {
+    "baseCommit": "e15404ab25ed06b3474f9279cb53d70615337634",
+    "fileSHA256": {
+      "Scripts/browse-synthetic.sh": "671cbe3c1005a97ea8c4041dad7916aa2ad915c253a940f0e7a6701891c73918",
+      "Scripts/profile_synthetic.py": "ca8c58bf3440a58c969ea8cc12523459884d29c50b1e25ef6e5443013a2aeb4d",
+      "Sources/Spotty/Spotify/QueueService.swift": "d8cc0e726eb0ed08945972c2093a1c79e0e57929294898993107d975a5c5469e",
+      "Tests/BrowsingHarness/Support/BrowsingApplication.swift": "94a697fa191d7cd4d6d69c615047f94c93ecec136940750224c0ff86b1ddda87",
+      "Tests/BrowsingHarness/Support/BrowsingResponsiveness.swift": "91a844cb55eee61f46ede95d48b1da3e9043136907db196a44058b4fdd585c90",
+      "Tests/BrowsingHarness/Support/QueueHydrationMeasurement.swift": "0a3f7e31de4f30f71c8d2dcd70cd93c6e25bd122355502d5c46b72f924023258",
+      "Tests/BrowsingHarness/Support/SyntheticPlayback.swift": "f6fbb639c9228da9f34c9a9c1cd274752c119058adf514e0d9cc52d59f532309",
+      "Tests/BrowsingHarness/measurement.json": "eea954ee5655c724751dabba55b74c1e550e36a67aed08699a124e86a8e42412"
+    },
+    "note": "Both final marked runs use these measured code/fixture contents. Per-run tracked-diff hashes include documentation state and are not content digests of untracked analysis scripts. The summary script is reviewed with this artifact."
+  },
+  "method": {
+    "quantiles": "Sorted lower order statistic at floor((n-1)*p); descriptive single-run distributions, not population estimates.",
+    "frameFilter": "Complete frames inside the single Demo workload signpost interval. Join Frame Lifetimes display/swap IDs to SpottyDemo update records; exclude other processes and frames crossing a workload boundary. Hitch share uses unique matching frame IDs.",
+    "frameLifetimeMeaning": "Full pipelined lifetime from frame begin to presentation; it is not one display interval or measured control-input-to-visible latency.",
+    "batchWindow": "Maximum event count in any half-open rolling one-second window within the workload; ordering and terminal snapshots are not metadata batch events.",
+    "exclusions": "Preparation, earlier calibration captures and incomplete trace saves are excluded. No UI inspection, compilation or export ran during either marked workload.",
+    "settingsRestored": "Reduce Motion restored to its original off state after comparison."
+  },
+  "runs": [
+    {
+      "run": "run.NhApn8tB",
+      "reducedMotion": false,
+      "passed": true,
+      "networkSandboxVerified": true,
+      "forbiddenMutationAttempts": 0,
+      "browsingCheckpoints": 40,
+      "playbackCheckpoints": 8,
+      "trackedDiffSHA256": "fbe30d74c2ba69823f7fe8c572f32b139ee77073ffafbf142be814dd8f2a6840",
+      "workloadBetweenFirstAndLastCheckpoint": {
+        "elapsedSeconds": 15.413351058959961,
+        "mainThreadCPUSeconds": 11.125366,
+        "processCPUSeconds": 18.217964000000002,
+        "offeredPlaybackSampleHz": 4.995668995370024
+      },
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 119.25200000405312,
+        "callbackGapP99Milliseconds": 241.16683332249522,
+        "displayCallbackCount": 608,
+        "maximumCallbackGapMilliseconds": 730.1451666280627,
+        "missedDisplayOpportunityCount": 1277,
+        "nominalFramesPerSecond": 120,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 13,
+          "nowPlaying": 76,
+          "queue": 8,
+          "timing": 97
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": true,
+        "windowVisibleAtStart": true
+      },
+      "hydrationWaves": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 960.642125,
+          "firstMetadataMilliseconds": 494.95425,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 106.192833,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1009.040834,
+          "firstMetadataMilliseconds": 531.56925,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 100.83075,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 773.025708,
+          "firstMetadataMilliseconds": 508.642625,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 98.290125,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 900.169583,
+          "firstMetadataMilliseconds": 533.517416,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 103.39425,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 642.437041,
+          "firstMetadataMilliseconds": 374.629333,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 100.147708,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1043.197041,
+          "firstMetadataMilliseconds": 542.53325,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 110.284125,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "trace": {
+        "workloadSeconds": 15.67489525,
+        "completeApplicationFrames": 729,
+        "boundaryCrossingFramesExcluded": 4,
+        "completeFrameLifetimesMilliseconds": {
+          "count": 729,
+          "minimum": 24.386375,
+          "p50": 27.278666,
+          "p95": 118.238666,
+          "p99": 196.51525,
+          "maximum": 470.955
+        },
+        "framesWithHitches": 110,
+        "hitchFreeFramePercent": 84.91083676268862,
+        "hitchDurationMilliseconds": {
+          "count": 110,
+          "minimum": 8.333208,
+          "p50": 75.0,
+          "p95": 300.0,
+          "p99": 399.998166,
+          "maximum": 441.664666
+        },
+        "metadataBatches": 20,
+        "maximumMetadataBatchesInRollingSecond": 4,
+        "metadataBatchGapMilliseconds": {
+          "count": 19,
+          "minimum": 121.482791,
+          "p50": 212.120917,
+          "p95": 2276.234958,
+          "p99": 2276.234958,
+          "maximum": 2357.204375
+        },
+        "metadataBatchOffsetsMilliseconds": [
+          780.054875,
+          1602.470875,
+          1814.591792,
+          2066.656292,
+          4423.860667,
+          4550.389,
+          4850.616208,
+          6787.583583,
+          6912.694292,
+          7034.177083,
+          9263.253125,
+          9387.215542,
+          9619.531625,
+          11555.468083,
+          11696.0145,
+          11817.513625,
+          14093.748583,
+          14217.68075,
+          14429.440708,
+          14566.225208
+        ]
+      }
+    },
+    {
+      "run": "run.0o6oxNeZ",
+      "reducedMotion": true,
+      "passed": true,
+      "networkSandboxVerified": true,
+      "forbiddenMutationAttempts": 0,
+      "browsingCheckpoints": 40,
+      "playbackCheckpoints": 8,
+      "trackedDiffSHA256": "410481773b73a2a5a6cfe53c1a0c30861e859104197432d7ca71c43d6c99ef46",
+      "workloadBetweenFirstAndLastCheckpoint": {
+        "elapsedSeconds": 15.558210968971252,
+        "mainThreadCPUSeconds": 10.864315,
+        "processCPUSeconds": 16.993319,
+        "offeredPlaybackSampleHz": 5.013429895992569
+      },
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 103.98925002664328,
+        "callbackGapP99Milliseconds": 194.79029171634465,
+        "displayCallbackCount": 670,
+        "maximumCallbackGapMilliseconds": 738.1705415900797,
+        "missedDisplayOpportunityCount": 1228,
+        "nominalFramesPerSecond": 120,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 13,
+          "nowPlaying": 73,
+          "queue": 8,
+          "timing": 95
+        },
+        "reducedMotion": true,
+        "windowVisibleAtEnd": true,
+        "windowVisibleAtStart": true
+      },
+      "hydrationWaves": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 869.262542,
+          "firstMetadataMilliseconds": 531.960709,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 105.28125,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1028.077,
+          "firstMetadataMilliseconds": 648.39875,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 112.570083,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 886.511583,
+          "firstMetadataMilliseconds": 549.999833,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 115.142833,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 653.859875,
+          "firstMetadataMilliseconds": 332.568083,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 102.839125,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 651.356917,
+          "firstMetadataMilliseconds": 334.458709,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 101.805709,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 892.572041,
+          "firstMetadataMilliseconds": 552.377041,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 115.937208,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "trace": {
+        "workloadSeconds": 15.817319167,
+        "completeApplicationFrames": 781,
+        "boundaryCrossingFramesExcluded": 4,
+        "completeFrameLifetimesMilliseconds": {
+          "count": 781,
+          "minimum": 25.917,
+          "p50": 28.515083,
+          "p95": 114.474166,
+          "p99": 158.312083,
+          "maximum": 483.880208
+        },
+        "framesWithHitches": 125,
+        "hitchFreeFramePercent": 83.99487836107555,
+        "hitchDurationMilliseconds": {
+          "count": 125,
+          "minimum": 8.333208,
+          "p50": 58.333333,
+          "p95": 316.666666,
+          "p99": 358.33175,
+          "maximum": 458.331291
+        },
+        "metadataBatches": 19,
+        "maximumMetadataBatchesInRollingSecond": 3,
+        "metadataBatchGapMilliseconds": {
+          "count": 18,
+          "minimum": 119.435834,
+          "p50": 199.783583,
+          "p95": 2182.029,
+          "p99": 2182.029,
+          "maximum": 2560.64
+        },
+        "metadataBatchOffsetsMilliseconds": [
+          761.312084,
+          1609.780334,
+          1733.807542,
+          1938.693875,
+          4067.053042,
+          4368.207042,
+          4504.757917,
+          6458.798417,
+          6585.469584,
+          6785.253167,
+          8967.282167,
+          9138.467084,
+          9261.420209,
+          11366.380625,
+          11540.384625,
+          11659.820459,
+          14220.460459,
+          14346.754959,
+          14553.170792
+        ]
+      }
+    }
+  ],
+  "remaining": [
+    "Actual input-to-visible-feedback latency is not measured by state samples, accessibility actions or frame lifetime.",
+    "Rendering target remains unmet: reported hitches affect about 15\u201316 percent of complete app frames in these Debug profiled samples.",
+    "Publication ceiling passed these visible samples, but the 50 ms batching policy is not established as sufficient for the overall UI smoothness budget.",
+    "Actual Rust construction/rehydration-to-ready fault timing (#378) remains outside this Demo measurement."
+  ]
+}

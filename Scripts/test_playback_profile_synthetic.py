@@ -15,6 +15,7 @@ class SyntheticProfileTests(unittest.TestCase):
             root = Path(directory)
             clock = {"now": 0.0}
             interrupts = []
+            save_timeouts = []
 
             class Recorder:
                 returncode = None
@@ -34,6 +35,9 @@ class SyntheticProfileTests(unittest.TestCase):
                     self.returncode = 0
 
                 def wait(self, timeout):
+                    save_timeouts.append(timeout)
+                    if timeout < 90:
+                        raise profile_synthetic.subprocess.TimeoutExpired("xctrace", timeout)
                     return self.returncode
 
             def sleep(seconds):
@@ -53,3 +57,4 @@ class SyntheticProfileTests(unittest.TestCase):
             self.assertTrue((root / "profiler-ready").exists())
             self.assertTrue((root / "report.json").exists())
             self.assertEqual(interrupts, [signal.SIGINT])
+            self.assertEqual(save_timeouts, [profile_synthetic.RECORDER_SAVE_TIMEOUT_SECONDS])

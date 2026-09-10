@@ -180,3 +180,48 @@ include the separate bounded dealer-close path of a real session.
 injected construction delay is not actual Rust engine construction/rehydration-to-ready latency.
 That remaining measurement must cover the real readiness path under named faults before closing
 the original acceptance item. These data do not establish a Spotify reconnection budget.
+
+### Visible 120 Hz follow-up (2026-09-10)
+
+After the display configuration changed, the built-in Liquid Retina XDR was available at
+3456 × 2234 physical pixels, 1728 × 1117 points, 2× scale and nominal 120 Hz. The
+[visible samples](measurements/2026-09-10-visible-acceptance.json) replace the earlier display
+blocker with measured evidence; they do not replace the matched, unprofiled batching comparison.
+
+Two final marked captures used the same Debug combined workload and 960 × 692 window with the
+queue inspector open throughout: one with Reduce Motion off, one on. Each passed 40 browsing
+checkpoints, eight playback/lifetime traces, six 96-track hydration waves, network denial and zero
+forbidden mutation attempts. Both reported visible windows at start and end. Reduce Motion was
+restored to its original off setting. No UI inspection, compilation or trace export ran during
+either measured interval. Earlier exploratory captures are excluded from these results.
+
+| Workload-only measure | Reduce Motion off | Reduce Motion on |
+| --- | ---: | ---: |
+| Signposted workload duration | 15.67 s | 15.82 s |
+| Complete app frames | 729 | 781 |
+| Frames with an Instruments-reported hitch | 110 (15.09%) | 125 (16.01%) |
+| Reported hitch duration p95 / maximum | 300.00 / 441.66 ms | 316.67 / 458.33 ms |
+| Full pipelined frame lifetime p95 | 118.24 ms | 114.47 ms |
+| Main-thread CPU between first/last checkpoint | 11.13 s | 10.86 s |
+| Emitted playback samples per second | 5.00 | 5.01 |
+| Enrichment batch events | 20 | 19 |
+| Maximum enrichment batches in a rolling second | 4 | 3 |
+| Minimum spacing between enrichment batch events | 121.48 ms | 119.44 ms |
+
+The [summary helper](../../Scripts/summarize_synthetic_trace.py) resolves exported XML references,
+selects the single `Demo workload` interval and joins frame display/swap IDs to this Demo process's
+update records. It excludes frames crossing either workload boundary. Frame lifetime includes
+multiple pipeline stages; it is **not** input-to-visible latency or a one-display-interval deadline.
+Apple's [frame-lifetime explanation](https://developer.apple.com/documentation/xcode/understanding-hitches-in-your-app)
+distinguishes the pipeline's acceptable latency from hitch duration. The reported hitch incidence
+is already incompatible with claiming the proposed smoothness target satisfied. These are
+single profiled runs on a beta OS/toolchain, not a statistically established effect of Reduce Motion.
+
+The proposed 20-enrichment-publications/second ceiling passed these visible workload samples.
+This does not establish that a 50 ms batching policy is sufficient for the overall rendering budget:
+substantial hitches remain while publication frequency is low. #380 retains that budget acceptance,
+coordinated with #379; the missing evidence is now a satisfactory rendering result, not an
+unavailable display. #379 still needs control-input-to-visible-feedback measurement and work to
+meet or explicitly revise its rendering target. State observation, display-link callbacks and
+accessibility automation do not substitute for that control measurement. #378's real Rust
+construction/rehydration-to-ready fault timing remains unchanged by this Demo follow-up.

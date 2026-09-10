@@ -10,6 +10,7 @@ import time
 # Match the ordinary Demo report watchdog, including long validated scenarios.
 WORKLOAD_TIMEOUT_SECONDS = 600
 RECORDER_START_TIMEOUT_SECONDS = 50
+RECORDER_SAVE_TIMEOUT_SECONDS = 180
 
 
 def interruptible_child():
@@ -28,6 +29,7 @@ def profile(root):
     with log_path.open("w") as log:
         recorder = subprocess.Popen(
             ["xcrun", "xctrace", "record", "--template", "Animation Hitches",
+             "--instrument", "os_signpost",
              "--attach", "SpottyDemo", "--time-limit",
              f"{WORKLOAD_TIMEOUT_SECONDS + RECORDER_START_TIMEOUT_SECONDS + 10}s",
              "--output", str(root / "animation.trace")],
@@ -49,7 +51,7 @@ def profile(root):
             if recorder.poll() is None:
                 recorder.send_signal(signal.SIGINT)
                 try:
-                    recorder.wait(timeout=30)
+                    recorder.wait(timeout=RECORDER_SAVE_TIMEOUT_SECONDS)
                 except subprocess.TimeoutExpired:
                     recorder.terminate()
                     try:

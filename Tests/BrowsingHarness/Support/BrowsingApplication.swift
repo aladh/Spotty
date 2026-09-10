@@ -389,6 +389,8 @@ private struct BrowsingApp: App {
         SpottyScene(player: run.player, feedback: run.feedback, appDelegate: delegate, navigation: run.navigation)
             .commands {
                 CommandMenu("Demo") {
+                    Button("Run Measurement") { Task { await run.perform() } }
+                    Divider()
                     if run.world.scenario.mode == .playback {
                         Button("Reject Next Playback Command") { run.world.playback.inject(.reject) }
                         Button("Hold Next Observation") { run.world.playback.inject(.holdObservation) }

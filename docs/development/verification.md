@@ -185,9 +185,18 @@ Add `--profile` before the scenario path to attach the local Xcode Animation Hit
 The workload waits for the profiler before starting and requires an unoccluded window. Profiling
 uses the ordinary 600-second report watchdog. The trace remains beside `report.json`;
 inspect table availability before claiming rendered-frame statistics. A successful capture can
-contain no supported presentation events. Instruments adds overhead: compare profiled runs with
+contain no supported presentation events. The recorder allows up to 180 seconds to save after
+interruption; a failed or incomplete save is not valid evidence. Instruments adds overhead: compare profiled runs with
 profiled runs and ordinary runs with ordinary runs. Raw traces may include host/process metadata;
 keep them local and publish only reviewed aggregate measurements.
+
+Use `--profile --interactive` to prepare a visible queue inspector before starting. Open the queue,
+then choose **Demo > Run Measurement**; each process runs the workload once. The recorder still
+owns a bounded wait for the report. `Demo workload` signposts delimit the measured interval, and
+`Queue metadata batch` events record enrichment publication starts without track or account data.
+The profile includes the `os_signpost` instrument so these boundaries can be exported. Filter frame
+and hitch summaries to the workload interval and the Demo process; do not include preparation or
+treat full pipelined frame lifetime as a one-display-interval deadline.
 
 The engine's credential-free named fault measurement uses the production health cadence,
 serialized reconnect seam, recovery lease and owned-child teardown:
@@ -218,3 +227,13 @@ publication to one update per result; it preserves ownership, ordering, concurre
 delay. Reverse the patch before normal checks or delivery. Keep the inspector/display/window
 configuration the same, do not compile or inspect UI during either workload, and retain actual
 sample rates and source identity with the aggregate comparison.
+
+To summarize a saved visible capture, export run 1's `os-signpost`, `hitches`, `hitches-updates`
+and `hitches-frame-lifetimes` tables with `xcrun xctrace export --input TRACE --xpath
+'/trace-toc/run[@number="1"]/data/table[@schema="SCHEMA"]' --output FILE`.
+Name the XML files `PREFIX-signposts.xml`, `PREFIX-hitches.xml`,
+`PREFIX-hitches-updates.xml` and `PREFIX-hitches-frame-lifetimes.xml`, then run
+`python3 Scripts/summarize_synthetic_trace.py PREFIX`. A missing/incomplete workload marker or
+missing app frames is an error. The output includes complete-frame counts, Instruments hitch
+incidence, descriptive duration quantiles and half-open rolling-second batch counts. Inspect the
+report's window visibility, motion setting and functional result separately before accepting a run.

@@ -97,6 +97,70 @@ protocol QueueServiceHook: Sendable {
 }
 
 actor QueueService {
+    private struct RefreshKey: Equatable, Sendable {
+        let accountEpoch: UInt64
+        let contextURI: String?
+        let fallbackEntries: [QueueEntry]
+        let cachedTracks: [CatalogTrack]
+    }
+
+    private final class RefreshSubscriber: @unchecked Sendable {
+        let callback: @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void
+        private let lock = NSLock()
+        private var active = true
+        private var completed = false
+        private var result: ProvenanceQueueSnapshot?
+        private var continuation: CheckedContinuation<ProvenanceQueueSnapshot?, Never>?
+
+        init(callback: @escaping @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void) {
+            self.callback = callback
+        }
+
+        func complete(_ result: ProvenanceQueueSnapshot?) {
+            lock.lock()
+            guard !completed else {
+                lock.unlock()
+                return
+            }
+            completed = true
+            active = false
+            self.result = result
+            let waiting = continuation
+            continuation = nil
+            lock.unlock()
+            waiting?.resume(returning: result)
+        }
+
+        func wait() async -> ProvenanceQueueSnapshot? {
+            await withCheckedContinuation { waiting in
+                lock.lock()
+                if completed {
+                    let result = result
+                    lock.unlock()
+                    waiting.resume(returning: result)
+                } else {
+                    continuation = waiting
+                    lock.unlock()
+                }
+            }
+        }
+
+        private var isActive: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return active
+        }
+
+        func invoke(_ snapshot: ProvenanceQueueSnapshot) async {
+            guard isActive else { return }
+            let invocation = Task { @MainActor [weak self] in
+                guard let self, self.isActive else { return }
+                await self.callback(snapshot)
+            }
+            await invocation.value
+        }
+    }
+
     private enum WebCapability {
         case unknown
         case available
@@ -115,6 +179,10 @@ actor QueueService {
     private var webRetryNotBefore: Date?
     private var snapshot: ProvenanceQueueSnapshot?
     private var mutation: QueueMutationSnapshot?
+    private var refreshFlightID: UUID?
+    private var refreshFlightKey: RefreshKey?
+    private var refreshTask: Task<Void, Never>?
+    private var refreshSubscribers: [UUID: RefreshSubscriber] = [:]
 
     init(
         webQueue: any WebQueueClient,
@@ -129,10 +197,12 @@ actor QueueService {
     }
 
     func reset(accountEpoch: UInt64) async {
+        cancelRefreshFlight()
         if let hook {
             await hook.beforeReset()
         }
         guard !Task.isCancelled else { return }
+        cancelRefreshFlight()
         self.accountEpoch = accountEpoch
         revision = 0
         lastConnectSourceRevision = 0
@@ -226,6 +296,64 @@ actor QueueService {
         accountEpoch requestedEpoch: UInt64,
         onUpdate: @escaping @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void = { _ in }
     ) async -> ProvenanceQueueSnapshot? {
+        guard requestedEpoch == accountEpoch else { return nil }
+        let key = RefreshKey(
+            accountEpoch: requestedEpoch,
+            contextURI: currentTrackURI,
+            fallbackEntries: fallbackEntries,
+            cachedTracks: cachedTracks
+        )
+        if refreshFlightKey != key {
+            cancelRefreshFlight()
+        }
+
+        let flightID: UUID
+        if let existingID = refreshFlightID {
+            flightID = existingID
+        } else {
+            let createdID = UUID()
+            refreshFlightID = createdID
+            refreshFlightKey = key
+            refreshTask = Task { [weak self, flightID = createdID] in
+                guard let self else { return }
+                let result = await self.performRefresh(
+                    fallbackEntries: fallbackEntries,
+                    cachedTracks: cachedTracks,
+                    currentTrackURI: currentTrackURI,
+                    accountEpoch: requestedEpoch,
+                    onUpdate: { [weak self] update in
+                        await self?.publishRefreshUpdate(update, flightID: flightID)
+                    }
+                )
+                await self.finishRefreshFlight(flightID, result: result)
+            }
+            flightID = createdID
+        }
+
+        let subscriberID = UUID()
+        let subscriber = RefreshSubscriber(callback: onUpdate)
+        refreshSubscribers[subscriberID] = subscriber
+        return await withTaskCancellationHandler {
+            let result = await subscriber.wait()
+            removeRefreshSubscriber(subscriberID, flightID: flightID)
+            return Task.isCancelled ? nil : result
+        } onCancel: {
+            // Cancellation settles this caller immediately; it does not wait for the shared
+            // request or a hop back to QueueService before releasing the caller's effect.
+            subscriber.complete(nil)
+            Task { [weak self] in
+                await self?.removeRefreshSubscriber(subscriberID, flightID: flightID)
+            }
+        }
+    }
+
+    private func performRefresh(
+        fallbackEntries: [QueueEntry],
+        cachedTracks: [CatalogTrack] = [],
+        currentTrackURI: String?,
+        accountEpoch requestedEpoch: UInt64,
+        onUpdate: @escaping @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void = { _ in }
+    ) async -> ProvenanceQueueSnapshot? {
         let interval = SpottyLog.queueSignposter.beginInterval("Queue refresh")
         defer { SpottyLog.queueSignposter.endInterval("Queue refresh", interval) }
         guard requestedEpoch == accountEpoch else { return nil }
@@ -235,7 +363,11 @@ actor QueueService {
         if shouldRequestWebQueue {
             do {
                 let tracks = try await webQueue.queue()
-                guard requestedEpoch == accountEpoch, requestedContext == contextURI else { return nil }
+                guard !Task.isCancelled,
+                    requestedEpoch == accountEpoch,
+                    requestedContext == contextURI
+                else { return nil }
+                var fallbackCachedTracks = (snapshot?.tracks ?? []) + cachedTracks
                 webCapability = .available
                 webRetryNotBefore = nil
                 revision &+= 1
@@ -256,8 +388,27 @@ actor QueueService {
                     "Queue refreshed from Web API; entries=\(tracks.count, privacy: .public); epoch=\(requestedEpoch, privacy: .public)"
                 )
                 if let snapshot { await onUpdate(snapshot) }
-                return snapshot
+                guard let ordering = acceptedConnectOrdering(for: requestedContext) else {
+                    return snapshot
+                }
+                fallbackCachedTracks.append(contentsOf: tracks)
+                let knownURIs = Set(snapshot?.tracks.map(\.uri) ?? [])
+                guard !uniqueTrackURIs(in: ordering.entries).allSatisfy(knownURIs.contains) else {
+                    return snapshot
+                }
+                return await performFallbackRefresh(
+                    fallbackEntries: fallbackEntries,
+                    cachedTracks: fallbackCachedTracks,
+                    currentTrackURI: currentTrackURI,
+                    requestedEpoch: requestedEpoch,
+                    requestedContext: requestedContext,
+                    onUpdate: onUpdate
+                )
             } catch let error as SpotifyWebPlayerAPIError {
+                guard !Task.isCancelled,
+                    requestedEpoch == accountEpoch,
+                    requestedContext == contextURI
+                else { return nil }
                 let status = error.statusCode
                 if [401, 403].contains(status ?? 0) {
                     webCapability = .unavailable
@@ -272,6 +423,10 @@ actor QueueService {
                     "Web queue unavailable; HTTP=\(status.map(String.init) ?? "unknown"); using Connect fallback"
                 )
             } catch {
+                guard !Task.isCancelled,
+                    requestedEpoch == accountEpoch,
+                    requestedContext == contextURI
+                else { return nil }
                 debugLog(
                     "QueueService",
                     "Web queue unavailable; error=\(String(describing: type(of: error))); using Connect fallback"
@@ -279,6 +434,24 @@ actor QueueService {
             }
         }
 
+        return await performFallbackRefresh(
+            fallbackEntries: fallbackEntries,
+            cachedTracks: cachedTracks,
+            currentTrackURI: currentTrackURI,
+            requestedEpoch: requestedEpoch,
+            requestedContext: requestedContext,
+            onUpdate: onUpdate
+        )
+    }
+
+    private func performFallbackRefresh(
+        fallbackEntries: [QueueEntry],
+        cachedTracks: [CatalogTrack],
+        currentTrackURI: String?,
+        requestedEpoch: UInt64,
+        requestedContext: String?,
+        onUpdate: @escaping @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void
+    ) async -> ProvenanceQueueSnapshot? {
         guard !Task.isCancelled, requestedEpoch == accountEpoch, requestedContext == contextURI else { return nil }
         let fallbackEntries = acceptedConnectOrdering(for: requestedContext)?.entries ?? fallbackEntries
         let wantedURIs = uniqueTrackURIs(in: fallbackEntries)
@@ -350,6 +523,44 @@ actor QueueService {
             "Queue fallback finished; hydrated=\(hydrated.count, privacy: .public)/\(wantedURIs.count, privacy: .public); epoch=\(requestedEpoch, privacy: .public)"
         )
         return snapshot
+    }
+
+    var refreshSubscriberCount: Int { refreshSubscribers.count }
+
+    private func publishRefreshUpdate(_ snapshot: ProvenanceQueueSnapshot, flightID: UUID) async {
+        guard refreshFlightID == flightID else { return }
+        for subscriberID in Array(refreshSubscribers.keys) {
+            guard refreshFlightID == flightID,
+                let subscriber = refreshSubscribers[subscriberID]
+            else { return }
+            await subscriber.invoke(snapshot)
+        }
+    }
+
+    private func removeRefreshSubscriber(_ subscriberID: UUID, flightID: UUID) {
+        refreshSubscribers.removeValue(forKey: subscriberID)?.complete(nil)
+        guard refreshFlightID == flightID else { return }
+        // Keep a detached flight alive for replacement callers with identical inputs. A changed
+        // context or fallback invalidates it through RefreshKey instead of silently reusing the
+        // first caller's captured inputs.
+    }
+
+    private func finishRefreshFlight(_ flightID: UUID, result: ProvenanceQueueSnapshot?) {
+        guard refreshFlightID == flightID else { return }
+        refreshFlightID = nil
+        refreshFlightKey = nil
+        refreshTask = nil
+        refreshSubscribers.values.forEach { $0.complete(result) }
+        refreshSubscribers.removeAll()
+    }
+
+    private func cancelRefreshFlight() {
+        refreshTask?.cancel()
+        refreshFlightID = nil
+        refreshFlightKey = nil
+        refreshTask = nil
+        refreshSubscribers.values.forEach { $0.complete(nil) }
+        refreshSubscribers.removeAll()
     }
 
     private func acceptedQueue() -> AcceptedConnectQueue? {

@@ -45,8 +45,106 @@ struct EngineEventFanoutTests {
             runTerminationDuringDelivery()
             runEmitAfterLastSubscriber()
             runFixedClockReceiptTimestamps()
+            runPressureRecovery()
+            runCoalescingBarriers()
         }
     }
+    @Test
+    @MainActor
+    func staleAdjacentSamplesKeepTheNewestRevision() async {
+        for heldDrain in [false, true] {
+            let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+            let stream = fanout.events()
+            let newer = playbackEvent(revision: 20)
+            let stale = playbackEvent(revision: 19)
+            if heldDrain {
+                fanout.emit(newer, afterPrepare: { fanout.emit(stale) })
+            } else {
+                fanout.emit(newer)
+                fanout.emit(stale)
+            }
+            #expect(fanout.diagnostics().queuedEnvelopeCount == 1)
+            var iterator = stream.makeAsyncIterator()
+            let retained = await iterator.next()
+            #expect(retained?.event.sourceRevision == 20)
+            #expect(fanout.diagnostics().coalescedCount == 1)
+        }
+    }
+
+    @Test
+    @MainActor
+    func generationTransitionSeedsConnectionLifecycle() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(connectionEvent())
+        fanout.emit(connectionEvent(generation: 2, revision: 2))
+        fanout.emit(connectionEvent(generation: 2, revision: 3))
+        fanout.emit(connectionEvent(generation: 2, revision: 4))
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 3)
+        #expect(fanout.diagnostics().coalescedCount == 1)
+        var iterator = stream.makeAsyncIterator()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        let latest = await iterator.next()
+        #expect(latest?.event.sourceRevision == 4)
+    }
+
+    @Test
+    @MainActor
+    func distinctQueueFactsAreNotCoalesced() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(queueEvent(nextURI: "spotify:track:first"))
+        fanout.emit(queueEvent(revision: 2, nextURI: "spotify:track:second"))
+
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 2)
+        var iterator = stream.makeAsyncIterator()
+        let first = await iterator.next()
+        let second = await iterator.next()
+        if case let .queue(state) = first?.event {
+            #expect(state.protocolNextTracks.first?.uri == "spotify:track:first")
+        } else {
+            #expect(Bool(false), "first queue fact is delivered")
+        }
+        if case let .queue(state) = second?.event {
+            #expect(state.protocolNextTracks.first?.uri == "spotify:track:second")
+        } else {
+            #expect(Bool(false), "second queue fact is delivered")
+        }
+    }
+
+    @Test
+    @MainActor
+    func distinctDeviceFactsAreNotCoalesced() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(devicesEvent(activeDeviceID: "local"))
+        fanout.emit(devicesEvent(activeDeviceID: "local", deviceIDs: ["local", "remote"]))
+        fanout.emit(devicesEvent(activeDeviceID: "remote", deviceIDs: ["local", "remote"]))
+
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 3)
+        var iterator = stream.makeAsyncIterator()
+        let first = await iterator.next()
+        let second = await iterator.next()
+        let third = await iterator.next()
+        if case let .devices(state) = first?.event {
+            #expect(state.activeDeviceID == "local")
+        } else {
+            #expect(Bool(false), "first device fact is delivered")
+        }
+        if case let .devices(state) = second?.event {
+            #expect(state.activeDeviceID == "local")
+            #expect(state.devices.map(\.id) == ["local", "remote"])
+        } else {
+            #expect(Bool(false), "second device fact is delivered")
+        }
+        if case let .devices(state) = third?.event {
+            #expect(state.activeDeviceID == "remote")
+        } else {
+            #expect(Bool(false), "third device fact is delivered")
+        }
+    }
+
 }
 
 private protocol TestableEventFanout: AnyObject, Sendable {
@@ -384,6 +482,118 @@ private func runFixedClockReceiptTimestamps() {
     #expect((receipts[1]) == (receipts[0]), "both subscribers observe the same receipt timestamps")
 }
 
+@MainActor
+private func runPressureRecovery() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let started = DispatchSemaphore(value: 0)
+    let stream = fanout.events(onStart: { started.signal() }, onTermination: nil)
+    guard wait(started) else {
+        #expect((false) == true, "pressure subscriber started")
+        return
+    }
+
+    // The consumer remains stalled while distinct track identities fill the fixed mailbox. A
+    // timing-only flood for one identity is then allowed to coalesce rather than creating work.
+    fanout.emit(queueEvent())
+    for index in 0..<192 {
+        fanout.emit(
+            playbackEvent(
+                trackURI: "spotify:track:pressure-\(index)",
+                revision: UInt64(index + 1)
+            ))
+    }
+    for index in 0..<192 {
+        fanout.emit(playbackEvent(trackURI: "spotify:track:steady", positionMS: Int64(index)))
+    }
+
+    let pressure = fanout.diagnostics()
+    #expect((pressure.subscriberCount) == (1), "stalled subscriber remains registered")
+    #expect((pressure.queuedEnvelopeCount) <= (64), "stalled mailbox remains bounded")
+    #expect((pressure.resynchronizationCount > 0) == true, "overflow exposes explicit recovery")
+    #expect((pressure.overflowCount > 0) == true, "overflow is counted")
+    #expect((pressure.coalescedCount > 0) == true, "equivalent timing samples coalesce")
+
+    let sawMarker = DispatchSemaphore(value: 0)
+    let markerSnapshots = FanoutRecorder<RustPlaybackEventEnvelope>()
+    let markerTask = Task.detached {
+        for await envelope in stream {
+            if case let .resynchronizationRequired(_, snapshots) = envelope.event {
+                markerSnapshots.store(snapshots)
+                sawMarker.signal()
+                break
+            }
+        }
+    }
+    #expect((wait(sawMarker)) == true, "stalled consumer receives a resynchronization marker")
+    let snapshots = markerSnapshots.load()
+    #expect(
+        (snapshots.contains { envelope in
+            if case .queue = envelope.event { return true }
+            return false
+        }) == true,
+        "resynchronization retains the latest queue source fact")
+    #expect(
+        (snapshots.contains { envelope in
+            if case let .playback(state) = envelope.event {
+                return state.trackURI == "spotify:track:pressure-191"
+            }
+            return false
+        }) == true,
+        "resynchronization retains the newest playback source fact")
+    markerTask.cancel()
+
+    let failureFanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let failureStart = DispatchSemaphore(value: 0)
+    let failureStream = failureFanout.events(onStart: { failureStart.signal() }, onTermination: nil)
+    guard wait(failureStart) else {
+        #expect((false) == true, "failure subscriber started")
+        return
+    }
+    failureFanout.emit(playbackEvent(trackURI: "spotify:track:failure", trackUnavailable: true))
+    for index in 0..<192 {
+        failureFanout.emit(playbackEvent(trackURI: "spotify:track:failure", positionMS: Int64(index)))
+    }
+    let failure = failureFanout.diagnostics()
+    #expect((failure.queuedEnvelopeCount) <= (64), "critical failure flood remains bounded")
+    #expect((failure.resynchronizationCount) == (0), "equivalent timing pressure needs no recovery marker")
+    let failureSeen = DispatchSemaphore(value: 0)
+    let failureTask = Task.detached {
+        var sawFailure = false
+        for await envelope in failureStream {
+            if case let .playback(state) = envelope.event, state.trackUnavailable {
+                sawFailure = true
+            }
+            if sawFailure { break }
+        }
+        if sawFailure { failureSeen.signal() }
+    }
+    #expect((wait(failureSeen)) == true, "critical playback failure stays ahead of coalesced timing")
+    failureTask.cancel()
+}
+
+@MainActor
+private func runCoalescingBarriers() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let playbackA = playbackEvent(trackURI: "spotify:track:barrier")
+    let playbackAAfterQueue = playbackEvent(trackURI: "spotify:track:barrier", positionMS: 1)
+    let values = collectSequential(
+        fanout,
+        events: [playbackA, queueEvent(), playbackAAfterQueue]
+    )
+    #expect(
+        (values.map(\.sequence)) == ([1, 2, 3]),
+        "a queue observation fences playback timing coalescing")
+
+    let clusters = EngineEventFanout(clock: SystemPlaybackClock())
+    let clusterValues = collectSequential(
+        clusters,
+        events: [clusterEvent(activeDeviceID: "remote-a"), clusterEvent(activeDeviceID: "remote-b")]
+    )
+    #expect(
+        (clusterValues.map(\.sequence)) == ([1, 2]),
+        "active-device changes remain distinct atomic cluster facts")
+}
+
 private func wait(_ semaphore: DispatchSemaphore) -> Bool {
     semaphore.wait(timeout: .now() + .seconds(5)) == .success
 }
@@ -411,31 +621,42 @@ private final class FanoutRecorder<Value>: @unchecked Sendable {
     }
 }
 
-private func playbackEvent() -> RustPlaybackEvent {
+private func playbackEvent(
+    trackURI: String = "spotify:track:a",
+    positionMS: Int64 = 0,
+    trackUnavailable: Bool = false,
+    revision: UInt64 = 1
+) -> RustPlaybackEvent {
     .playback(
         RustPlaybackState(
-            revision: 1,
+            revision: revision,
             sessionGeneration: 1,
             isPlaying: false,
             isPaused: true,
-            trackURI: "spotify:track:a",
-            positionMS: 0,
+            trackURI: trackURI,
+            positionMS: positionMS,
             durationMS: 1,
             timestampMS: 0,
             shuffle: false,
             repeatTrack: false,
-            repeatContext: false
+            repeatContext: false,
+            trackUnavailable: trackUnavailable
         )
     )
 }
 
-private func queueEvent() -> RustPlaybackEvent {
+private func queueEvent(
+    revision: UInt64 = 1,
+    nextURI: String? = nil
+) -> RustPlaybackEvent {
     .queue(
         RustQueueState(
-            revision: 1,
+            revision: revision,
             sessionGeneration: 1,
             track: nil,
-            protocolNextTracks: [],
+            protocolNextTracks: nextURI.map {
+                [QueueProtocolTrack(uri: $0, uid: "uid-\($0)", provider: "queue")]
+            } ?? [],
             protocolPrevTracks: [],
             queueRevision: "",
             disallowSetQueue: false,
@@ -444,11 +665,11 @@ private func queueEvent() -> RustPlaybackEvent {
     )
 }
 
-private func connectionEvent() -> RustPlaybackEvent {
+private func connectionEvent(generation: UInt64 = 1, revision: UInt64 = 1) -> RustPlaybackEvent {
     .connection(
         RustConnectionState(
-            revision: 1,
-            sessionGeneration: 1,
+            revision: revision,
+            sessionGeneration: generation,
             sessionConnected: true,
             spircReady: true,
             isActiveDevice: false,
@@ -459,15 +680,45 @@ private func connectionEvent() -> RustPlaybackEvent {
     )
 }
 
-private func devicesEvent() -> RustPlaybackEvent {
+private func devicesEvent(
+    activeDeviceID: String = "local",
+    deviceIDs: [String] = ["local"]
+) -> RustPlaybackEvent {
     .devices(
         RustDevicesState(
             revision: 1,
             sessionGeneration: 1,
-            activeDeviceID: "local",
-            devices: [
-                ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer")
-            ]
+            activeDeviceID: activeDeviceID,
+            devices: deviceIDs.map {
+                ConnectProtocolDevice(
+                    id: $0,
+                    name: $0 == "local" ? "Spotty" : "Remote",
+                    type: $0 == "local" ? "computer" : "speaker"
+                )
+            }
+        )
+    )
+}
+
+private func clusterEvent(activeDeviceID: String) -> RustPlaybackEvent {
+    .cluster(
+        RustConnectClusterState(
+            revision: 1,
+            sessionGeneration: 1,
+            source: 2,
+            localDeviceID: "local",
+            devices: RustDevicesState(
+                revision: 1,
+                sessionGeneration: 1,
+                activeDeviceID: activeDeviceID,
+                devices: [
+                    ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer"),
+                    ConnectProtocolDevice(id: activeDeviceID, name: "Remote", type: "speaker"),
+                ]
+            ),
+            connection: nil,
+            playback: nil,
+            queue: nil
         )
     )
 }

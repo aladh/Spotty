@@ -65,6 +65,323 @@ private final class ScriptedLocalEngine: LocalPlaybackEngine, @unchecked Sendabl
     }
 }
 
+@Suite("Playback Dispatch Routing")
+struct PlaybackDispatchRoutingTests {
+    @MainActor
+    private final class DispatchMarker {
+        var reached = false
+    }
+
+    @MainActor
+    private func seedLocalPaused(_ player: PlaybackStore) {
+        _ = player.send(.session(.ready), source: .account)
+        _ = player.send(
+            .devices(
+                PlaybackDeviceSnapshot(
+                    devices: [
+                        PlaybackDevice(id: "mac", name: "This Mac", type: "computer", isActive: true),
+                        PlaybackDevice(id: "speaker-a", name: "Speaker A", type: "speaker"),
+                    ],
+                    localDeviceID: "mac",
+                    revision: 1
+                )),
+            source: .engineDevices,
+            revision: 1
+        )
+        _ = player.send(
+            .presentation(
+                PlaybackPresentationSnapshot(
+                    currentTrack: CurrentTrack(
+                        uri: "spotify:track:dispatch",
+                        title: "Dispatch",
+                        artist: "Artist",
+                        duration: 200,
+                        metadataSource: .catalog
+                    ),
+                    transport: .paused,
+                    timing: PlaybackTiming(
+                        position: 10, duration: 200, anchoredAt: Date(timeIntervalSince1970: 1)
+                    ))),
+            source: .user
+        )
+    }
+
+    @MainActor
+    private func seedIdleLocalCandidate(_ player: PlaybackStore) {
+        _ = player.send(.session(.ready), source: .account)
+        _ = player.send(
+            .devices(
+                PlaybackDeviceSnapshot(
+                    devices: [
+                        PlaybackDevice(id: "mac", name: "This Mac", type: "computer")
+                    ],
+                    localDeviceID: "mac",
+                    revision: 1
+                )),
+            source: .engineDevices,
+            revision: 1
+        )
+        _ = player.send(
+            .presentation(
+                PlaybackPresentationSnapshot(
+                    currentTrack: CurrentTrack(
+                        uri: "spotify:track:idle",
+                        title: "Idle",
+                        artist: "Artist",
+                        duration: 200,
+                        metadataSource: .catalog
+                    ),
+                    transport: .paused,
+                    timing: PlaybackTiming(
+                        position: 0, duration: 200, anchoredAt: Date(timeIntervalSince1970: 1)
+                    ))),
+            source: .user
+        )
+    }
+
+    @MainActor
+    private func publishRemoteOwner(_ player: PlaybackStore, id: String, revision: UInt64) {
+        _ = player.send(
+            .devices(
+                PlaybackDeviceSnapshot(
+                    devices: [
+                        PlaybackDevice(id: "mac", name: "This Mac", type: "computer"),
+                        PlaybackDevice(id: id, name: id, type: "speaker", isActive: true),
+                    ],
+                    localDeviceID: "mac",
+                    revision: revision
+                )),
+            source: .engineDevices,
+            revision: revision
+        )
+    }
+
+    @Test
+    @MainActor
+    func queuedRemoteCommandIsDroppedOnHandoffButTimingKeepsSameRoute() async {
+        do {
+            let local = GatedLocalEngine(result: .ok)
+            let remote = ScriptedRemoteClient(.succeed)
+            let player = playbackStore(commandEnvironment(local: local, remote: remote))
+            seedLocalPaused(player)
+            player.toggleShuffle()
+            #expect(await waitUntil { local.enteredCount == 1 }, "a local command occupies the coordinator")
+            publishRemoteOwner(player, id: "speaker-a", revision: 2)
+            let marker = DispatchMarker()
+            player.performRoutedCommand(
+                "Could not pause",
+                expecting: false,
+                local: .pause,
+                remote: .pause,
+                dispatchGuard: {
+                    marker.reached = true
+                    return true
+                }
+            )
+            #expect(
+                await waitUntil { marker.reached },
+                "remote command registers its dispatch permit while the coordinator is busy"
+            )
+            _ = player.setTiming(position: 11)
+            local.finish(with: .ok)
+            #expect(
+                await waitUntil { await remote.sendCount == 1 },
+                "a same-route command survives a timing publication"
+            )
+            #expect(await waitUntil { player.state.pendingCommands[.transport] == nil }, "same-route command settles")
+            await player.shutdownForTermination()
+        }
+
+        do {
+            let local = GatedLocalEngine(result: .ok)
+            let remote = ScriptedRemoteClient(.succeed)
+            let player = playbackStore(commandEnvironment(local: local, remote: remote))
+            seedLocalPaused(player)
+            player.toggleShuffle()
+            #expect(await waitUntil { local.enteredCount == 1 }, "a local command occupies the coordinator")
+            publishRemoteOwner(player, id: "speaker-a", revision: 2)
+            let marker = DispatchMarker()
+            player.performRoutedCommand(
+                "Could not pause",
+                expecting: false,
+                local: .pause,
+                remote: .pause,
+                dispatchGuard: {
+                    marker.reached = true
+                    return true
+                }
+            )
+            #expect(
+                await waitUntil { marker.reached },
+                "remote command registers its dispatch permit before handoff"
+            )
+            publishRemoteOwner(player, id: "speaker-b", revision: 3)
+            local.finish(with: .ok)
+            #expect(
+                await waitUntil { player.state.pendingCommands[.transport] == nil },
+                "stale remote command settles through commandFinished"
+            )
+            #expect((await remote.sendCount) == 0, "handoff causes zero sends to the stale target")
+            #expect((player.transientCommandError) == nil, "stale undispatched command has no transport notice")
+            await player.shutdownForTermination()
+        }
+
+        do {
+            let local = GatedLocalEngine(result: .ok)
+            let remote = ScriptedRemoteClient(.succeed)
+            let player = playbackStore(commandEnvironment(local: local, remote: remote))
+            seedLocalPaused(player)
+            player.toggleShuffle()
+            #expect(await waitUntil { local.enteredCount == 1 }, "a local command occupies the coordinator")
+            publishRemoteOwner(player, id: "speaker-a", revision: 2)
+            let marker = DispatchMarker()
+            player.performRoutedCommand(
+                "Could not pause",
+                expecting: false,
+                local: .pause,
+                remote: .pause,
+                dispatchGuard: {
+                    marker.reached = true
+                    return true
+                }
+            )
+            #expect(
+                await waitUntil { marker.reached },
+                "remote command registers its dispatch permit before generation cancellation"
+            )
+            _ = player.send(
+                .reset(session: .recovering),
+                source: .engineConnection,
+                engineEpoch: player.engineGeneration &+ 1
+            )
+            local.finish(with: .ok)
+            #expect(
+                await waitUntil { player.state.pendingCommands[.transport] == nil },
+                "generation cancellation leaves no stale pending command"
+            )
+            #expect((await remote.sendCount) == 0, "generation cancellation causes zero stale sends")
+            await player.shutdownForTermination()
+        }
+
+        do {
+            let local = GatedLocalEngine(result: .ok)
+            let remote = ScriptedRemoteClient(.succeed)
+            let player = playbackStore(commandEnvironment(local: local, remote: remote))
+            seedLocalPaused(player)
+            player.toggleShuffle()
+            #expect(await waitUntil { local.enteredCount == 1 }, "a local command occupies the coordinator")
+            publishRemoteOwner(player, id: "speaker-a", revision: 2)
+            let marker = DispatchMarker()
+            player.performRoutedCommand(
+                "Could not pause",
+                expecting: false,
+                local: .pause,
+                remote: .pause,
+                dispatchGuard: {
+                    marker.reached = true
+                    return true
+                }
+            )
+            #expect(
+                await waitUntil { marker.reached },
+                "remote command registers its dispatch permit before account cancellation"
+            )
+            _ = player.send(
+                .reset(session: .signedOut),
+                source: .account,
+                accountEpoch: player.accountEpoch &+ 1
+            )
+            local.finish(with: .ok)
+            #expect(
+                await waitUntil { player.state.pendingCommands[.transport] == nil },
+                "account cancellation leaves no stale pending command"
+            )
+            #expect((await remote.sendCount) == 0, "account cancellation causes zero stale sends")
+            await player.shutdownForTermination()
+        }
+    }
+
+    @Test
+    @MainActor
+    func firstIdleLocalPlayAndExplicitTransferKeepTheirChosenTargets() async {
+        do {
+            let local = ScriptedLocalEngine(result: .ok)
+            let player = playbackStore(
+                commandEnvironment(local: local, remote: ScriptedRemoteClient(.succeed))
+            )
+            seedIdleLocalCandidate(player)
+            player.performRoutedCommand(
+                "Could not play",
+                expecting: true,
+                local: .playTracks(["spotify:track:idle"]),
+                remote: .play(trackURIs: ["spotify:track:idle"])
+            )
+            #expect(await waitUntil { player.state.pendingCommands[.transport] == nil }, "idle local play settles")
+            #expect((local.operations.count) == (1), "idle play enters local engine once")
+            if case let .playTracks(uris)? = local.operations.first {
+                #expect((uris) == (["spotify:track:idle"]), "idle play keeps its chosen track")
+            } else {
+                #expect((false) == true, "idle play uses the local play operation")
+            }
+            await player.shutdownForTermination()
+        }
+
+        do {
+            let local = ScriptedLocalEngine(result: .ok)
+            let player = playbackStore(
+                commandEnvironment(local: local, remote: ScriptedRemoteClient(.succeed))
+            )
+            seedLocalPaused(player)
+            let target = ConnectDevice(id: "speaker-a", name: "Speaker A", type: "speaker", isActive: false)
+            player.transferPlayback(to: target)
+            #expect(await waitUntil { player.state.pendingCommands[.transfer] == nil }, "explicit transfer settles")
+            #expect((local.operations.count) == (1), "explicit transfer enters the local engine once")
+            if case let .transferToDevice(id)? = local.operations.first {
+                #expect((id) == ("speaker-a"), "explicit transfer keeps its deliberate device target")
+            } else {
+                #expect((false) == true, "explicit transfer uses a device-targeted operation")
+            }
+            #expect(
+                (player.feedback.message?.text) == ("Playing on Speaker A"),
+                "accepted explicit transfer presents success feedback"
+            )
+            await player.shutdownForTermination()
+        }
+    }
+
+    @Test
+    @MainActor
+    func idleLocalOwnershipConfirmationKeepsQueuedLocalPermit() async {
+        let player = playbackStore(
+            commandEnvironment(
+                local: ScriptedLocalEngine(result: .ok),
+                remote: ScriptedRemoteClient(.succeed)
+            )
+        )
+        seedIdleLocalCandidate(player)
+        let queuedLocalPermit = player.makePlaybackDispatchPermit(ifStillWanted: { true })
+
+        _ = player.send(
+            .devices(
+                PlaybackDeviceSnapshot(
+                    devices: [
+                        PlaybackDevice(id: "mac", name: "This Mac", type: "computer", isActive: true)
+                    ],
+                    localDeviceID: "mac",
+                    revision: 2
+                )),
+            source: .engineDevices,
+            revision: 2
+        )
+
+        #expect(
+            queuedLocalPermit?.claim() == true,
+            "confirming the same idle local destination keeps a queued local permit valid"
+        )
+        await player.shutdownForTermination()
+    }
+}
+
 private final class GatedLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
     private let condition = NSCondition()
     private var allowed = false
@@ -303,6 +620,19 @@ private func playbackStore(_ environment: PlaybackEnvironment) -> PlaybackStore 
     )
 }
 
+@MainActor
+private func receiveReadyEngine(_ player: PlaybackStore) {
+    player.receive(
+        RustConnectionState(
+            revision: 1, sessionGeneration: player.engineGeneration,
+            sessionConnected: true, spircReady: true, isActiveDevice: true,
+            resumePending: false, lastError: nil, deviceID: "local"
+        ),
+        revision: 1,
+        receivedAt: Date()
+    )
+}
+
 @Suite("Playback Command Failure")
 struct PlaybackCommandFailureTests {
     @Test
@@ -502,6 +832,7 @@ struct PlaybackCommandFailureTests {
                 )
             )
             await ready.restore()
+            receiveReadyEngine(ready)
             #expect((ready.phase) == (.ready), "a granted account restores to ready")
             var readyCompletions: [Bool] = []
             ready.performCommand(action, expecting: false, operation: .pause) { readyCompletions.append($0) }
@@ -528,6 +859,7 @@ struct PlaybackCommandFailureTests {
                 )
             )
             await cancelled.restore()
+            receiveReadyEngine(cancelled)
             #expect((cancelled.phase) == (.ready), "a granted account restores to ready before cancelled recovery")
             cancelled.recoverEngineAfterCommandFailure()
             let recoverySettlement = cancelled.effects.settlement(of: .engineRecovery)
@@ -549,6 +881,7 @@ struct PlaybackCommandFailureTests {
                 )
             )
             await reconciled.restore()
+            receiveReadyEngine(reconciled)
             #expect((reconciled.phase) == (.ready), "the reconciled fixture starts from a ready session")
             var reconciledCompletions: [Bool] = []
             reconciled.performCommand(action, expecting: false, operation: .pause) { reconciledCompletions.append($0) }
@@ -2028,6 +2361,7 @@ struct PlaybackCommandFailureTests {
             seedRemoteOwner(confirmStore)
             confirmStore.transferPlayback(to: speakerB)
             _ = await waitUntil { confirmStore.state.pendingCommands[.transfer] != nil }
+            #expect(await waitUntil { confirmGate.enteredCount == 1 }, "transfer dispatch precedes confirmation")
             let confirmedCommandID = confirmStore.state.pendingCommands[.transfer]?.id
             sendConnectionOwner(confirmStore, owner: remoteB, revision: 1)
             #expect(

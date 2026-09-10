@@ -23,24 +23,6 @@ private final class CancellationFlag: @unchecked Sendable {
 private let cancellationWorkNanoseconds: UInt64 = 50_000_000
 private let cancellationWaitNanoseconds: UInt64 = 200_000_000
 
-@MainActor
-private final class SettlementPark {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private(set) var isParked = false
-    private(set) var didFinish = false
-
-    func park() async {
-        isParked = true
-        await withCheckedContinuation { continuation = $0 }
-        didFinish = true
-    }
-
-    func release() {
-        continuation?.resume()
-        continuation = nil
-    }
-}
-
 private func awaitBounded(_ task: Task<Void, Never>) async -> Bool {
     await withTaskGroup(of: Bool.self) { group in
         group.addTask {

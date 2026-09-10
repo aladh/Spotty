@@ -6,6 +6,7 @@ public enum PlaybackEventSource: Hashable, Sendable {
     case enginePlayback
     case engineQueue
     case engineDevices
+    case engineCluster
     case command
     case metadata
     case user
@@ -42,6 +43,7 @@ public enum PlaybackEvent: Sendable {
     case owner(PlaybackOwner)
     case enginePlayback(EnginePlaybackSnapshot)
     case engineConnection(EngineConnectionSnapshot)
+    case engineCluster(EngineConnectSnapshot)
     case presentation(PlaybackPresentationSnapshot)
     case trackMetadata(PlaybackTrackMetadata)
     case timing(position: TimeInterval, duration: TimeInterval, anchoredAt: Date)

@@ -104,6 +104,46 @@ public enum PlaybackReducer {
             if let session = snapshot.session { candidate.session = session }
             reconcileOwner(snapshot.owner, source: envelope.source, in: &candidate)
             candidate.devices.localDeviceID = snapshot.localDeviceID
+        case let .engineCluster(snapshot):
+            // Preserve component source ordering while committing one externally observable
+            // state. A newer local playback sample may already have overtaken this cluster.
+            _ = reduce(
+                &candidate,
+                envelope: PlaybackEventEnvelope(
+                    accountEpoch: envelope.accountEpoch,
+                    engineEpoch: envelope.engineEpoch,
+                    source: .engineDevices,
+                    revision: snapshot.devices.revision,
+                    receivedAt: envelope.receivedAt,
+                    event: .devices(snapshot.devices)
+                )
+            )
+            if let playback = snapshot.playback, let revision = snapshot.playbackRevision {
+                _ = reduce(
+                    &candidate,
+                    envelope: PlaybackEventEnvelope(
+                        accountEpoch: envelope.accountEpoch,
+                        engineEpoch: envelope.engineEpoch,
+                        source: .enginePlayback,
+                        revision: revision,
+                        receivedAt: envelope.receivedAt,
+                        event: .enginePlayback(playback)
+                    )
+                )
+            }
+            if let connection = snapshot.connection, let revision = snapshot.connectionRevision {
+                _ = reduce(
+                    &candidate,
+                    envelope: PlaybackEventEnvelope(
+                        accountEpoch: envelope.accountEpoch,
+                        engineEpoch: envelope.engineEpoch,
+                        source: .engineConnection,
+                        revision: revision,
+                        receivedAt: envelope.receivedAt,
+                        event: .engineConnection(connection)
+                    )
+                )
+            }
         case let .presentation(presentation):
             let incomingURI = playbackTrackURI(presentation.currentTrack?.uri)
             if !shouldHoldOptimisticPlayTarget(incomingURI: incomingURI, in: candidate) {

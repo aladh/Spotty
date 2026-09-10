@@ -8,6 +8,25 @@ nonisolated enum RustPlaybackEvent: Sendable {
     case queue(RustQueueState)
     case connection(RustConnectionState)
     case devices(RustDevicesState)
+    case cluster(RustConnectClusterState)
+    case resynchronizationRequired(
+        sessionGeneration: UInt64,
+        snapshots: [RustPlaybackEventEnvelope] = []
+    )
+}
+
+/// Related facts copied from one engine cluster callback. Component revisions remain intact:
+/// player-local observations can be newer than the corresponding cluster playback sample.
+nonisolated struct RustConnectClusterState: Sendable {
+    let revision: UInt64
+    let sessionGeneration: UInt64
+    /// Engine provenance: 1 is bootstrap, 2 is dealer push; unknown values remain opaque.
+    let source: UInt8
+    let localDeviceID: String?
+    let devices: RustDevicesState
+    let connection: RustConnectionState?
+    let playback: RustPlaybackState?
+    let queue: RustQueueState?
 }
 
 /// Process-local ordering assigned at callback intake and delivered in that order.
@@ -122,6 +141,10 @@ nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Send
         }
         guard shouldRegister else { return }
 
+        PlaybackCore.registerConnectClusterStateCallback { pointer in
+            guard let state = PlaybackCore.connectClusterState(from: pointer) else { return }
+            RustPlaybackEngine.shared.emit(.cluster(state))
+        }
         PlaybackCore.registerAudioDataCallback { samples, count in
             guard let samples else { return }
             try? spottyAudioRendererResult.get().writeAudioData(samples, count: count)

@@ -20,9 +20,13 @@ extension PlaybackStore {
         // bailing in `receive` would consume a snapshot the reducer never accepted.
         guard !isTearingDown else { return }
 
-        switch envelope.event {
+        receiveEngineEvent(envelope.event, receivedAt: envelope.receivedAt)
+    }
+
+    private func receiveEngineEvent(_ event: RustPlaybackEvent, receivedAt: Date) {
+        switch event {
         case let .playback(state):
-            receive(state, revision: state.revision, receivedAt: envelope.receivedAt)
+            receive(state, revision: state.revision, receivedAt: receivedAt)
         case let .queue(state):
             guard
                 acceptsConnectQueueCallback(
@@ -32,7 +36,11 @@ extension PlaybackStore {
             else { return }
             receive(state, revision: state.revision, engineEpoch: state.sessionGeneration)
         case let .connection(state):
-            receive(state, revision: state.revision, receivedAt: envelope.receivedAt)
+            receive(state, revision: state.revision, receivedAt: receivedAt)
+        case let .cluster(state):
+            receive(state, receivedAt: receivedAt)
+        case let .resynchronizationRequired(sessionGeneration, snapshots):
+            recoverAfterEventLoss(sessionGeneration: sessionGeneration, snapshots: snapshots)
         case let .devices(state):
             receive(
                 ConnectDeviceProjection.devices(
@@ -43,6 +51,176 @@ extension PlaybackStore {
                 engineEpoch: state.sessionGeneration
             )
         }
+    }
+
+    /// A cluster's device/owner/playback facts cross the reducer in one transaction. Queue
+    /// enrichment remains QueueService-owned and cannot become another current-track authority.
+    func receive(_ cluster: RustConnectClusterState, receivedAt: Date) {
+        guard !isTearingDown else { return }
+        let previousTrackURI = trackURI
+        let isInitial = !hasReceivedPlaybackSnapshot
+        let localID = ConnectionSnapshotProjection.resolvedDeviceID(
+            wire: cluster.localDeviceID,
+            fallback: cluster.sessionGeneration == engineGeneration ? localDeviceID : nil
+        )
+        let devices = ConnectDeviceProjection.devices(
+            from: cluster.devices.devices,
+            activeDeviceID: cluster.devices.activeDeviceID
+        )
+        let domainDevices = devices.map {
+            PlaybackDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
+        }
+        let playback = cluster.playback.map {
+            playbackSnapshot($0, receivedAt: receivedAt, isInitial: isInitial)
+        }
+        let session = cluster.connection.flatMap {
+            connectionPhase($0, localDeviceID: localID)
+        }
+        let connection = cluster.connection.map { connection in
+            EngineConnectionSnapshot(
+                session: session,
+                owner: connectionPlaybackOwner(
+                    isLocalActive: connection.isActiveDevice,
+                    localDeviceID: localID,
+                    localDeviceName: thisDeviceName,
+                    devices: domainDevices,
+                    currentTrackURI: playback.map(\.trackURI) ?? state.currentTrack?.uri,
+                    previousOwner: state.owner,
+                    lastRemoteDeviceID: lastRemoteDeviceID
+                ),
+                localDeviceID: localID
+            )
+        }
+        let acceptsPlayback =
+            cluster.playback.map {
+                PlaybackReducer.accepts(
+                    state,
+                    accountEpoch: accountEpoch,
+                    engineEpoch: cluster.sessionGeneration,
+                    source: .enginePlayback,
+                    revision: $0.revision
+                )
+            } ?? false
+        let acceptsConnection =
+            cluster.connection.map {
+                PlaybackReducer.accepts(
+                    state,
+                    accountEpoch: accountEpoch,
+                    engineEpoch: cluster.sessionGeneration,
+                    source: .engineConnection,
+                    revision: $0.revision
+                )
+            } ?? false
+        // The aggregate revision can be newer even when its devices component is stale. Do not
+        // persist an active remote from that rejected component; the preference must follow the
+        // same acceptance boundary as the devices snapshot that established it.
+        let acceptsDevices = PlaybackReducer.accepts(
+            state,
+            accountEpoch: accountEpoch,
+            engineEpoch: cluster.sessionGeneration,
+            source: .engineDevices,
+            revision: cluster.devices.revision
+        )
+        guard
+            send(
+                .engineCluster(
+                    EngineConnectSnapshot(
+                        devices: PlaybackDeviceSnapshot(
+                            devices: domainDevices,
+                            localDeviceID: localID,
+                            revision: cluster.devices.revision,
+                            lastRemoteDeviceID: lastRemoteDeviceID
+                        ),
+                        connection: connection,
+                        connectionRevision: cluster.connection?.revision,
+                        playback: playback,
+                        playbackRevision: cluster.playback?.revision
+                    )
+                ),
+                source: .engineCluster,
+                revision: cluster.revision,
+                engineEpoch: cluster.sessionGeneration,
+                receivedAt: receivedAt
+            )
+        else { return }
+
+        if acceptsPlayback, let rawPlayback = cluster.playback,
+            state.sourceRevisions[.enginePlayback] == rawPlayback.revision
+        {
+            hasReceivedPlaybackSnapshot = true
+            if let uri = state.currentTrack?.uri, uri != previousTrackURI {
+                adoptTrackMetadata(for: uri, force: true)
+                if !isInitial, rawPlayback.isActiveDevice, state.transport == .playing {
+                    recordPlayed(uri)
+                }
+            } else if state.currentTrack == nil {
+                effects.cancel(.trackMetadata)
+            }
+        }
+        if acceptsDevices, let remote = devices.first(where: { $0.isActive && $0.id != localID }) {
+            lastRemoteDeviceID = remote.id
+            Task { await environment.preferences.setLastRemoteDeviceID(remote.id) }
+        }
+        if let queue = cluster.queue,
+            acceptsConnectQueueCallback(generation: queue.sessionGeneration, revision: queue.revision)
+        {
+            receive(queue, revision: queue.revision, mayAdoptPlaybackIdentity: false)
+        }
+        if acceptsConnection, let rawConnection = cluster.connection {
+            handleAcceptedConnection(rawConnection, session: session)
+        }
+    }
+
+    /// Overflow invalidates command-confirmation history, not the engine itself. Clear optimistic
+    /// intent and reconstruct current truth from the fan-out's retained source snapshots in one
+    /// MainActor turn. Original source revisions/receipt times remain authoritative; no network
+    /// command or engine rebuild is needed to recover from a slow UI consumer.
+    private func recoverAfterEventLoss(
+        sessionGeneration: UInt64,
+        snapshots: [RustPlaybackEventEnvelope]
+    ) {
+        guard !isTearingDown, terminationGate.allowsCommands,
+            sessionGeneration >= engineGeneration
+        else { return }
+        invalidatePlaybackDispatchPermits()
+        effects.cancelPlaybackCommands()
+        send(.reset(session: .connecting), source: .engineCluster, engineEpoch: sessionGeneration)
+        for id in [PlaybackEffectID.connectQueueAccept, .queueSnapshot, .queueRefresh, .trackMetadata] {
+            effects.cancel(id)
+        }
+        queueReplacementToken = nil
+        queueMutation = nil
+        connectQueueCallback.reset()
+        hasReceivedPlaybackSnapshot = false
+        engineRehydrationWindowOpen = false
+        for snapshot in snapshots.sorted(by: { $0.sequence < $1.sequence }) {
+            // Markers never retain markers; reject malformed synthetic recursion defensively.
+            if case .resynchronizationRequired = snapshot.event { continue }
+            guard snapshot.event.sessionGeneration == sessionGeneration else { continue }
+            receiveEngineEvent(snapshot.event, receivedAt: snapshot.receivedAt)
+            if isTearingDown { break }
+            // Replayed local snapshots are history restoration, never a new listening event.
+            hasReceivedPlaybackSnapshot = false
+        }
+        hasReceivedPlaybackSnapshot = state.sourceRevisions[.enginePlayback] != nil
+        if snapshots.isEmpty {
+            let phase = PlaybackSessionPhase.failed(ConnectionSnapshotProjection.connectionFailedMessage)
+            send(.session(phase), source: .engineCluster)
+            accountStore.receiveEngineConnection(phase)
+        }
+    }
+
+    private func connectionPhase(
+        _ connection: RustConnectionState,
+        localDeviceID: String?
+    ) -> PlaybackSessionPhase? {
+        let phase = ConnectionSnapshotProjection.sessionPhase(
+            connected: connection.sessionConnected,
+            spircReady: connection.spircReady,
+            credentialsRejected: connection.credentialsRejected,
+            lastError: connection.lastError
+        )
+        return phase == .ready && localDeviceID == nil ? .connecting : phase
     }
 
     /// MainActor dedupe for Connect queue *callbacks*. Records generation and revision together
@@ -56,15 +234,12 @@ extension PlaybackStore {
         )
     }
 
-    func receive(_ state: RustPlaybackState, revision: UInt64, receivedAt: Date) {
-        guard !isTearingDown else { return }
-        let isInitialSnapshot = !hasReceivedPlaybackSnapshot
-        let previousTrackURI = trackURI
-        // This fact belongs to the same Connect player observation as the transport and
-        // identity below. Reading the store's owner here would make projection depend on
-        // callback arrival order.
-        let snapshotIsActiveDevice = state.isActiveDevice
-        let snapshot = PlaybackSnapshotProjection.snapshot(
+    private func playbackSnapshot(
+        _ state: RustPlaybackState,
+        receivedAt: Date,
+        isInitial: Bool
+    ) -> EnginePlaybackSnapshot {
+        return PlaybackSnapshotProjection.snapshot(
             isPlaying: state.isPlaying,
             isPaused: state.isPaused,
             trackURI: state.trackURI,
@@ -76,11 +251,22 @@ extension PlaybackStore {
             repeatTrack: state.repeatTrack,
             trackUnavailable: state.trackUnavailable,
             audioKeyRefused: state.audioKeyRefused,
-            isInitialSnapshot: isInitialSnapshot,
-            isActiveDevice: snapshotIsActiveDevice,
+            isInitialSnapshot: isInitial,
+            isActiveDevice: state.isActiveDevice,
             receivedAt: receivedAt,
             contextURI: state.contextURI
         )
+    }
+
+    func receive(_ state: RustPlaybackState, revision: UInt64, receivedAt: Date) {
+        guard !isTearingDown else { return }
+        let isInitialSnapshot = !hasReceivedPlaybackSnapshot
+        let previousTrackURI = trackURI
+        // This fact belongs to the same Connect player observation as the transport and
+        // identity below. Reading the store's owner here would make projection depend on
+        // callback arrival order.
+        let snapshotIsActiveDevice = state.isActiveDevice
+        let snapshot = playbackSnapshot(state, receivedAt: receivedAt, isInitial: isInitialSnapshot)
         let accepted = send(
             .enginePlayback(snapshot),
             source: .enginePlayback,
@@ -312,7 +498,7 @@ extension PlaybackStore {
         guard !isTearingDown else { return }
         let resolvedLocalID = ConnectionSnapshotProjection.resolvedDeviceID(
             wire: state.deviceID,
-            fallback: localDeviceID
+            fallback: state.sessionGeneration == engineGeneration ? localDeviceID : nil
         )
         let owner = connectionPlaybackOwner(
             isLocalActive: state.isActiveDevice,
@@ -323,12 +509,7 @@ extension PlaybackStore {
             previousOwner: self.state.owner,
             lastRemoteDeviceID: lastRemoteDeviceID
         )
-        let session = ConnectionSnapshotProjection.sessionPhase(
-            connected: state.sessionConnected,
-            spircReady: state.spircReady,
-            credentialsRejected: state.credentialsRejected,
-            lastError: state.lastError
-        )
+        let session = connectionPhase(state, localDeviceID: resolvedLocalID)
         let accepted = send(
             .engineConnection(
                 EngineConnectionSnapshot(
@@ -342,6 +523,13 @@ extension PlaybackStore {
             receivedAt: receivedAt
         )
         guard accepted else { return }
+        handleAcceptedConnection(state, session: session)
+    }
+
+    private func handleAcceptedConnection(
+        _ state: RustConnectionState,
+        session: PlaybackSessionPhase?
+    ) {
         accountStore.receiveEngineConnection(session)
         guard !state.credentialsRejected else {
             // The snapshot was accepted for this engine/account generation. Keep the independent

@@ -163,6 +163,16 @@ nonisolated let spottyAudioRendererResult: Result<AudioRenderer, AudioRendererEr
     }
 }()
 
+/// State that can make a queued transport command target a different lifetime or destination.
+/// High-frequency timing and metadata publications intentionally do not participate.
+struct PlaybackDispatchContext: Equatable, Sendable {
+    let lifetime: PlaybackLifetime
+    let route: ConnectCommandRoute
+    let localDeviceID: String?
+    let defaultLocalDeviceID: String?
+    let session: PlaybackSessionPhase
+}
+
 @MainActor
 @Observable
 final class PlaybackStore {
@@ -245,6 +255,11 @@ final class PlaybackStore {
     /// Lifetime token for one in-flight Connect `set_queue` replacement. Not a source revision.
     /// A finished request clears only its own token so teardown cannot drop a newer session gate.
     @ObservationIgnored var queueReplacementToken: UUID?
+    /// Queued command permits are invalidated synchronously when a publication changes the
+    /// command destination or playback lifetime while a pending command still owns that route.
+    /// Claimed permits remain valid for in-flight work; late confirmations/supersessions with no
+    /// pending slot preserve the already-admitted operation and make its outcome inert instead.
+    @ObservationIgnored private var playbackDispatchPermits: [(permit: PlaybackDispatchPermit, commandID: UUID?)] = []
 
     init(
         environment: PlaybackEnvironment = .live,
@@ -283,7 +298,12 @@ final class PlaybackStore {
                 accountEpoch: self.accountEpoch,
                 isAvailable: phase == .ready
             )
-            self.send(.session(phase), source: .account)
+            // A successful initialization return can beat consumption of its engine callbacks.
+            // Catalog/auth readiness does not publish command readiness before local identity and
+            // connection facts have reached the reducer. Only accepted engine observations do.
+            if phase != .ready {
+                self.send(.session(phase), source: .account)
+            }
         }
         accountStore.onReauthenticationChange = { [weak self] required in
             guard let self else { return }
@@ -412,6 +432,13 @@ final class PlaybackStore {
     ) -> Bool {
         let stampedAccountEpoch = accountEpoch ?? self.accountEpoch
         let stampedEngineEpoch = engineEpoch ?? engineGeneration
+        let previousDispatchContext = playbackDispatchContext(
+            state: state,
+            accountEpoch: self.accountEpoch,
+            engineGeneration: engineGeneration
+        )
+        let lifetimeStampChanged =
+            stampedAccountEpoch != self.accountEpoch || stampedEngineEpoch != engineGeneration
         var next = state
         let accepted = PlaybackReducer.reduce(
             &next,
@@ -425,6 +452,21 @@ final class PlaybackStore {
             )
         )
         if accepted {
+            let nextDispatchContext = playbackDispatchContext(
+                state: next,
+                accountEpoch: stampedAccountEpoch,
+                engineGeneration: next.engineEpoch
+            )
+            if lifetimeStampChanged || previousDispatchContext != nextDispatchContext {
+                invalidatePlaybackDispatchPermits()
+            } else {
+                let pendingIDs = Set(next.pendingCommands.values.map(\.id))
+                for entry in playbackDispatchPermits {
+                    if let commandID = entry.commandID, !pendingIDs.contains(commandID) {
+                        entry.permit.invalidate()
+                    }
+                }
+            }
             state = next
             engineGeneration = next.engineEpoch
             let nextIndicator = CurrentTrackIndicator(state: next)
@@ -566,6 +608,74 @@ final class PlaybackStore {
     func dismissPlaybackNotice(id: UUID) {
         guard state.notice?.id == id else { return }
         _ = send(.notice(nil), source: .user)
+    }
+
+    /// Creates a queued-command permit only after optimistic admission has published its pending
+    /// identity. The route predicate is checked on MainActor before the coordinator claims the
+    /// permit; route/lifetime publications invalidate the permit synchronously in `send`.
+    func makePlaybackDispatchPermit(
+        commandID: UUID? = nil,
+        ifStillWanted: @escaping @MainActor @Sendable () -> Bool
+    ) -> PlaybackDispatchPermit? {
+        playbackDispatchPermits.removeAll { $0.permit.isResolved }
+        if let commandID, !state.pendingCommands.values.contains(where: { $0.id == commandID }) {
+            return nil
+        }
+        let permit = PlaybackDispatchPermit()
+        playbackDispatchPermits.append((permit, commandID))
+        guard ifStillWanted() else {
+            permit.invalidate()
+            return nil
+        }
+        return permit
+    }
+
+    /// Invalidates only permits that have not crossed the irreversible dispatch boundary. The
+    /// permit itself linearizes a concurrent claim against this MainActor publication hook.
+    func invalidatePlaybackDispatchPermits() {
+        for entry in playbackDispatchPermits {
+            entry.permit.invalidate()
+        }
+        playbackDispatchPermits.removeAll(keepingCapacity: true)
+    }
+
+    private func playbackDispatchContext(
+        state: PlaybackState,
+        accountEpoch: UInt64,
+        engineGeneration: UInt64
+    ) -> PlaybackDispatchContext {
+        let rawRoute = connectCommandRoute(
+            owner: state.owner,
+            localDeviceID: state.devices.localDeviceID
+        )
+        // A transport command's own optimistic `.playing` state temporarily hides the idle
+        // default-local projection. Keep that intentional target stable so publishing
+        // `commandStarted` does not cancel another command merely because the projection changed.
+        let isOptimisticIdleLocalPlay =
+            (rawRoute == .local || rawRoute == .needsDeviceSelection)
+            && state.session == .ready
+            && state.devices.localDeviceID?.isEmpty == false
+            && state.pendingCommands[.transport]?.expectedTransport == .playing
+            && (state.owner == .none || state.owner == .uncertain(nil))
+        let route = isOptimisticIdleLocalPlay ? .local : rawRoute
+        // A local command's effective destination is this local Connect identity. Keep that
+        // identity stable when an idle candidate (`.none`/`.uncertain(nil)`) becomes confirmed
+        // `.local`; ownership certainty changes, but the command is still headed to the same Mac.
+        // Remote routes retain their exact source/target identity through `route`.
+        let defaultLocalDeviceID =
+            route == .local
+            ? state.devices.localDeviceID
+            : ConnectDeviceProjection.defaultLocalDevice(in: state)?.id
+        return PlaybackDispatchContext(
+            lifetime: PlaybackLifetime(
+                accountEpoch: accountEpoch,
+                engineGeneration: engineGeneration
+            ),
+            route: route,
+            localDeviceID: state.devices.localDeviceID,
+            defaultLocalDeviceID: defaultLocalDeviceID,
+            session: state.session
+        )
     }
 }
 

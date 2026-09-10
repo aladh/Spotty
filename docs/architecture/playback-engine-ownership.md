@@ -21,6 +21,18 @@ separate from merged queue presentation: adopting an engine epoch must not erase
 watermark. Metadata can enrich authoritative queue labels, never replace its occurrence order or
 mutation authority.
 
+Queue refresh and metadata hydration share an account/context flight owned by QueueService.
+Canceling a panel consumer removes its updates without discarding useful shared work; account or
+context replacement cancels the flight. New Connect ordering can extend enrichment while keeping
+its occurrence order authoritative. Subscriber cancellation and lifetime checks apply again at
+publication, including after a Web failure.
+
+An engine delivery overflow resets store intent history while retaining QueueService's ordered
+facts and metadata work. Process-monotonic Rust source revisions still decide queue precedence:
+a newer getter observation may already exceed the replayed callback. An equal or older replay
+therefore uses the actor's accepted queue rather than rolling its watermark back. Canceled
+subscribers cannot publish, and continuing hydration enriches the latest accepted Connect order.
+
 ## Rust (protocol and engine lifetimes)
 
 The [Rust leaf](../../Backend/spotty-playback/src) owns sessions, Spirc/Connect, streaming,

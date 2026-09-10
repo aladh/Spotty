@@ -254,3 +254,19 @@ public func playbackCommandShouldSettleOrdinaryCancellation(
         && capturedLifetime == currentLifetime
         && pendingCommandID == cancelledCommandID
 }
+
+/// Same-lifetime settlement for a command whose route lease expired before dispatch. The command
+/// was optimistically admitted, but no local C call or remote request was started, so it rolls back
+/// through `commandFinished` without a transport error notice. Once a request has been sent, this
+/// predicate is no longer applicable; asynchronous engine/remote reconciliation owns the result.
+public func playbackCommandShouldSettleUndispatched(
+    pendingCommandID: UUID?,
+    undispatchedCommandID: UUID,
+    capturedLifetime: PlaybackLifetime,
+    currentLifetime: PlaybackLifetime,
+    isTearingDown: Bool
+) -> Bool {
+    !isTearingDown
+        && capturedLifetime == currentLifetime
+        && pendingCommandID == undispatchedCommandID
+}

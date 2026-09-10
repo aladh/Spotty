@@ -1,6 +1,6 @@
 import Foundation
 
-enum PlaybackEffectID: Hashable {
+enum PlaybackEffectID: Hashable, Sendable {
     case engineEvents
     case grantRevocations
     case lifecycle
@@ -55,8 +55,70 @@ struct PlaybackEffectSettlement: Sendable {
     }
 }
 
+/// The result of cancelling a set of effects and giving their tasks a bounded opportunity to
+/// unwind. A timed-out effect has already lost registry ownership, but its underlying operation
+/// may still be suspended in a non-cancelable system call. Keeping that distinction explicit lets
+/// session teardown continue without pretending that cancellation stopped external work.
+struct PlaybackEffectDrainReport: Equatable, Sendable {
+    let requested: Set<PlaybackEffectID>
+    let settled: Set<PlaybackEffectID>
+    let timedOut: Set<PlaybackEffectID>
+
+    var didSettleAll: Bool { timedOut.isEmpty && requested == settled }
+}
+
+private actor PlaybackEffectDrainState {
+    private let requested: Set<PlaybackEffectID>
+    private var pending: Set<PlaybackEffectID>
+    private var continuation: CheckedContinuation<PlaybackEffectDrainReport, Never>?
+    private var didTimeOut = false
+
+    init(requested: Set<PlaybackEffectID>) {
+        self.requested = requested
+        pending = requested
+    }
+
+    func wait() async -> PlaybackEffectDrainReport {
+        guard !pending.isEmpty else { return report() }
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            resumeIfFinished()
+        }
+    }
+
+    func markSettled(_ id: PlaybackEffectID) {
+        pending.remove(id)
+        resumeIfFinished()
+    }
+
+    func timeOut() {
+        guard !pending.isEmpty else { return }
+        didTimeOut = true
+        resumeIfFinished()
+    }
+
+    private func resumeIfFinished() {
+        guard let continuation, didTimeOut || pending.isEmpty else { return }
+        self.continuation = nil
+        continuation.resume(returning: report())
+    }
+
+    private func report() -> PlaybackEffectDrainReport {
+        PlaybackEffectDrainReport(
+            requested: requested,
+            settled: requested.subtracting(pending),
+            timedOut: pending
+        )
+    }
+}
+
 @MainActor
 final class PlaybackEffectRegistry {
+    /// A task that cannot observe cancellation must not hold account replacement forever. This is
+    /// deliberately short: it is a grace period for cooperative cleanup, not an external I/O
+    /// timeout or a claim that an already-sent request was undone.
+    nonisolated static let accountDrainTimeoutNanoseconds: UInt64 = 250_000_000
+
     private var tasks: [PlaybackEffectID: Task<Void, Never>] = [:]
     private var registrations: [PlaybackEffectID: PlaybackEffectRegistration] = [:]
     private var cancellationHandlers: [PlaybackEffectID: @MainActor () -> Void] = [:]
@@ -81,16 +143,19 @@ final class PlaybackEffectRegistry {
         previousTask?.cancel()
     }
 
-    func cancel(_ id: PlaybackEffectID) {
+    @discardableResult
+    func cancel(_ id: PlaybackEffectID) -> PlaybackEffectSettlement? {
         guard let task = tasks.removeValue(forKey: id) else {
             cancellationHandlers[id] = nil
             registrations[id] = nil
-            return
+            return nil
         }
+        let settlement = PlaybackEffectSettlement(task: task)
         let handler = cancellationHandlers.removeValue(forKey: id)
         registrations[id] = nil
         handler?()
         task.cancel()
+        return settlement
     }
 
     func complete(_ id: PlaybackEffectID, registration: PlaybackEffectRegistration) {
@@ -106,8 +171,73 @@ final class PlaybackEffectRegistry {
         tasks[id] = nil
     }
 
-    func cancelAccountScoped() {
-        let ids = tasks.keys.filter(\.isAccountScoped)
+    /// A lost observation interval makes command confirmation history unknowable. Cancel every
+    /// command task, including one whose pending slot was already consumed by a confirmation.
+    /// Cancellation fences later completion; it cannot undo a request already sent to Spotify.
+    func cancelPlaybackCommands() {
+        let ids = tasks.keys.filter { id in
+            switch id {
+            case .command, .queueCommand, .queueReplacement: true
+            default: false
+            }
+        }
         for id in ids { cancel(id) }
+    }
+
+    @discardableResult
+    func cancelAccountScoped() -> [PlaybackEffectID: PlaybackEffectSettlement] {
+        let ids = tasks.keys.filter(\.isAccountScoped)
+        var settlements: [PlaybackEffectID: PlaybackEffectSettlement] = [:]
+        for id in ids {
+            let settlement = settlement(of: id)
+            _ = cancel(id)
+            if let settlement {
+                settlements[id] = settlement
+            }
+        }
+        return settlements
+    }
+
+    /// Cancels account-scoped work and waits for each captured task until the bounded grace period
+    /// expires. The registry entries are removed before awaiting, so late completion cannot clear
+    /// or replace a newer lifetime. Tasks that finish after the report remain inert and are named
+    /// in `timedOut` as evidence of a non-cancelable operation.
+    func cancelAccountScopedAndDrain(
+        timeoutNanoseconds: UInt64 = PlaybackEffectRegistry.accountDrainTimeoutNanoseconds
+    ) async -> PlaybackEffectDrainReport {
+        await drain(cancelAccountScoped(), timeoutNanoseconds: timeoutNanoseconds)
+    }
+
+    func drain(
+        _ settlements: [PlaybackEffectID: PlaybackEffectSettlement],
+        timeoutNanoseconds: UInt64 = PlaybackEffectRegistry.accountDrainTimeoutNanoseconds
+    ) async -> PlaybackEffectDrainReport {
+        let requested = Set(settlements.keys)
+        let state = PlaybackEffectDrainState(requested: requested)
+        guard !requested.isEmpty else {
+            return PlaybackEffectDrainReport(requested: [], settled: [], timedOut: [])
+        }
+
+        for (id, settlement) in settlements {
+            // These monitors must not inherit the registry's MainActor isolation. A cancelled
+            // effect can be waiting on MainActor work; if the monitor is actor-bound too, the
+            // timeout cannot make progress while that work is stalled and teardown is no longer
+            // bounded by the grace period.
+            Task.detached {
+                await settlement.wait()
+                await state.markSettled(id)
+            }
+        }
+        let timeoutTask = Task.detached {
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            } catch {
+                return
+            }
+            await state.timeOut()
+        }
+        let report = await state.wait()
+        timeoutTask.cancel()
+        return report
     }
 }

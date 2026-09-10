@@ -11,3 +11,4 @@ Third-party code and projects this repository builds on (see THIRD_PARTY_NOTICES
 - Portions of `Backend/spotty-playback` and `Sources/Spotty/Spotify` are adapted from Spotifly
   (https://github.com/ralph/Spotifly), MIT License, Copyright (c) 2026 Ralph von der Heyden.
 - The Rust bridge links librespot (https://github.com/librespot-org/librespot), MIT License.
+- Application updates use Sparkle (https://sparkle-project.org), MIT License.

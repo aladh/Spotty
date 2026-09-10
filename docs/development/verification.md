@@ -11,7 +11,8 @@ For an authorized launch, from the repository root:
 ```
 
 This verifies, builds, signs, and replaces the running app; do not use it as a compile check.
-Modes include `--verify`, `--release`, `--verify-release`, and `--telemetry`.
+Modes include the default `run`, `--debug` (launches under `lldb`), `--logs`, `--telemetry`,
+`--verify`, `--release`, and `--verify-release`.
 See [launch constraints](../../script/AGENTS.md) and
 [signing setup](signing.md) before authenticated launches.
 
@@ -80,8 +81,11 @@ Swift formatting:
 ./Scripts/format-swift.sh --write
 ```
 
-Tests live in `Tests/SpottyDomainTests/` and `Tests/SpottyBoundaryTests/`. Discover names with
-`swift test list`, then filter for focused iteration:
+Tests live in `Tests/SpottyDomainTests/`, `Tests/SpottyBoundaryTests/`, and
+`Tests/BrowsingHarness/Checks` (the SwiftPM `SpottyBrowsingHarnessTests` target) — all discoverable
+SwiftPM test targets. `Tests/ABI`, `Tests/Compiler`, and `Tests/SourcePolicy` hold fixtures read by
+scripts rather than test targets. Discover test names with `swift test list`, then filter for
+focused iteration:
 
 ```bash
 swift test --disable-sandbox --filter ProtobufTests/testProtobuf
@@ -99,14 +103,18 @@ For clean-build changes or diagnosis requiring a rebuild:
 ./Scripts/check-clean.sh
 ```
 
+It runs the full scope (source policies included) against both Debug and Release, so it needs
+the [engine toolchain](setup.md#engine-development), cbindgen, ast-grep, and Python 3.
+
 This removes generated Swift build products, rebuilds the engine artifact, and verifies Debug and
 Release. Preserve unrelated work. Use `./Scripts/compile-release-spotty.sh` for compile-only Release
 verification.
 
 ## Diagnostics
 
-Release builds use Unified Logging. `./Scripts/export-diagnostics.sh` writes a bounded report under
-ignored `diagnostics/`. Handle reports according to [PRIVACY.md](../../PRIVACY.md).
+Release builds use Unified Logging. `./Scripts/export-diagnostics.sh [lookback]` writes a bounded
+report under ignored `diagnostics/`, defaulting `lookback` to `15m`; it never prunes that directory.
+Handle reports according to [PRIVACY.md](../../PRIVACY.md).
 
 ## Synthetic browsing
 

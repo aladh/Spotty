@@ -8,10 +8,10 @@ Download the app archive and its `.sha256` file from the same GitHub release int
 In Terminal, change to that folder and run the following, substituting the downloaded version:
 
 ```bash
-shasum -a 256 -c Spotty-0.1.0.zip.sha256
+shasum -a 256 -c Spotty-X.Y.Z.zip.sha256
 ```
 
-Continue only if the result is `Spotty-0.1.0.zip: OK`. This checks download integrity; the checksum
+Continue only if the result is `Spotty-X.Y.Z.zip: OK`. This checks download integrity; the checksum
 is hosted with the archive and is not independent proof of publisher identity.
 
 ## Package, sign, and notarize
@@ -22,9 +22,14 @@ Local packages are development artifacts:
 ./Scripts/package-app.sh --debug
 ./Scripts/package-app.sh --release
 ./Scripts/validate-app.sh --local
+./Scripts/validate-app.sh --development-signed
 ```
 
-A hardened-runtime Developer ID archive requires an explicitly supplied identity:
+`archive-app.sh` only delegates to `package-app.sh --release`; `SPOTTY_SIGNING_IDENTITY` selects the
+signing identity it uses. Unset, packaging falls back to the checkout-local self-signed identity.
+`SPOTTY_SIGNING_IDENTITY="-"` is an ad-hoc signature, used by
+[release.yml](../../.github/workflows/release.yml). For a hardened-runtime Developer ID archive,
+supply a Developer ID identity explicitly:
 
 ```bash
 SPOTTY_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
@@ -48,10 +53,11 @@ integration supported or policy-compliant. Retain the selected engine's dependen
 ## Tagged releases
 
 An authorized `vX.Y.Z` tag must match `CFBundleShortVersionString` in `Packaging/Info.plist`. The
-[release workflow](../../.github/workflows/release.yml) publishes an ARM64 app archive
-and checksum plus a signed Sparkle appcast after verification. Before tagging, write the release notes in
-`docs/releases/vX.Y.Z.md`; the workflow publishes that file verbatim as a regular GitHub release.
-Until Developer ID and notarization credentials are configured,
+[release workflow](../../.github/workflows/release.yml) runs `archive-app.sh`, which packages and
+signs after the Swift-scope `check.sh` run inside `package-app.sh` verifies the build; the workflow
+itself then computes the `.sha256` checksum and generates a signed Sparkle appcast. Before tagging,
+write the release notes in `docs/releases/vX.Y.Z.md`; the workflow publishes that file verbatim as a
+regular GitHub release. Until Developer ID and notarization credentials are configured,
 artifacts use hardened-runtime ad-hoc signing with the library-validation exception in
 [AdHoc.entitlements](../../Packaging/AdHoc.entitlements). Hosts without an Apple Team ID cannot
 otherwise load Sparkle. Apple-team development and Developer ID packages retain library validation.
@@ -70,7 +76,9 @@ Sparkle is pinned by SwiftPM and embedded with its helpers by
 final archive and embeds the canonical release notes with
 [generate-update-feed.sh](../../Scripts/generate-update-feed.sh). GitHub's latest-release asset URL
 serves the feed; only regular app releases should become latest. Version and build number must both
-increase for a release. v0.2.0 is the first updater-enabled version and must be installed manually.
+increase for a release (not enforced by CI: `release.yml` only checks that the tag equals
+`Info.plist`, and `generate-update-feed.sh` only checks the feed against the built version).
+v0.2.0 is the first updater-enabled version and must be installed manually.
 
 Both the feed and archives require Ed25519 authentication using the public key in
 [Info.plist](../../Packaging/Info.plist). The corresponding private seed is stored in the GitHub
@@ -84,11 +92,14 @@ The key authenticates Spotty updates independently of Apple signing or notarizat
 ## Release-note format
 
 Start each `docs/releases/vX.Y.Z.md` with one sentence summarizing the release. Follow with
-`## Fixes`, `## Improvements`, or `## What’s new` and concise user-facing bullets. Describe
-observable changes and relevant limits, avoiding internal implementation details.
+`## Fixes`, `## Improvements`, or `## What’s new` and concise user-facing bullets. An optional
+`## Known limitations` section and a behavior/migration-change section (for example v0.2.4's
+`## Session storage change`) may follow. Describe observable changes and relevant limits, avoiding
+internal implementation details.
 
 End with `## Install`: list macOS, hardware, and account requirements; explain built-in updates
 when supported; name the versioned archive and checksum and give its verification command.
 Include the current signing/notarization status and the macOS first-launch instructions, with a
-link to the README at that release's tag. Use [v0.2.1](../releases/v0.2.1.md) as the template and
-update every version reference for the new release.
+link to the README at that release's tag; the "will not automatically trust" sentence applies from
+v0.2.1 onward. Use [v0.2.5](../releases/v0.2.5.md) as the template and update every version
+reference for the new release.

@@ -24,8 +24,9 @@ so use it only for an authorized launch or interactive acceptance:
 ./script/build_and_run.sh
 ```
 
-The launch script retains its Apple-issued identity requirement for development app validation.
-Session persistence is independent of code signing; see [local storage](../../PRIVACY.md#local-storage).
+`build_and_run.sh` requires an Apple-issued development identity with a stable Team ID and never
+falls back to self-signing. Session persistence is independent of code signing; see
+[local storage](../../PRIVACY.md#local-storage).
 
 `Scripts/package-app.sh` can create a build-only self-signed bundle with an isolated identity and
 keychain under `.build/spotty-signing/`. It is local-only, unsuitable for distribution or sign-in.
@@ -41,10 +42,8 @@ from Spotty’s runtime session storage.
 
 ## Session restoration
 
-OAuth grants use the private file store described in [privacy](../../PRIVACY.md#local-storage).
-A Keychain-based installation requires one new browser authorization after upgrading. Spotty does
-not attempt to migrate inaccessible grants or modify the old Keychain entries. Subsequent launches
-restore the file-backed grant, and Sign Out removes it. Do not delete session files as routine
-troubleshooting; read failures remain distinct from missing sessions.
+See [local storage](../../PRIVACY.md#local-storage) for the file-backed OAuth grant, the
+Keychain-to-file migration, and Sign Out. Do not delete session files as routine troubleshooting;
+read failures remain distinct from missing sessions.
 
 Before exercising a live account, follow the [safe testing contract](../product/safe-testing.md).

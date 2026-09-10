@@ -20,7 +20,11 @@
   count, without account/device identifiers. This measures trigger-to-settlement when diagnostics
   are enabled; it is not a network latency guarantee. The silent-session detector retains its
   60-second cadence. Swift owns account admission and child-work drain, not a competing engine retry loop.
-- Each AP connection attempt bounds socket/proxy setup and handshake together at five seconds.
+- Each AP connection attempt bounds socket/proxy setup and handshake together at five seconds
+  (`Duration::from_secs(5)` in the vendored crate,
+  [connection/mod.rs](../../Backend/spotty-playback/vendor/librespot/core/src/connection/mod.rs)).
+  This is a retained librespot patch; see the vendored
+  [librespot README](../../Backend/spotty-playback/vendor/librespot/README.md).
   Retry count, authentication, token fetching, and total initialization remain separate budgets.
   Timeouts are transient failures and do not clear credentials.
 - Swift supplies a validated, opaque installation identity before authorization or playback
@@ -28,7 +32,11 @@
   Authorization and playback share this identity: the authorization session obtains reusable
   AP credentials and is shut down before the playback session starts under the lifecycle lock.
   Logout removes account credentials but retains the non-secret identity. It is independent of
-  the advertised computer name and of the separately scoped client-token identifier.
+  the advertised computer name and of the separately scoped client-token identifier. The app
+  supplies this identity through
+  [ConnectInstallationIDStore](../../Sources/Spotty/Spotify/ConnectInstallationIDStore.swift);
+  debug checkout and unbundled-test isolation are documented in
+  [local state](../development/local-state.md).
 - Closed command channels and failed rehydration request engine reinitialization through typed
   outcomes. Rehydrate before announcing readiness; fetching Web playback state afterward would
   reopen the stale-position window.
@@ -44,10 +52,14 @@
 
 ## FFI surface
 
-The [generated declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
+The checked-in [generated declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
 and [Swift annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h)
-own field layouts, signatures, nullability, and allocation contracts. Connection, playback,
-devices, and queue cross as typed protocol snapshots, not raw protobuf or presentation copy.
+are the producer-canonical copy of field layouts, signatures, nullability, and allocation
+contracts. `SpottyPlaybackCore` is a `binaryTarget` in [Package.swift](../../Package.swift),
+so the app actually compiles against the copy of these headers shipped inside the pinned
+XCFramework; [check.sh](../../Scripts/check.sh) validates against that XCFramework's headers.
+Connection, playback, devices, and queue cross as typed protocol snapshots, not raw protobuf or
+presentation copy.
 
 An adapter can register the aggregate Connect-cluster callback to receive local identity, device
 roster, connection, and optional playback/queue facts from one cluster with one generation and
@@ -82,7 +94,3 @@ resume export or use presentation snapshots as resume identity. Reconnect backof
 its loop; connection presentation must not acquire duplicate device-name, retry-counter, timestamp,
 or session-identity state. New protocol or ownership boundaries require an explicit architectural
 decision, not another engine or state machine alongside the existing one.
-
-The app supplies this identity through
-[ConnectInstallationIDStore](../../Sources/Spotty/Spotify/ConnectInstallationIDStore.swift).
-Debug checkout and unbundled-test isolation are documented in [local state](../development/local-state.md).

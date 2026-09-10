@@ -2,12 +2,19 @@
 
 [Engine ownership](playback-engine-ownership.md)
 
+## Current status
+
+The 2026-09-10 measurements below were taken with the engine pinned at `playback-v0.1.4`
+(`Package.swift`). Release 0.2.5 pins `playback-v0.1.5` and has not been re-measured.
+
 ## Historical measured baseline (2026-08-23)
 
 This predates the retained-engine cleanup. It is historical context, not a current performance
 claim or migration gate. Any new comparison must record its commit and product surfaces.
 
 Spotty 0.4.0 (4), optimized signed Release bundle, macOS 27.0 (26A5416b), Apple M1 Max, 32 GB.
+The "0.4.0 (4)" string is the pre-reset version from the initial commit `6c5c7cc`
+(`CFBundleShortVersionString`/`CFBundleVersion` in `Packaging/Info.plist`) and predates v0.1.0.
 Five `ps` samples at one-second intervals after the state stabilized; memory is RSS; foreground
 and background are window open and closed in the same process.
 
@@ -42,12 +49,15 @@ verified. No UI automation ran concurrently with either measurement.
 | Browsing elapsed time | 15.45 s | 15.69 s |
 | Process CPU consumed during browsing | 16.20 s | 14.15 s |
 
-Reports: `run.1cZyJ9nU` at `ca93ce3` (before), `run.qEy750jC` at `ffab157` (after), both with
+Reports: `run.1cZyJ9nU` (before), `run.qEy750jC` (after), both from the squash commit for this
+change, `ef77361` (#385) on main, with
 an empty tracked diff. They precede the final harness review corrections to exact cluster barriers,
 recovery preservation and callback invocation counting. A second after run (`run.yi56SLpy`, same
 presentation implementation before commit) counted the same semantic invalidations and measured
 12.72 CPU seconds, showing timing variance. These are directional samples, not a statistical
 performance guarantee. CPU includes all process threads, not specifically MainActor time.
+These `run.*` reports live under the untracked `.build/browsing-runs/` directory and are not
+archived under `docs/architecture/measurements/`.
 
 The display link measures main-run-loop opportunities, not rendered frames. The proposed frame
 budget is still missed; no input-to-pixel measurement is claimed. Seven named synthetic settlements
@@ -70,7 +80,7 @@ CI reports release sizes for comparison, not as a pass/fail budget. Read the run
 
 ## Command outcome trace (2026-09-10)
 
-Synthetic Demo playback scenario at `a526fb762a1d52c841a811615cee0f6c63480435`, clean worktree,
+Synthetic Demo playback scenario at `b3f474f1c9a32e5f4470882552563c7ace3cc995` (#387), clean worktree,
 macOS 27.0 (26A5425a), run `Lb6EK3WN`. All 40 browsing checkpoints and seven playback traces passed.
 [PlaybackTrace](../../Tests/BrowsingHarness/Support/PlaybackTrace.swift) separates synchronous
 optimistic-state feedback from the permit claim and the timestamp of the accepted matching engine
@@ -96,18 +106,23 @@ revision, diff digest, checkpoints, and measurement fields.
 
 The [reviewed measurements](measurements/2026-09-10-acceptance.json) retain every completed wave,
 per-run counters, source digests and lifecycle samples. Both queue variants were measured with
-the `4402fd1` harness and queue revision correction, on top of `9c7334a`. The
+the `e15404a` (#390) harness and queue revision correction, on top of `9c7334a`. The
 [control patch](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) changes only metadata
 publication to one update per result; it is a benchmark fixture, not a shipped mode.
 
 Three runs per variant completed 40 browsing checkpoints, eight playback/lifetime traces and six
 96-track hydration waves. Configuration: M1 Max, 10 logical processors, 32 GiB, macOS 27.0
 (26A5425a), Xcode 27.0 (27A5252f), macOS 26.5 SDK, Debug, 960 × 692 window, inspector closed.
+Xcode 27.0 and the macOS 26.5 SDK are the local toolchain versions selected via
+[Scripts/swiftpm-env.sh](../../Scripts/swiftpm-env.sh); CI (`.github/workflows/ci.yml`) instead
+runs on the `macos-26` runner with Xcode 26.6 selected explicitly.
 Each fresh process uses new artwork paths; framework disk caches may be warm. The source emits
 on independent 200 ms deadlines: measured offered rates were 4.97–5.00 Hz. Synthetic metadata
 waits 15 ms per lookup with production concurrency of eight. App Nap is suppressed for the finite
 workload while idle system sleep remains allowed. No build or UI inspection ran during these six
 measurements; network denial and zero forbidden mutation attempts passed in every run.
+
+Reproduce with `Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json`.
 
 The session exposed a 60 Hz Screen Sharing Virtual Display at 2× scale. All measured windows were
 occluded at start and end and recorded zero display callbacks. These are useful publication,
@@ -188,7 +203,7 @@ After the display configuration changed, the built-in Liquid Retina XDR was avai
 [visible samples](measurements/2026-09-10-visible-acceptance.json) replace the earlier display
 blocker with measured evidence; they do not replace the matched, unprofiled batching comparison.
 
-The measured code/fixture contents are committed at `8d1a1cd`; later flag-order, non-playback
+The measured code/fixture contents are committed at `c924756` (#391); later flag-order, non-playback
 menu-separator and JSON-label cleanups do not alter this playback workload. Two final marked
 captures used the same Debug combined workload and 960 × 692 window with the
 queue inspector open throughout: one with Reduce Motion off, one on. Each passed 40 browsing
@@ -210,7 +225,11 @@ either measured interval. Earlier exploratory captures are excluded from these r
 | Maximum enrichment batches in a rolling second | 4 | 3 |
 | Minimum spacing between enrichment batch events | 121.48 ms | 119.44 ms |
 
-The [summary helper](../../Scripts/summarize_synthetic_trace.py) resolves exported XML references,
+Reproduce with `Scripts/browse-synthetic.sh --profile --interactive Tests/BrowsingHarness/measurement.json`,
+then choose **Demo > Run Measurement** with the queue inspector open.
+[Scripts/profile_synthetic.py](../../Scripts/profile_synthetic.py) is the recorder that
+`browse-synthetic.sh` invokes to produce the trace; the
+[summary helper](../../Scripts/summarize_synthetic_trace.py) resolves exported XML references,
 selects the single `Demo workload` interval and joins frame display/swap IDs to this Demo process's
 update records. It excludes frames crossing either workload boundary. Frame lifetime includes
 multiple pipeline stages; it is **not** input-to-visible latency or a one-display-interval deadline.
@@ -236,12 +255,17 @@ construction/rehydration-to-ready fault timing remains unchanged by this Demo fo
 ### AppKit-scheduled queue rendering (2026-09-10)
 
 The [follow-up samples](measurements/2026-09-10-queue-rendering.json) use source `88c099c`,
-with the existing per-result control patch applied only to the control checkout. The
+with the existing per-result control patch applied only to the control checkout. That JSON's
+`sourceRevision` field is the pre-squash branch commit; the actual squash commit on main is
+`70b3bac` (#392). The
 [scenario](../../Tests/BrowsingHarness/queue-rendering.json) keeps the prior combined workload
 and open queue inspector, but lets AppKit schedule layout/display instead of forcing it from
 readiness/checkpoint calls. Each variant completed 40 checkpoints, eight playback traces and
 six 96-track hydration waves, with visible windows, Reduce Motion off, denied networking and
 zero forbidden mutations. No compilation, UI inspection or export ran during either workload.
+
+Reproduce with `Scripts/browse-synthetic.sh --profile --interactive Tests/BrowsingHarness/queue-rendering.json`,
+then choose **Demo > Run Measurement**.
 
 | Measure | Batched | Per result |
 | --- | ---: | ---: |

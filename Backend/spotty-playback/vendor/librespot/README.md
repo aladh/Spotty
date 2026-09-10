@@ -3,7 +3,6 @@
 Only `core` and `playback` are retained from upstream revision
 `a1b66d3c8a14e55a9572a9e17467150dca618c9a` (MIT; see LICENSE). Cargo patches these
 crates throughout the pinned dependency graph. Other librespot crates remain Git dependencies.
-The upstream dev head was checked on 2026-09-09 and still matched this revision.
 
 Changes from that source:
 
@@ -15,12 +14,13 @@ Changes from that source:
   existing stop path. Spirc consumes `Stopped` without marking a track unavailable or advancing
   the queue. Refused preloads are discarded without marking the upcoming occurrence unavailable.
 - Standalone crate manifests expand workspace metadata and pin sibling dependencies to the
-  same upstream revision. The redundant tokio dev-dependency is omitted (its macros feature is
-  already enabled), allowing Cargo to run retained-crate tests without a second workspace.
-  `playback/Cargo.toml` expands the inherited `redundant_closure_for_method_calls` Clippy warning.
-  `playback/src/audio_backend/mod.rs` turns an obsolete deprecation expectation into an allowance.
+  same upstream revision. The redundant tokio dev-dependency is omitted (its macros feature
+  already comes from librespot-core's own tokio features), allowing Cargo to run retained-crate
+  tests without a second workspace. `playback/Cargo.toml` expands the inherited
+  `redundant_closure_for_method_calls` Clippy warning.
 - `playback/src/spotty_player_tests.rs` supplies the synthetic current/preload/refusal/unencrypted
-  decode regression cases, included by the player module only under `cfg(test)`.
+  decode regression cases, included by the player module as `spotty_key_refusal_tests` only under
+  `cfg(test)`.
 
 Do not import unrelated fork changes. Review the upstream diff when updating the pin and remove
 patches when equivalent upstream behavior is available. The engine source digest includes these

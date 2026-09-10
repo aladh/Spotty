@@ -537,6 +537,7 @@ actor QueueService {
                             requestedContext: requestedContext)
                     {
                         needsPublication = false
+                        SpottyLog.queueSignposter.emitEvent("Queue metadata batch")
                         await onUpdate(update)
                     }
                 }

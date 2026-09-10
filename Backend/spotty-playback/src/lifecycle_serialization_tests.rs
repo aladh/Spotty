@@ -10,7 +10,7 @@ fn lock_globals() -> std::sync::MutexGuard<'static, ()> {
 #[test]
 fn reconnect_generation_is_captured_at_trigger_not_task_start() {
     let _guard = lock_globals();
-    RECONNECTING.store(false, Ordering::SeqCst);
+    cancel_recovery();
 
     let intent = RecoveryIntent {
         was_playing: false,
@@ -33,7 +33,7 @@ fn reconnect_generation_is_captured_at_trigger_not_task_start() {
         "capturing at task start would have adopted the newer generation"
     );
 
-    RECONNECTING.store(false, Ordering::SeqCst);
+    cancel_recovery();
 }
 
 #[test]
@@ -235,4 +235,104 @@ fn reconnect_unit_abandons_during_teardown_without_cleanup() {
     .expect("lifecycle test");
 
     assert!(!cleaned.load(Ordering::SeqCst));
+}
+
+#[test]
+fn overlapping_recovery_triggers_share_one_owner_and_stale_finish_cannot_clear_replacement() {
+    let _guard = lock_globals();
+    cancel_recovery();
+    let old = RecoveryLease::claim().expect("first trigger");
+    for _ in 0..4 {
+        assert!(
+            RecoveryLease::claim().is_none(),
+            "wake, stream, command and health triggers coalesce"
+        );
+    }
+    cancel_recovery();
+    assert!(old.is_cancelled());
+    let replacement = RecoveryLease::claim().expect("wake after sleep");
+    drop(old);
+    assert!(
+        recovery_is_active(),
+        "old completion must not clear new owner"
+    );
+    assert!(!replacement.is_cancelled());
+    drop(replacement);
+    assert!(!recovery_is_active());
+}
+
+#[test]
+fn cancelled_recovery_backoff_settles_without_waiting_for_outage_delay() {
+    let _guard = lock_globals();
+    cancel_recovery();
+    block_on_export(async {
+        let mut lease = RecoveryLease::claim().expect("recovery");
+        let started = std::time::Instant::now();
+        let task = tokio::spawn(async move { lease.wait(Duration::from_secs(30)).await });
+        tokio::task::yield_now().await;
+        cancel_recovery();
+        assert!(!tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("bounded cancellation")
+            .expect("settled task"));
+        eprintln!(
+            "recovery backoff cancellation settled in {:?} (budget 1s)",
+            started.elapsed()
+        );
+    })
+    .expect("runtime");
+    assert!(!recovery_is_active());
+}
+
+#[test]
+fn outage_retry_schedule_remains_bounded_without_a_terminal_attempt() {
+    assert_eq!(
+        (0..6)
+            .map(recovery_delay)
+            .map(|d| d.as_secs())
+            .collect::<Vec<_>>(),
+        vec![0, 2, 5, 10, 30, 30]
+    );
+    assert_eq!(recovery_delay(u32::MAX), Duration::from_secs(30));
+}
+
+#[test]
+fn retired_recovery_waiting_for_lifecycle_cannot_clean_or_build() {
+    let _guard = lock_globals();
+    cancel_recovery();
+    block_on_export(async {
+        let lease = RecoveryLease::claim().expect("recovery");
+        let lock = acquire_lifecycle().await;
+        let task = tokio::spawn(async move {
+            run_reconnect_unit_async(
+                4,
+                || 4,
+                || lease.is_cancelled(),
+                || async { panic!("retired run must not clean") },
+                async { panic!("retired run must not build") },
+            )
+            .await
+        });
+        tokio::task::yield_now().await;
+        cancel_recovery();
+        drop(lock);
+        assert!(matches!(
+            task.await.expect("settled"),
+            ReconnectUnitOutcome::Abandoned
+        ));
+    })
+    .expect("runtime");
+}
+
+#[test]
+fn retired_recovery_does_not_begin_session_construction() {
+    let _guard = lock_globals();
+    cancel_recovery();
+    let lease = RecoveryLease::claim().expect("recovery");
+    cancel_recovery();
+    let before = SESSION_GENERATION.load(Ordering::SeqCst);
+    let result =
+        block_on_export(build_player_owned(None, false, false, Some(&lease))).expect("runtime");
+    assert_eq!(result, Err(InitializationFailure::Transient));
+    assert_eq!(SESSION_GENERATION.load(Ordering::SeqCst), before);
 }

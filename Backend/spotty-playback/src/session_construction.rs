@@ -257,6 +257,25 @@ pub(crate) async fn build_player_async(
     activate_after_connect: bool,
     resume_after_connect: bool,
 ) -> Result<(), InitializationFailure> {
+    build_player_owned(
+        access_token,
+        activate_after_connect,
+        resume_after_connect,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn build_player_owned(
+    access_token: Option<&str>,
+    activate_after_connect: bool,
+    resume_after_connect: bool,
+    recovery: Option<&RecoveryLease>,
+) -> Result<(), InitializationFailure> {
+    let stopped = || teardown_in_progress() || recovery.is_some_and(RecoveryLease::is_cancelled);
+    if stopped() {
+        return Err(InitializationFailure::Transient);
+    }
     let current_generation = tokio::task::spawn_blocking(invalidate_cluster_generation)
         .await
         .map_err(|_| InitializationFailure::Transient)?;
@@ -287,11 +306,19 @@ pub(crate) async fn build_player_async(
         match create_spirc(&session, &credentials, player.clone(), mixer.clone()).await {
             Ok(resources) => resources,
             Err(failure) => {
-                publish_initialization_failure(current_generation, failure);
+                if !stopped() {
+                    publish_initialization_failure(current_generation, failure);
+                }
                 return Err(failure);
             }
         };
     let staged = StagedGenerationGuard::new(spirc.clone(), session.clone(), spirc_task);
+
+    if stopped() {
+        staged.rollback().await;
+        session_guard.disarm();
+        return Err(InitializationFailure::Transient);
+    }
 
     // Run activation while the generation is still local. A failed command therefore cannot
     // leave a globally visible Session/Player/Spirc or a task registry that cleanup must guess
@@ -311,7 +338,9 @@ pub(crate) async fn build_player_async(
                 debug!("Auto-activation failed ({:?})", failure);
                 staged.rollback().await;
                 session_guard.disarm();
-                publish_initialization_failure(current_generation, failure);
+                if !stopped() {
+                    publish_initialization_failure(current_generation, failure);
+                }
                 return Err(failure);
             }
         }
@@ -325,7 +354,7 @@ pub(crate) async fn build_player_async(
     if !listener_may_act(
         current_generation,
         SESSION_GENERATION.load(Ordering::SeqCst),
-    ) || teardown_in_progress()
+    ) || stopped()
     {
         staged.rollback().await;
         session_guard.disarm();
@@ -410,7 +439,7 @@ pub(crate) async fn build_player_async(
     if !listener_may_act(
         current_generation,
         SESSION_GENERATION.load(Ordering::SeqCst),
-    ) || teardown_in_progress()
+    ) || stopped()
     {
         rollback_installed_generation(current_generation).await;
         installed_guard.disarm();
@@ -491,7 +520,7 @@ pub(crate) async fn build_player_async(
     if !listener_may_act(
         current_generation,
         SESSION_GENERATION.load(Ordering::SeqCst),
-    ) || teardown_in_progress()
+    ) || stopped()
     {
         rollback_installed_generation(current_generation).await;
         installed_guard.disarm();
@@ -503,7 +532,7 @@ pub(crate) async fn build_player_async(
     // Keep the final readiness mutation behind the same short gate as rehydration loads so a
     // command cannot pass its window check while this commit closes that window.
     let Some(Ok(notification)) = with_current_generation_mutation(current_generation, || {
-        if teardown_in_progress() {
+        if stopped() {
             return Err(());
         }
         with_connection(|c| {

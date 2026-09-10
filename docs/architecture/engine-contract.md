@@ -9,6 +9,14 @@
   Teardown invalidates the generation and drains work, giving Spirc a bounded opportunity to finish
   gracefully before forced shutdown. The old Dealer connection closes before replacement.
   A failed activation cannot publish readiness.
+- Recovery triggers share one Rust-owned lease. A lease captures the triggering generation;
+  wake, stream closure, command failure and health detection coalesce while it is active.
+  Sleep, shutdown, cleanup and an explicit replacement retire that lease. Retirement wakes
+  backoff immediately and fences readiness/credential feedback from construction already in
+  flight; construction still settles transactionally under the lifecycle mutex. A retired
+  task cannot clear its replacement's ownership. Transient outages retry indefinitely with
+  delays of 0, 2, 5, 10, then 30 seconds; credential rejection terminates the owning run.
+  Swift owns account admission and child-work drain, not a competing engine retry loop.
 - Each AP connection attempt bounds socket/proxy setup and handshake together at five seconds.
   Retry count, authentication, token fetching, and total initialization remain separate budgets.
   Timeouts are transient failures and do not clear credentials.

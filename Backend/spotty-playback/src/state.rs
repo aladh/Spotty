@@ -167,8 +167,6 @@ pub(crate) static SHUFFLE_STATE: AtomicBool = AtomicBool::new(false);
 pub(crate) static REPEAT_TRACK_STATE: AtomicBool = AtomicBool::new(false);
 pub(crate) static REPEAT_CONTEXT_STATE: AtomicBool = AtomicBool::new(false);
 
-// Flag to track if reconnection is in progress
-pub(crate) static RECONNECTING: AtomicBool = AtomicBool::new(false);
 // Flag to track intentional shutdown (prevents reconnection attempts during app quit)
 pub(crate) static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 // Flag to track sleep state (prevents auto-reconnect, but allows explicit forceReconnect on wake)

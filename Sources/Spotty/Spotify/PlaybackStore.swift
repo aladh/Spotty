@@ -259,7 +259,8 @@ final class PlaybackStore {
     /// command destination or playback lifetime while a pending command still owns that route.
     /// Claimed permits remain valid for in-flight work; late confirmations/supersessions with no
     /// pending slot preserve the already-admitted operation and make its outcome inert instead.
-    @ObservationIgnored private var playbackDispatchPermits: [(permit: PlaybackDispatchPermit, commandID: UUID?)] = []
+    @ObservationIgnored private var playbackDispatchPermits:
+        [(permit: PlaybackDispatchPermit, commandID: UUID?, intentID: UUID?)] = []
 
     init(
         environment: PlaybackEnvironment = .live,
@@ -439,7 +440,22 @@ final class PlaybackStore {
         )
         let lifetimeStampChanged =
             stampedAccountEpoch != self.accountEpoch || stampedEngineEpoch != engineGeneration
+        if case let .commandTimedOut(id) = event {
+            // Linearize expiry against dispatch before consuming its final receipt.
+            for entry in playbackDispatchPermits where entry.intentID == id { entry.permit.invalidate() }
+        }
         var next = state
+        for entry in playbackDispatchPermits {
+            if let id = entry.intentID, let date = entry.permit.takeDispatchReceipt() {
+                _ = PlaybackReducer.reduce(
+                    &next,
+                    envelope: PlaybackEventEnvelope(
+                        accountEpoch: self.accountEpoch, engineEpoch: engineGeneration,
+                        source: .command, receivedAt: date, event: .commandDispatched(id: id, at: date)))
+            }
+        }
+        playbackDispatchPermits.removeAll { $0.permit.canDiscard }
+        let receiptState = next
         let accepted = PlaybackReducer.reduce(
             &next,
             envelope: PlaybackEventEnvelope(
@@ -462,12 +478,24 @@ final class PlaybackStore {
             } else {
                 let pendingIDs = Set(next.pendingCommands.values.map(\.id))
                 for entry in playbackDispatchPermits {
+                    if let intentID = entry.intentID,
+                        next.intents.first(where: { $0.command.id == intentID })?.outcome.isTerminal == true
+                    {
+                        entry.permit.invalidate()
+                    }
                     if let commandID = entry.commandID, !pendingIDs.contains(commandID) {
                         entry.permit.invalidate()
                     }
                 }
             }
+            let confirmedTracks = next.intents.compactMap { intent -> String? in
+                guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,
+                    state.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed
+                else { return nil }
+                return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
+            }
             state = next
+            for uri in confirmedTracks { recordPlayed(uri) }
             engineGeneration = next.engineEpoch
             let nextIndicator = CurrentTrackIndicator(state: next)
             if currentTrackIndicator != nextIndicator {
@@ -485,6 +513,8 @@ final class PlaybackStore {
             }
             return true
         }
+        // A rejected incoming event cannot discard a separately accepted dispatch receipt.
+        if state != receiptState { state = receiptState }
         SpottyLog.playback.debug(
             "Rejected event; source=\(String(describing: source), privacy: .public); account=\(stampedAccountEpoch, privacy: .public); engine=\(stampedEngineEpoch, privacy: .public); revision=\(String(describing: revision), privacy: .public)"
         )
@@ -615,14 +645,19 @@ final class PlaybackStore {
     /// permit; route/lifetime publications invalidate the permit synchronously in `send`.
     func makePlaybackDispatchPermit(
         commandID: UUID? = nil,
+        intentID: UUID? = nil,
         ifStillWanted: @escaping @MainActor @Sendable () -> Bool
     ) -> PlaybackDispatchPermit? {
-        playbackDispatchPermits.removeAll { $0.permit.isResolved }
+        // Preserve claim receipts until the next reducer publication consumes them.
+        playbackDispatchPermits.removeAll { $0.permit.isResolved && $0.intentID == nil }
         if let commandID, !state.pendingCommands.values.contains(where: { $0.id == commandID }) {
             return nil
         }
-        let permit = PlaybackDispatchPermit()
-        playbackDispatchPermits.append((permit, commandID))
+        if let intentID, state.intents.first(where: { $0.command.id == intentID })?.outcome.isTerminal != false {
+            return nil
+        }
+        let permit = PlaybackDispatchPermit(clock: environment.clock)
+        playbackDispatchPermits.append((permit, commandID, intentID ?? commandID))
         guard ifStillWanted() else {
             permit.invalidate()
             return nil
@@ -636,7 +671,8 @@ final class PlaybackStore {
         for entry in playbackDispatchPermits {
             entry.permit.invalidate()
         }
-        playbackDispatchPermits.removeAll(keepingCapacity: true)
+        // A claim racing with invalidation remains retained until its receipt is consumed.
+        playbackDispatchPermits.removeAll { $0.permit.canDiscard }
     }
 
     private func playbackDispatchContext(

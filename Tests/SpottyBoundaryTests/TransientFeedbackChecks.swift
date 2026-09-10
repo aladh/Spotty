@@ -218,9 +218,9 @@ struct TransientFeedbackTests {
             let clock = UncooperativeParkedClock()
             let feedback = TransientFeedbackPresenter(clock: clock, duration: 4)
 
-            feedback.success("Added to Queue")
+            feedback.success("Queue request sent")
             #expect((feedback.message?.kind) == (.success), "success kind")
-            #expect((feedback.message?.text) == ("Added to Queue"), "success text")
+            #expect((feedback.message?.text) == ("Queue request sent"), "success text")
             #expect((feedback.message == nil ? 0 : 1) == (1), "one message after success")
 
             feedback.informational("Queue is at the limit")
@@ -312,7 +312,7 @@ struct TransientFeedbackTests {
             seedReady(localSuccess)
             localSuccess.addToQueue(uris: ["spotify:track:local-ok"])
             _ = await waitUntil { localSuccessFeedback.message?.kind == .success }
-            #expect((localSuccessFeedback.message?.text) == ("Added to Queue"), "local add success")
+            #expect((localSuccessFeedback.message?.text) == ("Queue request sent"), "local add success")
             #expect((localSuccess.transientCommandError) == nil, "local add success is not a playback notice")
             await localSuccess.shutdownForTermination()
 
@@ -355,7 +355,7 @@ struct TransientFeedbackTests {
             seedRemoteOwner(remoteSuccess)
             remoteSuccess.addToQueue(uris: ["spotify:track:remote-ok"])
             _ = await waitUntil { remoteSuccessFeedback.message?.kind == .success }
-            #expect((remoteSuccessFeedback.message?.text) == ("Added to Queue"), "remote add success")
+            #expect((remoteSuccessFeedback.message?.text) == ("Queue request sent"), "remote add success")
             #expect((await remote.sendCount) == (1), "remote add still sends add_to_queue")
             #expect((remoteSuccess.transientCommandError) == nil, "remote add success is not a playback notice")
             await remoteSuccess.shutdownForTermination()

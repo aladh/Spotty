@@ -404,7 +404,8 @@ struct QueueManagementTests {
             #expect(
                 (endpoints) == ([.addToQueue, .addToQueue, .addToQueue]),
                 "multi-add sends add_to_queue in visible order, including duplicate URIs")
-            #expect((feedback.message?.text) == ("Added 3 songs to Queue"), "multi-add reports a batch success")
+            #expect(
+                (feedback.message?.text) == ("Queue requests sent for 3 songs"), "multi-add reports a batch success")
             #expect((player.transientCommandError) == (nil), "multi-add success is not a playback notice")
             await player.shutdownForTermination()
         }
@@ -458,7 +459,7 @@ struct QueueManagementTests {
             #expect((await waitUntil { feedback.message?.kind == .informational }) == true, "partial add finished")
             #expect((await remote.sendCount) == (3), "two commands completed before failure")
             #expect(
-                (feedback.message?.text) == ("Added 2 of 3 songs to Queue"),
+                (feedback.message?.text) == ("Queue requests sent for 2 of 3 songs"),
                 "partial add reports completed versus requested")
             #expect((player.queueNextEntries) == (before), "partial add does not rewrite presentation")
             await player.shutdownForTermination()
@@ -494,7 +495,9 @@ struct QueueManagementTests {
                 "removal keeps the first duplicate occurrence")
             #expect((command?.prevTracks?.map(\.uid)) == (["p0"]), "removal preserves prev_tracks")
             #expect((player.queueNextEntries) == (before), "success does not locally rewrite presentation")
-            #expect((feedback.message?.text) == ("Removed from Queue"), "removal reports through transient feedback")
+            #expect(
+                (feedback.message?.text) == ("Queue removal request sent"), "removal reports through transient feedback"
+            )
             await player.shutdownForTermination()
         }
 
@@ -651,7 +654,7 @@ struct QueueManagementTests {
             #expect((player.queueNextEntries) == (before), "in-flight overlap does not edit presentation")
             await parked.completePark(success: true)
             #expect(
-                (await waitUntil { feedback.message?.text == "Removed from Queue" }) == true,
+                (await waitUntil { feedback.message?.text == "Queue removal request sent" }) == true,
                 "the first replacement finished")
             #expect((player.queueReplacementToken) == nil, "a finished replacement releases the in-flight gate")
             #expect(
@@ -969,7 +972,7 @@ struct QueueManagementTests {
             #expect((replacementFeedback.message) == nil, "inspector close does not toast a cancelled replacement")
             await parked.completePark(success: true)
             #expect(
-                (await waitUntil { replacementFeedback.message?.text == "Removed from Queue" }) == true,
+                (await waitUntil { replacementFeedback.message?.text == "Queue removal request sent" }) == true,
                 "replacement still completes after inspector close")
             #expect(
                 (replacement.queueMutation?.next.map(\.uid)) == (["q1", "q2", "", "a0"]),

@@ -342,7 +342,7 @@ struct PlaybackDispatchRoutingTests {
                 #expect((false) == true, "explicit transfer uses a device-targeted operation")
             }
             #expect(
-                (player.feedback.message?.text) == ("Playing on Speaker A"),
+                (player.feedback.message?.text) == ("Playback request sent to Speaker A"),
                 "accepted explicit transfer presents success feedback"
             )
             await player.shutdownForTermination()
@@ -1413,8 +1413,12 @@ struct PlaybackCommandFailureTests {
             #expect((localAccepted.state.currentTrack?.uri) == (trackB.uri), "accepted local play keeps B")
             #expect((localAccepted.state.transport) == (.playing), "accepted local play keeps playing")
             #expect(
-                (localAccepted.history.entries.contains { $0.uri == trackB.uri }) == true,
-                "accepted local play records B")
+                (localAccepted.history.entries.contains { $0.uri == trackB.uri }) == false,
+                "transport acceptance alone does not record B")
+            sendEnginePlayback(
+                localAccepted, uri: trackB.uri, transport: .playing,
+                timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 1)
+            #expect(localAccepted.history.entries.contains { $0.uri == trackB.uri })
             await localAccepted.shutdownForTermination()
 
             let remoteRejected = playbackStore(
@@ -1442,9 +1446,13 @@ struct PlaybackCommandFailureTests {
             _ = await waitUntil { remoteAccepted.state.pendingCommands[.transport] == nil }
             #expect((remoteAccepted.state.currentTrack?.uri) == (trackB.uri), "accepted remote play keeps B")
             #expect(
-                (remoteAccepted.history.entries.contains { $0.uri == trackB.uri }) == true,
-                "accepted remote play records B"
+                (remoteAccepted.history.entries.contains { $0.uri == trackB.uri }) == false,
+                "transport acceptance alone does not record B"
             )
+            sendEnginePlayback(
+                remoteAccepted, uri: trackB.uri, transport: .playing,
+                timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 1)
+            #expect(remoteAccepted.history.entries.contains { $0.uri == trackB.uri })
             await remoteAccepted.shutdownForTermination()
 
             let laggingRemote = GatedFailingRemoteClient()
@@ -1501,8 +1509,9 @@ struct PlaybackCommandFailureTests {
                 (confirmedCommandID.flatMap { confirmStore.state.transportCommandResolutions[$0] })
                     == (Optional(PlaybackTransportCommandResolution.confirmed)),
                 "an authoritative B snapshot records confirmation")
+            let confirmedSettlement = confirmedCommandID.flatMap { confirmStore.effects.settlement(of: .command($0)) }
             await confirmRemote.fail()
-            _ = await waitUntil { confirmStore.history.entries.contains { $0.uri == trackB.uri } }
+            await confirmedSettlement?.wait()
             #expect((confirmStore.state.currentTrack?.uri) == (trackB.uri), "confirmed B then failure keeps B")
             #expect((confirmStore.transientCommandError) == nil, "confirmed B then failure has no command notice")
             #expect(
@@ -1728,8 +1737,12 @@ struct PlaybackCommandFailureTests {
                 (rawURI.state.currentTrack?.uri) == (trackA.uri),
                 "accepted raw play(uri:) still keeps A until the engine speaks")
             #expect(
-                (rawURI.history.entries.contains { $0.uri == trackB.uri }) == true,
-                "accepted raw play(uri:) records the URI")
+                (rawURI.history.entries.contains { $0.uri == trackB.uri }) == false,
+                "accepted raw play(uri:) waits for observed history")
+            sendEnginePlayback(
+                rawURI, uri: trackB.uri, transport: .playing,
+                timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 1)
+            #expect(rawURI.history.entries.contains { $0.uri == trackB.uri })
             await rawURI.shutdownForTermination()
 
             let localGate = GatedLocalEngine()
@@ -2308,7 +2321,7 @@ struct PlaybackCommandFailureTests {
             #expect((localAccepted.state.owner) == (expectedB), "accepted local transfer keeps admitted B")
             #expect(
                 (localAccepted.feedback.message)
-                    == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playing on Speaker B")),
+                    == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playback request sent to Speaker B")),
                 "accepted local transfer announces success through mutation feedback")
             #expect(
                 (localAccepted.transientCommandError) == nil,
@@ -2373,12 +2386,12 @@ struct PlaybackCommandFailureTests {
             confirmGate.finish(with: .error)
             _ = await waitUntil {
                 confirmStore.state.transportCommandResolutions.isEmpty
-                    && confirmStore.feedback.message?.text == "Playing on Speaker B"
+                    && confirmStore.feedback.message?.text == "Playback request sent to Speaker B"
             }
             #expect((confirmStore.state.owner) == (remoteB), "confirmed B then failure keeps B")
             #expect(
                 (confirmStore.feedback.message)
-                    == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playing on Speaker B")),
+                    == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playback request sent to Speaker B")),
                 "confirmed B then failure announces success once")
             #expect(
                 (confirmStore.transientCommandError) == nil,
@@ -2544,7 +2557,7 @@ struct PlaybackCommandFailureTests {
             _ = await waitUntil { acceptedLocalMacStore.state.pendingCommands[.transfer] == nil }
             #expect(
                 (acceptedLocalMacStore.feedback.message)
-                    == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playing on This Mac")),
+                    == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playback request sent to This Mac")),
                 "accepted transfer-to-this-Mac announces success through mutation feedback")
             #expect(
                 (acceptedLocalMacStore.transientCommandError) == nil,

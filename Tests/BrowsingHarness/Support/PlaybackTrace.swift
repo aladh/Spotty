@@ -7,6 +7,10 @@ struct PlaybackTraceCheckpoint: Codable, Sendable {
     let elapsedMilliseconds: Double
     let engineGeneration: UInt64
     let commandCount: Int
+    let intentOutcome: String?
+    let admissionToDispatchMilliseconds: Double?
+    let admissionToSettlementMilliseconds: Double?
+    let admissionToFeedbackMilliseconds: Double?
 }
 
 /// A finite scenario through production action entry points. Conditions, not scheduler turns,
@@ -15,35 +19,62 @@ struct PlaybackTraceCheckpoint: Codable, Sendable {
 struct PlaybackTrace {
     static func run(player: PlaybackStore, world: BrowsingWorld) async throws -> [PlaybackTraceCheckpoint] {
         var checkpoints: [PlaybackTraceCheckpoint] = []
-        func checkpoint(_ name: String, since started: ContinuousClock.Instant) {
+        func checkpoint(
+            _ name: String, since started: ContinuousClock.Instant,
+            intent: PlaybackIntent? = nil, feedbackMilliseconds: Double? = nil
+        ) {
             let elapsed = started.duration(to: .now)
             checkpoints.append(
                 PlaybackTraceCheckpoint(
                     name: name,
                     elapsedMilliseconds: Double(elapsed.components.seconds) * 1_000
                         + Double(elapsed.components.attoseconds) / 1e15,
-                    engineGeneration: player.engineGeneration, commandCount: world.playback.snapshot().commandCount))
+                    engineGeneration: player.engineGeneration, commandCount: world.playback.snapshot().commandCount,
+                    intentOutcome: intent.map { String(describing: $0.outcome) },
+                    admissionToDispatchMilliseconds: intent.flatMap { intent in
+                        intent.dispatchedAt.map { $0.timeIntervalSince(intent.command.startedAt) * 1_000 }
+                    },
+                    admissionToSettlementMilliseconds: intent.flatMap { intent in
+                        intent.settledAt.map { $0.timeIntervalSince(intent.command.startedAt) * 1_000 }
+                    },
+                    admissionToFeedbackMilliseconds: feedbackMilliseconds))
         }
         try await until("playback.ready") { player.isConnected && player.canTogglePlayback && player.duration > 0 }
+        func milliseconds(since start: ContinuousClock.Instant) -> Double {
+            let elapsed = start.duration(to: .now)
+            return Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15
+        }
         var started = ContinuousClock.now
         player.togglePlayback()
+        var feedbackMilliseconds = milliseconds(since: started)
         try await until("playback.play-confirmed") {
             world.playback.snapshot().playing && player.state.pendingCommands.isEmpty && player.isPlaying
+                && player.state.intents.last?.outcome == .observedConfirmed
         }
-        checkpoint("play.confirmed", since: started)
+        checkpoint(
+            "play.confirmed", since: started, intent: player.state.intents.last,
+            feedbackMilliseconds: feedbackMilliseconds)
         started = .now
         player.togglePlayback()
+        feedbackMilliseconds = milliseconds(since: started)
         try await until("playback.pause-confirmed") {
             !world.playback.snapshot().playing && player.state.pendingCommands.isEmpty && !player.isPlaying
+                && player.state.intents.last?.outcome == .observedConfirmed
         }
-        checkpoint("pause.confirmed", since: started)
+        checkpoint(
+            "pause.confirmed", since: started, intent: player.state.intents.last,
+            feedbackMilliseconds: feedbackMilliseconds)
         started = .now
         player.seek(to: 0.5)
+        feedbackMilliseconds = milliseconds(since: started)
         try await until("playback.seek-confirmed") {
             world.playback.snapshot().positionMS == 90_000 && player.state.pendingCommands.isEmpty
                 && abs(player.position - 90) < 0.1
+                && player.state.intents.last?.outcome == .observedConfirmed
         }
-        checkpoint("seek.confirmed", since: started)
+        checkpoint(
+            "seek.confirmed", since: started, intent: player.state.intents.last,
+            feedbackMilliseconds: feedbackMilliseconds)
         started = .now
         let beforeRejected = world.playback.snapshot().rejectedCount
         world.playback.inject(.reject)
@@ -52,7 +83,7 @@ struct PlaybackTrace {
             world.playback.snapshot().rejectedCount > beforeRejected && player.state.pendingCommands.isEmpty
                 && abs(player.position - 90) < 0.1
         }
-        checkpoint("seek.rejected", since: started)
+        checkpoint("seek.rejected", since: started, intent: player.state.intents.last)
 
         // Hold a successful remote observation across a newer local handoff. Delivering the old
         // revision afterward must not restore the remote owner or its older position.

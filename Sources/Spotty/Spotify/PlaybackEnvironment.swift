@@ -558,6 +558,17 @@ final class PlaybackDispatchPermit: @unchecked Sendable {
 
     private let lock = NSLock()
     private var state: State = .pending
+    private var receipt: Date?
+    private let clock: any PlaybackClock
+
+    init(clock: any PlaybackClock = SystemPlaybackClock()) { self.clock = clock }
+
+    func takeDispatchReceipt() -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        defer { receipt = nil }
+        return receipt
+    }
 
     func invalidate() {
         lock.lock()
@@ -572,7 +583,14 @@ final class PlaybackDispatchPermit: @unchecked Sendable {
         defer { lock.unlock() }
         guard state == .pending else { return false }
         state = .claimed
+        receipt = clock.now()
         return true
+    }
+
+    var canDiscard: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return state != .pending && receipt == nil
     }
 
     var isResolved: Bool {

@@ -223,13 +223,15 @@ struct SessionLifetimeTests {
                     == (.reportFailure(reconnect: true)),
                 "an accepted reconnect-required failure reports reconnect")
             #expect(
-                (followUp(finishAccepted: false, succeeded: true, reconnect: true)) == (.reportSuccess),
+                (followUp(finishAccepted: false, succeeded: true, reconnect: true, resolution: .confirmed))
+                    == (.reportSuccess),
                 "a matching snapshot then successful finish still reports success")
             #expect(
-                (followUp(finishAccepted: false, succeeded: false, reconnect: false)) == (.reportSuccess),
+                (followUp(finishAccepted: false, succeeded: false, reconnect: false, resolution: .confirmed))
+                    == (.reportSuccess),
                 "already-reconciled transport success with an ordinary failure reports success")
             #expect(
-                (followUp(finishAccepted: false, succeeded: false, reconnect: true))
+                (followUp(finishAccepted: false, succeeded: false, reconnect: true, resolution: .confirmed))
                     == (.reconnectAfterReconciledSuccess),
                 "already-reconciled transport success with a reconnect-required failure keeps presentation and reconnects"
             )

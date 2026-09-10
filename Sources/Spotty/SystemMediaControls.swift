@@ -106,7 +106,8 @@ struct SystemMediaPublicationGate {
                 snapshot.title != previous.title || snapshot.artist != previous.artist
                 || snapshot.duration != previous.duration || snapshot.playing != previous.playing
                 || snapshot.canToggle != previous.canToggle || snapshot.canSkip != previous.canSkip
-            let expected = min(previous.duration, previous.position + (previous.playing ? max(0, elapsed) : 0))
+            let projected = previous.position + (previous.playing ? max(0, elapsed) : 0)
+            let expected = previous.duration > 0 ? min(previous.duration, projected) : projected
             discontinuity = abs(snapshot.position - expected) > 0.25
         } else {
             semanticChanged = snapshot != previous

@@ -559,6 +559,15 @@ struct PlaybackEventOutcomeTests {
         #expect(admitted6)
         let admitted7 = gate.admit(nil, at: start.addingTimeInterval(1.5))
         #expect(admitted7)
+        var unknownDuration = SystemMediaPublicationGate()
+        for tick in 0...5 {
+            let time = Double(tick) / 5
+            let admitted = unknownDuration.admit(
+                SystemMediaSnapshot(
+                    title: "Track", artist: "Artist", duration: 0, position: 12 + time,
+                    playing: true, canToggle: true, canSkip: true), at: start.addingTimeInterval(time))
+            #expect(admitted == (tick == 0 || tick == 5))
+        }
     }
 
     @Test

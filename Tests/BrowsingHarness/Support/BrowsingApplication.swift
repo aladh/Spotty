@@ -114,7 +114,7 @@ final class BrowsingRun {
     let player: PlaybackStore
     let navigation = CatalogNavigation()
     @ObservationIgnored private var workload: Task<Void, Never>?
-    var status = "Preparing synthetic browsing"
+    var status = "Preparing your library"
     @ObservationIgnored private var responsiveness: BrowsingResponsiveness?
     @ObservationIgnored private var playbackClock: Task<Void, Never>?
     @ObservationIgnored private var playbackCheckpoints: [PlaybackTraceCheckpoint] = []

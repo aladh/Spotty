@@ -55,7 +55,7 @@ enum BrowsingFailure: Error, LocalizedError {
         switch self {
         case .invalidScenario: "Use a valid browsing, signed-out, or version-2 playback scenario."
         case .artworkResource: "Rebuild the demo with its bundled artwork resources."
-        case .unsupportedAction: "This synthetic scenario does not support that action."
+        case .unsupportedAction: "This demo does not support that action."
         case let .checkpoint(name): "Browsing checkpoint failed: \(name)."
         }
     }
@@ -66,6 +66,69 @@ struct BrowsingFixtures: Sendable {
     static let folderNames = ["Focus", "Weekend"]
     static let playlistsPerFolder = 4
     static let expandedPlaylistCount = topLevelPlaylistCount + folderNames.count * playlistsPerFolder
+    static let playlistNames = [
+        "Moonlit Drive", "Neon Afterglow", "Sunday Coffee", "Soft Focus", "Coastal Morning",
+        "Night Bus Home", "Golden Hour", "Rain on the Window", "Kitchen Dancing", "Quiet Momentum",
+        "Indie Daydream", "Late Checkout", "City in Bloom", "Analog Warmth", "Open Road",
+        "Slow Sundays", "After Work", "Fresh Air", "Midnight Radio", "Low-Key Favorites",
+        "Deep Work", "Instrumental Focus", "Morning Flow", "No Distractions", "Weekend Warm-Up",
+        "Saturday Sun", "Dinner with Friends", "Sunday Reset",
+    ]
+    static let playlistDescriptions = [
+        "Dreamy songs for the drive home", "Electric nights and glowing city streets",
+        "A slow start with something warm", "Gentle textures for an unhurried afternoon",
+        "Bright songs for open windows", "The soundtrack for watching the city pass by",
+        "Hold on to the last light", "Soft songs for grey weather", "Turn the kitchen into a dance floor",
+        "Steady energy without the noise", "Guitars, daydreams, and good company",
+        "One more song before heading downstairs", "Fresh finds with room to breathe",
+        "Warm recordings and timeless melodies", "Songs that make the miles disappear",
+        "Nothing urgent, nowhere else to be", "A clean break between work and evening",
+        "Music made for getting outside", "Songs worth staying up for", "The ones that always fit",
+        "Long stretches of uninterrupted concentration", "Words out, focus on",
+        "A clear head and an easy rhythm", "Calm sounds for getting things done",
+        "Start the weekend at full volume", "Sunshine, side streets, and nowhere to rush",
+        "Crowd-pleasers for a table full of people", "Ease into the week ahead",
+    ]
+    static let trackNames = [
+        "Silver Lining", "Night Transit", "Paper Sun", "Glass Garden", "Afterimage", "Violet Orbit",
+        "Static on the Line", "Coastline", "Half Awake", "Borrowed Time", "Northern Lights", "Slow Motion",
+        "Blue Hour", "Backseat Summer", "Familiar Streets", "Signals", "Warm Nights", "Passing Through",
+        "Open Window", "Satellite Heart", "Second Wind", "Side by Side", "Wildflower", "Stay for a While",
+        "First Light", "Out of Frame", "Long Way Home", "Tidal Lines", "Velvet Sky", "Here and Now",
+        "Easy Company", "Turning Pages", "Distant Thunder", "Under the Pines", "Little Victories", "Daybreak",
+        "Parallel Lines", "Good Intentions", "September Air", "Anywhere with You", "Last Train", "Soft Landing",
+        "Bright Side", "The Way It Goes", "Quietly Loud", "Between Stations", "New Perspective", "Home Again",
+    ]
+    static let albumNames = [
+        "Signals at Dusk", "Postcards from Nowhere", "Rooms with Open Windows", "Northern Exposure",
+        "Everything in Motion", "Polaroid Weather", "The Long Weekend", "Maps We Never Used",
+        "Small Hours", "Color Theory", "Familiar Places", "A Different Light",
+    ]
+    static let artistNames = [
+        "Harbor Lights", "Mara Vale", "The Side Streets", "June Arcade", "Northbound", "Ellis Rowe",
+        "Paper Satellites", "Cedar House", "Lena Hart", "Atlas Bloom", "Night Weather", "Theo Lane",
+    ]
+    static let listenerNames = [
+        "Mara Vale", "Ellis Rowe", "Lena Hart", "Theo Lane", "Nina Cole",
+    ]
+
+    static func playlistName(at index: Int) -> String { playlistNames[index % playlistNames.count] }
+    static func playlistDescription(at index: Int) -> String {
+        playlistDescriptions[index % playlistDescriptions.count]
+    }
+    static func trackName(at index: Int) -> String { trackNames[index % trackNames.count] }
+    static func albumName(at index: Int) -> String { albumNames[index % albumNames.count] }
+    static func artistName(at index: Int) -> String { artistNames[index % artistNames.count] }
+    static func listenerName(at index: Int) -> String { listenerNames[index % listenerNames.count] }
+
+    static func addedAt(playlistIndex: Int, trackIndex: Int) -> String {
+        let ordinal = (trackIndex + playlistIndex * 13) % 1_344
+        let year = 2025 - ordinal / 336
+        let dayOfYear = ordinal % 336
+        let month = 12 - dayOfYear / 28
+        let day = 28 - dayOfYear % 28
+        return String(format: "%04d-%02d-%02dT00:00:00Z", year, month, day)
+    }
 
     let playlists: [PathfinderPlaylist]
     let details: [String: PathfinderPlaylistUnion]
@@ -99,10 +162,12 @@ struct BrowsingFixtures: Sendable {
         let playlistCount = scenario.expandedLibrary == true ? Self.expandedPlaylistCount : 2
         let records: [[String: Any]] = (0..<playlistCount).map { index in
             [
-                "uri": "spotify:playlist:synthetic\(index)", "name": "Synthetic Mix \(index + 1)",
-                "description": "Deterministic browsing fixture",
+                "uri": "spotify:playlist:synthetic\(index)", "name": Self.playlistName(at: index),
+                "description": Self.playlistDescription(at: index),
                 "images": ["items": [image(index)]],
-                "ownerV2": ["data": ["name": "Synthetic Listener", "uri": "spotify:user:synthetic"]],
+                "ownerV2": [
+                    "data": ["name": Self.listenerName(at: index), "uri": "spotify:user:synthetic\(index)"]
+                ],
             ]
         }
         playlists = try records.map { try Self.decode(PathfinderPlaylist.self, $0) }
@@ -112,14 +177,14 @@ struct BrowsingFixtures: Sendable {
             let items: [[String: Any]] = (0..<scenario.trackCount).map { index in
                 [
                     "uid": "occurrence-\(playlistIndex)-\(index)",
-                    "addedAt": ["isoString": "2026-01-01T00:00:00Z"],
+                    "addedAt": ["isoString": Self.addedAt(playlistIndex: playlistIndex, trackIndex: index)],
                     "itemV2": [
                         "data": [
                             "uri": "spotify:track:synthetic\(playlistIndex)x\(index)",
-                            "name": String(format: "Synthetic Track %04d", Int32(index + 1)),
+                            "name": Self.trackName(at: index),
                             "trackDuration": ["totalMilliseconds": 180_000 + index % 60 * 1_000],
-                            "albumOfTrack": ["name": "Synthetic Album \(index / 12 + 1)", "coverArt": image(index)],
-                            "artists": ["items": [["profile": ["name": "Synthetic Artist \(index % 12 + 1)"]]]],
+                            "albumOfTrack": ["name": Self.albumName(at: index), "coverArt": image(index)],
+                            "artists": ["items": [["profile": ["name": Self.artistName(at: index)]]]],
                         ]
                     ],
                 ]
@@ -131,13 +196,13 @@ struct BrowsingFixtures: Sendable {
         home = try Self.decode(
             PathfinderHome.self,
             [
-                "__typename": "HomeResponsePayload", "greeting": ["transformedLabel": "Synthetic browsing"],
+                "__typename": "HomeResponsePayload", "greeting": ["transformedLabel": "Good afternoon"],
                 "sectionContainer": [
                     "sections": [
                         "items": [
                             [
                                 "uri": "spotify:section:synthetic",
-                                "data": ["title": ["transformedLabel": "Repeatable library"]],
+                                "data": ["title": ["transformedLabel": "Made for the moment"]],
                                 "sectionItems": [
                                     "items": records.map {
                                         ["content": ["__typename": "PlaylistResponseWrapper", "data": $0]]

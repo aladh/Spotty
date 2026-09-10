@@ -76,12 +76,14 @@ final class SyntheticPlayback: @unchecked Sendable {
         fanout.emit(event)
     }
 
-    func replaceSession(publish: Bool = true) {
+    func replaceSession(preservingPlayback: Bool = false, publish: Bool = true) {
         let event = lock.withLock {
             generation += 1
             connected = true
-            playing = false
-            positionMS = 0
+            if !preservingPlayback {
+                playing = false
+                positionMS = 0
+            }
             return clusterLocked()
         }
         if publish { fanout.emit(event) }

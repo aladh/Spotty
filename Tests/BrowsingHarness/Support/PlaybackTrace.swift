@@ -73,10 +73,14 @@ struct PlaybackTrace {
 
         started = .now
         let previousGeneration = player.engineGeneration
+        let recoveryPosition = world.playback.snapshot().positionMS
         world.playback.setConnected(false)
-        world.playback.replaceSession()
+        _ = await player.coordinator.forceReconnect()
         try await until("playback.recovered") {
             player.isConnected && player.engineGeneration > previousGeneration && player.canTogglePlayback
+        }
+        guard abs(player.position * 1_000 - Double(recoveryPosition)) < 1 else {
+            throw BrowsingFailure.checkpoint("recovery.preserved-position")
         }
         checkpoint("disconnect.recovered", since: started)
 
@@ -114,10 +118,12 @@ struct PlaybackTrace {
 
     static func until(_ name: String, _ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while !condition() {
+        while true {
+            let ready = condition()
             guard !Task.isCancelled, ContinuousClock.now < deadline else {
                 throw BrowsingFailure.checkpoint(name)
             }
+            if ready { return }
             await Task.yield()
         }
     }

@@ -25,6 +25,7 @@ final class BrowsingResponsiveness: NSObject {
     private var previousCallback: CFTimeInterval?
     private var gaps: [Double] = []
     private var missed = 0
+    private var callbackCount = 0
     private var counts: [String: Int] = [:]
     private var refreshRate = 0
 
@@ -50,7 +51,7 @@ final class BrowsingResponsiveness: NSObject {
             return ordered[min(ordered.count - 1, Int(Double(ordered.count - 1) * p))]
         }
         return BrowsingResponsivenessReport(
-            observerInvalidations: counts, displayCallbackCount: gaps.count,
+            observerInvalidations: counts, displayCallbackCount: callbackCount,
             callbackGapP95Milliseconds: percentile(0.95), callbackGapP99Milliseconds: percentile(0.99),
             maximumCallbackGapMilliseconds: ordered.last ?? 0, missedDisplayOpportunityCount: missed,
             reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
@@ -79,6 +80,7 @@ final class BrowsingResponsiveness: NSObject {
     }
 
     @objc private func displayTick(_ link: CADisplayLink) {
+        callbackCount += 1
         let now = CACurrentMediaTime()
         defer { previousCallback = now }
         guard let previousCallback, gaps.count < 100_000 else { return }

@@ -22,7 +22,13 @@ struct BrowsingHarnessTests {
         let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
         let player = PlaybackStore(environment: world.environment, feedback: TransientFeedbackPresenter(clock: world))
         await player.restore()
-        let checkpoints = try await PlaybackTrace.run(player: player, world: world)
+        let checkpoints: [PlaybackTraceCheckpoint]
+        do {
+            checkpoints = try await PlaybackTrace.run(player: player, world: world)
+        } catch {
+            await player.shutdownForTermination()
+            throw error
+        }
         #expect(checkpoints.count == 7)
         #expect(world.snapshot().mutationAttempts == 0)
         #expect(world.playback.snapshot().rejectedCount == 1)

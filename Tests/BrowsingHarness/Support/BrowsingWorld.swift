@@ -103,7 +103,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
     func forceReconnect() -> Int32 {
         guard scenario.mode == .playback else { _ = rejectMutation(); return -1 }
         record("playback.reconnect")
-        playback.replaceSession()
+        playback.replaceSession(preservingPlayback: true)
         return 0
     }
     func send(_ command: SpotifyConnectCommand, from source: String, to target: String) async throws {

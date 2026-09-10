@@ -307,8 +307,133 @@ private func connectQueueState(revision: UInt64, sessionGeneration: UInt64) -> R
     )
 }
 
+private final class SplitQueueDeadlineClock: PlaybackClock, @unchecked Sendable {
+    let first = CooperativeParkedClock()
+    let later = CooperativeParkedClock()
+    private let lock = NSLock()
+    private var firstDeadlineAvailable = true
+
+    func now() -> Date { first.now() }
+    func sleep(seconds: TimeInterval) async throws {
+        let useFirst = lock.withLock {
+            guard seconds == 8, firstDeadlineAvailable else { return false }
+            firstDeadlineAvailable = false
+            return true
+        }
+        try await (useFirst ? first : later).sleep(seconds: seconds)
+    }
+}
+
 @Suite("Queue Management")
 struct QueueManagementTests {
+    @Test @MainActor
+    func observationTimeoutDoesNotCancelRemainingBatchDispatch() async {
+        let clock = SplitQueueDeadlineClock()
+        let remote = QueueRemoteClient(.park)
+        let player = PlaybackStore(
+            environment: queueEnvironment(remote: remote, clock: clock),
+            feedback: TransientFeedbackPresenter(clock: clock))
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        player.addToQueue(uris: ["spotify:track:a", "spotify:track:b", "spotify:track:c"])
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        let firstID = player.state.intents.last!.command.id
+        #expect(await waitUntil { clock.first.waiterCount == 1 })
+        await remote.completePark(success: true)
+        #expect(await waitUntil { await remote.sendCount == 2 })
+        let firstDeadline = player.effects.settlement(of: .commandDeadline(firstID))
+        clock.first.releaseAll()
+        await firstDeadline?.wait()
+        #expect(player.state.intents.first?.outcome == .timedOut)
+        await remote.completePark(success: true)
+        #expect(await waitUntil { await remote.sendCount == 3 })
+        await remote.completePark(success: true)
+        #expect(await waitUntil { player.feedback.message?.text == "Queue requests sent for 3 songs" })
+        await player.shutdownForTermination()
+    }
+
+    @Test @MainActor
+    func ambiguousEarlierAppendCannotDonateItsOccurrenceToAnOverlappingRequest() async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRemoteClient(.park)
+        let player = PlaybackStore(
+            environment: queueEnvironment(remote: remote, clock: clock),
+            feedback: TransientFeedbackPresenter(clock: clock))
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        let uri = "spotify:track:new"
+        player.addToQueue(uris: [uri])
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        player.addToQueue(uris: [uri])
+        #expect(await waitUntil { player.state.intents.filter { $0.command.kind == .queue }.count == 2 })
+        await remote.completePark(success: false)
+        #expect(await waitUntil { await remote.sendCount == 2 })
+        var observed = player.state.queue
+        observed.entries.append(PlaybackQueueItem(uri: uri, provider: "queue", uid: "ambiguous"))
+        observed.revision += 1
+        observed.receivedAt = clock.now()
+        #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
+        // The single occurrence could belong to the first append whose acknowledgement failed.
+        #expect(player.state.intents.last?.outcome == .dispatched)
+        await remote.completePark(success: true)
+        #expect(await waitUntil { player.state.intents.last?.outcome == .sent })
+        await player.shutdownForTermination()
+    }
+
+    @Test @MainActor
+    func confirmedRemovalCannotHoldAdmissionAfterItsDeadline() async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRemoteClient(.park)
+        let player = PlaybackStore(
+            environment: queueEnvironment(remote: remote, clock: clock),
+            feedback: TransientFeedbackPresenter(clock: clock))
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        player.removeUpcomingQueueOccurrences(selectedIDs: [player.queueNextEntries[0].id])
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        var observed = player.state.queue
+        observed.entries.removeFirst()
+        observed.revision += 1
+        observed.receivedAt = clock.now()
+        #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        #expect(await waitUntil { clock.requestedSleeps.contains(8) })
+        clock.releaseAll()
+        #expect(await waitUntil { player.queueReplacementToken == nil })
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        #expect(player.feedback.message == nil)
+        await player.shutdownForTermination()
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func observedQueueChangeSurvivesLateTransportFailure(removal: Bool) async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRemoteClient(.park)
+        let feedback = TransientFeedbackPresenter(clock: clock)
+        let player = PlaybackStore(environment: queueEnvironment(remote: remote, clock: clock), feedback: feedback)
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        var observed = player.state.queue
+        let addedURI = "spotify:track:added"
+        if removal {
+            player.removeUpcomingQueueOccurrences(selectedIDs: [player.queueNextEntries[0].id])
+            observed.entries.removeFirst()
+        } else {
+            player.addToQueue(uris: [addedURI])
+            observed.entries.append(PlaybackQueueItem(uri: addedURI, provider: "queue", uid: "added"))
+        }
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        observed.revision += 1
+        observed.receivedAt = clock.now()
+        #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        await remote.completePark(success: false)
+        #expect(await waitUntil { feedback.message?.kind == .success })
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        #expect(player.state.queue.entries == observed.entries)
+        await player.shutdownForTermination()
+    }
+
     @Test
     @MainActor
     func testQueueManagement() async {
@@ -404,7 +529,8 @@ struct QueueManagementTests {
             #expect(
                 (endpoints) == ([.addToQueue, .addToQueue, .addToQueue]),
                 "multi-add sends add_to_queue in visible order, including duplicate URIs")
-            #expect((feedback.message?.text) == ("Added 3 songs to Queue"), "multi-add reports a batch success")
+            #expect(
+                (feedback.message?.text) == ("Queue requests sent for 3 songs"), "multi-add reports a batch success")
             #expect((player.transientCommandError) == (nil), "multi-add success is not a playback notice")
             await player.shutdownForTermination()
         }
@@ -458,7 +584,7 @@ struct QueueManagementTests {
             #expect((await waitUntil { feedback.message?.kind == .informational }) == true, "partial add finished")
             #expect((await remote.sendCount) == (3), "two commands completed before failure")
             #expect(
-                (feedback.message?.text) == ("Added 2 of 3 songs to Queue"),
+                (feedback.message?.text) == ("Queue requests sent for 2 of 3 songs"),
                 "partial add reports completed versus requested")
             #expect((player.queueNextEntries) == (before), "partial add does not rewrite presentation")
             await player.shutdownForTermination()
@@ -494,7 +620,9 @@ struct QueueManagementTests {
                 "removal keeps the first duplicate occurrence")
             #expect((command?.prevTracks?.map(\.uid)) == (["p0"]), "removal preserves prev_tracks")
             #expect((player.queueNextEntries) == (before), "success does not locally rewrite presentation")
-            #expect((feedback.message?.text) == ("Removed from Queue"), "removal reports through transient feedback")
+            #expect(
+                (feedback.message?.text) == ("Queue removal request sent"), "removal reports through transient feedback"
+            )
             await player.shutdownForTermination()
         }
 
@@ -651,7 +779,7 @@ struct QueueManagementTests {
             #expect((player.queueNextEntries) == (before), "in-flight overlap does not edit presentation")
             await parked.completePark(success: true)
             #expect(
-                (await waitUntil { feedback.message?.text == "Removed from Queue" }) == true,
+                (await waitUntil { feedback.message?.text == "Queue removal request sent" }) == true,
                 "the first replacement finished")
             #expect((player.queueReplacementToken) == nil, "a finished replacement releases the in-flight gate")
             #expect(
@@ -969,7 +1097,7 @@ struct QueueManagementTests {
             #expect((replacementFeedback.message) == nil, "inspector close does not toast a cancelled replacement")
             await parked.completePark(success: true)
             #expect(
-                (await waitUntil { replacementFeedback.message?.text == "Removed from Queue" }) == true,
+                (await waitUntil { replacementFeedback.message?.text == "Queue removal request sent" }) == true,
                 "replacement still completes after inspector close")
             #expect(
                 (replacement.queueMutation?.next.map(\.uid)) == (["q1", "q2", "", "a0"]),

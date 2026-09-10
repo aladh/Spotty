@@ -183,7 +183,7 @@ pub(crate) fn spawn_session_health_check(generation: u64) -> JoinHandle<()> {
             if health_check_should_recover(
                 session_invalid,
                 with_connection(|c| c.session_connected),
-                RECONNECTING.load(Ordering::SeqCst),
+                recovery_is_active(),
                 teardown_in_progress(),
             ) {
                 debug!(
@@ -238,13 +238,14 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
         // to 30 seconds, and during that time something else — a manual restart from the
         // wake path, or spotty_playback_cleanup on logout — may have already rebuilt or torn down
         // the session. Waking up and rebuilding anyway would replace a healthy new session
-        // with one built from a stale token. RECONNECTING alone never caught this: it says
+        // with one built from a stale token. An ownership flag alone cannot catch this: it says
         // "a loop is running", not "the thing it is fixing still exists".
         // Mutable on purpose: each rebuild attempt bumps SESSION_GENERATION itself, so the
         // loop adopts the value its own attempt produced. Without that it reads its own
         // work as a foreign supersede and gives up after a single failed attempt.
         let mut recovering_generation = start.recovering_generation;
         let intent = start.intent;
+        let mut lease = start.lease;
 
         // Backoff that never gives up. This used to be a fixed schedule of ten attempts
         // totalling about three minutes, after which the loop exited — so an outage longer
@@ -252,23 +253,10 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
         // back, and only a manual play would recover it. The loop is not idle polling: it
         // exists only while disconnected and exits on any lifecycle event, because every
         // iteration re-checks the generation and the teardown flags below.
-        let mut attempt: u32 = 0;
-
         loop {
-            let delay = match attempt {
-                0 => 0,
-                1 => 2,
-                2 => 5,
-                3 => 10,
-                _ => 30,
-            };
-            // Advance before any `continue` below, so a token failure still backs off
-            // instead of spinning on a zero delay.
-            let attempt_number = attempt + 1;
-            attempt = attempt.saturating_add(1);
-
-            if delay > 0 {
-                tokio::time::sleep(Duration::from_secs(delay)).await;
+            let delay = lease.next_delay();
+            if !lease.wait(delay).await {
+                return;
             }
 
             if !reconnect_may_proceed(
@@ -281,19 +269,19 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                     elapsed_since_wake_ms(),
                     recovering_generation
                 );
-                RECONNECTING.store(false, Ordering::SeqCst);
+                lease.finish(RecoveryOutcome::Superseded);
                 return;
             }
 
+            let attempt_number = lease.begin_attempt();
             debug!(
                 "[WAKE +{}ms] Reconnect attempt {}",
                 elapsed_since_wake_ms(),
                 attempt_number
             );
-            with_connection(|c| {
-                c.last_error = Some(format!("Reconnecting (attempt {})", attempt_number));
-            });
-            notify_connection_state_change();
+            if !publish_recovery_attempt(recovering_generation, &lease, attempt_number) {
+                return;
+            }
 
             // No token is fetched here. A rebuild connects from the AP credentials cached by
             // the streaming grant, which is the only login path this reconnection flow
@@ -318,17 +306,18 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
             match run_reconnect_unit_async(
                 recovering_generation,
                 || SESSION_GENERATION.load(Ordering::SeqCst),
-                teardown_in_progress,
+                || teardown_in_progress() || lease.is_cancelled(),
                 do_reconnect_cleanup,
                 async {
                     let result =
-                        build_player_async(None, intent.was_active, intent.should_resume()).await;
+                        build_player_owned(None, intent.was_active, intent.should_resume(), Some(&lease)).await;
                     // Capture the attempt and publish its failure while this lifecycle unit still
                     // owns the lock. A later build must not supply our generation or receive our error.
                     let generation = LAST_BUILD_GENERATION.load(Ordering::SeqCst);
                     if result == Err(InitializationFailure::Transient)
                         && listener_may_act(generation, SESSION_GENERATION.load(Ordering::SeqCst))
                         && !teardown_in_progress()
+                        && !lease.is_cancelled()
                     {
                         with_connection(|c| c.last_error = Some("Reconnect failed".to_string()));
                         notify_connection_state_change();
@@ -344,7 +333,7 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                         elapsed_since_wake_ms(),
                         recovering_generation
                     );
-                    RECONNECTING.store(false, Ordering::SeqCst);
+                    lease.finish(RecoveryOutcome::Superseded);
                     return;
                 }
                 ReconnectUnitOutcome::Ran((_, Ok(_))) => {
@@ -353,7 +342,7 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                         elapsed_since_wake_ms(),
                         attempt_number
                     );
-                    RECONNECTING.store(false, Ordering::SeqCst);
+                    lease.finish(RecoveryOutcome::Ready);
                     return;
                 }
                 ReconnectUnitOutcome::Ran((attempt_generation, Err(e))) => {
@@ -368,7 +357,7 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                         // `build_player_async` publishes the typed snapshot only after checking
                         // this attempt's generation; the reconnect owner must then stop rather
                         // than feeding the same unusable credential through the backoff forever.
-                        RECONNECTING.store(false, Ordering::SeqCst);
+                        lease.finish(RecoveryOutcome::CredentialsRejected);
                         return;
                     }
                     // Adopt the generation this attempt created. build_player_async bumps it
@@ -385,6 +374,27 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
             }
         }
     });
+}
+
+/// Callback absence is optional delivery, not a failed recovery-admission gate.
+pub(crate) fn publish_recovery_attempt(
+    generation: u64,
+    lease: &RecoveryLease,
+    attempt: u32,
+) -> bool {
+    let Some(Ok(notification)) = with_current_generation_mutation(generation, || {
+        if lease.is_cancelled() || teardown_in_progress() {
+            return Err(());
+        }
+        with_connection(|c| c.last_error = Some(format!("Reconnecting (attempt {})", attempt)));
+        Ok(capture_connection_state_notification(generation))
+    }) else {
+        return false;
+    };
+    if let Some(notification) = notification {
+        deliver_connection_state_notification(notification);
+    }
+    true
 }
 
 /// Forces a reconnection to Spotify servers.
@@ -418,7 +428,7 @@ pub extern "C" fn spotty_playback_force_reconnect() -> i32 {
         }
 
         // Check if already reconnecting
-        if RECONNECTING.load(Ordering::SeqCst) {
+        if recovery_is_active() {
             debug!(
                 "[WAKE +{}ms] Force reconnect: reconnection already in progress",
                 elapsed_since_wake_ms()
@@ -508,10 +518,10 @@ pub extern "C" fn spotty_playback_init_player(
         let result = match block_on_export(async {
             // Recheck inside the serialization boundary: a reconnect may have stored a
             // session while this call waited for the lock.
-            match run_serialized_init(
-                session_is_present,
-                build_player_async(token_str.as_deref(), false, false),
-            )
+            match run_serialized_init(session_is_present, async {
+                cancel_recovery();
+                build_player_async(token_str.as_deref(), false, false).await
+            })
             .await
             {
                 SerializedInitOutcome::AlreadyInitialized => {

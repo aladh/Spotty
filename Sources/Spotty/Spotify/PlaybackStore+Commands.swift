@@ -59,6 +59,7 @@ extension PlaybackStore {
             expecting: expectedPlaybackState,
             expectedTiming: expectedTiming,
             expectedTrack: expectedTrack,
+            observedTrackURI: observationTrackURI(for: operation),
             expectedShuffle: expectedShuffle,
             expectedRepeatFlags: expectedRepeatFlags,
             expectedOwner: expectedOwner,
@@ -260,6 +261,7 @@ extension PlaybackStore {
                 expecting: expectedPlaybackState,
                 expectedTiming: expectedTiming,
                 expectedTrack: expectedTrack,
+                observedTrackURI: observationTrackURI(for: local),
                 expectedShuffle: expectedShuffle,
                 expectedRepeatFlags: expectedRepeatFlags,
                 expectedOwner: expectedOwner,
@@ -282,6 +284,14 @@ extension PlaybackStore {
         }
     }
 
+    private func observationTrackURI(for operation: LocalPlaybackOperation) -> String? {
+        switch operation {
+        case let .playURI(uri): uri.hasPrefix("spotify:track:") ? uri : nil
+        case let .playTracks(uris): uris.first
+        default: nil
+        }
+    }
+
     /// Shared playback-command lifecycle kernel. Route selection, route refusal, and
     /// waiting-for-local-identity stay outside so they cannot create pending commands.
     /// Callers supply the local or remote operation after choosing a live route.
@@ -291,6 +301,7 @@ extension PlaybackStore {
         expecting expectedPlaybackState: Bool?,
         expectedTiming: PlaybackTiming?,
         expectedTrack: CurrentTrack?,
+        observedTrackURI: String? = nil,
         expectedShuffle: Bool?,
         expectedRepeatFlags: RepeatFlags?,
         expectedOwner: PlaybackOwner?,
@@ -317,6 +328,7 @@ extension PlaybackStore {
                     expectedTransport: expectedPlaybackState.map { $0 ? .playing : .paused },
                     expectedTiming: expectedTiming,
                     expectedTrack: expectedTrack,
+                    expectedTrackURI: observedTrackURI,
                     expectedShuffle: expectedShuffle,
                     expectedRepeatFlags: expectedRepeatFlags,
                     expectedOwner: expectedOwner,
@@ -329,6 +341,25 @@ extension PlaybackStore {
             completion(false)
             return
         }
+        let deadlineID = PlaybackEffectID.commandDeadline(commandID)
+        effects.replace(
+            deadlineID,
+            with: Task { [weak self] in
+                guard let self else { return }
+                defer { self.effects.complete(deadlineID) }
+                do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
+                guard !Task.isCancelled, self.playbackLifetime == lifetime, !self.isTearingDown else { return }
+                let wasSent = self.state.intents.first { $0.command.id == commandID }?.outcome == .sent
+                if self.send(.commandTimedOut(id: commandID), source: .command, playbackLifetime: lifetime) {
+                    self.effects.cancel(.command(commandID))
+                    if !wasSent { completion(false) }
+                    let dispatched = self.state.intents.first { $0.command.id == commandID }?.dispatchedAt != nil
+                    self.showTransientCommandError(
+                        dispatched
+                            ? "Spotify has not confirmed this request. Its result is unknown."
+                            : "The playback request expired before it was sent.")
+                }
+            })
         let effectID = PlaybackEffectID.command(commandID)
         let registration = PlaybackEffectRegistration()
         effects.replace(

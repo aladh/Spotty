@@ -54,7 +54,9 @@ public enum PlaybackReducer {
             // stale callback. Reject it before identity, transport, or source revision changes so
             // the newer target remains visible and a later matching sample can still be accepted.
             if snapshot.trackUnavailable,
-                let expectedURI = playbackTrackURI(candidate.pendingCommands[.transport]?.expectedTrack?.uri),
+                let expectedURI = playbackTrackURI(
+                    candidate.pendingCommands[.transport]?.expectedTrack?.uri
+                        ?? candidate.pendingCommands[.transport]?.expectedTrackURI),
                 incomingURI != expectedURI
             {
                 return false
@@ -71,7 +73,7 @@ public enum PlaybackReducer {
                     snapshot.timing,
                     incomingTrackURI: incomingURI,
                     recordsAuthoritativeSample: true,
-                    in: &candidate
+                    at: envelope.receivedAt, in: &candidate
                 )
                 if let uri = incomingURI {
                     if candidate.currentTrack?.uri != uri {
@@ -151,7 +153,7 @@ public enum PlaybackReducer {
                 reconcileSeekTiming(
                     presentation.timing,
                     incomingTrackURI: presentation.currentTrack?.uri,
-                    in: &candidate
+                    at: envelope.receivedAt, in: &candidate
                 )
                 candidate.currentTrack = presentation.currentTrack
                 reconcileTransport(
@@ -179,7 +181,7 @@ public enum PlaybackReducer {
                     anchoredAt: anchoredAt
                 ),
                 incomingTrackURI: candidate.currentTrack?.uri,
-                in: &candidate
+                at: envelope.receivedAt, in: &candidate
             )
         case let .options(options):
             reconcileRepeat(
@@ -214,6 +216,7 @@ public enum PlaybackReducer {
                     ?? (command.expectedTiming == nil && command.expectedTrack == nil ? nil : candidate.timing),
                 latestAuthoritativeTiming: nil,
                 expectedTrack: command.expectedTrack,
+                expectedTrackURI: command.expectedTrackURI,
                 rollbackPresentation: command.rollbackPresentation
                     ?? (command.expectedTrack == nil
                         ? nil
@@ -232,10 +235,25 @@ public enum PlaybackReducer {
                 rollbackOwner: command.rollbackOwner ?? (command.expectedOwner == nil ? nil : candidate.owner),
                 startedAt: command.startedAt
             )
+            for index in candidate.intents.indices where candidate.intents[index].command.kind == command.kind {
+                candidate.intents[index].settle(.superseded, at: envelope.receivedAt)
+            }
+            var intent = PlaybackIntent(command: prepared, baselineTrackURI: candidate.currentTrack?.uri)
+            intent.baselineOwner = candidate.owner
+            intent.baselinePosition = candidate.timing.position
+            if command.kind == .transfer, command.expectedOwner == nil {
+                intent.localTransferTargetID = candidate.devices.localDeviceID
+            }
+            candidate.intents.append(intent)
+            while candidate.intents.count > 128,
+                let oldest = candidate.intents.firstIndex(where: { $0.outcome.isTerminal })
+            {
+                candidate.intents.remove(at: oldest)
+            }
             candidate.pendingCommands[command.kind] = prepared
             if let expectedTrack = command.expectedTrack {
                 if playbackTrackURI(candidate.currentTrack?.uri) != playbackTrackURI(expectedTrack.uri) {
-                    candidate.pendingCommands[.seek] = nil
+                    supersedePendingSeek(in: &candidate, at: envelope.receivedAt)
                 }
                 candidate.currentTrack = expectedTrack
             }
@@ -254,35 +272,48 @@ public enum PlaybackReducer {
             if let expectedOwner = command.expectedOwner {
                 candidate.owner = expectedOwner
             }
+        case let .queueIntentStarted(intent):
+            guard !candidate.intents.contains(where: { $0.command.id == intent.command.id }) else { return false }
+            candidate.intents.append(intent)
+            while candidate.intents.count > 128,
+                let oldest = candidate.intents.firstIndex(where: { $0.outcome.isTerminal })
+            {
+                candidate.intents.remove(at: oldest)
+            }
+        case let .queueIntentFinished(id, accepted):
+            guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
+                !candidate.intents[index].outcome.isTerminal
+            else { return false }
+            candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
+        case let .commandDispatched(id, at):
+            guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
+                candidate.intents[index].outcome == .admitted
+            else { return false }
+            candidate.intents[index].dispatchedAt = at
+            candidate.intents[index].outcome = .dispatched
+        case let .commandTimedOut(id):
+            guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
+                !candidate.intents[index].outcome.isTerminal
+            else { return false }
+            candidate.intents[index].settle(.timedOut, at: envelope.receivedAt)
+            if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
+                // Unsent optimism is reversible. A dispatched request remains irrevocable.
+                if candidate.intents[index].dispatchedAt == nil {
+                    restoreCommandPresentation(pair.value, in: &candidate, at: envelope.receivedAt)
+                }
+                candidate.pendingCommands[pair.key] = nil
+            }
+            candidate.transportCommandResolutions[id] = nil
         case let .commandFinished(id, accepted, notice):
+            if let index = candidate.intents.firstIndex(where: { $0.command.id == id }) {
+                if candidate.intents[index].outcome == .timedOut { return false }
+                candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
+            }
             if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
                 candidate.pendingCommands[pair.key] = nil
                 candidate.transportCommandResolutions[id] = nil
                 if !accepted {
-                    if let rollback = pair.value.rollbackPresentation {
-                        candidate.pendingCommands[.seek] = nil
-                        candidate.currentTrack = rollback.currentTrack
-                        candidate.transport = rollback.transport
-                        candidate.timing = rollback.timing
-                    } else {
-                        if let rollback = pair.value.rollbackTransport {
-                            candidate.transport = rollback
-                        }
-                        if pair.key == .seek, let latest = pair.value.latestAuthoritativeTiming {
-                            candidate.timing = latest
-                        } else if let rollback = pair.value.rollbackTiming {
-                            candidate.timing = rollback
-                        }
-                    }
-                    if let rollbackShuffle = pair.value.rollbackShuffle {
-                        candidate.options.shuffle = rollbackShuffle
-                    }
-                    if let rollbackRepeat = pair.value.rollbackRepeatFlags {
-                        applyRepeatFlags(rollbackRepeat, to: &candidate)
-                    }
-                    if let rollbackOwner = pair.value.rollbackOwner {
-                        candidate.owner = rollbackOwner
-                    }
+                    restoreCommandPresentation(pair.value, in: &candidate, at: envelope.receivedAt)
                     // A rejected finish with no notice restores rollback without replacing an
                     // unrelated existing notice. Cancellation is one caller of that rule.
                     if let notice {
@@ -304,6 +335,34 @@ public enum PlaybackReducer {
             }
         case let .notice(notice):
             candidate.notice = notice
+        }
+
+        let acceptedObservation: Bool
+        if case let .queue(incoming) = envelope.event {
+            acceptedObservation = candidate.queue == incoming
+        } else {
+            acceptedObservation = true
+        }
+        if acceptedObservation {
+            for index in candidate.intents.indices {
+                let previous = candidate.intents[index].outcome
+                candidate.intents[index].observe(envelope)
+                let intent = candidate.intents[index]
+                guard previous != intent.outcome else { continue }
+                let resolution: PlaybackTransportCommandResolution?
+                switch intent.outcome {
+                case .observedConfirmed: resolution = .confirmed
+                case .superseded: resolution = .superseded
+                default: resolution = nil
+                }
+                if let resolution, intent.command.kind != .queue {
+                    if candidate.pendingCommands[intent.command.kind]?.id == intent.command.id {
+                        candidate.pendingCommands[intent.command.kind] = nil
+                    }
+                    // Only retain a follow-up receipt while the transport call can still return.
+                    if previous != .sent { candidate.transportCommandResolutions[intent.command.id] = resolution }
+                }
+            }
         }
 
         // Record a revision only after the event itself was accepted. Reset creates a fresh
@@ -341,6 +400,7 @@ public enum PlaybackReducer {
             candidate.sourceRevisions = [:]
             candidate.pendingCommands = [:]
             candidate.transportCommandResolutions = [:]
+            candidate.intents = []
             candidate.devices.revision = 0
         }
 
@@ -352,6 +412,45 @@ public enum PlaybackReducer {
         return candidate
     }
 
+    private static func supersedePendingSeek(in state: inout PlaybackState, at date: Date) {
+        if let pending = state.pendingCommands[.seek],
+            let index = state.intents.firstIndex(where: { $0.command.id == pending.id })
+        {
+            state.intents[index].settle(.superseded, at: date)
+        }
+        state.pendingCommands[.seek] = nil
+    }
+
+    private static func restoreCommandPresentation(
+        _ command: PendingPlaybackCommand, in state: inout PlaybackState,
+        at date: Date
+    ) {
+        if let rollback = command.rollbackPresentation {
+            supersedePendingSeek(in: &state, at: date)
+            state.currentTrack = rollback.currentTrack
+            state.transport = rollback.transport
+            state.timing = rollback.timing
+        } else {
+            if let rollback = command.rollbackTransport {
+                state.transport = rollback
+            }
+            if command.kind == .seek, let latest = command.latestAuthoritativeTiming {
+                state.timing = latest
+            } else if let rollback = command.rollbackTiming {
+                state.timing = rollback
+            }
+        }
+        if let rollbackShuffle = command.rollbackShuffle {
+            state.options.shuffle = rollbackShuffle
+        }
+        if let rollbackRepeat = command.rollbackRepeatFlags {
+            applyRepeatFlags(rollbackRepeat, to: &state)
+        }
+        if let rollbackOwner = command.rollbackOwner {
+            state.owner = rollbackOwner
+        }
+    }
+
     private static func reconcileTransport(
         _ transport: PlaybackTransportState,
         incomingTrackURI: String?,
@@ -359,7 +458,7 @@ public enum PlaybackReducer {
         in state: inout PlaybackState
     ) {
         if let pending = state.pendingCommands[.transport],
-            let targetURI = playbackTrackURI(pending.expectedTrack?.uri)
+            let targetURI = playbackTrackURI(pending.expectedTrack?.uri ?? pending.expectedTrackURI)
         {
             let incoming = playbackTrackURI(incomingTrackURI)
             if incoming != targetURI {
@@ -385,7 +484,8 @@ public enum PlaybackReducer {
             state.transport = expected
         } else {
             state.transport = transport
-            if state.pendingCommands[.transport]?.expectedTransport == transport {
+            if let pending = state.pendingCommands[.transport], pending.expectedTransport == transport {
+                state.transportCommandResolutions[pending.id] = .confirmed
                 state.pendingCommands[.transport] = nil
             }
         }
@@ -397,10 +497,12 @@ public enum PlaybackReducer {
         in state: PlaybackState
     ) -> Bool {
         guard let pending = state.pendingCommands[.transport],
-            let targetURI = playbackTrackURI(pending.expectedTrack?.uri)
+            let targetURI = playbackTrackURI(pending.expectedTrack?.uri ?? pending.expectedTrackURI)
         else { return false }
         let incoming = playbackTrackURI(incomingURI)
-        let rollbackURI = playbackTrackURI(pending.rollbackPresentation?.currentTrack?.uri)
+        let rollbackURI = playbackTrackURI(
+            pending.rollbackPresentation?.currentTrack?.uri
+                ?? state.intents.first(where: { $0.command.id == pending.id })?.baselineTrackURI)
         return incoming != nil && incoming != targetURI && incoming == rollbackURI
     }
 
@@ -409,10 +511,12 @@ public enum PlaybackReducer {
         in state: inout PlaybackState
     ) {
         guard let pending = state.pendingCommands[.transport],
-            let targetURI = playbackTrackURI(pending.expectedTrack?.uri)
+            let targetURI = playbackTrackURI(pending.expectedTrack?.uri ?? pending.expectedTrackURI)
         else { return }
         let incoming = playbackTrackURI(incomingURI)
-        let rollbackURI = playbackTrackURI(pending.rollbackPresentation?.currentTrack?.uri)
+        let rollbackURI = playbackTrackURI(
+            pending.rollbackPresentation?.currentTrack?.uri
+                ?? state.intents.first(where: { $0.command.id == pending.id })?.baselineTrackURI)
         if incoming == targetURI { return }
         if incoming != nil, incoming == rollbackURI { return }
         state.pendingCommands[.transport] = nil
@@ -509,7 +613,7 @@ public enum PlaybackReducer {
         }
     }
 
-    private static func isRepeatTransitionIntermediate(
+    static func isRepeatTransitionIntermediate(
         previous: RepeatFlags,
         target: RepeatFlags,
         incoming: RepeatFlags
@@ -563,7 +667,7 @@ public enum PlaybackReducer {
         state.transportCommandResolutions[pending.id] = .superseded
     }
 
-    private static func playbackOwnerStableDeviceID(_ owner: PlaybackOwner) -> String? {
+    static func playbackOwnerStableDeviceID(_ owner: PlaybackOwner) -> String? {
         let id: String?
         switch owner {
         case .none, .uncertain(nil):
@@ -574,7 +678,7 @@ public enum PlaybackReducer {
         return id.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    private static func isIdentifiedPlaybackOwner(_ owner: PlaybackOwner) -> Bool {
+    static func isIdentifiedPlaybackOwner(_ owner: PlaybackOwner) -> Bool {
         switch owner {
         case .local, .remote:
             return true
@@ -595,13 +699,14 @@ public enum PlaybackReducer {
         _ timing: PlaybackTiming,
         incomingTrackURI: String?,
         recordsAuthoritativeSample: Bool = false,
+        at date: Date,
         in state: inout PlaybackState
     ) {
         let incomingURI = playbackTrackURI(incomingTrackURI)
         if state.pendingCommands[.seek] != nil,
             incomingURI == nil || playbackTrackURI(state.currentTrack?.uri) != incomingURI
         {
-            state.pendingCommands[.seek] = nil
+            supersedePendingSeek(in: &state, at: date)
             state.timing = timing
             return
         }
@@ -682,7 +787,7 @@ public enum PlaybackReducer {
         uri.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    private static func matchesExpectedSeekPosition(
+    static func matchesExpectedSeekPosition(
         _ actual: PlaybackTiming,
         _ expected: PlaybackTiming
     ) -> Bool {

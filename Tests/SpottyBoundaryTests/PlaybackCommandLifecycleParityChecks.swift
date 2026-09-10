@@ -251,7 +251,8 @@ private let lifecycleRepeatPlan = RepeatTransitionPlan.planning(
 private func lifecycleEnvironment(
     local: any LocalPlaybackEngine,
     remote: any RemotePlaybackClient,
-    account: BoundaryIdleAccount = BoundaryIdleAccount()
+    account: BoundaryIdleAccount = BoundaryIdleAccount(),
+    clock: any PlaybackClock = StickyClock()
 ) -> PlaybackEnvironment {
     PlaybackEnvironment(
         remote: remote,
@@ -261,7 +262,7 @@ private func lifecycleEnvironment(
         audioOutput: BoundaryIdleAudio(),
         preferences: IdlePreferences(),
         lifecycle: BoundaryIdleLifecycle(),
-        clock: StickyClock(),
+        clock: clock,
         catalog: BoundaryIdleCatalog(),
         playlistMutations: UnavailablePlaylistMutations(),
         trackAttributes: BoundaryIdleAttributes()
@@ -465,6 +466,32 @@ private func supersede(_ player: PlaybackStore, kind: LifecycleKind, revision: U
 
 @Suite("Playback Command Lifecycle Parity")
 struct PlaybackCommandLifecycleParityTests {
+    @Test @MainActor
+    func lostObservationDeadlineDoesNotLetLateReturnSettleAgain() async {
+        let clock = CooperativeParkedClock()
+        let remote = LifecycleRemoteClient(.gated)
+        let player = lifecycleStore(
+            lifecycleEnvironment(
+                local: LifecycleLocalEngine(result: .ok, gated: false), remote: remote, clock: clock))
+        seedRoute(player, .remote)
+        var completions: [Bool] = []
+        startLifecycleCommand(player, kind: .transport) { completions.append($0) }
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        #expect(await waitUntil { clock.requestedSleeps.contains(8) })
+        #expect(!player.send(.commandFinished(id: UUID(), accepted: true, notice: nil), source: .command))
+        #expect(player.state.intents.last?.outcome == .dispatched)
+        let id = player.state.intents.last!.command.id
+        let settlement = player.effects.settlement(of: .command(id))
+        clock.releaseAll()
+        #expect(await waitUntil { player.state.intents.last?.outcome == .timedOut })
+        #expect(player.state.pendingCommands.isEmpty)
+        await remote.finish(success: true)
+        await settlement?.wait()
+        #expect(player.state.intents.last?.outcome == .timedOut)
+        #expect(completions == [false])
+        player.effects.cancelAccountScoped()
+    }
+
     @Test(arguments: [false, true], [false, true])
     @MainActor
     func idleStartupPlayUsesLocalEngineWithoutSelection(resume: Bool, hasResumeContext: Bool) async {

@@ -169,14 +169,11 @@ public func playbackCommandShouldAdmit(
 /// late rejection cannot restore the prior Boolean or rewrite preference. Matching
 /// authoritative repeat flags confirm the same way; unrelated authoritative flags
 /// supersede; lagging prior flags and non-engine option events do not confirm.
-/// `PlaybackReducer.reconcileTransport` may also drop a pending *transport* command when an
-/// engine snapshot already matches `expectedTransport` without recording a resolution. A
-/// later rejected finish on that same lifetime with no pending transport command is then
-/// already-reconciled success.
-/// Reconnect-required outranks both reconciled-success paths: a confirming snapshot settles
+/// Every reconciled transport success carries an explicit command-ID resolution. A missing
+/// pending slot is not evidence of success: it can also mean expiration or an unknown ID.
+/// Reconnect-required outranks a confirmed success: a confirming snapshot settles
 /// what the UI shows, not whether the engine's command channel is alive. A `.confirmed`
-/// resolution or an already-reconciled transport finish whose operation failed with
-/// reconnect-required reports `.reconnectAfterReconciledSuccess`, which keeps the
+/// resolution whose operation failed with reconnect-required reports `.reconnectAfterReconciledSuccess`, which keeps the
 /// presentation and rebuilds the connection. Without that, a stale Playing sample after
 /// sleep/wake could confirm a resume whose engine call returned a closed channel, and the
 /// app would show Playing with no audio and never reconnect.
@@ -230,9 +227,6 @@ public func playbackCommandFollowUp(
     }
     if finishAccepted {
         return operationSucceeded ? .reportSuccess : .reportFailure(reconnect: requiresReconnect)
-    }
-    if pendingCommandID == nil, commandKind == .transport {
-        return reconciledSuccess
     }
     return .inert
 }

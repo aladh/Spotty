@@ -27,6 +27,34 @@ drain opportunity. The drain report identifies unsettled work; it does not claim
 revoked a blocking C call or a request Spotify already received. Late tasks remain fenced by
 their existing lifetime and registration identity.
 
+### Intent outcomes
+
+The reducer records admission, permit dispatch, successful transport return (`sent`), observed
+confirmation, rejection, supersession, and expiration. The store drains the permit's synchronous
+claim receipt before reducing observations, including observations arriving before transport returns.
+Only accepted engine payloads received after dispatch can provide confirmation; optimistic state and
+metadata cannot. Spotify does not echo our operation ID, so confirmation means a matching observed
+state, not proof that our command caused it. Navigation matches a changed track or restarted
+position on the same owner; unchanged same-track observations remain unconfirmed.
+
+Each admitted request gets an eight-second account-scoped deadline in the existing registry.
+Expiration releases pending admission and invalidates unsent permits, while sent actions remain
+irrevocable. Late observations still update playback truth; terminal intent outcomes never change.
+The retained history keeps the latest 128 records plus any active requests. Queue appends reserve
+separate occurrence counts for overlapping identical URIs. A later reservation stays conservative
+if an earlier dispatched append reports failure: the failed acknowledgement does not prove that
+Spotify omitted its occurrence. One remaining occurrence cannot identify which append succeeded; removal requires the selected UIDs to be
+absent from a newer complete Connect snapshot. Missing or ambiguous evidence expires without retry.
+
+Rapid transport, seek, options, and transfer calls are refused while the same kind is in flight.
+There is no automatic coalescing or retry. Queue adds preserve order through coordinator dispatch;
+one replacement is allowed in flight. A sent append’s observation deadline does not cancel the rest
+of its batch. An execution deadline stops the stalled batch and reports its unsent remainder.
+Transport-return callbacks retain their acceptance meaning;
+queue and transfer feedback explicitly says the request was sent. Known play targets enter local
+listening history only after an observed match. Admission time, dispatch time, and
+observed settlement time remain distinct in the reducer record.
+
 ## Alternatives and tradeoffs
 
 - The existing registry adds no dependency or isolation model and keeps the domain reducer

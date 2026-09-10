@@ -30,6 +30,12 @@ struct BrowsingHarnessTests {
             throw error
         }
         #expect(checkpoints.count == 7)
+        #expect(checkpoints.prefix(3).allSatisfy { $0.intentOutcome == "observedConfirmed" })
+        #expect(
+            checkpoints.prefix(3).allSatisfy {
+                $0.admissionToDispatchMilliseconds != nil
+                    && $0.admissionToSettlementMilliseconds != nil && $0.actionToStateFeedbackMilliseconds != nil
+            })
         #expect(world.snapshot().mutationAttempts == 0)
         #expect(world.playback.snapshot().rejectedCount == 1)
         await player.shutdownForTermination()

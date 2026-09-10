@@ -558,7 +558,7 @@ fn generation_owned_snapshot_keeps_its_callback_owner() {
 fn stale_recovery_cannot_claim_the_reconnect_owner() {
     let _guard = lock_global_state();
     let previous_generation = SESSION_GENERATION.swap(8, Ordering::SeqCst);
-    let previous_reconnecting = RECONNECTING.swap(false, Ordering::SeqCst);
+    cancel_recovery();
     let intent = RecoveryIntent {
         was_playing: true,
         was_active: true,
@@ -567,8 +567,8 @@ fn stale_recovery_cannot_claim_the_reconnect_owner() {
     let start = with_current_generation_mutation(7, || start_reconnect_loop(intent, 7));
 
     assert!(start.is_none(), "a stale event must not claim recovery");
-    assert!(!RECONNECTING.load(Ordering::SeqCst));
-    RECONNECTING.store(previous_reconnecting, Ordering::SeqCst);
+    assert!(!recovery_is_active());
+    cancel_recovery();
     SESSION_GENERATION.store(previous_generation, Ordering::SeqCst);
 }
 

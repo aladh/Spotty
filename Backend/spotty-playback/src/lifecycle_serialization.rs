@@ -24,27 +24,21 @@ pub(crate) enum ReconnectUnitOutcome<T> {
     Ran(T),
 }
 
-/// What a reconnect loop needs once `RECONNECTING` has been claimed.
-///
-/// `recovering_generation` is captured at trigger time, not when the task first runs.
-/// A rebuild that lands between those two points must look like a foreign supersede.
-#[derive(Debug, Clone, Copy)]
+/// Trigger-time generation and the single owned recovery lease.
 pub(crate) struct ReconnectLoopStart {
     pub(crate) intent: RecoveryIntent,
     pub(crate) recovering_generation: u64,
+    pub(crate) lease: RecoveryLease,
 }
 
-/// Claims the reconnect owner flag and records the generation being recovered.
 pub(crate) fn start_reconnect_loop(
     intent: RecoveryIntent,
     current_generation: u64,
 ) -> Option<ReconnectLoopStart> {
-    if RECONNECTING.swap(true, Ordering::SeqCst) {
-        return None;
-    }
     Some(ReconnectLoopStart {
         intent,
         recovering_generation: current_generation,
+        lease: RecoveryLease::claim()?,
     })
 }
 

@@ -472,14 +472,14 @@ struct QueueMutationTests {
                 requested: 1,
                 completed: 1,
                 kind: .success,
-                message: "Added to Queue",
+                message: "Queue request sent",
                 label: "single add success"
             )
             expectAddFeedback(
                 requested: 3,
                 completed: 3,
                 kind: .success,
-                message: "Added 3 songs to Queue",
+                message: "Queue requests sent for 3 songs",
                 label: "batch add success"
             )
             expectAddFeedback(
@@ -493,7 +493,7 @@ struct QueueMutationTests {
                 requested: 5,
                 completed: 2,
                 kind: .informational,
-                message: "Added 2 of 5 songs to Queue",
+                message: "Queue requests sent for 2 of 5 songs",
                 label: "partial sequential add"
             )
             #expect(

@@ -186,6 +186,7 @@ struct PlaybackPositionSlider: NSViewRepresentable {
         }
 
         override func accessibilityValueDescription() -> String? {
+            synchronizePosition()
             guard accessibleDuration > 0 else { return "Duration unavailable" }
             let formatter = DateComponentsFormatter()
             formatter.allowedUnits = [.hour, .minute, .second]

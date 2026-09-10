@@ -23,6 +23,14 @@ final class PlaybackProgressDrawing: NSView {
     required init?(coder: NSCoder) { nil }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for sublayer in [rail, fill, thumb] { sublayer.contentsScale = window?.backingScaleFactor ?? 1 }
+        CATransaction.commit()
+    }
+
     func update(bar: NSRect, knob: NSRect, remaining: Double, hasTrack: Bool, engaged: Bool, animates: Bool) {
         // NSSlider's knob center travels between these endpoints. Both drawing states use
         // this range, so a native interaction cannot switch to a different progress geometry.

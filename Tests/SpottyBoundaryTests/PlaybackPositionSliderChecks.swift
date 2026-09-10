@@ -80,6 +80,18 @@ struct PlaybackPositionSliderChecks {
         #expect(slider.doubleValue == 10)
     }
 
+    @Test func spokenPositionAdvancesWithoutInteraction() {
+        let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
+        var time = Date(timeIntervalSince1970: 1_000)
+        slider.now = { time }
+        slider.accessibleDuration = 180
+        slider.updatePosition(60, duration: 180, isPlaying: true)
+        let original = slider.accessibilityValueDescription()
+        time = time.addingTimeInterval(5)
+        #expect(slider.accessibilityValueDescription() != original)
+        #expect(slider.doubleValue == 65)
+    }
+
     @Test func trackingAreaRefreshClearsHoverWithoutAnActiveWindow() {
         let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
         slider.isHovering = true

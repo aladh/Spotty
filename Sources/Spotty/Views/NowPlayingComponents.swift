@@ -50,7 +50,7 @@ struct NowPlayingProgress: View {
         let engineEpoch = player.state.engineEpoch
         let owner = player.state.owner
         let trackURI = player.trackURI
-        let duration = player.duration
+        let duration = player.hasCurrentTrack ? player.duration : 0
         PlaybackPositionSlider(
             position: player.displayedPosition(at: Date()), duration: duration,
             isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0,

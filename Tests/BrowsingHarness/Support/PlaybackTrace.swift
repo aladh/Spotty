@@ -17,10 +17,12 @@ struct PlaybackTrace {
         var checkpoints: [PlaybackTraceCheckpoint] = []
         func checkpoint(_ name: String, since started: ContinuousClock.Instant) {
             let elapsed = started.duration(to: .now)
-            checkpoints.append(PlaybackTraceCheckpoint(
-                name: name, elapsedMilliseconds: Double(elapsed.components.seconds) * 1_000
-                    + Double(elapsed.components.attoseconds) / 1e15,
-                engineGeneration: player.engineGeneration, commandCount: world.playback.snapshot().commandCount))
+            checkpoints.append(
+                PlaybackTraceCheckpoint(
+                    name: name,
+                    elapsedMilliseconds: Double(elapsed.components.seconds) * 1_000
+                        + Double(elapsed.components.attoseconds) / 1e15,
+                    engineGeneration: player.engineGeneration, commandCount: world.playback.snapshot().commandCount))
         }
         try await until("playback.ready") { player.isConnected && player.canTogglePlayback && player.duration > 0 }
         var started = ContinuousClock.now
@@ -64,7 +66,9 @@ struct PlaybackTrace {
         world.playback.releaseHeldObservations(reversed: true)
         world.playback.publish()
         let barrierRevision = world.playback.snapshot().revision
-        try await until("playback.stale-drained") { (player.state.sourceRevisions[.engineCluster] ?? 0) >= barrierRevision }
+        try await until("playback.stale-drained") {
+            (player.state.sourceRevisions[.engineCluster] ?? 0) >= barrierRevision
+        }
         guard player.isActiveDevice else { throw BrowsingFailure.checkpoint("stale-handoff") }
         checkpoint("handoff.stale-observation", since: started)
 
@@ -87,7 +91,8 @@ struct PlaybackTrace {
         }
         await player.logout()
         guard player.accountEpoch > oldAccount, player.accountStore.phase == .signedOut,
-              player.state.currentTrack == nil else { throw BrowsingFailure.checkpoint("account.cleared") }
+            player.state.currentTrack == nil
+        else { throw BrowsingFailure.checkpoint("account.cleared") }
         world.restoreSyntheticAccount()
         await player.restore()
         try await until("account.replacement-ready") { player.isConnected && player.canTogglePlayback }
@@ -101,7 +106,9 @@ struct PlaybackTrace {
         checkpoint("account.replaced", since: started)
         // Leave a known, playing remote owner for the 5 Hz + browsing workload.
         world.playback.handoff(to: SyntheticPlayback.remoteID)
-        try await until("playback.remote-ready") { player.commandRoute == .remote(from: SyntheticPlayback.localID, to: SyntheticPlayback.remoteID) }
+        try await until("playback.remote-ready") {
+            player.commandRoute == .remote(from: SyntheticPlayback.localID, to: SyntheticPlayback.remoteID)
+        }
         if !player.isPlaying { player.togglePlayback() }
         try await until("playback.workload-ready") { player.isPlaying && player.state.pendingCommands.isEmpty }
         return checkpoints

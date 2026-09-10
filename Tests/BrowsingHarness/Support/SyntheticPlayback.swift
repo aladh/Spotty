@@ -44,9 +44,10 @@ final class SyntheticPlayback: @unchecked Sendable {
 
     func snapshot() -> Snapshot {
         lock.withLock {
-            Snapshot(generation: generation, revision: revision, commandCount: commandCount,
-                     rejectedCount: rejectedCount, activeDevice: activeID, playing: playing,
-                     positionMS: positionMS, queuedUIDs: queue.map(\.uid))
+            Snapshot(
+                generation: generation, revision: revision, commandCount: commandCount,
+                rejectedCount: rejectedCount, activeDevice: activeID, playing: playing,
+                positionMS: positionMS, queuedUIDs: queue.map(\.uid))
         }
     }
 
@@ -146,13 +147,15 @@ final class SyntheticPlayback: @unchecked Sendable {
                 if let uri = command.track?.uri { appendLocked(uri) }
             case .setQueue:
                 queue = (command.nextTracks ?? []).map {
-                    QueueProtocolTrack(uri: $0.uri, uid: $0.uid, provider: $0.provider, metadata: $0.metadata,
-                                       removed: $0.removed, blocked: $0.blocked, restrictions: $0.restrictions,
-                                       albumURI: $0.albumURI, disallowReasons: $0.disallowReasons, artistURI: $0.artistURI)
+                    QueueProtocolTrack(
+                        uri: $0.uri, uid: $0.uid, provider: $0.provider, metadata: $0.metadata,
+                        removed: $0.removed, blocked: $0.blocked, restrictions: $0.restrictions,
+                        albumURI: $0.albumURI, disallowReasons: $0.disallowReasons, artistURI: $0.artistURI)
                 }
             case .play:
                 if let context = command.context {
-                    trackURI = context.pages?.first?.tracks.first?.uri ?? context.options?.skipTo.trackURI
+                    trackURI =
+                        context.pages?.first?.tracks.first?.uri ?? context.options?.skipTo.trackURI
                         ?? (context.uri.hasPrefix("spotify:track:") ? context.uri : trackURI)
                     playing = true; positionMS = 0
                 }
@@ -195,30 +198,37 @@ final class SyntheticPlayback: @unchecked Sendable {
     func queueSnapshot() -> RustQueueState { lock.withLock { queueLocked() } }
 
     private func queueLocked() -> RustQueueState {
-        RustQueueState(revision: revision, sessionGeneration: generation,
-                       track: .init(uri: trackURI, provider: "context", uid: "current"),
-                       protocolNextTracks: queue, protocolPrevTracks: [], queueRevision: "demo-\(revision)",
-                       disallowSetQueue: false, disallowRemovingFromNextTracks: false)
+        RustQueueState(
+            revision: revision, sessionGeneration: generation,
+            track: .init(uri: trackURI, provider: "context", uid: "current"),
+            protocolNextTracks: queue, protocolPrevTracks: [], queueRevision: "demo-\(revision)",
+            disallowSetQueue: false, disallowRemovingFromNextTracks: false)
     }
 
     private func playbackLocked() -> RustPlaybackState {
-        RustPlaybackState(revision: revision, sessionGeneration: generation, isPlaying: playing,
-                          isPaused: !playing, trackURI: trackURI, positionMS: positionMS, durationMS: 180_000,
-                          timestampMS: Int64(Date().timeIntervalSince1970 * 1_000), shuffle: shuffle,
-                          repeatTrack: repeatTrack, repeatContext: repeatContext,
-                          isActiveDevice: activeID == Self.localID, contextURI: "spotify:playlist:synthetic0")
+        RustPlaybackState(
+            revision: revision, sessionGeneration: generation, isPlaying: playing,
+            isPaused: !playing, trackURI: trackURI, positionMS: positionMS, durationMS: 180_000,
+            timestampMS: Int64(Date().timeIntervalSince1970 * 1_000), shuffle: shuffle,
+            repeatTrack: repeatTrack, repeatContext: repeatContext,
+            isActiveDevice: activeID == Self.localID, contextURI: "spotify:playlist:synthetic0")
     }
 
     private func clusterLocked() -> RustPlaybackEvent {
         revision += 1
-        return .cluster(RustConnectClusterState(
-            revision: revision, sessionGeneration: generation, source: 2, localDeviceID: Self.localID,
-            devices: RustDevicesState(revision: revision, sessionGeneration: generation, activeDeviceID: activeID,
-                devices: [ConnectProtocolDevice(id: Self.localID, name: "Spotty Demo", type: "computer"),
-                          ConnectProtocolDevice(id: Self.remoteID, name: "Demo Speaker", type: "speaker")]),
-            connection: RustConnectionState(revision: revision, sessionGeneration: generation,
-                sessionConnected: connected, spircReady: connected, isActiveDevice: activeID == Self.localID,
-                resumePending: false, lastError: connected ? nil : "Synthetic disconnect", deviceID: Self.localID),
-            playback: playbackLocked(), queue: queueLocked()))
+        return .cluster(
+            RustConnectClusterState(
+                revision: revision, sessionGeneration: generation, source: 2, localDeviceID: Self.localID,
+                devices: RustDevicesState(
+                    revision: revision, sessionGeneration: generation, activeDeviceID: activeID,
+                    devices: [
+                        ConnectProtocolDevice(id: Self.localID, name: "Spotty Demo", type: "computer"),
+                        ConnectProtocolDevice(id: Self.remoteID, name: "Demo Speaker", type: "speaker"),
+                    ]),
+                connection: RustConnectionState(
+                    revision: revision, sessionGeneration: generation,
+                    sessionConnected: connected, spircReady: connected, isActiveDevice: activeID == Self.localID,
+                    resumePending: false, lastError: connected ? nil : "Synthetic disconnect", deviceID: Self.localID),
+                playback: playbackLocked(), queue: queueLocked()))
     }
 }

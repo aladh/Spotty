@@ -15,6 +15,7 @@ final class SyntheticPlayback: @unchecked Sendable {
         let activeDevice: String
         let playing: Bool
         let positionMS: Int64
+        let positionSampleCount: Int
         let queuedUIDs: [String]
     }
 
@@ -26,6 +27,7 @@ final class SyntheticPlayback: @unchecked Sendable {
     private var revision: UInt64 = 0
     private var commandCount = 0
     private var rejectedCount = 0
+    private var positionSampleCount = 0
     private var activeID = SyntheticPlayback.remoteID
     private var connected = true
     private var playing = false
@@ -47,7 +49,7 @@ final class SyntheticPlayback: @unchecked Sendable {
             Snapshot(
                 generation: generation, revision: revision, commandCount: commandCount,
                 rejectedCount: rejectedCount, activeDevice: activeID, playing: playing,
-                positionMS: positionMS, queuedUIDs: queue.map(\.uid))
+                positionMS: positionMS, positionSampleCount: positionSampleCount, queuedUIDs: queue.map(\.uid))
         }
     }
 
@@ -102,6 +104,7 @@ final class SyntheticPlayback: @unchecked Sendable {
 
     func advance(milliseconds: Int64) {
         let event = lock.withLock {
+            positionSampleCount += 1
             if playing { positionMS = min(180_000, positionMS + milliseconds) }
             revision += 1
             return RustPlaybackEvent.playback(playbackLocked())
@@ -200,6 +203,17 @@ final class SyntheticPlayback: @unchecked Sendable {
     private func skipLocked() {
         if !queue.isEmpty { trackURI = queue.removeFirst().uri }
         positionMS = 0
+    }
+
+    func replaceQueueForMeasurement(wave: Int, count: Int) {
+        let event = lock.withLock {
+            queue = (0..<count).map {
+                QueueProtocolTrack(
+                    uri: "spotify:track:syntheticWave\(wave)x\($0)", uid: "wave-\(wave)-\($0)", provider: "queue")
+            }
+            return clusterLocked()
+        }
+        fanout.emit(event)
     }
 
     func queueSnapshot() -> RustQueueState { lock.withLock { queueLocked() } }

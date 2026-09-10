@@ -11,6 +11,7 @@ struct BrowsingLaunch: Codable {
     let revision: String
     let diffSHA256: String
     let automated: Bool
+    var waitForProfiler: Bool? = nil
 
     static func read() throws -> (Self, BrowsingScenario) {
         guard let root = Bundle.main.resourceURL,
@@ -33,11 +34,14 @@ struct BrowsingSample: Codable {
     let residentBytes: UInt64
     let physicalFootprintBytes: UInt64
     let cpuSeconds: Double
+    let mainThreadCPUSeconds: Double
+    let playbackSampleCount: Int
     let scrollY: Double
     let documentHeight: Double
 
     @MainActor
-    init(checkpoint: String, started: Date, loadSeconds: Double, scroll: NSScrollView?) throws {
+    init(checkpoint: String, started: Date, loadSeconds: Double, scroll: NSScrollView?, playbackSampleCount: Int) throws
+    {
         var memory = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
         let status = withUnsafeMutablePointer(to: &memory) { pointer in
@@ -48,6 +52,21 @@ struct BrowsingSample: Codable {
         guard status == KERN_SUCCESS else { throw BrowsingFailure.checkpoint("memory-sample") }
         var usage = rusage()
         guard getrusage(RUSAGE_SELF, &usage) == 0 else { throw BrowsingFailure.checkpoint("cpu-sample") }
+        var thread = thread_basic_info_data_t()
+        var threadCount = mach_msg_type_number_t(
+            MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let port = mach_thread_self()
+        defer { mach_port_deallocate(mach_task_self_, port) }
+        let threadStatus = withUnsafeMutablePointer(to: &thread) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(threadCount)) {
+                thread_info(port, thread_flavor_t(THREAD_BASIC_INFO), $0, &threadCount)
+            }
+        }
+        guard threadStatus == KERN_SUCCESS else { throw BrowsingFailure.checkpoint("main-thread-cpu-sample") }
+        mainThreadCPUSeconds =
+            Double(thread.user_time.seconds + thread.system_time.seconds)
+            + Double(thread.user_time.microseconds + thread.system_time.microseconds) / 1_000_000
+        self.playbackSampleCount = playbackSampleCount
         self.checkpoint = checkpoint
         elapsedSeconds = Date().timeIntervalSince(started)
         self.loadSeconds = loadSeconds
@@ -73,12 +92,14 @@ private struct BrowsingReport: Encodable {
     let displayScale: Double
     let fixtureBytes: Int
     let demoCacheBytes: Int
+    let appNapSuppressedDuringWorkload = true
     let networkSandboxVerified: Bool
     let samples: [BrowsingSample]
     let world: BrowsingWorld.Snapshot
     let playback: SyntheticPlayback.Snapshot
     let playbackCheckpoints: [PlaybackTraceCheckpoint]
     let responsiveness: BrowsingResponsivenessReport?
+    let queueHydration: [QueueHydrationMeasurement]
     let queueRefresh: QueueRefreshDiagnostics
     let passed: Bool
     let failure: String?
@@ -97,6 +118,7 @@ final class BrowsingRun {
     @ObservationIgnored private var responsiveness: BrowsingResponsiveness?
     @ObservationIgnored private var playbackClock: Task<Void, Never>?
     @ObservationIgnored private var playbackCheckpoints: [PlaybackTraceCheckpoint] = []
+    @ObservationIgnored private var queueHydration: [QueueHydrationMeasurement] = []
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var samples: [BrowsingSample] = []
     @ObservationIgnored private var networkSandboxVerified = false
@@ -116,11 +138,15 @@ final class BrowsingRun {
 
     func start() {
         if world.scenario.mode == .playback {
-            playbackClock = Task { [weak self] in
+            // Match engine delivery: UI work must not reduce the offered 5 Hz source load.
+            playbackClock = Task.detached(priority: .userInitiated) { [weak playback = world.playback] in
+                let clock = ContinuousClock()
+                var next = clock.now.advanced(by: .milliseconds(200))
                 while !Task.isCancelled {
-                    do { try await ContinuousClock().sleep(for: .milliseconds(200)) } catch { return }
-                    guard let self else { return }
-                    self.world.playback.advance(milliseconds: 200)
+                    do { try await clock.sleep(until: next, tolerance: .zero) } catch { return }
+                    next = next.advanced(by: .milliseconds(200))
+                    guard let playback else { return }
+                    playback.advance(milliseconds: 200)
                 }
             }
         }
@@ -133,6 +159,9 @@ final class BrowsingRun {
         guard !hasStarted else { return }
         hasStarted = true
         defer { workload = nil }
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep, reason: "Measure the finite synthetic browsing workload")
+        defer { ProcessInfo.processInfo.endActivity(activity) }
         let started = Date()
         do {
             try verifyNetworkSandbox()
@@ -149,7 +178,22 @@ final class BrowsingRun {
                 throw BrowsingFailure.checkpoint("window.startup")
             }
             await player.effects.settlement(of: .catalogLoad)?.wait()
+            if launch.waitForProfiler == true {
+                let ready = URL(fileURLWithPath: launch.runRoot).appendingPathComponent("profiler-ready")
+                let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+                while !FileManager.default.fileExists(atPath: ready.path) {
+                    guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("profiler.ready") }
+                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                }
+            }
             if let window = window() {
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate()
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                while launch.waitForProfiler == true && !window.occlusionState.contains(.visible) {
+                    guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("window.occluded") }
+                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                }
                 let measurement = BrowsingResponsiveness(player: player)
                 responsiveness = measurement
                 measurement.start(window: window)
@@ -174,6 +218,14 @@ final class BrowsingRun {
                         guard player.catalog.playlistStore.tracks.count == world.scenario.trackCount,
                             player.catalog.playlistStore.error == nil
                         else { throw BrowsingFailure.checkpoint("playlist.ready") }
+                        let hydration: Task<QueueHydrationMeasurement, Error>? =
+                            world.scenario.combinedHydration == true
+                            ? Task {
+                                try await QueueHydrationMeasurement.run(
+                                    player: player, world: world, wave: cycle * 10 + index)
+                            }
+                            : nil
+                        defer { hydration?.cancel() }
                         navigation.select(items[index])
                         playlistScrollView = try await waitForPlaylistScrollView(items[index].uri)
                         try await sample(
@@ -189,6 +241,7 @@ final class BrowsingRun {
                             scroll.reflectScrolledClipView(scroll.contentView)
                             try await sample("cycle.\(cycle).playlist.\(index).scroll.\(step)", started: started)
                         }
+                        if let hydration { queueHydration.append(try await hydration.value) }
                     }
                     navigation.updateSelection(.destination(.home))
                     try await sample("cycle.\(cycle).home.returned", started: started)
@@ -217,7 +270,8 @@ final class BrowsingRun {
         samples.append(
             try BrowsingSample(
                 checkpoint: checkpoint, started: started, loadSeconds: loadSeconds,
-                scroll: navigation.selection == .destination(.home) ? nil : playlistScrollView
+                scroll: navigation.selection == .destination(.home) ? nil : playlistScrollView,
+                playbackSampleCount: world.playback.snapshot().positionSampleCount
             ))
     }
 
@@ -293,7 +347,7 @@ final class BrowsingRun {
             networkSandboxVerified: networkSandboxVerified,
             samples: samples, world: world.snapshot(), playback: world.playback.snapshot(),
             playbackCheckpoints: playbackCheckpoints, responsiveness: responsivenessReport,
-            queueRefresh: await player.queueService.refreshDiagnostics,
+            queueHydration: queueHydration, queueRefresh: await player.queueService.refreshDiagnostics,
             passed: failure == nil, failure: failure
         )
         let encoder = JSONEncoder()

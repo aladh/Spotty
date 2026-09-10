@@ -315,4 +315,42 @@ mod teardown_tests {
             "a stalled Spirc task must be aborted and joined"
         );
     }
+    #[test]
+    #[ignore = "wall-clock measurement of the production four-second graceful deadline"]
+    fn measure_stalled_spirc_task_deadline() {
+        let mut samples = Vec::new();
+        block_on_export(async {
+            for _ in 0..3 {
+                let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+                let mut task = tokio::spawn(async move {
+                    started_tx.send(()).unwrap();
+                    pending::<()>().await;
+                });
+                started_rx.await.unwrap();
+                let started = std::time::Instant::now();
+                drain_spirc_task(
+                    &mut task,
+                    || {},
+                    SPIRC_GRACEFUL_SHUTDOWN_TIMEOUT,
+                    "injected stalled Spirc task",
+                )
+                .await;
+                samples.push(started.elapsed().as_secs_f64() * 1_000.0);
+                assert!(task.is_finished());
+            }
+        })
+        .unwrap();
+        if let Ok(path) = std::env::var("SPOTTY_STALLED_SHUTDOWN_REPORT") {
+            std::fs::write(
+                path,
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "fault": "parked task ignores shutdown request; no actual Spirc or dealer",
+                    "deadlineMilliseconds": SPIRC_GRACEFUL_SHUTDOWN_TIMEOUT.as_millis(),
+                    "milliseconds": samples
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+    }
 }

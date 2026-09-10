@@ -35,3 +35,6 @@ lto = true
 [patch."https://github.com/librespot-org/librespot"]
 librespot-core = { path = "vendor/librespot/core" }
 librespot-playback = { path = "vendor/librespot/playback" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }

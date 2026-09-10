@@ -6,12 +6,21 @@ source "$project_root/Scripts/swiftpm-env.sh"
 source "$project_root/Scripts/embed-sparkle.sh"
 cd "$project_root"
 automated=true
+profile=false
+if [[ "${1:-}" == "--profile" ]]; then
+    profile=true
+    shift
+fi
 if [[ "${1:-}" == "--interactive" ]]; then
     automated=false
     shift
 fi
 if (( $# > 1 )); then
-    print -u2 "Usage: $0 [--interactive] [scenario.json]"
+    print -u2 "Usage: $0 [--profile | --interactive] [scenario.json]"
+    exit 2
+fi
+if [[ "$profile" == true && "$automated" == false ]]; then
+    print -u2 "--profile requires the automated workload"
     exit 2
 fi
 scenario="${1:-$project_root/Tests/BrowsingHarness/scenario.json}"
@@ -46,7 +55,7 @@ cp "$scenario" "$app/Contents/Resources/scenario.json"
 
 # A stable developer identity preserves macOS permissions; demo state is separate from live Spotty.
 # Only this run's artifacts are writable outside its sandbox container; sockets remain denied.
-python3 - "$run_root" "$app" "$automated" <<'PY'
+python3 - "$run_root" "$app" "$automated" "$profile" <<'PY'
 import hashlib
 import json
 from pathlib import Path
@@ -69,6 +78,7 @@ plist = {
 }))
 launch = {
     "runRoot": str(root), "automated": sys.argv[3] == "true",
+    "waitForProfiler": sys.argv[4] == "true",
     "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
     "diffSHA256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD", "--"])).hexdigest(),
 }
@@ -106,6 +116,9 @@ fi
 app="$installed_app"
 /usr/bin/open -n "$app"
 print "Synthetic browsing launched: $app"
+if [[ "$profile" == true ]]; then
+    python3 "$project_root/Scripts/profile_synthetic.py" "$run_root"
+fi
 if [[ "$automated" == true ]]; then
     print "Report: $run_root/report.json"
     python3 - "$run_root/report.json" <<'PYWAIT'
@@ -132,4 +145,8 @@ print(f"Passed {len(result['samples'])} browsing checkpoints")
 PYWAIT
 else
     print "Interactive demo; run artifacts: $run_root"
+fi
+
+if [[ "$profile" == true ]]; then
+    print "Local Instruments trace: $run_root/animation.trace"
 fi

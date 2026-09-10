@@ -1,0 +1,864 @@
+{
+  "configuration": {
+    "appNapSuppressedDuringWorkload": true,
+    "build": "Debug",
+    "inspector": "closed",
+    "os": "Version 27.0 (Build 26A5425a)",
+    "scenario": {
+      "artworkCount": 48,
+      "artworkPixels": 640,
+      "combinedHydration": true,
+      "cycles": 3,
+      "dwellMilliseconds": 250,
+      "mode": "playback",
+      "trackCount": 1000,
+      "version": 2
+    },
+    "swiftSDK": "macOS 26.5",
+    "window": [
+      960,
+      692
+    ],
+    "xcode": "27.0 (27A5252f)"
+  },
+  "date": "2026-09-10",
+  "hardware": {
+    "display": "Screen Sharing Virtual Display",
+    "logicalProcessors": 10,
+    "memoryGiB": 32,
+    "model": "Apple M1 Max",
+    "nominalHertz": 60,
+    "resolution": "1920x1080",
+    "scale": 2
+  },
+  "lifecycle": {
+    "limitations": "No live network, AP construction, audio, dealer close or Swift drain measured here",
+    "shutdown": {
+      "clock": "wall monotonic",
+      "fault": "five parked cancellable engine children; no Session/Spirc",
+      "milliseconds": [
+        0.051834,
+        0.029917,
+        0.032084,
+        0.037833,
+        0.048,
+        0.049792,
+        0.052334,
+        0.075625,
+        0.169041,
+        0.106875,
+        0.149208,
+        0.110833,
+        0.14458400000000002,
+        0.160792,
+        0.041,
+        0.06275,
+        0.068292,
+        0.044666000000000004,
+        0.037958,
+        0.049416999999999996,
+        0.04725,
+        0.160625,
+        0.192208,
+        0.150834,
+        0.146833,
+        0.112625,
+        0.159458,
+        0.157083,
+        0.14404199999999998,
+        0.14858300000000002
+      ]
+    },
+    "silentDetection": [
+      {
+        "clock": "paused Tokio policy clock",
+        "detectionMilliseconds": 60000,
+        "fault": "silent-invalid-session",
+        "phaseMilliseconds": 0
+      },
+      {
+        "clock": "paused Tokio policy clock",
+        "detectionMilliseconds": 43000,
+        "fault": "silent-invalid-session",
+        "phaseMilliseconds": 17000
+      },
+      {
+        "clock": "paused Tokio policy clock",
+        "detectionMilliseconds": 500,
+        "fault": "silent-invalid-session",
+        "phaseMilliseconds": 59500
+      }
+    ],
+    "version": 1,
+    "wake": {
+      "clock": "wall monotonic",
+      "fault": "overlapping-wake; injected cleanup 5ms + build 20ms",
+      "milliseconds": [
+        29.008708000000002,
+        28.877125,
+        28.820249999999998,
+        28.824041,
+        29.529041,
+        28.905875,
+        28.530666999999998,
+        28.946333000000003,
+        28.705334,
+        28.186834,
+        28.720208,
+        28.362417,
+        29.075875,
+        28.903125000000003,
+        30.973292,
+        28.750542,
+        28.973417,
+        28.822,
+        28.944167,
+        28.866792,
+        28.891042,
+        28.311459,
+        29.1985,
+        29.109541999999998,
+        29.04225,
+        29.044375000000002,
+        28.355542,
+        29.035292000000002,
+        29.710250000000002,
+        28.552792
+      ]
+    }
+  },
+  "limitations": [
+    "Occluded virtual-display workload, not input-to-pixel or rendered-frame timing",
+    "Reduced-motion inspection blocked by the locked Mac; system setting remained off",
+    "No physical 120Hz display exposed in this session",
+    "Longer unbatched runs receive more periodic samples; total CPU includes that additional time",
+    "Lifecycle timings exercise named injected seams and task ownership, not live AP/dealer/audio readiness"
+  ],
+  "runs": [
+    {
+      "appNapSuppressedDuringWorkload": true,
+      "baseRevision": "9c7334abeae335a42db04315b460327eaec2ca2f",
+      "elapsedSeconds": 58.60119807720184,
+      "mainThreadCPUSeconds": 57.425298999999995,
+      "mutationAttempts": 0,
+      "networkSandboxVerified": true,
+      "offeredPlaybackHertz": 4.999897777072726,
+      "offeredPlaybackSamples": 293,
+      "peakPhysicalFootprintMiB": 159.9229736328125,
+      "peakResidentMiB": 347.75,
+      "processCPUSeconds": 63.533951,
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 8850.650625,
+          "firstMetadataMilliseconds": 303.080292,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 61.484834,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9303.820208,
+          "firstMetadataMilliseconds": 383.253791,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 60.048791,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 8845.015,
+          "firstMetadataMilliseconds": 261.028667,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 76.061125,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9114.012167,
+          "firstMetadataMilliseconds": 380.795292,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 57.030375,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9149.9105,
+          "firstMetadataMilliseconds": 253.449417,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 73.329083,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 8644.476583,
+          "firstMetadataMilliseconds": 321.611708,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 56.832458,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "queuePublications": 588,
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 0,
+        "callbackGapP99Milliseconds": 0,
+        "displayCallbackCount": 0,
+        "maximumCallbackGapMilliseconds": 0,
+        "missedDisplayOpportunityCount": 0,
+        "nominalFramesPerSecond": 60,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 14,
+          "nowPlaying": 640,
+          "queue": 8,
+          "timing": 309
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": false,
+        "windowVisibleAtStart": false
+      },
+      "run": "run.IOvSpSf3",
+      "trackedDiffSHA256": "362e2e792b78145f2f3d0161720ad1255e4343273fe983d673afba3e476b3fd1",
+      "variant": "unbatched"
+    },
+    {
+      "appNapSuppressedDuringWorkload": true,
+      "baseRevision": "9c7334abeae335a42db04315b460327eaec2ca2f",
+      "elapsedSeconds": 59.5315899848938,
+      "mainThreadCPUSeconds": 58.452574,
+      "mutationAttempts": 0,
+      "networkSandboxVerified": true,
+      "offeredPlaybackHertz": 4.988947885910053,
+      "offeredPlaybackSamples": 297,
+      "peakPhysicalFootprintMiB": 184.2042236328125,
+      "peakResidentMiB": 349.734375,
+      "processCPUSeconds": 64.541526,
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 8529.375791,
+          "firstMetadataMilliseconds": 302.821375,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 59.578625,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 8735.459375,
+          "firstMetadataMilliseconds": 320.647375,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 56.162417,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9736.829666,
+          "firstMetadataMilliseconds": 344.349333,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 59.120041,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9234.092042,
+          "firstMetadataMilliseconds": 511.122125,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 59.408792,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9227.502375,
+          "firstMetadataMilliseconds": 389.170292,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 77.211125,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9434.151833,
+          "firstMetadataMilliseconds": 367.333458,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 57.638708,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "queuePublications": 588,
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 0,
+        "callbackGapP99Milliseconds": 0,
+        "displayCallbackCount": 0,
+        "maximumCallbackGapMilliseconds": 0,
+        "missedDisplayOpportunityCount": 0,
+        "nominalFramesPerSecond": 60,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 13,
+          "nowPlaying": 640,
+          "queue": 8,
+          "timing": 314
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": false,
+        "windowVisibleAtStart": false
+      },
+      "run": "run.gXKb096B",
+      "trackedDiffSHA256": "362e2e792b78145f2f3d0161720ad1255e4343273fe983d673afba3e476b3fd1",
+      "variant": "unbatched"
+    },
+    {
+      "appNapSuppressedDuringWorkload": true,
+      "baseRevision": "9c7334abeae335a42db04315b460327eaec2ca2f",
+      "elapsedSeconds": 60.79903602600098,
+      "mainThreadCPUSeconds": 59.774074999999996,
+      "mutationAttempts": 0,
+      "networkSandboxVerified": true,
+      "offeredPlaybackHertz": 5.00007927543445,
+      "offeredPlaybackSamples": 304,
+      "peakPhysicalFootprintMiB": 203.2042465209961,
+      "peakResidentMiB": 361.40625,
+      "processCPUSeconds": 65.756985,
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9511.025292,
+          "firstMetadataMilliseconds": 397.698125,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 64.21175,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 8914.5575,
+          "firstMetadataMilliseconds": 249.015167,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 56.38575,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9050.975375,
+          "firstMetadataMilliseconds": 359.110541,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 90.882041,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 10208.414584,
+          "firstMetadataMilliseconds": 331.73575,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 80.873042,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9382.20225,
+          "firstMetadataMilliseconds": 408.647458,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 78.479708,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9080.618167,
+          "firstMetadataMilliseconds": 360.786417,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 70.700708,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "queuePublications": 588,
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 0,
+        "callbackGapP99Milliseconds": 0,
+        "displayCallbackCount": 0,
+        "maximumCallbackGapMilliseconds": 0,
+        "missedDisplayOpportunityCount": 0,
+        "nominalFramesPerSecond": 60,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 13,
+          "nowPlaying": 639,
+          "queue": 8,
+          "timing": 319
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": false,
+        "windowVisibleAtStart": false
+      },
+      "run": "run.cgtAWNuo",
+      "trackedDiffSHA256": "362e2e792b78145f2f3d0161720ad1255e4343273fe983d673afba3e476b3fd1",
+      "variant": "unbatched"
+    },
+    {
+      "appNapSuppressedDuringWorkload": true,
+      "baseRevision": "9c7334abeae335a42db04315b460327eaec2ca2f",
+      "elapsedSeconds": 15.477695941925049,
+      "mainThreadCPUSeconds": 10.841178,
+      "mutationAttempts": 0,
+      "networkSandboxVerified": true,
+      "offeredPlaybackHertz": 4.974900675715372,
+      "offeredPlaybackSamples": 77,
+      "peakPhysicalFootprintMiB": 156.1729507446289,
+      "peakResidentMiB": 310.578125,
+      "processCPUSeconds": 15.937289999999999,
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 871.941458,
+          "firstMetadataMilliseconds": 344.000833,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 59.827333,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 869.549208,
+          "firstMetadataMilliseconds": 351.636166,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 80.975333,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 850.012625,
+          "firstMetadataMilliseconds": 330.81075,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 60.137666,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 850.531583,
+          "firstMetadataMilliseconds": 337.595083,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 62.142917,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 630.915542,
+          "firstMetadataMilliseconds": 319.340209,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 63.673834,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1019.306708,
+          "firstMetadataMilliseconds": 433.8055,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 67.87575,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "queuePublications": 35,
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 0,
+        "callbackGapP99Milliseconds": 0,
+        "displayCallbackCount": 0,
+        "maximumCallbackGapMilliseconds": 0,
+        "missedDisplayOpportunityCount": 0,
+        "nominalFramesPerSecond": 60,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 13,
+          "nowPlaying": 80,
+          "queue": 8,
+          "timing": 95
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": false,
+        "windowVisibleAtStart": false
+      },
+      "run": "run.JmYDzUwD",
+      "trackedDiffSHA256": "7f32a81bbe8ecaee313fd3232e9f8a3213924e0a1daf9faffb4759a8c9573af1",
+      "variant": "batched"
+    },
+    {
+      "appNapSuppressedDuringWorkload": true,
+      "baseRevision": "9c7334abeae335a42db04315b460327eaec2ca2f",
+      "elapsedSeconds": 15.622231006622314,
+      "mainThreadCPUSeconds": 10.945495999999999,
+      "mutationAttempts": 0,
+      "networkSandboxVerified": true,
+      "offeredPlaybackHertz": 4.992884816959597,
+      "offeredPlaybackSamples": 78,
+      "peakPhysicalFootprintMiB": 173.3135757446289,
+      "peakResidentMiB": 336.71875,
+      "processCPUSeconds": 16.288881,
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 851.229875,
+          "firstMetadataMilliseconds": 334.858375,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 59.498,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 951.296416,
+          "firstMetadataMilliseconds": 407.627083,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 58.114958,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 835.487875,
+          "firstMetadataMilliseconds": 322.31125,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 58.631125,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 837.524,
+          "firstMetadataMilliseconds": 325.220834,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 59.795375,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 861.105875,
+          "firstMetadataMilliseconds": 344.024084,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 73.504125,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 852.193333,
+          "firstMetadataMilliseconds": 380.306792,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 62.249667,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "queuePublications": 36,
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 0,
+        "callbackGapP99Milliseconds": 0,
+        "displayCallbackCount": 0,
+        "maximumCallbackGapMilliseconds": 0,
+        "missedDisplayOpportunityCount": 0,
+        "nominalFramesPerSecond": 60,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 13,
+          "nowPlaying": 84,
+          "queue": 8,
+          "timing": 95
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": false,
+        "windowVisibleAtStart": false
+      },
+      "run": "run.knpc2FTw",
+      "trackedDiffSHA256": "7f32a81bbe8ecaee313fd3232e9f8a3213924e0a1daf9faffb4759a8c9573af1",
+      "variant": "batched"
+    },
+    {
+      "appNapSuppressedDuringWorkload": true,
+      "baseRevision": "9c7334abeae335a42db04315b460327eaec2ca2f",
+      "elapsedSeconds": 15.492758989334106,
+      "mainThreadCPUSeconds": 10.805731,
+      "mutationAttempts": 0,
+      "networkSandboxVerified": true,
+      "offeredPlaybackHertz": 4.97006376030313,
+      "offeredPlaybackSamples": 77,
+      "peakPhysicalFootprintMiB": 181.0323486328125,
+      "peakResidentMiB": 347.75,
+      "processCPUSeconds": 16.188149000000003,
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1110.962083,
+          "firstMetadataMilliseconds": 440.776917,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 73.624875,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 816.917708,
+          "firstMetadataMilliseconds": 301.099541,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 62.252833,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 827.231667,
+          "firstMetadataMilliseconds": 309.742125,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 59.190584,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 894.234541,
+          "firstMetadataMilliseconds": 422.615041,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 57.6345,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 842.663209,
+          "firstMetadataMilliseconds": 370.2725,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 58.754792,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 815.957458,
+          "firstMetadataMilliseconds": 300.315625,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 60.517541,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "queuePublications": 35,
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 0,
+        "callbackGapP99Milliseconds": 0,
+        "displayCallbackCount": 0,
+        "maximumCallbackGapMilliseconds": 0,
+        "missedDisplayOpportunityCount": 0,
+        "nominalFramesPerSecond": 60,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 14,
+          "nowPlaying": 80,
+          "queue": 8,
+          "timing": 95
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": false,
+        "windowVisibleAtStart": false
+      },
+      "run": "run.p8NKoU1R",
+      "trackedDiffSHA256": "7f32a81bbe8ecaee313fd3232e9f8a3213924e0a1daf9faffb4759a8c9573af1",
+      "variant": "batched"
+    }
+  ],
+  "source": {
+    "controlPatchSHA256": "1857185c46b2d88ac9aa49dadc44d2139a9a3e0b45a2f353aac87ce26619588d",
+    "harnessDigestMethod": "SHA256(sorted relative path + NUL + file bytes + NUL): harness Swift files, measurement.json, browse-synthetic.sh and profile_synthetic.py",
+    "harnessSHA256": "826fbaa97e8300a7280ca3790ac32fa77698b01921506b27f7722f3b5f41bffa",
+    "note": "Both variants include the accompanying queue presentation revision fix. The control applies only queue-unbatched.patch. Per-run tracked diffs exclude then-untracked harness files; the harness digest above identifies their shared measured contents at 4402fd1.",
+    "queueServiceSHA256": "2472e038fda9c80ee8c8cb176355105cd73480dcd4a6a11a654ac2db0bd95717"
+  },
+  "stalledShutdown": {
+    "deadlineMilliseconds": 4000,
+    "fault": "parked task ignores shutdown request; no actual Spirc or dealer",
+    "milliseconds": [
+      4002.9724169999995,
+      4001.16125,
+      4001.9288340000003
+    ]
+  },
+  "swiftDrain": {
+    "deadlineMilliseconds": 250,
+    "samples": [
+      {
+        "cooperativeMilliseconds": 0.079,
+        "fencedNoncancelableMilliseconds": 255.253208
+      },
+      {
+        "cooperativeMilliseconds": 0.44875,
+        "fencedNoncancelableMilliseconds": 255.998042
+      },
+      {
+        "cooperativeMilliseconds": 0.366708,
+        "fencedNoncancelableMilliseconds": 258.3765
+      },
+      {
+        "cooperativeMilliseconds": 0.549167,
+        "fencedNoncancelableMilliseconds": 260.690291
+      },
+      {
+        "cooperativeMilliseconds": 0.301292,
+        "fencedNoncancelableMilliseconds": 265.647959
+      },
+      {
+        "cooperativeMilliseconds": 0.31875,
+        "fencedNoncancelableMilliseconds": 265.711375
+      },
+      {
+        "cooperativeMilliseconds": 0.35975,
+        "fencedNoncancelableMilliseconds": 254.420042
+      },
+      {
+        "cooperativeMilliseconds": 0.635834,
+        "fencedNoncancelableMilliseconds": 266.513458
+      },
+      {
+        "cooperativeMilliseconds": 0.363667,
+        "fencedNoncancelableMilliseconds": 265.270042
+      },
+      {
+        "cooperativeMilliseconds": 0.439791,
+        "fencedNoncancelableMilliseconds": 266.132875
+      },
+      {
+        "cooperativeMilliseconds": 0.311125,
+        "fencedNoncancelableMilliseconds": 266.672917
+      },
+      {
+        "cooperativeMilliseconds": 0.326458,
+        "fencedNoncancelableMilliseconds": 256.23325
+      }
+    ],
+    "version": 1
+  },
+  "version": 1
+}

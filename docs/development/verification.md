@@ -166,3 +166,55 @@ The synthetic clock continues after the report so the completed Demo remains usa
 
 The original version-1 browsing and signed-out scenarios remain read-only. All versions retain the
 same OS network sandbox, injected environment ports, separate Demo identity and non-shipping graph.
+
+### Combined hydration and lifecycle measurements
+
+`Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json` adds six fresh 96-track
+queue waves during playlist navigation/scrolling. The 5 Hz source runs independently of MainActor,
+and each checkpoint records its cumulative emitted sample count. Synthetic metadata waits 15 ms per lookup;
+production hydration retains its eight-request concurrency. Each wave reports ordering, first
+metadata and complete hydration (5 ms polling resolution), plus diagnostic counter deltas. The
+report also samples main-thread user + system CPU with Mach thread accounting on MainActor.
+These are cumulative counters; subtract the first checkpoint from the last to exclude startup.
+The finite workload suppresses App Nap while allowing idle system sleep, so slow variants do not
+cross into a different background-throttling policy. Each hydration wave has a 30-second liveness
+watchdog. The report declares window visibility; an occluded run can measure CPU and publications,
+but cannot validate a rendered-frame budget.
+
+Add `--profile` before the scenario path to attach the local Xcode Animation Hitches template.
+The workload waits for the profiler before starting and requires an unoccluded window. Profiling
+uses the ordinary 600-second report watchdog. The trace remains beside `report.json`;
+inspect table availability before claiming rendered-frame statistics. A successful capture can
+contain no supported presentation events. Instruments adds overhead: compare profiled runs with
+profiled runs and ordinary runs with ordinary runs. Raw traces may include host/process metadata;
+keep them local and publish only reviewed aggregate measurements.
+
+The engine's credential-free named fault measurement uses the production health cadence,
+serialized reconnect seam, recovery lease and owned-child teardown:
+
+```bash
+SPOTTY_LIFECYCLE_REPORT=/tmp/spotty-lifecycle.json cargo test --locked \
+  --manifest-path Backend/spotty-playback/Cargo.toml named_lifecycle_fault_measurements -- --ignored
+SPOTTY_STALLED_SHUTDOWN_REPORT=/tmp/spotty-stalled-shutdown.json cargo test --locked \
+  --manifest-path Backend/spotty-playback/Cargo.toml measure_stalled_spirc_task_deadline -- --ignored
+SPOTTY_SWIFT_LIFECYCLE_REPORT=/tmp/spotty-swift-drain.json swift test --disable-sandbox \
+  --no-parallel --filter PlaybackEffectDrainTests
+```
+
+The first measurement uses paused Tokio time for silent-fault detection and monotonic wall time for
+30 recovery/drain samples. Its wall-clock loop is opt-in; the normal suite independently checks
+the production cadence with explicit timer registration and paused time. Recovery injects 5 ms cleanup and 20 ms construction; its result
+measures orchestration, not Spotify network connection or real session readiness. The ignored
+measurement spends three real four-second deadlines on parked task shutdown; it creates no
+actual Spirc/dealer. Swift records 12 cooperative and noncancelable drains with the production
+250 ms grace period, then explicitly releases/joins each fenced operation. The normal suites
+retain deterministic ownership, rollback, generation and cancellation checks. No measurement
+constructs live credentials, opens a Spotify connection or renders audio.
+
+For a matched publication control, apply
+[`queue-unbatched.patch`](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) to a disposable
+checkout of the same revision and run the same scenario repeatedly. This changes only metadata
+publication to one update per result; it preserves ownership, ordering, concurrency and metadata
+delay. Reverse the patch before normal checks or delivery. Keep the inspector/display/window
+configuration the same, do not compile or inspect UI during either workload, and retain actual
+sample rates and source identity with the aggregate comparison.

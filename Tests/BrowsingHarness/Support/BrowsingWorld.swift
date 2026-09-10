@@ -116,6 +116,9 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
             throw BrowsingFailure.unsupportedAction
         }
         record("playback.metadata")
+        if uri.hasPrefix("spotify:track:syntheticWave") {
+            try await ContinuousClock().sleep(for: .milliseconds(15))
+        }
         let suffix = uri.split(separator: "x").last.flatMap { Int($0) } ?? 0
         return SpotifyConnectTrackMetadata(
             uri: uri, title: String(format: "Synthetic Track %04d", Int32(suffix + 1)),

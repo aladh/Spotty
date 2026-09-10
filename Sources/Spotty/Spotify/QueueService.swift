@@ -271,7 +271,10 @@ actor QueueService {
         if let sourceRevision {
             guard sourceRevision > lastConnectSourceRevision else { return acceptedQueue() }
             lastConnectSourceRevision = sourceRevision
-            revision = max(revision, sourceRevision)
+            // Metadata publications advance the presentation counter independently of the
+            // engine's wire revision. Fresh ordering still needs a strictly newer presentation
+            // revision or PlaybackStore will reject it as a duplicate after enrichment.
+            revision = max(revision &+ 1, sourceRevision)
         } else {
             revision &+= 1
         }

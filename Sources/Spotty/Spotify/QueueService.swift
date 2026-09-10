@@ -513,9 +513,9 @@ actor QueueService {
     private func removeRefreshSubscriber(_ subscriberID: UUID, flightID: UUID) {
         refreshSubscribers.removeValue(forKey: subscriberID)?.deactivate()
         guard refreshFlightID == flightID else { return }
-        // Keep a detached flight alive until it converges. A view task can be replaced when a
-        // Connect ordering event arrives; the replacement should join this same request rather
-        // than canceling Web/API work and starting another hydration wave.
+        // Keep a detached flight alive for replacement callers with identical inputs. A changed
+        // context or fallback invalidates it through RefreshKey instead of silently reusing the
+        // first caller's captured inputs.
     }
 
     private func finishRefreshFlight(_ flightID: UUID) {

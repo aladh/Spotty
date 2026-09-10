@@ -410,5 +410,41 @@ struct SessionLifetimeTests {
             #expect((!shouldSettle(currentAccount: 2)) == true, "account-epoch invalidation stays inert")
             #expect((!shouldSettle(tearingDown: true)) == true, "teardown stays inert")
         }
+
+        do {
+            let commandID = UUID(uuidString: "00000000-0000-0000-0000-00000000009B")!
+            let other = UUID(uuidString: "00000000-0000-0000-0000-00000000009C")!
+            func shouldSettle(
+                pending: UUID? = commandID,
+                undispatched: UUID = commandID,
+                account: UInt64 = 1,
+                engine: UInt64 = 1,
+                currentAccount: UInt64 = 1,
+                currentEngine: UInt64 = 1,
+                tearingDown: Bool = false
+            ) -> Bool {
+                playbackCommandShouldSettleUndispatched(
+                    pendingCommandID: pending,
+                    undispatchedCommandID: undispatched,
+                    capturedLifetime: PlaybackLifetime(
+                        accountEpoch: account,
+                        engineGeneration: engine
+                    ),
+                    currentLifetime: PlaybackLifetime(
+                        accountEpoch: currentAccount,
+                        engineGeneration: currentEngine
+                    ),
+                    isTearingDown: tearingDown
+                )
+            }
+
+            #expect((shouldSettle()) == true, "a matching same-lifetime undispatched command settles")
+            #expect((!shouldSettle(pending: nil)) == true, "a missing pending command stays inert")
+            #expect((!shouldSettle(pending: other)) == true, "a newer pending command stays inert")
+            #expect((!shouldSettle(undispatched: other)) == true, "a different undispatched id stays inert")
+            #expect((!shouldSettle(currentEngine: 2)) == true, "engine-epoch invalidation stays inert")
+            #expect((!shouldSettle(currentAccount: 2)) == true, "account-epoch invalidation stays inert")
+            #expect((!shouldSettle(tearingDown: true)) == true, "teardown stays inert")
+        }
     }
 }

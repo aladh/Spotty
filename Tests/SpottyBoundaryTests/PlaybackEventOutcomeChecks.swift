@@ -1361,3 +1361,147 @@ struct PlaybackEventOutcomeTests {
         await empty.shutdownForTermination()
     }
 }
+
+@Suite("Coherent Connect intake")
+struct CoherentConnectIntakeTests {
+    @Test
+    @MainActor
+    func settledIntentRevokesOnlyItsUnclaimedPermit() async {
+        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        store.receive(cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a"), receivedAt: Date())
+        let transportID = UUID()
+        let optionsID = UUID()
+        store.send(
+            .commandStarted(
+                PendingPlaybackCommand(id: transportID, kind: .transport, expectedTransport: nil, startedAt: Date())),
+            source: .command
+        )
+        store.send(
+            .commandStarted(
+                PendingPlaybackCommand(id: optionsID, kind: .options, expectedTransport: nil, startedAt: Date())),
+            source: .command
+        )
+        let transport = store.makePlaybackDispatchPermit(commandID: transportID, ifStillWanted: { true })
+        let options = store.makePlaybackDispatchPermit(commandID: optionsID, ifStillWanted: { true })
+        let queue = store.makePlaybackDispatchPermit(ifStillWanted: { true })
+        store.send(.commandFinished(id: transportID, accepted: false, notice: nil), source: .command)
+        #expect(transport?.claim() == false, "an intent settled before dispatch cannot send")
+        #expect(
+            store.makePlaybackDispatchPermit(commandID: transportID, ifStillWanted: { true }) == nil,
+            "a settled intent cannot acquire a fresh permit")
+        #expect(options?.claim() == true, "settling one intent preserves another kind's permit")
+        #expect(queue?.claim() == true, "queue admission is independent of the transport pending slot")
+        store.send(.commandFinished(id: optionsID, accepted: false, notice: nil), source: .command)
+        let queuedAfterSettlement = store.makePlaybackDispatchPermit(ifStillWanted: { true })
+        store.receive(cluster(revision: 2, activeID: "local", trackURI: "spotify:track:a"), receivedAt: Date())
+        #expect(queuedAfterSettlement?.claim() == false, "handoff revokes queue work even without pending transport")
+        await store.shutdownForTermination()
+    }
+
+    @Test
+    @MainActor
+    func initializationReturnDoesNotPublishCommandReadiness() async {
+        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        store.accountStore.onPhaseChange?(.connecting)
+        store.accountStore.onPhaseChange?(.ready)
+        #expect(store.phase == .connecting)
+        #expect(!store.canStartPlayback)
+
+        store.receive(
+            RustConnectionState(
+                revision: 1, sessionGeneration: 1, sessionConnected: true, spircReady: true,
+                isActiveDevice: false, resumePending: false, lastError: nil, deviceID: nil
+            ),
+            revision: 1,
+            receivedAt: Date()
+        )
+        #expect(store.phase == .connecting)
+        #expect(!store.canStartPlayback)
+        store.receive(cluster(revision: 2, activeID: "", trackURI: ""), receivedAt: Date())
+        #expect(store.phase == .ready)
+        #expect(store.canStartPlayback)
+        #expect(store.defaultLocalPlaybackDevice?.id == "local")
+        await store.shutdownForTermination()
+    }
+
+    @Test
+    @MainActor
+    func aggregateOwnerAndQueueIdentityStayCoherent() async {
+        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let observation = cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:new")
+        store.receive(observation, receivedAt: Date())
+        #expect(store.trackURI == "spotify:track:new")
+        #expect(store.commandRoute == .remote(from: "local", to: "phone"))
+        #expect(store.state.devices.devices.first(where: \.isActive)?.id == "phone")
+        let accepted = store.state
+        store.receive(cluster(revision: 1, activeID: "local", trackURI: "spotify:track:old"), receivedAt: Date())
+        #expect(store.state == accepted)
+        await store.shutdownForTermination()
+    }
+
+    @Test
+    @MainActor
+    func pressureGapReconstructsTruthWithoutRestartingEngine() async {
+        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let authoritative = cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a")
+        store.receive(authoritative, receivedAt: Date())
+        store.send(
+            .commandStarted(
+                PendingPlaybackCommand(
+                    id: UUID(), kind: .transport, expectedTransport: .playing,
+                    expectedTrack: CurrentTrack(uri: "spotify:track:optimistic"), startedAt: Date()
+                )
+            ),
+            source: .command
+        )
+        store.receive(
+            RustPlaybackEventEnvelope(
+                sequence: 2,
+                receivedAt: Date(),
+                event: .resynchronizationRequired(
+                    sessionGeneration: 1,
+                    snapshots: [
+                        RustPlaybackEventEnvelope(sequence: 1, receivedAt: Date(), event: .cluster(authoritative))
+                    ]
+                )
+            )
+        )
+        #expect(store.phase == .ready)
+        #expect(store.state.pendingCommands.isEmpty)
+        #expect(store.engineGeneration == 1)
+        #expect(store.trackURI == "spotify:track:a")
+        #expect(store.commandRoute == .remote(from: "local", to: "phone"))
+        store.receive(cluster(revision: 1, activeID: "local", trackURI: "spotify:track:old"), receivedAt: Date())
+        #expect(store.trackURI == "spotify:track:a")
+        await store.shutdownForTermination()
+    }
+
+    private func cluster(revision: UInt64, activeID: String, trackURI: String) -> RustConnectClusterState {
+        RustConnectClusterState(
+            revision: revision,
+            sessionGeneration: 1,
+            source: 2,
+            localDeviceID: "local",
+            devices: RustDevicesState(
+                revision: revision,
+                sessionGeneration: 1,
+                activeDeviceID: activeID,
+                devices: [
+                    ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer"),
+                    ConnectProtocolDevice(id: "phone", name: "Phone", type: "smartphone"),
+                ]
+            ),
+            connection: RustConnectionState(
+                revision: revision, sessionGeneration: 1, sessionConnected: true, spircReady: true,
+                isActiveDevice: activeID == "local", resumePending: false, lastError: nil, deviceID: "local"
+            ),
+            playback: RustPlaybackState(
+                revision: revision, sessionGeneration: 1, isPlaying: false, isPaused: true,
+                trackURI: trackURI, positionMS: 0, durationMS: 180_000, timestampMS: 0,
+                shuffle: false, repeatTrack: false, repeatContext: false,
+                isActiveDevice: activeID == "local"
+            ),
+            queue: nil
+        )
+    }
+}

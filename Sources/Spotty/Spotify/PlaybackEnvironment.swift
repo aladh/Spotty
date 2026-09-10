@@ -90,11 +90,19 @@ extension SpotifyConnectAPI: RemotePlaybackClient {}
 /// Account-scoped metadata requests are shared by Now Playing and queue hydration. The actor
 /// coalesces identical in-flight requests and retains only a bounded cache for the current account.
 actor TrackMetadataService {
+    private struct InFlightRequest {
+        let generation: UInt64
+        let id: UInt64
+        let task: Task<SpotifyConnectTrackMetadata, any Error>
+    }
+
     private static let cacheLimit = 512
 
     private let remote: any RemotePlaybackClient
     private var cache: [String: SpotifyConnectTrackMetadata] = [:]
-    private var inFlight: [String: Task<SpotifyConnectTrackMetadata, any Error>] = [:]
+    private var generation: UInt64 = 0
+    private var nextRequestID: UInt64 = 0
+    private var inFlight: [String: InFlightRequest] = [:]
 
     init(remote: any RemotePlaybackClient) {
         self.remote = remote
@@ -102,24 +110,37 @@ actor TrackMetadataService {
 
     func metadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
         if let cached = cache[uri] { return cached }
-        if let task = inFlight[uri] { return try await task.value }
+        if let request = inFlight[uri] { return try await request.task.value }
 
         let task = Task { [remote] in try await remote.trackMetadata(for: uri) }
-        inFlight[uri] = task
+        nextRequestID &+= 1
+        let request = InFlightRequest(generation: generation, id: nextRequestID, task: task)
+        inFlight[uri] = request
         do {
             let value = try await task.value
-            inFlight[uri] = nil
-            cache[uri] = value
-            trimCache(preserving: uri)
+            if let current = inFlight[uri],
+                current.id == request.id,
+                current.generation == request.generation
+            {
+                inFlight[uri] = nil
+                cache[uri] = value
+                trimCache(preserving: uri)
+            }
             return value
         } catch {
-            inFlight[uri] = nil
+            if let current = inFlight[uri],
+                current.id == request.id,
+                current.generation == request.generation
+            {
+                inFlight[uri] = nil
+            }
             throw error
         }
     }
 
     func reset() {
-        inFlight.values.forEach { $0.cancel() }
+        generation &+= 1
+        inFlight.values.forEach { $0.task.cancel() }
         inFlight.removeAll(keepingCapacity: false)
         cache.removeAll(keepingCapacity: false)
     }
@@ -428,6 +449,19 @@ actor PlaybackCoordinator {
         return outcome
     }
 
+    /// Claims a lock-linearized dispatch permit immediately before entering local C work. A
+    /// failed claim means the store invalidated this queued command before it reached the engine.
+    func performLocalCommand(
+        _ operation: LocalPlaybackOperation,
+        permit: PlaybackDispatchPermit
+    ) async throws(CancellationError) -> Result<Void, PlaybackCommandFailure>? {
+        if Task.isCancelled { throw CancellationError() }
+        guard permit.claim() else { return nil }
+        let outcome = PlaybackCommandFailure.from(engineResult: local.execute(operation))
+        if Task.isCancelled { throw CancellationError() }
+        return outcome
+    }
+
     func authorizeStreaming(with token: String) async -> Int32 {
         local.authorizeStreaming(with: token)
     }
@@ -486,5 +520,64 @@ actor PlaybackCoordinator {
         }
         if Task.isCancelled { throw CancellationError() }
         return .success(())
+    }
+
+    /// Claims a dispatch permit immediately before entering the remote client. After the claim,
+    /// the request may be in flight and later route invalidation cannot revoke it.
+    func performRemoteCommand(
+        _ operation: @escaping @Sendable (any RemotePlaybackClient) async throws -> Void,
+        permit: PlaybackDispatchPermit
+    ) async throws(CancellationError) -> Result<Void, PlaybackCommandFailure>? {
+        if Task.isCancelled { throw CancellationError() }
+        guard permit.claim() else { return nil }
+        do {
+            try await operation(remote)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            return .failure(.remoteRejected)
+        }
+        if Task.isCancelled { throw CancellationError() }
+        return .success(())
+    }
+}
+
+/// A lock-linearized commitment shared by the MainActor store and the coordinator actor. Before
+/// `claim` succeeds, a lifecycle or route publication can invalidate queued work. Once `claim`
+/// succeeds, the operation has crossed the point where it may be sent to the engine or Spotify;
+/// later invalidation cannot revoke that already-started work.
+final class PlaybackDispatchPermit: @unchecked Sendable {
+    private enum State: Equatable {
+        case pending
+        case invalidated
+        case claimed
+    }
+
+    private let lock = NSLock()
+    private var state: State = .pending
+
+    func invalidate() {
+        lock.lock()
+        if state == .pending {
+            state = .invalidated
+        }
+        lock.unlock()
+    }
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard state == .pending else { return false }
+        state = .claimed
+        return true
+    }
+
+    var isResolved: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return state != .pending
     }
 }

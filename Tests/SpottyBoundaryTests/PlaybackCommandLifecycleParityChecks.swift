@@ -368,6 +368,18 @@ private func startLifecycleCommand(
 }
 
 @MainActor
+private func waitForLifecycleDispatch(
+    route: LifecycleRoute,
+    local: LifecycleLocalEngine,
+    remote: LifecycleRemoteClient
+) async -> Bool {
+    await waitUntil {
+        if route == .local { return local.enteredCount == 1 }
+        return await remote.sendCount >= 1
+    }
+}
+
+@MainActor
 private func confirm(_ player: PlaybackStore, kind: LifecycleKind, revision: UInt64) {
     switch kind {
     case .transport:
@@ -648,6 +660,9 @@ struct PlaybackCommandLifecycleParityTests {
                     startLifecycleCommand(confirmed, kind: kind) { confirmedCompletions.append($0) }
                     let confirmPending = await waitUntil { confirmed.state.pendingCommands[kind.commandKind] != nil }
                     #expect((confirmPending) == true, "\(label) command is pending before confirmation")
+                    let confirmReached = await waitForLifecycleDispatch(
+                        route: route, local: confirmLocal, remote: confirmRemote)
+                    #expect((confirmReached) == true, "\(label) command reaches the fixture before confirmation")
                     let confirmedID = confirmed.state.pendingCommands[kind.commandKind]?.id
                     confirm(confirmed, kind: kind, revision: 1)
                     #expect(
@@ -679,20 +694,23 @@ struct PlaybackCommandLifecycleParityTests {
                     startLifecycleCommand(superseded, kind: kind) { supersededCompletions.append($0) }
                     let supersedePending = await waitUntil { superseded.state.pendingCommands[kind.commandKind] != nil }
                     #expect((supersedePending) == true, "\(label) command is pending before supersession")
+                    let supersedeReached = await waitForLifecycleDispatch(
+                        route: route, local: supersedeLocal, remote: supersedeRemote)
+                    #expect((supersedeReached) == true, "\(label) command reaches the fixture before supersession")
                     supersede(superseded, kind: kind, revision: 1)
                     #expect(
                         (superseded.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) unrelated snapshot clears the pending command")
                     if route == .local {
                         supersedeLocal.finish(with: .error)
-                        let supersedeReached = await waitUntil { supersedeLocal.executeCount == 1 }
+                        let supersedeFinished = await waitUntil { supersedeLocal.executeCount == 1 }
                         #expect(
-                            (supersedeReached) == true, "\(label) superseded command still reaches the local fixture")
+                            (supersedeFinished) == true, "\(label) superseded command finishes at the local fixture")
                     } else {
                         await supersedeRemote.finish(success: false)
-                        let supersedeReached = await waitUntil { await supersedeRemote.sendCount >= 1 }
+                        let supersedeFinished = await waitUntil { await supersedeRemote.completedCount == 1 }
                         #expect(
-                            (supersedeReached) == true, "\(label) superseded command still reaches the remote fixture")
+                            (supersedeFinished) == true, "\(label) superseded command finishes at the remote fixture")
                     }
                     #expect(
                         (supersededCompletions.isEmpty) == true,
@@ -710,8 +728,13 @@ struct PlaybackCommandLifecycleParityTests {
                     seedRoute(stale, route)
                     var staleCompletions: [Bool] = []
                     startLifecycleCommand(stale, kind: kind) { staleCompletions.append($0) }
-                    let stalePending = await waitUntil { stale.state.pendingCommands[kind.commandKind] != nil }
+                    // `commandStarted` is a synchronous MainActor publication. Bump the engine
+                    // epoch in this same turn, before the effect task can create a dispatch
+                    // permit, to exercise the pre-dispatch lifetime fence deterministically.
+                    let stalePending = stale.state.pendingCommands[kind.commandKind] != nil
                     #expect((stalePending) == true, "\(label) command is pending before an engine-epoch bump")
+                    let staleID = stale.state.pendingCommands[kind.commandKind]?.id
+                    let staleSettlement = staleID.flatMap { stale.effects.settlement(of: .command($0)) }
                     _ = stale.send(
                         .engineConnection(
                             EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
@@ -723,16 +746,55 @@ struct PlaybackCommandLifecycleParityTests {
                         (stale.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) engine-epoch bump drops the pending command")
                     if route == .local {
-                        staleLocal.finish(with: .ok)
-                        let staleReached = await waitUntil { staleLocal.executeCount == 1 }
-                        #expect((staleReached) == true, "\(label) stale command still reaches the local fixture")
+                        #expect((staleLocal.enteredCount) == 0, "\(label) stale command never enters the local fixture")
                     } else {
-                        await staleRemote.finish(success: true)
-                        let staleReached = await waitUntil { await staleRemote.sendCount >= 1 }
-                        #expect((staleReached) == true, "\(label) stale command still reaches the remote fixture")
+                        #expect(
+                            (await staleRemote.sendCount) == 0,
+                            "\(label) stale command never reaches the remote fixture")
                     }
+                    await staleSettlement?.wait()
                     #expect((staleCompletions.isEmpty) == true, "\(label) stale finish reports no completion")
                     await stale.shutdownForTermination()
+
+                    let lateLocal = LifecycleLocalEngine(result: .ok, gated: true)
+                    let lateRemote = LifecycleRemoteClient(.gated)
+                    let lateStale = lifecycleStore(
+                        lifecycleEnvironment(local: lateLocal, remote: lateRemote)
+                    )
+                    seedRoute(lateStale, route)
+                    var lateCompletions: [Bool] = []
+                    startLifecycleCommand(lateStale, kind: kind) { lateCompletions.append($0) }
+                    let latePending = await waitUntil {
+                        lateStale.state.pendingCommands[kind.commandKind] != nil
+                    }
+                    #expect((latePending) == true, "\(label) late stale command is pending before dispatch")
+                    let lateReached = await waitForLifecycleDispatch(
+                        route: route, local: lateLocal, remote: lateRemote)
+                    #expect((lateReached) == true, "\(label) late stale command reaches the fixture")
+                    let lateID = lateStale.state.pendingCommands[kind.commandKind]?.id
+                    let lateSettlement = lateID.flatMap { lateStale.effects.settlement(of: .command($0)) }
+                    _ = lateStale.send(
+                        .engineConnection(
+                            EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
+                        source: .engineConnection,
+                        revision: 1,
+                        engineEpoch: lateStale.engineGeneration + 1
+                    )
+                    #expect(
+                        (lateStale.state.pendingCommands[kind.commandKind]) == nil,
+                        "\(label) late stale epoch bump drops the pending command")
+                    if route == .local {
+                        lateLocal.finish(with: .ok)
+                        let lateFinished = await waitUntil { lateLocal.executeCount == 1 }
+                        #expect((lateFinished) == true, "\(label) late stale local fixture finishes")
+                    } else {
+                        await lateRemote.finish(success: true)
+                        let lateFinished = await waitUntil { await lateRemote.completedCount == 1 }
+                        #expect((lateFinished) == true, "\(label) late stale remote fixture finishes")
+                    }
+                    await lateSettlement?.wait()
+                    #expect((lateCompletions.isEmpty) == true, "\(label) late stale finish reports no completion")
+                    await lateStale.shutdownForTermination()
 
                     let cancelLocal = LifecycleLocalEngine(result: .ok, gated: true)
                     let cancelRemote = LifecycleRemoteClient(.gated)
@@ -826,6 +888,11 @@ struct PlaybackCommandLifecycleParityTests {
                         confirmCancelled.state.pendingCommands[kind.commandKind] != nil
                     }
                     #expect((confirmCancelPending) == true, "\(label) command is pending before confirmed cancellation")
+                    let confirmCancelReached = await waitForLifecycleDispatch(
+                        route: route, local: confirmCancelLocal, remote: confirmCancelRemote)
+                    #expect(
+                        (confirmCancelReached) == true,
+                        "\(label) command reaches the fixture before confirmed cancellation")
                     let confirmCancelID = confirmCancelled.state.pendingCommands[kind.commandKind]?.id
                     confirm(confirmCancelled, kind: kind, revision: 1)
                     #expect(
@@ -875,6 +942,11 @@ struct PlaybackCommandLifecycleParityTests {
                     }
                     #expect(
                         (supersedeCancelPending) == true, "\(label) command is pending before superseded cancellation")
+                    let supersedeCancelReached = await waitForLifecycleDispatch(
+                        route: route, local: supersedeCancelLocal, remote: supersedeCancelRemote)
+                    #expect(
+                        (supersedeCancelReached) == true,
+                        "\(label) command reaches the fixture before superseded cancellation")
                     let supersedeCancelID = supersedeCancelled.state.pendingCommands[kind.commandKind]?.id
                     supersede(supersedeCancelled, kind: kind, revision: 1)
                     #expect(
@@ -919,11 +991,12 @@ struct PlaybackCommandLifecycleParityTests {
                     seedRoute(staleCancelled, route)
                     var staleCancelCompletions: [Bool] = []
                     startLifecycleCommand(staleCancelled, kind: kind) { staleCancelCompletions.append($0) }
-                    let staleCancelPending = await waitUntil {
-                        staleCancelled.state.pendingCommands[kind.commandKind] != nil
-                    }
+                    let staleCancelPending = staleCancelled.state.pendingCommands[kind.commandKind] != nil
                     #expect((staleCancelPending) == true, "\(label) command is pending before stale cancellation")
                     let staleCancelID = staleCancelled.state.pendingCommands[kind.commandKind]?.id
+                    let staleCancelSettlement = staleCancelID.flatMap {
+                        staleCancelled.effects.settlement(of: .command($0))
+                    }
                     _ = staleCancelled.send(
                         .engineConnection(
                             EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
@@ -934,6 +1007,15 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect(
                         (staleCancelled.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) engine-epoch bump drops the pending command before cancel")
+                    if route == .local {
+                        #expect(
+                            (staleCancelLocal.enteredCount) == 0,
+                            "\(label) stale cancellation never enters the local fixture")
+                    } else {
+                        #expect(
+                            (await staleCancelRemote.sendCount) == 0,
+                            "\(label) stale cancellation never reaches the remote fixture")
+                    }
                     if let commandID = staleCancelID {
                         staleCancelled.effects.cancel(.command(commandID))
                     }
@@ -944,6 +1026,7 @@ struct PlaybackCommandLifecycleParityTests {
                     } else {
                         await staleCancelRemote.finish(success: true)
                     }
+                    await staleCancelSettlement?.wait()
                     await staleCancelled.shutdownForTermination()
 
                     let teardownLocal = LifecycleLocalEngine(result: .ok, gated: true)

@@ -65,6 +65,7 @@ extension PlaybackStore {
         }
 
         isTearingDown = true
+        invalidatePlaybackDispatchPermits()
         // Advance AccountStore.epoch before any reducer send, catalog update, queue reset,
         // or effect invalidation so every observer uses that already-advanced identity.
         let accountTask = accountStore.beginEndSession(
@@ -75,7 +76,7 @@ extension PlaybackStore {
         connectQueueCallback.reset()
         queueInspectorOrderingVersion = 0
         catalogSession.update(accountEpoch: accountEpoch, isAvailable: false)
-        effects.cancelAccountScoped()
+        let cancelledEffects = effects.cancelAccountScoped()
         hasReceivedPlaybackSnapshot = false
         catalog.reset()
         history.reset()
@@ -86,6 +87,8 @@ extension PlaybackStore {
 
         let task = Task { [weak self] in
             guard let self else { return }
+            let drain = await self.effects.drain(cancelledEffects)
+            self.report(effectDrain: drain, during: "account teardown")
             await self.performEndSession(accountTask: accountTask)
         }
         teardownTask = task
@@ -130,6 +133,13 @@ extension PlaybackStore {
         isTearingDown = false
     }
 
+    private func report(effectDrain: PlaybackEffectDrainReport, during operation: String) {
+        guard !effectDrain.didSettleAll else { return }
+        SpottyLog.account.warning(
+            "\(operation, privacy: .public) continued with \(effectDrain.timedOut.count, privacy: .public) account effect(s) still unsettled"
+        )
+    }
+
     /// Performs the one process-termination shutdown. Streaming credentials remain intact for the
     /// next launch; account logout is a separate operation.
     func shutdownForTermination() async {
@@ -137,16 +147,21 @@ extension PlaybackStore {
         guard !isTearingDown else { return }
         feedback.dismiss()
         isTearingDown = true
+        invalidatePlaybackDispatchPermits()
         let staleConnectionTask = accountStore.prepareShutdownForTermination()
         engineGeneration &+= 1
         connectQueueCallback.reset()
         queueInspectorOrderingVersion = 0
         catalogSession.update(accountEpoch: accountEpoch, isAvailable: false)
-        effects.cancelAccountScoped()
-        effects.cancel(.engineEvents)
-        effects.cancel(.grantRevocations)
-        effects.cancel(.lifecycle)
+        var cancelledEffects = effects.cancelAccountScoped()
+        for id in [PlaybackEffectID.engineEvents, .grantRevocations, .lifecycle] {
+            if let settlement = effects.cancel(id) {
+                cancelledEffects[id] = settlement
+            }
+        }
         send(.reset(session: .signedOut), source: .account)
+        let drain = await effects.drain(cancelledEffects)
+        report(effectDrain: drain, during: "process termination")
         await accountStore.completeShutdownForTermination(staleConnectionTask: staleConnectionTask)
     }
 }

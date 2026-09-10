@@ -22,6 +22,17 @@ writes can mix lifetimes and make stale work appear current.
 
 ## Tradeoffs
 
+Connect-cluster observations reduce related device, connection and playback facts into one
+candidate before publication. Component revisions remain ordered against player-local and
+independent lifecycle callbacks. Account initialization success alone does not publish playback
+command readiness before engine identity has been consumed.
+
+Engine fan-out storage is bounded. Equivalent adjacent timing samples can coalesce; lost semantic
+history produces an explicit resynchronization with retained current source snapshots. Intake
+cancels uncertain commands and reconstructs state with original source revisions and timestamps,
+without treating a slow UI consumer as a reason to restart the engine. Replayed facts do not
+create new listening history.
+
 Explicit stamps and owners cost coordination but make cancellation, stale results, and source
 precedence testable without a live account. A single mutable controller or independently writable
 snapshots would hide those relationships.

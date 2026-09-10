@@ -55,3 +55,28 @@ public struct EngineConnectionSnapshot: Equatable, Sendable {
         self.localDeviceID = localDeviceID
     }
 }
+
+/// One upstream cluster observation. Each component retains its source revision so a newer
+/// player-local callback wins over an older cluster's playback component. The reducer applies
+/// accepted components to a private candidate and publishes only their combined result.
+public struct EngineConnectSnapshot: Equatable, Sendable {
+    public let devices: PlaybackDeviceSnapshot
+    public let connection: EngineConnectionSnapshot?
+    public let connectionRevision: UInt64?
+    public let playback: EnginePlaybackSnapshot?
+    public let playbackRevision: UInt64?
+
+    public init(
+        devices: PlaybackDeviceSnapshot,
+        connection: EngineConnectionSnapshot?,
+        connectionRevision: UInt64?,
+        playback: EnginePlaybackSnapshot?,
+        playbackRevision: UInt64?
+    ) {
+        self.devices = devices
+        self.connection = connection
+        self.connectionRevision = connectionRevision
+        self.playback = playback
+        self.playbackRevision = playbackRevision
+    }
+}

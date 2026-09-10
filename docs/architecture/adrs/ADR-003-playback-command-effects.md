@@ -16,6 +16,17 @@ another runner. Keep callback identity separate from command-effect ownership.
 Do not adopt The Composable Architecture (TCA) or introduce a generic `Effect` abstraction for the
 current playback architecture.
 
+Queued commands carry a dispatch permit. Route/lifetime publication invalidates unclaimed permits;
+the coordinator claims a permit immediately before committing to the local or remote operation.
+Claim is the irreversible dispatch boundary, not evidence that playback succeeded. Timing and
+metadata changes alone must not invalidate a route. Optimistic idle-local play retains its chosen
+destination through admission. Already-sent requests still settle through reducer reconciliation.
+
+Account teardown captures the exact canceled effect tasks and gives cooperative work a bounded
+drain opportunity. The drain report identifies unsettled work; it does not claim cancellation
+revoked a blocking C call or a request Spotify already received. Late tasks remain fenced by
+their existing lifetime and registration identity.
+
 ## Alternatives and tradeoffs
 
 - The existing registry adds no dependency or isolation model and keeps the domain reducer

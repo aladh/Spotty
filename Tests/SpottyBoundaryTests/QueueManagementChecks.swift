@@ -410,6 +410,45 @@ struct QueueManagementTests {
         }
 
         do {
+            let parked = QueueRemoteClient(.park)
+            let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+            let player = PlaybackStore(environment: queueEnvironment(remote: parked), feedback: feedback)
+            seedRemoteOwner(player)
+            player.addToQueue(uris: ["spotify:track:first", "spotify:track:second", "spotify:track:third"])
+            #expect((await waitUntil { await parked.sendCount == 1 }) == true, "first add is in flight")
+
+            // The first command has crossed the dispatch boundary. Handoff must invalidate only
+            // the queued permits, so the remaining URIs are not sent to the old remote target.
+            seedLocalOwner(player)
+            await parked.completePark(success: true)
+            await yieldPasses(20)
+            #expect((await parked.sendCount) == (1), "handoff skips queued add_to_queue items")
+            #expect((feedback.message) == nil, "a skipped remainder does not report stale feedback")
+            await player.shutdownForTermination()
+        }
+
+        do {
+            let parked = QueueRemoteClient(.park)
+            let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+            let player = PlaybackStore(environment: queueEnvironment(remote: parked), feedback: feedback)
+            seedRemoteOwner(player)
+            player.addToQueue(uris: ["spotify:track:blocking"])
+            #expect((await waitUntil { await parked.sendCount == 1 }) == true, "the first add is in flight")
+            await seedAuthoritativeQueue(player)
+            let removalID = player.queueNextEntries[0].id
+            player.removeUpcomingQueueOccurrences(selectedIDs: [removalID])
+            let replacement = player.effects.settlement(of: .queueReplacement)
+            #expect(replacement != nil, "the replacement is admitted before handoff")
+            seedLocalOwner(player)
+            await parked.completePark(success: true)
+            await replacement?.wait()
+            #expect((await parked.sendCount) == (1), "stale set_queue is never dispatched after handoff")
+            #expect((player.queueReplacementToken) == nil, "stale replacement releases its token")
+            #expect((feedback.message) == nil, "stale replacement does not report feedback")
+            await player.shutdownForTermination()
+        }
+
+        do {
             let remote = QueueRemoteClient(.failAfter(2))
             let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
             let player = PlaybackStore(environment: queueEnvironment(remote: remote), feedback: feedback)

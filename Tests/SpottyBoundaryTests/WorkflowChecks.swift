@@ -941,7 +941,13 @@ struct WorkflowTests {
                     engine.count("eventSubscriptions") != 0 && account.subscriptionCount != 0
                         && lifecycle.subscriptionCount != 0
                 }) == true, "restore installs every process subscription")
-            #expect((player.phase) == (.ready), "stored grant restores the real store")
+            #expect(player.phase == .connecting, "restoration awaits engine readiness")
+            engine.emit(
+                workflowConnectionEnvelope(
+                    sequence: 1, sessionGeneration: player.engineGeneration, spircReady: true, resumePending: false
+                )
+            )
+            #expect(await waitUntil { player.phase == .ready }, "engine observation makes the restored store ready")
             #expect((engine.count("initialize")) == (1), "engine initializes once")
             #expect((engine.count("eventSubscriptions")) == (1), "restore starts one engine-event subscription")
             #expect((account.subscriptionCount) == (1), "restore starts one grant-revocation subscription")
@@ -958,9 +964,9 @@ struct WorkflowTests {
                 (lifecycle.subscriptionCount) == (1), "repeated restore does not replace the lifecycle subscription")
 
             lifecycle.emit(.willSleep)
-            while engine.count("disconnect") == 0 { await Task.yield() }
+            #expect(await waitUntil { engine.count("disconnect") == 1 }, "sleep reaches the engine")
             lifecycle.emit(.didWake)
-            while engine.count("reconnect") == 0 { await Task.yield() }
+            #expect(await waitUntil { engine.count("reconnect") == 1 }, "wake reaches the engine")
             #expect((engine.count("disconnect")) == (1), "sleep disconnects once")
             #expect((engine.count("reconnect")) == (1), "wake reconnects once")
 

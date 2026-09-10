@@ -45,6 +45,8 @@ struct EngineEventFanoutTests {
             runTerminationDuringDelivery()
             runEmitAfterLastSubscriber()
             runFixedClockReceiptTimestamps()
+            runPressureRecovery()
+            runCoalescingBarriers()
         }
     }
 }
@@ -384,6 +386,117 @@ private func runFixedClockReceiptTimestamps() {
     #expect((receipts[1]) == (receipts[0]), "both subscribers observe the same receipt timestamps")
 }
 
+@MainActor
+private func runPressureRecovery() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let started = DispatchSemaphore(value: 0)
+    let stream = fanout.events(onStart: { started.signal() }, onTermination: nil)
+    guard wait(started) else {
+        #expect((false) == true, "pressure subscriber started")
+        return
+    }
+
+    // The consumer remains stalled while distinct track identities fill the fixed mailbox. A
+    // timing-only flood for one identity is then allowed to coalesce rather than creating work.
+    fanout.emit(queueEvent())
+    for index in 0..<192 {
+        fanout.emit(
+            playbackEvent(
+                trackURI: "spotify:track:pressure-\(index)",
+                revision: UInt64(index + 1)
+            ))
+    }
+    for index in 0..<192 {
+        fanout.emit(playbackEvent(trackURI: "spotify:track:steady", positionMS: Int64(index)))
+    }
+
+    let pressure = fanout.diagnostics()
+    #expect((pressure.subscriberCount) == (1), "stalled subscriber remains registered")
+    #expect((pressure.queuedEnvelopeCount) <= (64), "stalled mailbox remains bounded")
+    #expect((pressure.resynchronizationCount > 0) == true, "overflow exposes explicit recovery")
+    #expect((pressure.overflowCount > 0) == true, "overflow is counted")
+    #expect((pressure.coalescedCount > 0) == true, "equivalent timing samples coalesce")
+
+    let sawMarker = DispatchSemaphore(value: 0)
+    let markerSnapshots = FanoutRecorder<RustPlaybackEventEnvelope>()
+    let markerTask = Task.detached {
+        for await envelope in stream {
+            if case let .resynchronizationRequired(_, snapshots) = envelope.event {
+                markerSnapshots.store(snapshots)
+                sawMarker.signal()
+                break
+            }
+        }
+    }
+    #expect((wait(sawMarker)) == true, "stalled consumer receives a resynchronization marker")
+    let snapshots = markerSnapshots.load()
+    #expect(
+        (snapshots.contains { envelope in
+            if case .queue = envelope.event { return true }
+            return false
+        }) == true,
+        "resynchronization retains the latest queue source fact")
+    #expect(
+        (snapshots.contains { envelope in
+            if case let .playback(state) = envelope.event {
+                return state.trackURI == "spotify:track:pressure-191"
+            }
+            return false
+        }) == true,
+        "resynchronization retains the newest playback source fact")
+    markerTask.cancel()
+
+    let failureFanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let failureStart = DispatchSemaphore(value: 0)
+    let failureStream = failureFanout.events(onStart: { failureStart.signal() }, onTermination: nil)
+    guard wait(failureStart) else {
+        #expect((false) == true, "failure subscriber started")
+        return
+    }
+    failureFanout.emit(playbackEvent(trackURI: "spotify:track:failure", trackUnavailable: true))
+    for index in 0..<192 {
+        failureFanout.emit(playbackEvent(trackURI: "spotify:track:failure", positionMS: Int64(index)))
+    }
+    let failure = failureFanout.diagnostics()
+    #expect((failure.queuedEnvelopeCount) <= (64), "critical failure flood remains bounded")
+    let failureSeen = DispatchSemaphore(value: 0)
+    let failureTask = Task.detached {
+        var sawFailure = false
+        for await envelope in failureStream {
+            if case let .playback(state) = envelope.event, state.trackUnavailable {
+                sawFailure = true
+            }
+            if sawFailure { break }
+        }
+        if sawFailure { failureSeen.signal() }
+    }
+    #expect((wait(failureSeen)) == true, "critical playback failure survives timing pressure")
+    failureTask.cancel()
+}
+
+@MainActor
+private func runCoalescingBarriers() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let playbackA = playbackEvent(trackURI: "spotify:track:barrier")
+    let playbackAAfterQueue = playbackEvent(trackURI: "spotify:track:barrier", positionMS: 1)
+    let values = collectSequential(
+        fanout,
+        events: [playbackA, queueEvent(), playbackAAfterQueue]
+    )
+    #expect(
+        (values.map(\.sequence)) == ([1, 2, 3]),
+        "a queue observation fences playback timing coalescing")
+
+    let clusters = EngineEventFanout(clock: SystemPlaybackClock())
+    let clusterValues = collectSequential(
+        clusters,
+        events: [clusterEvent(activeDeviceID: "remote-a"), clusterEvent(activeDeviceID: "remote-b")]
+    )
+    #expect(
+        (clusterValues.map(\.sequence)) == ([1, 2]),
+        "active-device changes remain distinct atomic cluster facts")
+}
+
 private func wait(_ semaphore: DispatchSemaphore) -> Bool {
     semaphore.wait(timeout: .now() + .seconds(5)) == .success
 }
@@ -411,28 +524,34 @@ private final class FanoutRecorder<Value>: @unchecked Sendable {
     }
 }
 
-private func playbackEvent() -> RustPlaybackEvent {
+private func playbackEvent(
+    trackURI: String = "spotify:track:a",
+    positionMS: Int64 = 0,
+    trackUnavailable: Bool = false,
+    revision: UInt64 = 1
+) -> RustPlaybackEvent {
     .playback(
         RustPlaybackState(
-            revision: 1,
+            revision: revision,
             sessionGeneration: 1,
             isPlaying: false,
             isPaused: true,
-            trackURI: "spotify:track:a",
-            positionMS: 0,
+            trackURI: trackURI,
+            positionMS: positionMS,
             durationMS: 1,
             timestampMS: 0,
             shuffle: false,
             repeatTrack: false,
-            repeatContext: false
+            repeatContext: false,
+            trackUnavailable: trackUnavailable
         )
     )
 }
 
-private func queueEvent() -> RustPlaybackEvent {
+private func queueEvent(revision: UInt64 = 1) -> RustPlaybackEvent {
     .queue(
         RustQueueState(
-            revision: 1,
+            revision: revision,
             sessionGeneration: 1,
             track: nil,
             protocolNextTracks: [],
@@ -468,6 +587,29 @@ private func devicesEvent() -> RustPlaybackEvent {
             devices: [
                 ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer")
             ]
+        )
+    )
+}
+
+private func clusterEvent(activeDeviceID: String) -> RustPlaybackEvent {
+    .cluster(
+        RustConnectClusterState(
+            revision: 1,
+            sessionGeneration: 1,
+            source: 2,
+            localDeviceID: "local",
+            devices: RustDevicesState(
+                revision: 1,
+                sessionGeneration: 1,
+                activeDeviceID: activeDeviceID,
+                devices: [
+                    ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer"),
+                    ConnectProtocolDevice(id: activeDeviceID, name: "Remote", type: "speaker"),
+                ]
+            ),
+            connection: nil,
+            playback: nil,
+            queue: nil
         )
     )
 }

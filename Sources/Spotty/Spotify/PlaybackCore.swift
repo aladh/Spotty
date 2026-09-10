@@ -22,6 +22,44 @@ nonisolated enum PlaybackCore {
         spotty_playback_register_playback_state_callback(callback)
     }
 
+    static func registerConnectClusterStateCallback(_ callback: ConnectClusterStateCallback) {
+        spotty_playback_register_connect_cluster_state_callback(callback)
+    }
+
+    static func connectClusterState(
+        from pointer: UnsafePointer<SpottyConnectClusterState>?
+    ) -> RustConnectClusterState? {
+        guard let pointer else { return nil }
+        let snapshot = pointer.pointee
+        let devices: [ConnectProtocolDevice]
+        if let rows = snapshot.devices {
+            devices = UnsafeBufferPointer(start: rows, count: Int(snapshot.device_count)).map {
+                ConnectProtocolDevice(
+                    id: optionalCString($0.id) ?? "",
+                    name: optionalCString($0.name) ?? "",
+                    type: optionalCString($0.device_type) ?? ""
+                )
+            }
+        } else {
+            devices = []
+        }
+        return RustConnectClusterState(
+            revision: snapshot.cluster_revision,
+            sessionGeneration: snapshot.session_generation,
+            source: snapshot.source,
+            localDeviceID: optionalCString(snapshot.local_device_id),
+            devices: RustDevicesState(
+                revision: snapshot.cluster_revision,
+                sessionGeneration: snapshot.session_generation,
+                activeDeviceID: optionalCString(snapshot.active_device_id) ?? "",
+                devices: devices
+            ),
+            connection: connectionState(from: snapshot.connection),
+            playback: playbackState(from: snapshot.playback),
+            queue: queueState(from: snapshot.queue)
+        )
+    }
+
     static func playbackState(
         from pointer: UnsafePointer<SpottyPlaybackSnapshot>?
     ) -> RustPlaybackState? {

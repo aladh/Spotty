@@ -78,6 +78,25 @@ struct CredentialRejectionTests {
         #expect((playback.connectionActionTitle) == ("Sign In Again"), "the action names reauthorization")
         playback.connect()
         #expect(
+            (await waitUntil { engine.initializeCount > initializeBeforeRestore }) == true,
+            "the explicit sign-in action initializes a fresh engine"
+        )
+        #expect(player.phase == .connecting, "initialization alone does not establish Connect readiness")
+        player.receive(
+            RustConnectionState(
+                revision: 3,
+                sessionGeneration: player.engineGeneration,
+                sessionConnected: true,
+                spircReady: true,
+                isActiveDevice: true,
+                resumePending: false,
+                lastError: nil,
+                deviceID: "local"
+            ),
+            revision: 3,
+            receivedAt: Date(timeIntervalSince1970: 3)
+        )
+        #expect(
             (await waitUntil { player.phase == .ready }) == true,
             "the explicit sign-in action completes a fresh account workflow"
         )

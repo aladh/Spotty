@@ -36,6 +36,8 @@ extension PlaybackStore {
         case let .remote(from, to):
             let effectID = PlaybackEffectID.queueCommand(UUID())
             let epoch = accountEpoch
+            let engineEpoch = engineGeneration
+            let route = ConnectCommandRoute.remote(from: from, to: to)
             effects.replace(
                 effectID,
                 with: Task { [weak self] in
@@ -44,15 +46,54 @@ extension PlaybackStore {
                     var completed = 0
                     for uri in ordered {
                         do {
-                            try await self.coordinator.performRemote(.addToQueue(uri), from: from, to: to)
+                            guard
+                                let permit = self.makePlaybackDispatchPermit(ifStillWanted: {
+                                    self.queueDispatchStillCurrent(
+                                        accountEpoch: epoch,
+                                        engineEpoch: engineEpoch,
+                                        route: route
+                                    )
+                                })
+                            else { return }
+                            guard
+                                let outcome = try await self.coordinator.performRemoteCommand(
+                                    { client in
+                                        try await client.send(.addToQueue(uri), from: from, to: to)
+                                    },
+                                    permit: permit
+                                )
+                            else { return }
+                            guard case .success = outcome else {
+                                guard
+                                    self.queueDispatchStillCurrent(
+                                        accountEpoch: epoch,
+                                        engineEpoch: engineEpoch,
+                                        route: route
+                                    )
+                                else { return }
+                                self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
+                                return
+                            }
                             completed += 1
                         } catch {
-                            guard !Task.isCancelled, self.accountEpoch == epoch, self.isConnected else { return }
+                            guard
+                                self.queueDispatchStillCurrent(
+                                    accountEpoch: epoch,
+                                    engineEpoch: engineEpoch,
+                                    route: route
+                                )
+                            else { return }
                             self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
                             return
                         }
                     }
-                    guard !Task.isCancelled, self.accountEpoch == epoch, self.isConnected else { return }
+                    guard
+                        self.queueDispatchStillCurrent(
+                            accountEpoch: epoch,
+                            engineEpoch: engineEpoch,
+                            route: route
+                        )
+                    else { return }
                     self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
                 })
             return
@@ -62,6 +103,8 @@ extension PlaybackStore {
 
         let effectID = PlaybackEffectID.queueCommand(UUID())
         let epoch = accountEpoch
+        let engineEpoch = engineGeneration
+        let route = ConnectCommandRoute.local
         effects.replace(
             effectID,
             with: Task { [weak self] in
@@ -69,15 +112,53 @@ extension PlaybackStore {
                 guard let self else { return }
                 var completed = 0
                 for uri in ordered {
-                    let result = await self.coordinator.performLocal(.addToQueue(uri))
-                    guard result.isOK else {
-                        guard !Task.isCancelled, self.accountEpoch == epoch, self.isConnected else { return }
+                    guard
+                        let permit = self.makePlaybackDispatchPermit(ifStillWanted: {
+                            self.queueDispatchStillCurrent(
+                                accountEpoch: epoch,
+                                engineEpoch: engineEpoch,
+                                route: route
+                            )
+                        })
+                    else { return }
+                    do {
+                        guard
+                            let outcome = try await self.coordinator.performLocalCommand(
+                                .addToQueue(uri),
+                                permit: permit
+                            )
+                        else { return }
+                        guard case .success = outcome else {
+                            guard
+                                self.queueDispatchStillCurrent(
+                                    accountEpoch: epoch,
+                                    engineEpoch: engineEpoch,
+                                    route: route
+                                )
+                            else { return }
+                            self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
+                            return
+                        }
+                    } catch {
+                        guard
+                            self.queueDispatchStillCurrent(
+                                accountEpoch: epoch,
+                                engineEpoch: engineEpoch,
+                                route: route
+                            )
+                        else { return }
                         self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
                         return
                     }
                     completed += 1
                 }
-                guard !Task.isCancelled, self.accountEpoch == epoch, self.isConnected else { return }
+                guard
+                    self.queueDispatchStillCurrent(
+                        accountEpoch: epoch,
+                        engineEpoch: engineEpoch,
+                        route: route
+                    )
+                else { return }
                 self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
             })
     }
@@ -113,15 +194,38 @@ extension PlaybackStore {
                         defer { self?.finishQueueReplacementIfCurrent(token) }
                         do {
                             guard let self else { return }
-                            try await self.coordinator.performRemote(
-                                .setQueue(
-                                    next: replacement.next,
-                                    prev: replacement.prev,
-                                    queueRevision: replacement.queueRevision
-                                ),
-                                from: from,
-                                to: to
-                            )
+                            guard
+                                let permit = self.makePlaybackDispatchPermit(ifStillWanted: {
+                                    self.queueReplacementStillCurrent(
+                                        token: token,
+                                        accountEpoch: epoch,
+                                        engineEpoch: engineEpoch,
+                                        from: from,
+                                        to: to
+                                    )
+                                })
+                            else { return }
+                            guard
+                                let outcome = try await self.coordinator.performRemoteCommand(
+                                    { client in
+                                        try await client.send(
+                                            .setQueue(
+                                                next: replacement.next,
+                                                prev: replacement.prev,
+                                                queueRevision: replacement.queueRevision
+                                            ),
+                                            from: from,
+                                            to: to
+                                        )
+                                    },
+                                    permit: permit
+                                )
+                            else { return }
+                            if case let .failure(error) = outcome {
+                                // Keep failures on the existing catch path so queue feedback
+                                // remains unchanged.
+                                throw error
+                            }
                             guard
                                 self.queueReplacementStillCurrent(
                                     token: token,
@@ -199,13 +303,24 @@ extension PlaybackStore {
         from: String,
         to: String
     ) -> Bool {
-        guard !Task.isCancelled, !isTearingDown else { return false }
+        guard !Task.isCancelled, !isTearingDown, terminationGate.allowsCommands else { return false }
         guard queueReplacementToken == token else { return false }
         guard self.accountEpoch == accountEpoch, self.engineGeneration == engineEpoch else { return false }
         guard isConnected else { return false }
         guard case let .remote(currentFrom, currentTo) = commandRoute,
             currentFrom == from, currentTo == to
         else { return false }
+        return true
+    }
+
+    private func queueDispatchStillCurrent(
+        accountEpoch: UInt64,
+        engineEpoch: UInt64,
+        route: ConnectCommandRoute
+    ) -> Bool {
+        guard !Task.isCancelled, !isTearingDown, terminationGate.allowsCommands else { return false }
+        guard self.accountEpoch == accountEpoch, self.engineGeneration == engineEpoch else { return false }
+        guard isConnected, commandRoute == route else { return false }
         return true
     }
 

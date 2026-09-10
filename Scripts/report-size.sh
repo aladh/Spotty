@@ -13,7 +13,7 @@ trap 'echo "report-size.sh: failed at line $LINENO" >&2' ERR
 #   Scripts/report-size.sh [--binary PATH] [--xcframework PATH] [--out-dir DIR]
 #
 # Defaults match Scripts/compile-release-spotty.sh's release layout:
-#   --binary   <repo>/.build/release/Spotty
+#   --binary   SwiftPM's resolved release output (queried without rebuilding)
 #   --xcframework  SwiftPM's resolved remote XCFramework path; use
 #                  SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK for a source-built artifact
 #   --out-dir  <repo>/.build (ignored by git)
@@ -21,7 +21,7 @@ trap 'echo "report-size.sh: failed at line $LINENO" >&2' ERR
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$project_root/Scripts/playback-xcframework.sh"
 
-binary_path="$project_root/.build/release/Spotty"
+binary_path=""
 xcframework_override=""
 out_dir="$project_root/.build"
 
@@ -108,17 +108,11 @@ playback_slice="$(spotty_playback_slice_path "$selected_xcframework")"
 archive_path="$(spotty_playback_archive_path "$playback_slice")"
 archive_name="$(basename "$archive_path")"
 
-if [[ ! -f "$binary_path" ]]; then
-    # SwiftPM does not always create the `.build/release` convenience symlink (compile-
-    # release-spotty.sh resolves the real path via `swift build --show-bin-path`, which can
-    # land under a platform-triple directory such as `.build/arm64-apple-macosx/release`).
-    # Fall back to searching for it there before giving up.
-    for candidate in "$project_root"/.build/*/release/Spotty; do
-        if [[ -f "$candidate" ]]; then
-            binary_path="$candidate"
-            break
-        fi
-    done
+if [[ -z "$binary_path" ]]; then
+    # Match the compiler's selected build engine; searching old layouts can pick a stale binary.
+    bin_path="$(swift build --disable-sandbox --package-path "$project_root" \
+        --configuration release --product Spotty --show-bin-path)"
+    binary_path="$bin_path/Spotty"
 fi
 
 if [[ ! -f "$binary_path" ]]; then

@@ -224,16 +224,40 @@ impl Drop for InstalledGenerationGuard {
 /// A stale reconnect can finish after a newer grant or session has taken over. It must not clear
 /// that newer credential cache or publish a rejection against it, so both the generation and the
 /// intentional-teardown state are checked immediately before the cache mutation.
-fn publish_initialization_failure(generation: u64, failure: InitializationFailure) {
-    if failure != InitializationFailure::CredentialsRejected
-        || !listener_may_act(generation, SESSION_GENERATION.load(Ordering::SeqCst))
-        || teardown_in_progress()
-    {
-        return;
-    }
+pub(crate) fn with_initialization_failure_ownership<T>(
+    generation: u64,
+    failure: InitializationFailure,
+    recovery: Option<&RecoveryLease>,
+    mutation: impl FnOnce() -> T,
+) -> Option<T> {
+    with_current_generation_mutation(generation, || {
+        if failure != InitializationFailure::CredentialsRejected
+            || teardown_in_progress()
+            || recovery.is_some_and(RecoveryLease::is_cancelled)
+        {
+            return None;
+        }
+        Some(mutation())
+    })
+    .flatten()
+}
 
-    clear_resolved_credentials();
-    mark_credentials_rejected();
+fn publish_initialization_failure(
+    generation: u64,
+    failure: InitializationFailure,
+    recovery: Option<&RecoveryLease>,
+) {
+    // Cancellation and generation invalidation share this gate. Capture notification under it,
+    // but call Swift only after releasing it, preserving callback re-entry safety.
+    let notification = with_initialization_failure_ownership(generation, failure, recovery, || {
+        clear_resolved_credentials();
+        mark_credentials_rejected();
+        capture_connection_state_notification(generation)
+    })
+    .flatten();
+    if let Some(notification) = notification {
+        deliver_connection_state_notification(notification);
+    }
 }
 
 /// Builds a complete, settled session and publishes its readiness exactly once, at the end.
@@ -306,9 +330,7 @@ pub(crate) async fn build_player_owned(
         match create_spirc(&session, &credentials, player.clone(), mixer.clone()).await {
             Ok(resources) => resources,
             Err(failure) => {
-                if !stopped() {
-                    publish_initialization_failure(current_generation, failure);
-                }
+                publish_initialization_failure(current_generation, failure, recovery);
                 return Err(failure);
             }
         };
@@ -338,9 +360,7 @@ pub(crate) async fn build_player_owned(
                 debug!("Auto-activation failed ({:?})", failure);
                 staged.rollback().await;
                 session_guard.disarm();
-                if !stopped() {
-                    publish_initialization_failure(current_generation, failure);
-                }
+                publish_initialization_failure(current_generation, failure, recovery);
                 return Err(failure);
             }
         }

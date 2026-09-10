@@ -201,7 +201,7 @@ pub(crate) struct ConnectionState {
     pub(crate) resume_pending: bool,
 }
 
-/// Records a definitive credential rejection and publishes it as a typed connection outcome.
+/// Records a definitive credential rejection. The generation owner captures and delivers the notification.
 ///
 /// `last_error` remains a stable, privacy-safe category. It never contains the upstream error,
 /// access token, or any response payload. A newer generation clears the flag when it begins.
@@ -213,7 +213,6 @@ pub(crate) fn mark_credentials_rejected() {
         c.credentials_rejected = true;
         c.last_error = Some("Spotify credentials rejected".to_string());
     });
-    notify_connection_state_change();
 }
 
 /// Whether this engine's device is the cluster's active member.

@@ -268,8 +268,15 @@ fn cancelled_recovery_backoff_settles_without_waiting_for_outage_delay() {
     block_on_export(async {
         let mut lease = RecoveryLease::claim().expect("recovery");
         let started = std::time::Instant::now();
-        let task = tokio::spawn(async move { lease.wait(Duration::from_secs(30)).await });
-        tokio::task::yield_now().await;
+        let (waiting_tx, waiting_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let waiting = lease.wait(Duration::from_secs(30));
+            tokio::pin!(waiting);
+            assert!(futures_util::poll!(&mut waiting).is_pending());
+            waiting_tx.send(()).expect("wait registered");
+            waiting.await
+        });
+        waiting_rx.await.expect("backoff is suspended");
         cancel_recovery();
         assert!(!tokio::time::timeout(Duration::from_secs(1), task)
             .await
@@ -303,17 +310,23 @@ fn retired_recovery_waiting_for_lifecycle_cannot_clean_or_build() {
     block_on_export(async {
         let lease = RecoveryLease::claim().expect("recovery");
         let lock = acquire_lifecycle().await;
+        let (waiting_tx, waiting_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
-            run_reconnect_unit_async(
+            let waiting = run_reconnect_unit_async(
                 4,
                 || 4,
                 || lease.is_cancelled(),
                 || async { panic!("retired run must not clean") },
                 async { panic!("retired run must not build") },
-            )
-            .await
+            );
+            tokio::pin!(waiting);
+            assert!(futures_util::poll!(&mut waiting).is_pending());
+            waiting_tx.send(()).expect("lock wait registered");
+            waiting.await
         });
-        tokio::task::yield_now().await;
+        waiting_rx
+            .await
+            .expect("lifecycle acquisition is suspended");
         cancel_recovery();
         drop(lock);
         assert!(matches!(
@@ -370,4 +383,24 @@ fn recovery_reports_named_terminal_outcomes_and_attempt_count() {
         assert_eq!(report.attempts, 2);
         assert!(!recovery_is_active());
     }
+}
+
+#[test]
+fn retired_recovery_cannot_commit_a_late_credential_rejection() {
+    let _guard = lock_globals();
+    cancel_recovery();
+    let lease = RecoveryLease::claim().expect("recovery");
+    let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+    assert!(
+        !lease.is_cancelled(),
+        "the caller can have read a still-current lease"
+    );
+    cancel_recovery();
+    let result = with_initialization_failure_ownership(
+        generation,
+        InitializationFailure::CredentialsRejected,
+        Some(&lease),
+        || panic!("a retired owner must not clear credentials or publish rejection"),
+    );
+    assert!(result.is_none());
 }

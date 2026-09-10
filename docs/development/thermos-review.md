@@ -35,8 +35,11 @@ review agents run with a read-only repository token and never hold the App token
 findings, thread dispositions, and a summary as files, which a trusted workflow step validates
 and publishes as the App: one review per head, thread replies and resolutions, and the approval
 decision. Approval is computed from those files and from the live thread state, not asserted by
-the agent. A finding whose inline placement the API rejects is published in the review body
-instead.
+the agent. That step holds the App's installation token, whose pull-request write permission
+covers reviews, approvals, thread replies, and resolutions; comment-versus-approve behavior is
+workflow logic, not a credential restriction. A finding whose inline placement the API rejects is
+published in the review body instead. Reviews refuse to run, or withhold approval, when a PR has
+more review threads than one API page can return.
 
 PR changes can affect reviewer configuration, since the workflow reads it from the PR merge
 revision. The agents retain shell, edit, and web tools, so treating source, threads, and traces as

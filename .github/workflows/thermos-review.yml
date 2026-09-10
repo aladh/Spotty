@@ -136,13 +136,22 @@ jobs:
           gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
             -f query='query($owner: String!, $name: String!, $number: Int!) {
               repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-                reviewThreads(first: 100) { nodes {
+                reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
                   id isResolved isOutdated path line originalLine
-                  comments(first: 30) { nodes { author { login } body url } } } } } } }' \
-            | jq --arg login "$REVIEWER_LOGIN" '[.data.repository.pullRequest.reviewThreads.nodes[]
+                  comments(first: 50) { pageInfo { hasNextPage } nodes { author { login } body url } } } } } } }' \
+            > "$THERMOS_IN/threads-response.json"
+          # Fail closed rather than review against a truncated thread history.
+          if jq -e '.data.repository.pullRequest.reviewThreads
+              | .pageInfo.hasNextPage or any(.nodes[]; .comments.pageInfo.hasNextPage)' \
+              "$THERMOS_IN/threads-response.json" > /dev/null; then
+            echo '::error::PR has more review threads or replies than one page; refusing to review a truncated history.'
+            exit 1
+          fi
+          jq --arg login "$REVIEWER_LOGIN" '[.data.repository.pullRequest.reviewThreads.nodes[]
               | select(.isResolved == false and .comments.nodes[0].author.login == $login)
               | {id, path, line: (.line // .originalLine), isOutdated,
-                 comments: [.comments.nodes[] | {author: .author.login, body, url}]}]' > "$THERMOS_IN/threads.json"
+                 comments: [.comments.nodes[] | {author: .author.login, body, url}]}]' \
+            "$THERMOS_IN/threads-response.json" > "$THERMOS_IN/threads.json"
           jq -n --arg repository "$GITHUB_REPOSITORY" --argjson pr "$PR_NUMBER" \
             --arg base "$BASE_SHA" --arg head "$HEAD_SHA" --arg previous_head "$PREVIOUS_HEAD" \
             --arg mode "$REVIEW_MODE" --arg reason "$REVIEW_REASON" --arg in "$THERMOS_IN" --arg out "$THERMOS_OUT" \
@@ -243,16 +252,21 @@ jobs:
           open_threads=$(gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
             -f query='query($owner: String!, $name: String!, $number: Int!) {
               repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-                reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { author { login } } } } } } } }' \
-            | jq --arg login "$REVIEWER_LOGIN" '[.data.repository.pullRequest.reviewThreads.nodes[]
-              | select(.isResolved == false and .comments.nodes[0].author.login == $login)] | length')
+                reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved comments(first: 1) { nodes { author { login } } } } } } } }' \
+            | jq --arg login "$REVIEWER_LOGIN" '.data.repository.pullRequest.reviewThreads
+              | if .pageInfo.hasNextPage then "truncated" else
+                  [.nodes[] | select(.isResolved == false and .comments.nodes[0].author.login == $login)] | length end')
           event=COMMENT
-          if [ "$FINDINGS" -eq 0 ] && [ "$open_threads" -eq 0 ] && [ "$current_head" = "$HEAD_SHA" ] \
+          if [ "$open_threads" = '"truncated"' ]; then
+            echo '::warning::More than one page of review threads; withholding approval.'
+            open_threads=unknown
+          elif [ "$FINDINGS" -eq 0 ] && [ "$open_threads" -eq 0 ] && [ "$current_head" = "$HEAD_SHA" ] \
             && jq -e '.state == "open" and .draft == false' <<< "$pr" > /dev/null; then
             event=APPROVE
           fi
           header="**Thermos review** of \`${HEAD_SHA:0:7}\` ($REVIEW_REASON): $FINDINGS new finding(s)"
-          if [ "$open_threads" -gt 0 ]; then header="$header, $open_threads earlier thread(s) still open"; fi
+          if [ "$open_threads" = unknown ]; then header="$header, thread state too large to verify (approval withheld)"
+          elif [ "$open_threads" -gt 0 ]; then header="$header, $open_threads earlier thread(s) still open"; fi
           if [ "$current_head" != "$HEAD_SHA" ]; then header="$header. The PR head moved during the review; the next run covers it"; fi
           header="$header."
           if [ "$event" = APPROVE ]; then header="$header No actionable findings remain in the reviewed scope."; fi

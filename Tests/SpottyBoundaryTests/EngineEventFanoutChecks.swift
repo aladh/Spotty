@@ -49,6 +49,46 @@ struct EngineEventFanoutTests {
             runCoalescingBarriers()
         }
     }
+    @Test
+    @MainActor
+    func staleAdjacentSamplesKeepTheNewestRevision() async {
+        for heldDrain in [false, true] {
+            let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+            let stream = fanout.events()
+            let newer = playbackEvent(revision: 20)
+            let stale = playbackEvent(revision: 19)
+            if heldDrain {
+                fanout.emit(newer, afterPrepare: { fanout.emit(stale) })
+            } else {
+                fanout.emit(newer)
+                fanout.emit(stale)
+            }
+            #expect(fanout.diagnostics().queuedEnvelopeCount == 1)
+            var iterator = stream.makeAsyncIterator()
+            let retained = await iterator.next()
+            #expect(retained?.event.sourceRevision == 20)
+            #expect(fanout.diagnostics().coalescedCount == 1)
+        }
+    }
+
+    @Test
+    @MainActor
+    func generationTransitionSeedsConnectionLifecycle() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(connectionEvent())
+        fanout.emit(connectionEvent(generation: 2, revision: 2))
+        fanout.emit(connectionEvent(generation: 2, revision: 3))
+        fanout.emit(connectionEvent(generation: 2, revision: 4))
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 3)
+        #expect(fanout.diagnostics().coalescedCount == 1)
+        var iterator = stream.makeAsyncIterator()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        let latest = await iterator.next()
+        #expect(latest?.event.sourceRevision == 4)
+    }
+
 }
 
 private protocol TestableEventFanout: AnyObject, Sendable {
@@ -563,11 +603,11 @@ private func queueEvent(revision: UInt64 = 1) -> RustPlaybackEvent {
     )
 }
 
-private func connectionEvent() -> RustPlaybackEvent {
+private func connectionEvent(generation: UInt64 = 1, revision: UInt64 = 1) -> RustPlaybackEvent {
     .connection(
         RustConnectionState(
-            revision: 1,
-            sessionGeneration: 1,
+            revision: revision,
+            sessionGeneration: generation,
             sessionConnected: true,
             spircReady: true,
             isActiveDevice: false,

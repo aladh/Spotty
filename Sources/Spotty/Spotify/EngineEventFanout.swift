@@ -137,11 +137,13 @@ nonisolated final class EngineEventFanout: @unchecked Sendable {
     private func enqueueLocked(_ prepared: PreparedEnvelope) {
         switch prepared.classification {
         case let .replaceable(key):
-            if pending.last?.classification == .replaceable(key) {
+            if let previous = pending.last, previous.classification == .replaceable(key) {
                 // Remove before appending. Replacing in place would put a newer sequence before
                 // an already queued event and violate the process-wide order contract.
-                pending.removeLast()
-                pending.append(prepared)
+                if prepared.envelope.event.sourceRevision >= previous.envelope.event.sourceRevision {
+                    pending.removeLast()
+                    pending.append(prepared)
+                }
                 increment(&coalescedCount)
                 return
             }
@@ -259,11 +261,12 @@ nonisolated final class EngineEventFanout: @unchecked Sendable {
                 resumePending: state.resumePending,
                 deviceID: state.deviceID
             )
+            let changed = lifecycleChanged(lifecycle)
             guard
                 !generationChanged,
                 state.lastError == nil,
                 !state.credentialsRejected,
-                !lifecycleChanged(lifecycle)
+                !changed
             else { return .critical }
             return .replaceable(.connection(lifecycle))
         case let .devices(state):
@@ -561,7 +564,7 @@ private final class SubscriberMailbox: @unchecked Sendable {
         guard !finished else { return nil }
         if waiter != nil { return nil }
         if case let .replaceable(key) = prepared.classification,
-            queue.last?.classification == .replaceable(key)
+            let previous = queue.last, previous.classification == .replaceable(key)
         {
             return nil
         }
@@ -592,10 +595,12 @@ private final class SubscriberMailbox: @unchecked Sendable {
             return .delivered
         }
         if case let .replaceable(key) = prepared.classification,
-            queue.last?.classification == .replaceable(key)
+            let previous = queue.last, previous.classification == .replaceable(key)
         {
-            queue.removeLast()
-            queue.append(prepared)
+            if prepared.envelope.event.sourceRevision >= previous.envelope.event.sourceRevision {
+                queue.removeLast()
+                queue.append(prepared)
+            }
             lock.unlock()
             return .coalesced
         }

@@ -122,6 +122,43 @@ private func queueRefreshTrack(_ uri: String) -> CatalogTrack {
 struct QueueRefreshConvergenceTests {
     @Test
     @MainActor
+    func changedFallbackReplacesTheSharedFlight() async {
+        let web = QueueRefreshLateFailureWebQueue()
+        let service = QueueService(
+            webQueue: web,
+            metadata: TrackMetadataService(remote: QueueRefreshMetadataRemote())
+        )
+        await service.reset(accountEpoch: 1)
+        let oldURI = "spotify:track:old-fallback"
+        let newURI = "spotify:track:new-fallback"
+        let first = Task {
+            await service.refresh(
+                fallbackEntries: [QueueEntry(uri: oldURI, provider: "fallback", occurrence: 0)],
+                cachedTracks: [queueRefreshTrack(oldURI)],
+                currentTrackURI: "spotify:track:current",
+                accountEpoch: 1
+            )
+        }
+        #expect(await waitUntil { await web.requestCount == 1 })
+        let second = Task {
+            await service.refresh(
+                fallbackEntries: [QueueEntry(uri: newURI, provider: "fallback", occurrence: 0)],
+                cachedTracks: [queueRefreshTrack(newURI)],
+                currentTrackURI: "spotify:track:current",
+                accountEpoch: 1
+            )
+        }
+        #expect(await waitUntil { await web.requestCount == 2 })
+        await web.fail429(1)
+        #expect(await first.value == nil)
+        await web.fail429(2)
+        let result = await second.value
+        #expect(result?.entries.map(\.uri) == [newURI])
+        #expect(result?.tracks.map(\.uri) == [newURI])
+    }
+
+    @Test
+    @MainActor
     func concurrentRefreshesJoinOneWebFlightAndPublishToBothSubscribers() async {
         let web = QueueRefreshWebQueue()
         let service = QueueService(

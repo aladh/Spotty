@@ -100,6 +100,8 @@ actor QueueService {
     private struct RefreshKey: Equatable, Sendable {
         let accountEpoch: UInt64
         let contextURI: String?
+        let fallbackEntries: [QueueEntry]
+        let cachedTracks: [CatalogTrack]
     }
 
     private final class RefreshSubscriber: @unchecked Sendable {
@@ -269,7 +271,12 @@ actor QueueService {
         onUpdate: @escaping @MainActor @Sendable (ProvenanceQueueSnapshot) async -> Void = { _ in }
     ) async -> ProvenanceQueueSnapshot? {
         guard requestedEpoch == accountEpoch else { return nil }
-        let key = RefreshKey(accountEpoch: requestedEpoch, contextURI: currentTrackURI)
+        let key = RefreshKey(
+            accountEpoch: requestedEpoch,
+            contextURI: currentTrackURI,
+            fallbackEntries: fallbackEntries,
+            cachedTracks: cachedTracks
+        )
         if refreshFlightKey != key {
             cancelRefreshFlight()
         }

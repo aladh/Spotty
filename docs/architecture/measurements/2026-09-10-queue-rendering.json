@@ -12,7 +12,23 @@
       "Programmatic scroll jumps, not physical-input latency.",
       "Reported display callback nominal rate differs between samples; do not treat this as a fixed-rate rendering comparison.",
       "Beta OS and toolchain; descriptive samples, not a statistical rendering result."
-    ]
+    ],
+    "os": "macOS 27.0 (26A5425a)",
+    "xcode": "27.0 (27A5252f)",
+    "swift": "6.4 (swiftlang-6.4.0.33.1 clang-2100.3.33.1)",
+    "compileSDK": "macOS 26.5 (Command Line Tools compatibility SDK selected by Scripts/swiftpm-env.sh)",
+    "cpu": "Apple M1 Max",
+    "processorCount": 10,
+    "physicalMemoryBytes": 34359738368,
+    "displayPhysicalPixels": [
+      3456,
+      2234
+    ],
+    "displayLogicalPoints": [
+      1728,
+      1117
+    ],
+    "displayScale": 2
   },
   "variants": {
     "batched": {
@@ -193,7 +209,8 @@
           15195.24225,
           15339.349
         ]
-      }
+      },
+      "captureID": "run.ro1Atq0z"
     },
     "perResult": {
       "passed": true,
@@ -342,7 +359,8 @@
           "count": 0
         },
         "metadataBatchOffsetsMilliseconds": []
-      }
+      },
+      "captureID": "run.Om5Mkqtn"
     }
   }
 }

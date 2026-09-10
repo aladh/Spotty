@@ -62,6 +62,11 @@ enum BrowsingFailure: Error, LocalizedError {
 }
 
 struct BrowsingFixtures: Sendable {
+    static let topLevelPlaylistCount = 20
+    static let folderNames = ["Focus", "Weekend"]
+    static let playlistsPerFolder = 4
+    static let expandedPlaylistCount = topLevelPlaylistCount + folderNames.count * playlistsPerFolder
+
     let playlists: [PathfinderPlaylist]
     let details: [String: PathfinderPlaylistUnion]
     let home: PathfinderHome
@@ -91,7 +96,7 @@ struct BrowsingFixtures: Sendable {
                 ]
             ]
         }
-        let playlistCount = scenario.expandedLibrary == true ? 28 : 2
+        let playlistCount = scenario.expandedLibrary == true ? Self.expandedPlaylistCount : 2
         let records: [[String: Any]] = (0..<playlistCount).map { index in
             [
                 "uri": "spotify:playlist:synthetic\(index)", "name": "Synthetic Mix \(index + 1)",

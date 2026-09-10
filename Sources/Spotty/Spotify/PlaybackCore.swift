@@ -48,6 +48,9 @@ nonisolated enum PlaybackCore {
             sessionGeneration: snapshot.session_generation,
             source: snapshot.source,
             localDeviceID: optionalCString(snapshot.local_device_id),
+            // apply_cluster supplies the roster and active ID from this accepted cluster,
+            // never from a retained device cache. Its stamp therefore orders this complete
+            // device observation too; independent player callbacks do not restamp a cluster.
             devices: RustDevicesState(
                 revision: snapshot.cluster_revision,
                 sessionGeneration: snapshot.session_generation,

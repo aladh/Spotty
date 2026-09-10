@@ -134,6 +134,9 @@ pub(crate) type SpottyNullableQueueTrackPointer = *const SpottyProtocolQueueTrac
 pub(crate) type SpottyNullableDevicePointer = *const SpottyProtocolDevice;
 
 pub(crate) type SpottyNullableQueueSnapshot = *mut SpottyQueueSnapshot;
+pub(crate) type SpottyNullableConnectionSnapshotPointer = *const SpottyConnectionSnapshot;
+pub(crate) type SpottyNullablePlaybackSnapshotPointer = *const SpottyPlaybackSnapshot;
+pub(crate) type SpottyNullableQueueSnapshotPointer = *const SpottyQueueSnapshot;
 
 pub(crate) type SpottyPlaybackResult = i32;
 
@@ -301,6 +304,137 @@ pub struct SpottyDevicesSnapshot {
 /// Callback function type for Connect device-list updates. String pointers and the device
 /// array are valid only for the callback invocation.
 pub(crate) type DevicesSnapshotCallback = extern "C" fn(*const SpottyDevicesSnapshot);
+
+/// Coherent observation of one Connect cluster application. Every nested pointer is borrowed
+/// for the duration of the callback; Swift must copy the fields it retains before returning.
+/// `cluster_revision` is shared by all nested snapshots and orders cluster observations. The
+/// component `revision` fields remain present so existing projection code can preserve its
+/// per-stream ordering metadata. `source` is 1 for the HTTP bootstrap fetch and 2 for a dealer
+/// push. A missing player state produces null playback and queue pointers; an empty device list
+/// is represented by a null devices pointer and a zero count.
+#[repr(C)]
+pub struct SpottyConnectClusterState {
+    pub cluster_revision: u64,
+    pub session_generation: u64,
+    pub source: u8,
+    pub local_device_id: SpottyNullableCString,
+    pub active_device_id: SpottyNullableCString,
+    pub devices: SpottyNullableDevicePointer,
+    pub device_count: usize,
+    pub connection: SpottyNullableConnectionSnapshotPointer,
+    pub playback: SpottyNullablePlaybackSnapshotPointer,
+    pub queue: SpottyNullableQueueSnapshotPointer,
+}
+
+/// Callback for one coherent Connect cluster observation.
+pub(crate) type ConnectClusterStateCallback = extern "C" fn(*const SpottyConnectClusterState);
+
+fn snapshot_c_ptr(value: &Option<CString>) -> *const c_char {
+    value
+        .as_ref()
+        .map(|value| value.as_ptr())
+        .unwrap_or(std::ptr::null())
+}
+
+/// Delivers one aggregate observation. The callback is intentionally optional: callers can
+/// continue publishing the legacy stream callbacks when an app has not adopted this boundary.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_connect_cluster_state(
+    callback: ConnectClusterStateCallback,
+    stamp: SnapshotStamp,
+    source: u8,
+    local_device_id: Option<&str>,
+    active_device_id: &str,
+    devices: &[ProtocolConnectDevice],
+    connection: &ConnectionState,
+    playback: Option<&PlaybackObservation>,
+    queue: Option<&QueueState>,
+) {
+    let local_device_id = local_device_id.and_then(c_string_from_text);
+    let active_device_id = optional_callback_c_string(Some(active_device_id));
+    let device_strings: Vec<(Option<CString>, Option<CString>, Option<CString>)> = devices
+        .iter()
+        .map(|device| {
+            (
+                optional_callback_c_string(Some(device.id.as_str())),
+                optional_callback_c_string(Some(device.name.as_str())),
+                optional_callback_c_string(Some(device.device_type.as_str())),
+            )
+        })
+        .collect();
+    let device_rows: Vec<SpottyProtocolDevice> = device_strings
+        .iter()
+        .map(|(id, name, device_type)| SpottyProtocolDevice {
+            id: snapshot_c_ptr(id),
+            name: snapshot_c_ptr(name),
+            device_type: snapshot_c_ptr(device_type),
+        })
+        .collect();
+
+    let connection_device_id = optional_callback_c_string(connection.device_id.as_deref());
+    let connection_last_error = optional_callback_c_string(connection.last_error.as_deref());
+    let connection_snapshot = SpottyConnectionSnapshot {
+        revision: stamp.revision,
+        session_generation: stamp.session_generation,
+        session_connected: u8::from(connection.session_connected),
+        spirc_ready: u8::from(connection.spirc_ready),
+        is_active_device: u8::from(connection.is_active_device),
+        resume_pending: u8::from(connection.resume_pending),
+        credentials_rejected: u8::from(connection.credentials_rejected),
+        device_id: snapshot_c_ptr(&connection_device_id),
+        last_error: snapshot_c_ptr(&connection_last_error),
+    };
+
+    let playback_track =
+        playback.and_then(|value| optional_callback_c_string(Some(value.track_uri.as_str())));
+    let playback_context =
+        playback.and_then(|value| value.context_uri.as_deref().and_then(c_string_from_text));
+    let playback_snapshot = playback.map(|value| SpottyPlaybackSnapshot {
+        revision: stamp.revision,
+        session_generation: stamp.session_generation,
+        position_ms: value.position_ms,
+        duration_ms: value.duration_ms,
+        timestamp_ms: value.timestamp_ms,
+        is_playing: u8::from(value.is_playing),
+        is_paused: u8::from(value.is_paused),
+        track_unavailable: u8::from(value.track_unavailable),
+        audio_key_refused: u8::from(value.audio_key_refused),
+        shuffle: u8::from(value.shuffle),
+        repeat_track: u8::from(value.repeat_track),
+        repeat_context: u8::from(value.repeat_context),
+        is_active_device: u8::from(value.is_active_device),
+        track_uri: snapshot_c_ptr(&playback_track),
+        context_uri: snapshot_c_ptr(&playback_context),
+    });
+
+    let queue_backing = queue.map(queue_snapshot_backing);
+    let queue_snapshot = queue
+        .zip(queue_backing.as_ref())
+        .map(|(state, backing)| queue_snapshot_from_backing(backing, state));
+    let aggregate = SpottyConnectClusterState {
+        cluster_revision: stamp.revision,
+        session_generation: stamp.session_generation,
+        source,
+        local_device_id: snapshot_c_ptr(&local_device_id),
+        active_device_id: snapshot_c_ptr(&active_device_id),
+        devices: if device_rows.is_empty() {
+            std::ptr::null()
+        } else {
+            device_rows.as_ptr()
+        },
+        device_count: device_rows.len(),
+        connection: &connection_snapshot,
+        playback: playback_snapshot
+            .as_ref()
+            .map(|value| value as *const SpottyPlaybackSnapshot)
+            .unwrap_or(std::ptr::null()),
+        queue: queue_snapshot
+            .as_ref()
+            .map(|value| value as *const SpottyQueueSnapshot)
+            .unwrap_or(std::ptr::null()),
+    };
+    callback(&aggregate);
+}
 
 pub(crate) fn send_devices_snapshot(
     callback: DevicesSnapshotCallback,
@@ -511,6 +645,23 @@ pub extern "C" fn spotty_playback_register_devices_callback(callback: DevicesSna
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(callback);
     })
+}
+
+/// Registers a callback for one coherent Connect cluster observation. Nested snapshot pointers
+/// are borrowed for the callback invocation and must be copied before returning.
+#[no_mangle]
+pub extern "C" fn spotty_playback_register_connect_cluster_state_callback(
+    callback: ConnectClusterStateCallback,
+) {
+    ffi_void(
+        "spotty_playback_register_connect_cluster_state_callback",
+        || {
+            *CONTROL_CALLBACKS
+                .connect_cluster_state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(callback);
+        },
+    )
 }
 
 /// Registers a callback to receive connection state change notifications.

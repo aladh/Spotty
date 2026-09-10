@@ -38,6 +38,15 @@ and [Swift annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback
 own field layouts, signatures, nullability, and allocation contracts. Connection, playback,
 devices, and queue cross as typed protocol snapshots, not raw protobuf or presentation copy.
 
+An adapter can register the aggregate Connect-cluster callback to receive local identity, device
+roster, connection, and optional playback/queue facts from one cluster with one generation and
+revision. Bootstrap and dealer-push provenance remain explicit. Registration replaces only the
+cluster-origin legacy notifications; player-local playback and independent lifecycle callbacks
+remain separate ordered sources. Nested pointers are borrowed for the callback duration and must
+be copied before returning. Snapshot capture owns the revision lock; callback delivery does not.
+Canonical queue and playback caches are updated before delivery so a reentrant getter observes
+the published facts, and a reentrant cleanup cannot be followed by a stale cache write.
+
 Preserve these distinctions when changing the boundary:
 
 - Missing and interior-NUL strings normalize before callback delivery. Empty strings normally mean

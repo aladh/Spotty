@@ -302,7 +302,7 @@ fn apply_offered_cluster(item: PendingCluster) {
     };
     #[cfg(test)]
     record_applied_cluster(&item.cluster);
-    apply_cluster(item.generation, item.cluster);
+    apply_cluster(item.generation, item.origin, item.cluster);
 }
 
 fn pop_next_cluster_to_apply() -> Option<PendingCluster> {
@@ -436,22 +436,9 @@ pub(crate) fn mark_disconnected(reason: &str) {
 pub(crate) fn notify_devices(
     devices: &std::collections::HashMap<String, librespot_protocol::connect::DeviceInfo>,
     active_device_id: &str,
+    emit_callback: bool,
 ) {
-    let mut list: Vec<ProtocolConnectDevice> = devices
-        .iter()
-        .map(|(id, info)| ProtocolConnectDevice {
-            id: id.clone(),
-            name: info.name.clone(),
-            // `DeviceType` is an open enum. An unknown value has no variant name.
-            device_type: info
-                .device_type
-                .enum_value()
-                .map(|kind| format!("{kind:?}"))
-                .unwrap_or_default(),
-        })
-        .collect();
-
-    list.sort_by(|a, b| a.id.cmp(&b.id));
+    let list = protocol_devices(devices);
 
     debug!(
         "notify_devices: cluster carried {} device(s), active={}",
@@ -472,10 +459,35 @@ pub(crate) fn notify_devices(
     *last = Some(fingerprint);
     drop(last);
 
-    if let Some(callback) = registered_callback(&CONTROL_CALLBACKS.devices) {
-        let stamp = stamped_snapshot(|stamp| stamp);
-        send_devices_snapshot(callback, stamp, active_device_id, &list);
+    if emit_callback {
+        if let Some(callback) = registered_callback(&CONTROL_CALLBACKS.devices) {
+            let stamp = stamped_snapshot(|stamp| stamp);
+            send_devices_snapshot(callback, stamp, active_device_id, &list);
+        }
     }
+}
+
+/// Converts a protobuf device map into the stable, sorted protocol rows shared by the legacy
+/// device callback and the aggregate Connect callback.
+pub(crate) fn protocol_devices(
+    devices: &std::collections::HashMap<String, librespot_protocol::connect::DeviceInfo>,
+) -> Vec<ProtocolConnectDevice> {
+    let mut list: Vec<ProtocolConnectDevice> = devices
+        .iter()
+        .map(|(id, info)| ProtocolConnectDevice {
+            id: id.clone(),
+            name: info.name.clone(),
+            // `DeviceType` is an open enum. An unknown value has no variant name.
+            device_type: info
+                .device_type
+                .enum_value()
+                .map(|kind| format!("{kind:?}"))
+                .unwrap_or_default(),
+        })
+        .collect();
+
+    list.sort_by(|a, b| a.id.cmp(&b.id));
+    list
 }
 
 /// Creates the standard ConnectConfig for Spirc.
@@ -653,27 +665,112 @@ pub(crate) async fn fetch_cluster(session: &Session) -> Result<Cluster, String> 
 ///
 /// The device list rides along and used to be dropped on the floor, so Swift asked
 /// `/me/player/devices` for what was already here.
-pub(crate) fn apply_cluster(generation: u64, cluster: Cluster) {
+pub(crate) fn apply_cluster(generation: u64, origin: ClusterOrigin, cluster: Cluster) {
     if !cluster_generation_current(generation) {
         return;
     }
+    let local_device_id = current_device_id();
     let is_active_device =
-        is_active_in_cluster(&cluster.active_device_id, current_device_id().as_deref());
-    set_active_device(is_active_device);
+        is_active_in_cluster(&cluster.active_device_id, local_device_id.as_deref());
+    // Update the canonical connection state without publishing its legacy callback yet. The
+    // aggregate callback below must be the first delivery for this cluster, so Swift cannot see
+    // a connection transition separated from the devices/playback/queue facts that caused it.
+    let active_changed = store_active_device(is_active_device);
     if !cluster_generation_current(generation) {
         return;
     }
-    notify_devices(&cluster.device, &cluster.active_device_id);
 
-    if let Some(player_state) = cluster.player_state.into_option() {
+    let devices = protocol_devices(&cluster.device);
+    let player_state = cluster.player_state.into_option();
+    let aggregate_callback = registered_callback(&CONTROL_CALLBACKS.connect_cluster_state);
+    let aggregate_registered = aggregate_callback.is_some();
+    let aggregate_payload = aggregate_callback.map(|_| {
+        stamped_snapshot_for_generation(generation, |stamp| {
+            let connection = with_connection(|state| state.clone());
+            let playback = player_state
+                .as_ref()
+                .map(|state| playback_observation_from_player_state(state, is_active_device));
+            let queue = player_state
+                .as_ref()
+                .map(|state| queue_state_from_player_state_with_stamp(state, stamp));
+            (stamp, connection, playback, queue)
+        })
+    });
+    if let Some(player_state) = player_state.as_ref() {
+        if !player_state.context_uri.is_empty() {
+            update_current_context_uri(&player_state.context_uri);
+        }
+        if let Some(playback) = aggregate_payload
+            .as_ref()
+            .and_then(|(_, _, playback, _)| playback.as_ref())
+        {
+            update_playback_options(
+                playback.shuffle,
+                playback.repeat_track,
+                playback.repeat_context,
+            );
+        }
+    }
+    if let (Some(callback), Some((stamp, connection, playback, queue))) =
+        (aggregate_callback, aggregate_payload)
+    {
+        // Make the same queue facts available to a re-entrant getter before the callback runs.
+        // The callback may synchronously ask for the queue or replace the session.
+        if let Some(queue) = queue.as_ref() {
+            *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = Some(queue.clone());
+        }
+        let source = match origin {
+            ClusterOrigin::BootstrapFetch => 1,
+            ClusterOrigin::PushedUpdate => 2,
+        };
+        // The revision and all source state were captured under SNAPSHOT_REVISION. Delivery is
+        // deliberately outside that lock because Swift may synchronously re-enter Rust.
+        send_connect_cluster_state(
+            callback,
+            stamp,
+            source,
+            local_device_id.as_deref(),
+            &cluster.active_device_id,
+            &devices,
+            &connection,
+            playback.as_ref(),
+            queue.as_ref(),
+        );
+    }
+    if !cluster_generation_current(generation) {
+        return;
+    }
+
+    // The aggregate callback and its cache are the complete cluster delivery. Sending the same
+    // facts through the legacy callbacks would make one cluster tick appear twice in Swift and
+    // could let a re-entrant local event interleave between its components.
+    if aggregate_registered {
+        return;
+    }
+
+    // Existing stream callbacks remain available during migration. They are intentionally sent
+    // after the aggregate callback and retain their existing per-stream revisions.
+    if active_changed && !aggregate_registered {
+        notify_connection_state_change();
+    }
+    if !cluster_generation_current(generation) {
+        return;
+    }
+    notify_devices(
+        &cluster.device,
+        &cluster.active_device_id,
+        !aggregate_registered,
+    );
+
+    if let Some(player_state) = player_state {
         if !cluster_generation_current(generation) {
             return;
         }
-        send_playback_state(&player_state, is_active_device);
+        send_playback_state_with_callback(&player_state, is_active_device, !aggregate_registered);
         if !cluster_generation_current(generation) {
             return;
         }
-        process_and_send_queue(player_state);
+        process_and_send_queue_with_callback(player_state, !aggregate_registered);
     }
 }
 

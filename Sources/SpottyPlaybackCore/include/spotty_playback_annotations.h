@@ -19,6 +19,9 @@ typedef const struct SpottyRestriction *_Nullable SpottyNullableRestrictionPoint
 typedef const struct SpottyProtocolQueueTrack *_Nullable SpottyNullableQueueTrackPointer;
 typedef const struct SpottyProtocolDevice *_Nullable SpottyNullableDevicePointer;
 typedef struct SpottyQueueSnapshot *_Nullable SpottyNullableQueueSnapshot;
+typedef const struct SpottyConnectionSnapshot *_Nullable SpottyNullableConnectionSnapshotPointer;
+typedef const struct SpottyPlaybackSnapshot *_Nullable SpottyNullablePlaybackSnapshotPointer;
+typedef const struct SpottyQueueSnapshot *_Nullable SpottyNullableQueueSnapshotPointer;
 
 /* ========================================================================== */
 /* Error codes                                                               */

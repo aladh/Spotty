@@ -258,3 +258,64 @@ fn process_and_send_queue_caches_snapshot_without_a_callback() {
     spotty_playback_free_queue_snapshot(pointer);
     *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
+
+#[test]
+fn process_and_send_queue_caches_before_reentrant_legacy_callback() {
+    let _guard = lock_lifecycle_test_globals();
+    extern "C" fn capture(snapshot: *const SpottyQueueSnapshot) {
+        let callback_snapshot = unsafe { &*snapshot };
+        let pointer = spotty_playback_get_queue_snapshot();
+        assert!(!pointer.is_null());
+        let cached_snapshot = unsafe { &*pointer };
+        assert_eq!(cached_snapshot.revision, callback_snapshot.revision);
+        assert_eq!(cached_snapshot.next_count, callback_snapshot.next_count);
+        spotty_playback_free_queue_snapshot(pointer);
+    }
+
+    *CONTROL_CALLBACKS
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(capture);
+    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+
+    let mut player = PlayerState::new();
+    player.queue_revision = "reentrant-rev".to_string();
+    player.next_tracks.push(ProvidedTrack {
+        uri: "spotify:track:reentrant-next".to_string(),
+        uid: "q0".to_string(),
+        provider: "queue".to_string(),
+        ..Default::default()
+    });
+    process_and_send_queue(player);
+
+    *CONTROL_CALLBACKS
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+#[test]
+fn legacy_queue_cleanup_reentry_is_not_followed_by_a_stale_cache_write() {
+    let _guard = lock_lifecycle_test_globals();
+    extern "C" fn cleanup(_snapshot: *const SpottyQueueSnapshot) {
+        spotty_playback_cleanup();
+    }
+
+    *CONTROL_CALLBACKS
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(cleanup);
+    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+
+    let mut player = PlayerState::new();
+    player.queue_revision = "cleanup-reentry-rev".to_string();
+    process_and_send_queue(player);
+
+    assert!(spotty_playback_get_queue_snapshot().is_null());
+    *CONTROL_CALLBACKS
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}

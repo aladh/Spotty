@@ -121,6 +121,52 @@ struct PlaybackPositionSliderChecks {
         #expect(slider.accessibilityValueDescription() == "\(position ?? "") of \(duration ?? "")")
     }
 
+    @Test func repeatedIdenticalAnchorDoesNotRestartDrawing() {
+        let slider = PlaybackPositionSlider.PositionSlider(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 20), styleMask: [.borderless], backing: .buffered,
+            defer: false)
+        window.contentView = slider
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true)
+        let firstCount = slider.progressDrawing.progressRestartCount
+        #expect(firstCount > 0)
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true)
+        #expect(slider.progressDrawing.progressRestartCount == firstCount)
+        // A materially different anchor must restart regardless of drift tolerance.
+        slider.updatePosition(120, anchoredAt: t0, duration: 180, isPlaying: true)
+        #expect(slider.progressDrawing.progressRestartCount > firstCount)
+    }
+
+    @Test func anchoredUpdateDoesNotDoubleInterpolate() {
+        let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
+        var time = Date(timeIntervalSince1970: 1_000)
+        slider.now = { time }
+        let t0 = time
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true)
+        time = t0.addingTimeInterval(2)
+        slider.synchronizePosition()
+        #expect(slider.doubleValue == 62)
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true)
+        time = t0.addingTimeInterval(3)
+        slider.synchronizePosition()
+        #expect(slider.doubleValue == 63)
+    }
+
+    @Test func animationDecisionRules() {
+        #expect(
+            PlaybackProgressDrawing.animationDecision(presentedX: nil, targetX: 50, pointsPerSecond: 10)
+                == .restart(from: 50))
+        #expect(
+            PlaybackProgressDrawing.animationDecision(presentedX: 51, targetX: 50, pointsPerSecond: 10) == .keep)
+        #expect(
+            PlaybackProgressDrawing.animationDecision(presentedX: 80, targetX: 50, pointsPerSecond: 10)
+                == .restart(from: 80))
+        #expect(
+            PlaybackProgressDrawing.animationDecision(presentedX: 51, targetX: 50, pointsPerSecond: 0)
+                == .restart(from: 50))
+    }
+
     @Test func nativeAccessibilityAdjustmentAndDisabledCommit() {
         let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
         slider.minValue = 0

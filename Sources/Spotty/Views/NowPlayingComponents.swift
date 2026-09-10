@@ -52,7 +52,7 @@ struct NowPlayingProgress: View {
         let trackURI = player.trackURI
         let duration = player.hasCurrentTrack ? player.duration : 0
         PlaybackPositionSlider(
-            position: player.displayedPosition(at: Date()), duration: duration,
+            position: player.position, anchoredAt: player.positionAnchorDate, duration: duration,
             isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0,
             isPlaying: player.showsPauseControl, reduceMotion: reduceMotion
         ) { position in

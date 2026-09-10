@@ -5,6 +5,7 @@ import SwiftUI
 /// target/action commits once on mouse release; authoritative updates never move a tracked thumb.
 struct PlaybackPositionSlider: NSViewRepresentable {
     let position: Double
+    let anchoredAt: Date
     let duration: Double
     let isEnabled: Bool
     var isPlaying = false
@@ -31,7 +32,8 @@ struct PlaybackPositionSlider: NSViewRepresentable {
         slider.setAccessibilityEnabled(isEnabled)
         slider.accessibleDuration = duration
         guard !slider.isTrackingPosition else { return }
-        slider.updatePosition(position, duration: duration, isPlaying: isPlaying, reduceMotion: reduceMotion)
+        slider.updatePosition(
+            position, anchoredAt: anchoredAt, duration: duration, isPlaying: isPlaying, reduceMotion: reduceMotion)
     }
 
     final class PositionSlider: NSSlider {
@@ -154,11 +156,32 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             super.mouseDown(with: event)
         }
 
+        /// Convenience for callers (and existing tests) that only have an interpolated position,
+        /// not a store anchor date: anchors immediately at `now()`.
         func updatePosition(_ position: Double, duration: Double, isPlaying: Bool = false, reduceMotion: Bool = false) {
-            maxValue = duration > 0 ? duration : 1
-            hasDuration = duration > 0
-            anchorPosition = min(max(0, position), max(0, duration))
-            anchoredAt = now()
+            updatePosition(
+                position, anchoredAt: now(), duration: duration, isPlaying: isPlaying, reduceMotion: reduceMotion)
+        }
+
+        /// Authoritative updates carry the store's own anchor. When nothing about the anchor,
+        /// duration, or motion state actually changed, this returns before `synchronizePosition()`
+        /// so the running Core Animation is left untouched instead of being restarted every call
+        /// (e.g. every second from a 1 Hz `TimelineView`).
+        func updatePosition(
+            _ position: Double, anchoredAt: Date, duration: Double, isPlaying: Bool = false, reduceMotion: Bool = false
+        ) {
+            let newMaxValue = duration > 0 ? duration : 1
+            let newHasDuration = duration > 0
+            let newAnchorPosition = min(max(0, position), max(0, duration))
+            if newAnchorPosition == anchorPosition, anchoredAt == self.anchoredAt, newMaxValue == maxValue,
+                newHasDuration == hasDuration, isPlaying == plays, reduceMotion == self.reduceMotion
+            {
+                return
+            }
+            maxValue = newMaxValue
+            hasDuration = newHasDuration
+            anchorPosition = newAnchorPosition
+            self.anchoredAt = anchoredAt
             plays = isPlaying
             self.reduceMotion = reduceMotion
             synchronizePosition()

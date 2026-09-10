@@ -167,8 +167,6 @@ pub(crate) static SHUFFLE_STATE: AtomicBool = AtomicBool::new(false);
 pub(crate) static REPEAT_TRACK_STATE: AtomicBool = AtomicBool::new(false);
 pub(crate) static REPEAT_CONTEXT_STATE: AtomicBool = AtomicBool::new(false);
 
-// Flag to track if reconnection is in progress
-pub(crate) static RECONNECTING: AtomicBool = AtomicBool::new(false);
 // Flag to track intentional shutdown (prevents reconnection attempts during app quit)
 pub(crate) static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 // Flag to track sleep state (prevents auto-reconnect, but allows explicit forceReconnect on wake)
@@ -203,7 +201,7 @@ pub(crate) struct ConnectionState {
     pub(crate) resume_pending: bool,
 }
 
-/// Records a definitive credential rejection and publishes it as a typed connection outcome.
+/// Records a definitive credential rejection. The generation owner captures and delivers the notification.
 ///
 /// `last_error` remains a stable, privacy-safe category. It never contains the upstream error,
 /// access token, or any response payload. A newer generation clears the flag when it begins.
@@ -215,7 +213,6 @@ pub(crate) fn mark_credentials_rejected() {
         c.credentials_rejected = true;
         c.last_error = Some("Spotify credentials rejected".to_string());
     });
-    notify_connection_state_change();
 }
 
 /// Whether this engine's device is the cluster's active member.

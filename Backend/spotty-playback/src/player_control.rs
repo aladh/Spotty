@@ -227,6 +227,7 @@ pub extern "C" fn spotty_playback_shutdown() -> SpottyPlaybackResult {
         debug!("spotty_playback_shutdown called");
         // Prevent reconnection attempts during intentional shutdown
         SHUTTING_DOWN.store(true, Ordering::SeqCst);
+        cancel_recovery();
 
         // The account is going away, so any streaming grant still waiting on a browser no longer
         // belongs to anyone. Only here — not in cleanup, which runs on every ordinary rebuild.
@@ -259,6 +260,7 @@ pub extern "C" fn spotty_playback_disconnect() -> SpottyPlaybackResult {
         debug!("spotty_playback_disconnect called - disconnecting for sleep");
         // Set sleeping flag to prevent auto-reconnect when cluster listener ends
         SLEEPING.store(true, Ordering::SeqCst);
+        cancel_recovery();
 
         let Some(spirc) = current_spirc("Disconnect") else {
             return -1;
@@ -308,6 +310,7 @@ pub extern "C" fn spotty_playback_cleanup() {
         // Same-thread mapping (callback → cleanup) does not wait. The bump remains
         // before the lifecycle lock so an in-flight commit can observe supersession.
         let invalidated = invalidate_cluster_generation();
+        cancel_recovery();
         debug!(
             "spotty_playback_cleanup invalidated generation, now {}",
             invalidated

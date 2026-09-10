@@ -25,6 +25,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     /// A declared viewing cadence, not a readiness timeout or simulated network delay.
     var dwellMilliseconds = 250
     var combinedHydration: Bool? = nil
+    /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
+    var forceSynchronousLayout: Bool? = nil
 
     func validate() throws {
         guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),

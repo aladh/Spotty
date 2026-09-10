@@ -162,7 +162,10 @@ struct BrowsingHarnessTests {
         root.addSubview(sidebar)
         root.addSubview(playlist)
         #expect(BrowsingRun.findPlaylistScrollView(in: root) === playlist)
+        playlist.documentView?.subviews.forEach { $0.removeFromSuperview() }
+        #expect(BrowsingRun.findPlaylistScrollView(in: root, retaining: playlist) === playlist)
         playlist.removeFromSuperview()
+        #expect(BrowsingRun.findPlaylistScrollView(in: root, retaining: playlist) == nil)
         #expect(BrowsingRun.findPlaylistScrollView(in: root) == nil)
     }
 

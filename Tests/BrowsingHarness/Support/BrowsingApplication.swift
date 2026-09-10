@@ -231,6 +231,10 @@ final class BrowsingRun {
                         try await sample(
                             "cycle.\(cycle).playlist.\(index).ready", started: started, loadSeconds: loadSeconds)
                         for (step, fraction) in [0.25, 0.5, 0.75, 1.0, 0.0].enumerated() {
+                            if world.scenario.forceSynchronousLayout == false {
+                                playlistScrollView = try await waitForPlaylistScrollView(
+                                    items[index].uri, replacingPrevious: false)
+                            }
                             guard let scroll = playlistScrollView, let document = scroll.documentView else {
                                 throw BrowsingFailure.checkpoint("playlist.scroll-view")
                             }
@@ -265,8 +269,15 @@ final class BrowsingRun {
         // The stores above provide readiness; this explicit cadence gives rendering and image
         // decoding the same viewing time on every run. It is not a network readiness heuristic.
         try await ContinuousClock().sleep(for: .milliseconds(world.scenario.dwellMilliseconds))
-        window()?.contentView?.layoutSubtreeIfNeeded()
-        window()?.displayIfNeeded()
+        if world.scenario.forceSynchronousLayout == false,
+            case let .playlist(uri) = navigation.selection
+        {
+            playlistScrollView = try await waitForPlaylistScrollView(uri, replacingPrevious: false)
+        }
+        if world.scenario.forceSynchronousLayout != false {
+            window()?.contentView?.layoutSubtreeIfNeeded()
+            window()?.displayIfNeeded()
+        }
         samples.append(
             try BrowsingSample(
                 checkpoint: checkpoint, started: started, loadSeconds: loadSeconds,
@@ -303,13 +314,16 @@ final class BrowsingRun {
         }
     }
 
-    private func waitForPlaylistScrollView(_ uri: String) async throws -> NSScrollView {
+    private func waitForPlaylistScrollView(_ uri: String, replacingPrevious: Bool = true) async throws -> NSScrollView {
         let previous = playlistScrollView
         for _ in 0..<200 {
-            window()?.contentView?.layoutSubtreeIfNeeded()
+            if world.scenario.forceSynchronousLayout != false {
+                window()?.contentView?.layoutSubtreeIfNeeded()
+            }
             if navigation.selection == .playlist(uri), player.catalog.playlistStore.loadedURI == uri,
                 let root = window()?.contentView,
-                let scroll = Self.findPlaylistScrollView(in: root), scroll !== previous,
+                let scroll = Self.findPlaylistScrollView(in: root, retaining: replacingPrevious ? nil : previous),
+                (!replacingPrevious || scroll !== previous),
                 let document = scroll.documentView,
                 document.frame.height > scroll.contentView.bounds.height,
                 scroll.window != nil
@@ -323,7 +337,10 @@ final class BrowsingRun {
 
     /// Only playlist headers contain this production observer. TrackTable's per-playlist .id
     /// replaces its native list; readiness also rejects the previous destination's scroll view.
-    static func findPlaylistScrollView(in root: NSView) -> NSScrollView? {
+    static func findPlaylistScrollView(in root: NSView, retaining current: NSScrollView? = nil) -> NSScrollView? {
+        // The header observer is virtualized away after scrolling. Retain its discovered owner
+        // while attached, but never reuse a detached view from a replaced destination.
+        if let current, current.isDescendant(of: root), current.documentView != nil { return current }
         if root is PlaylistScrollObserver.ObserverView { return root.enclosingScrollView }
         for child in root.subviews {
             if let scroll = findPlaylistScrollView(in: child) { return scroll }

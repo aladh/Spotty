@@ -91,3 +91,92 @@ The display callback count was zero, so this run cannot establish frame smoothne
 These are single-run measurements, not percentile estimates. Repeat the scenario with
 `Scripts/browse-synthetic.sh Tests/BrowsingHarness/playback.json`; its report retains the source
 revision, diff digest, checkpoints, and measurement fields.
+
+## Queue hydration and lifecycle acceptance (2026-09-10)
+
+The [reviewed measurements](measurements/2026-09-10-acceptance.json) retain every completed wave,
+per-run counters, source digests and lifecycle samples. Both queue variants use this delivery's
+harness and queue revision correction on top of `9c7334a`. The
+[control patch](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) changes only metadata
+publication to one update per result; it is a benchmark fixture, not a shipped mode.
+
+Three runs per variant completed 40 browsing checkpoints, eight playback/lifetime traces and six
+96-track hydration waves. Configuration: M1 Max, 10 logical processors, 32 GiB, macOS 27.0
+(26A5425a), Xcode 27.0 (27A5252f), macOS 26.5 SDK, Debug, 960 × 692 window, inspector closed.
+Each fresh process uses new artwork paths; framework disk caches may be warm. The source emits
+on independent 200 ms deadlines: measured offered rates were 4.97–5.00 Hz. Synthetic metadata
+waits 15 ms per lookup with production concurrency of eight. App Nap is suppressed for the finite
+workload while idle system sleep remains allowed. No build or UI inspection ran during these six
+measurements; network denial and zero forbidden mutation attempts passed in every run.
+
+The session exposed a 60 Hz Screen Sharing Virtual Display at 2× scale. All measured windows were
+occluded at start and end and recorded zero display callbacks. These are useful publication,
+CPU and hydration measurements, **not rendered-frame or input-to-visible-feedback evidence**.
+The subsequent reduced-motion inspection was blocked by the locked Mac; its setting remained off.
+No physical 120 Hz display was exposed. #379 and the render-budget portion of #380 remain open.
+
+Per-run medians, with ranges in parentheses:
+
+| Measure | Per-result control | 50 ms batching |
+| --- | ---: | ---: |
+| Queue publications across six waves | 588 (588–588) | 35 (35–36) |
+| Browsing workload elapsed | 59.53 s (58.60–60.80) | 15.49 s (15.48–15.62) |
+| Main-thread CPU | 58.45 s (57.43–59.77) | 10.84 s (10.81–10.95) |
+| Total process CPU | 64.54 s (63.53–65.76) | 16.19 s (15.94–16.29) |
+| Peak physical footprint | 184.2 MiB (159.9–203.2) | 173.3 MiB (156.2–181.0) |
+| Now-playing observer invalidations | 640 (639–640) | 80 (80–84) |
+| Queue observer invalidations | 8 (8–8) | 8 (8–8) |
+
+Batching reduced publication count by about 94% and main-thread CPU for the completed workload
+by about 81%. The slower control receives more periodic samples because it runs longer; total
+CPU includes that additional time. The footprint ranges overlap, so no reliable memory reduction
+is established by these samples.
+
+Across 18 waves per variant, state-observation p95 values were:
+
+| Measure | Per-result control | 50 ms batching |
+| --- | ---: | ---: |
+| Authoritative order accepted | 80.9 ms | 73.6 ms |
+| First metadata observed | 408.6 ms | 433.8 ms |
+| All 96 metadata records observed | 9,736.8 ms | 1,019.3 ms |
+
+Each wave fetched exactly 96 records in one flight, with one joining consumer and no wave
+cancellation. Publication counts include the initial and terminal snapshots. The 5 ms polling
+resolution and actor scheduling affect observed latency. The p95 values use the lower order
+statistic at `floor((n - 1) × 0.95)`; these small samples describe this workload, not population
+percentiles. The proposed 20-enrichment-publications/second ceiling still needs validation against
+visible rendering. First metadata was not faster in this workload, despite much earlier completion.
+
+The initial control exposed a correctness bug: metadata could advance the presentation revision
+past a later accepted Connect wire revision. Reusing that presentation revision then caused the
+store to reject fresh ordering. The regression reproduced the collision at revision 2; accepted
+Connect updates now advance the separate presentation counter while preserving the wire revision
+used by mutation validation. Both final variants include that fix. Earlier calibration runs with
+an actor-bound source, background throttling or failed watchdogs are excluded from the comparison.
+
+### Named lifecycle seams
+
+The same artifact records credential-free tests of the production cadence, recovery lease,
+serialized cleanup/build seam, owned-child teardown and Swift effect drain. No actual AP session,
+Spirc/dealer connection or audio device is constructed. The
+[verification guide](../development/verification.md#combined-hydration-and-lifecycle-measurements)
+owns the commands and exact injected costs.
+
+| Named fault | Observed result | Initial seam budget |
+| --- | --- | --- |
+| Silent invalid session at 0, 17 and 59.5 seconds into the cadence | 60,000 / 43,000 / 500 ms on paused Tokio time | Next 60-second policy check; no wall/network latency claim |
+| Overlapping recovery claim; injected 5 ms cleanup + 20 ms build | 30 wall-clock samples; p95 29.53 ms, max 30.97 ms | p95 <50 ms for this injected workload |
+| Five parked cancellable engine children | 30 samples; p95 0.161 ms, max 0.192 ms; all joined | p95 <10 ms |
+| Parked Spirc-task seam ignores shutdown | Three samples; max 4,002.97 ms; abort and join completed | Existing 4-second deadline +100 ms scheduling margin |
+| Cooperative Swift account effect | 12 samples; p95 0.549 ms, max 0.636 ms | p95 <10 ms |
+| Noncancelable Swift effect | 12 samples; p95 266.51 ms, max 266.67 ms; fenced, then explicitly released/joined | Existing 250 ms grace +50 ms scheduling margin |
+
+The overhead budgets leave scheduling margin around the named injected work and existing drain
+policies; they are diagnostic targets, not timing assertions in the normal test suite. The silent
+case verifies cadence rather than changing polling policy. The parked-task deadline does not
+include the separate bounded dealer-close path of a real session.
+
+**#378 remains open:** these measurements establish orchestration and drain behavior, but an
+injected construction delay is not actual Rust engine construction/rehydration-to-ready latency.
+That remaining measurement must cover the real readiness path under named faults before closing
+the original acceptance item. These data do not establish a Spotify reconnection budget.

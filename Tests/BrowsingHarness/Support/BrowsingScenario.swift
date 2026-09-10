@@ -24,10 +24,12 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var cycles = 3
     /// A declared viewing cadence, not a readiness timeout or simulated network delay.
     var dwellMilliseconds = 250
+    var combinedHydration: Bool? = nil
 
     func validate() throws {
         guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),
-            (1...96).contains(artworkCount), [64, 640, 1_280].contains(artworkPixels),
+            (combinedHydration != true || mode == .playback), (1...96).contains(artworkCount),
+            [64, 640, 1_280].contains(artworkPixels),
             (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds)
         else { throw BrowsingFailure.invalidScenario }
     }

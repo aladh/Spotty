@@ -48,6 +48,9 @@ struct BrowsingHarnessTests {
         defer { try? FileManager.default.removeItem(at: root) }
         var input = scenario()
         #expect(try BrowsingScenario.decode(JSONEncoder().encode(input)) == input)
+        input.combinedHydration = true
+        #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
         input.version = 3
         #expect(throws: (any Error).self) { try input.validate() }
         input = scenario()

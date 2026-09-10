@@ -65,6 +65,8 @@ pub(crate) use tokio::task::JoinHandle;
 #[cfg(test)]
 mod connect_cluster_apply_tests;
 #[cfg(test)]
+mod lifecycle_measurements;
+#[cfg(test)]
 mod lifecycle_serialization_tests;
 #[cfg(test)]
 mod queue_snapshot_tests;

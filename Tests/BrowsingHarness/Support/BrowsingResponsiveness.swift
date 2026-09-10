@@ -13,6 +13,8 @@ struct BrowsingResponsivenessReport: Codable {
     let missedDisplayOpportunityCount: Int
     let reducedMotion: Bool
     let nominalFramesPerSecond: Int
+    let windowVisibleAtStart: Bool
+    let windowVisibleAtEnd: Bool
 }
 
 /// Demo-only instrumentation. Display-link gaps measure main-run-loop opportunities, not GPU
@@ -28,12 +30,16 @@ final class BrowsingResponsiveness: NSObject {
     private var callbackCount = 0
     private var counts: [String: Int] = [:]
     private var refreshRate = 0
+    private weak var window: NSWindow?
+    private var visibleAtStart = false
 
     init(player: PlaybackStore) { self.player = player }
 
     func start(window: NSWindow) {
         guard !active else { return }
         active = true
+        self.window = window
+        visibleAtStart = window.occlusionState.contains(.visible)
         refreshRate = window.screen?.maximumFramesPerSecond ?? 0
         for key in ["nowPlaying", "devices", "queue", "catalogIndicator", "timing"] { observe(key) }
         let link = window.displayLink(target: self, selector: #selector(displayTick(_:)))
@@ -55,7 +61,8 @@ final class BrowsingResponsiveness: NSObject {
             callbackGapP95Milliseconds: percentile(0.95), callbackGapP99Milliseconds: percentile(0.99),
             maximumCallbackGapMilliseconds: ordered.last ?? 0, missedDisplayOpportunityCount: missed,
             reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            nominalFramesPerSecond: refreshRate)
+            nominalFramesPerSecond: refreshRate, windowVisibleAtStart: visibleAtStart,
+            windowVisibleAtEnd: window?.occlusionState.contains(.visible) ?? false)
     }
 
     private func observe(_ key: String) {

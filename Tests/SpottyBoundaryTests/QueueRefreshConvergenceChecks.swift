@@ -122,6 +122,39 @@ private func queueRefreshTrack(_ uri: String) -> CatalogTrack {
 struct QueueRefreshConvergenceTests {
     @Test
     @MainActor
+    func connectOrderingAdvancesPresentationAfterMetadataRevisionOvertakesWireRevision() async throws {
+        let service = QueueService(
+            webQueue: QueueRefreshFailingWebQueue(),
+            metadata: TrackMetadataService(remote: QueueRefreshMetadataRemote()))
+        await service.reset(accountEpoch: 1)
+        let context = "spotify:track:current"
+        let a = QueueEntry(uri: "spotify:track:a", provider: "connect")
+        let b = QueueEntry(uri: "spotify:track:b", provider: "connect")
+        _ = await service.acceptConnect([a], accountEpoch: 1, sourceRevision: 1, contextURI: context)
+        let hydrated = try #require(
+            await service.refresh(
+                fallbackEntries: [a],
+                cachedTracks: [queueRefreshTrack(a.uri)], currentTrackURI: context, accountEpoch: 1))
+        #expect(hydrated.revision >= 2, "metadata has advanced the presentation counter")
+        let replacement = try #require(
+            await service.acceptConnect(
+                [b], accountEpoch: 1,
+                sourceRevision: 2, contextURI: context))
+        #expect(replacement.snapshot.entries.map(\.uri) == [b.uri])
+        #expect(
+            replacement.snapshot.revision > hydrated.revision,
+            "fresh Connect ordering must pass the store's strict presentation revision gate")
+        #expect(replacement.mutation.sourceRevision == 2, "the independent wire revision stays unchanged")
+        let stale = try #require(
+            await service.acceptConnect(
+                [a], accountEpoch: 1,
+                sourceRevision: 1, contextURI: context))
+        #expect(stale.snapshot.entries.map(\.uri) == [b.uri])
+        #expect(stale.snapshot.revision == replacement.snapshot.revision)
+    }
+
+    @Test
+    @MainActor
     func metadataPublishesInBatchesAndFlushesWhileAnotherRequestIsStalled() async {
         let clock = CooperativeParkedClock()
         let remote = QueueRefreshMetadataRemote()

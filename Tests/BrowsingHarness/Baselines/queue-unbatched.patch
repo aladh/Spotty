@@ -1,0 +1,18 @@
+--- a/Sources/Spotty/Spotify/QueueService.swift
++++ b/Sources/Spotty/Spotify/QueueService.swift
+@@ -522,7 +522,14 @@
+                     if let value {
+                         refreshDiagnostics.metadataResults += 1
+                         hydrated[value.uri] = Self.catalogTrack(from: value)
+-                        needsPublication = true
++                        if let update = updateFallbackSnapshot(
++                            entries: fallbackEntries,
++                            tracks: Array(hydrated.values),
++                            requestedEpoch: requestedEpoch,
++                            requestedContext: requestedContext)
++                        {
++                            await onUpdate(update)
++                        }
+                     }
+                 case .flush:
+                     flushScheduled = false

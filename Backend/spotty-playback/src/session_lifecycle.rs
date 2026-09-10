@@ -160,44 +160,52 @@ pub(crate) const SESSION_HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(6
 /// (`Session::is_invalid` is a lock read of a `bool`). It exits when its generation is
 /// superseded, so it dies with the session it belongs to rather than accumulating.
 pub(crate) fn spawn_session_health_check(generation: u64) -> JoinHandle<()> {
-    RUNTIME.spawn(async move {
-        loop {
-            tokio::time::sleep(SESSION_HEALTH_CHECK_INTERVAL).await;
-
-            // Superseded: whatever replaced our session brought its own check.
-            if !listener_may_act(generation, SESSION_GENERATION.load(Ordering::SeqCst)) {
-                return;
-            }
-
-            // Sleep and shutdown invalidate the session on purpose.
-            if teardown_in_progress() {
-                continue;
-            }
-
-            let session_invalid = SESSION
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .is_some_and(|s| s.is_invalid());
-
-            if health_check_should_recover(
-                session_invalid,
-                with_connection(|c| c.session_connected),
-                recovery_is_active(),
-                teardown_in_progress(),
-            ) {
-                debug!(
-                    "Session health check: session {} needs recovery (invalid={})",
-                    generation, session_invalid
-                );
-                let intent = RecoveryIntent::capture();
-                mark_disconnected("Session unusable");
-                spawn_reconnection_loop(intent);
-                // Recovery owns it from here; the rebuild spawns the next check.
-                return;
-            }
+    RUNTIME.spawn(run_session_health_check(move || {
+        // Superseded: whatever replaced our session brought its own check.
+        if !listener_may_act(generation, SESSION_GENERATION.load(Ordering::SeqCst)) {
+            return true;
         }
-    })
+
+        // Sleep and shutdown invalidate the session on purpose.
+        if teardown_in_progress() {
+            return false;
+        }
+
+        let session_invalid = SESSION
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|s| s.is_invalid());
+
+        if health_check_should_recover(
+            session_invalid,
+            with_connection(|c| c.session_connected),
+            recovery_is_active(),
+            teardown_in_progress(),
+        ) {
+            debug!(
+                "Session health check: session {} needs recovery (invalid={})",
+                generation, session_invalid
+            );
+            let intent = RecoveryIntent::capture();
+            mark_disconnected("Session unusable");
+            spawn_reconnection_loop(intent);
+            // Recovery owns it from here; the rebuild spawns the next check.
+            return true;
+        }
+        false
+    }))
+}
+
+/// Shared cadence used by the real generation watcher and paused-clock fault measurements.
+/// The poll returns true only when the watcher has handed off recovery or been superseded.
+pub(crate) async fn run_session_health_check(mut poll: impl FnMut() -> bool) {
+    loop {
+        tokio::time::sleep(SESSION_HEALTH_CHECK_INTERVAL).await;
+        if poll() {
+            return;
+        }
+    }
 }
 
 /// Spawns the reconnection loop task.

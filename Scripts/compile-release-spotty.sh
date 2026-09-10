@@ -26,6 +26,10 @@ swift build "${swift_arguments[@]}"
 bin_path="$(swift build "${swift_arguments[@]}" --show-bin-path)"
 case "$bin_path" in
     */release)
+        debug_binary="$project_root/.build/debug/Spotty"
+        ;;
+    */Products/Release)
+        debug_binary="${bin_path%/Release}/Debug/Spotty"
         ;;
     *)
         print -u2 "Release compile must use the release configuration, not $bin_path"
@@ -39,7 +43,6 @@ if [[ ! -x "$built_binary" ]]; then
     exit 1
 fi
 
-debug_binary="$project_root/.build/debug/Spotty"
 if [[ -e "$debug_binary" ]]; then
     if [[ "$(realpath "$built_binary")" == "$(realpath "$debug_binary")" ]]; then
         print -u2 "Release compile reused the debug executable"

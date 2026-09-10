@@ -8,6 +8,11 @@ Follow the [enforcement inventory](../docs/architecture/enforcement.md) when cha
 - Prefer compiler, behavior suite, ABI fixture, or package-graph enforcement. Add a source check only
   for an exact lexical/topology invariant; never encode concurrency, lifetime, queue provenance,
   rollback, or payload semantics as source checks.
+- App build, packaging, and launch scripts use the pinned engine under
+  [ADR 006](../docs/architecture/adrs/ADR-006-prebuilt-playback-engine.md) and never invoke Rust
+  tools; engine publication follows the [artifact workflow](../docs/development/playback-artifacts.md).
+- Changes to CI path classification in `ci_rust_policy.py` follow
+  [workflow guidance](../.github/AGENTS.md).
 - Keep `check-clean.sh` the clean Debug-and-Release owner. Do not add destructive cleanup that can
   erase unrelated work or credentials.
 - Packaging and launch follow [development signing](../docs/development/signing.md); compile-only

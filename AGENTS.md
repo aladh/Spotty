@@ -9,8 +9,10 @@ replacing Spotify styling with macOS defaults. Keep scope small using the
 - Spotty is maintained exclusively by agents. Finish implementation and relevant verification;
   report remaining blockers or unperformed acceptance steps.
 - Follow [PR execution and acceptance](CONTRIBUTING.md#pull-request-execution).
-- Signing/keychain changes, destructive cleanup, new production dependencies, external publication,
-  and material scope expansion require explicit current-request authorization.
+- Signing and session-credential storage changes
+  ([ADR 007](docs/architecture/adrs/ADR-007-session-persistence.md)), destructive cleanup, new
+  production dependencies, external publication, and material scope expansion require explicit
+  current-request authorization.
 - Choose [verification](docs/development/verification.md#normal-verification) proportional to the
   change and fix failures it causes. Documentation-only edits need no app build; reserve
   `Scripts/check-clean.sh` for work requiring a clean rebuild.

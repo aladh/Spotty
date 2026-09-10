@@ -212,7 +212,7 @@ struct SidePanelView: View {
     }
 
     private var queuePlaylist: CatalogItem? {
-        guard let uri = player.state.playbackContextURI,
+        guard let uri = player.semantic.playbackContextURI,
             let item = metadata.knownItem(for: uri), item.kind == .playlist
         else { return nil }
         return item

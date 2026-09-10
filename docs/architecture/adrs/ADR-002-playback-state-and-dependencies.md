@@ -22,6 +22,14 @@ writes can mix lifetimes and make stale work appear current.
 
 ## Tradeoffs
 
+The reducer snapshot is not itself observable. `PlaybackStore.send` publishes equatable semantic,
+queue, device and timing projections from the accepted candidate in the same MainActor turn.
+Source watermarks remain internal; timing-only samples update only the timeline. Views read those
+projections, while command and lifetime decisions continue to read the reducer snapshot. Local
+progress interpolation remains in the progress control. System media receives ordinary timing
+anchors at most once per second, with semantic changes, seeks and discontinuities bypassing that
+budget; MediaPlayer interpolates between anchors.
+
 Connect-cluster observations reduce related device, connection and playback facts into one
 candidate before publication. Component revisions remain ordered against player-local and
 independent lifecycle callbacks. Account initialization success alone does not publish playback

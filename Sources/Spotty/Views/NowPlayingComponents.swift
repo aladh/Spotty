@@ -46,9 +46,9 @@ struct NowPlayingProgress: View {
     let player: PlaybackStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        let accountEpoch = player.state.accountEpoch
-        let engineEpoch = player.state.engineEpoch
-        let owner = player.state.owner
+        let accountEpoch = player.semantic.accountEpoch
+        let engineEpoch = player.semantic.engineEpoch
+        let owner = player.semantic.owner
         let trackURI = player.trackURI
         let duration = player.hasCurrentTrack ? player.duration : 0
         PlaybackPositionSlider(
@@ -58,8 +58,8 @@ struct NowPlayingProgress: View {
         ) { position in
             // A drag belongs to the track, owner, and lifetime where it began.
             guard player.canStartPlayback, player.hasCurrentTrack,
-                player.state.accountEpoch == accountEpoch, player.state.engineEpoch == engineEpoch,
-                player.state.owner == owner, player.trackURI == trackURI,
+                player.semantic.accountEpoch == accountEpoch, player.semantic.engineEpoch == engineEpoch,
+                player.semantic.owner == owner, player.trackURI == trackURI,
                 player.duration == duration, duration > 0
             else { return }
             player.seek(to: position / duration)

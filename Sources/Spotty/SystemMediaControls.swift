@@ -30,6 +30,8 @@ final class SystemMediaControls {
     private let player: PlaybackStore
     private let output: any SystemMediaControlsOutput
     private var running = false
+    private var publication = SystemMediaPublicationGate()
+    private var publishedSemantic: PlaybackSemanticProjection?
 
     init(player: PlaybackStore, output: any SystemMediaControlsOutput) {
         self.player = player
@@ -46,6 +48,8 @@ final class SystemMediaControls {
     func stop() {
         guard running else { return }
         running = false
+        publication = SystemMediaPublicationGate()
+        publishedSemantic = nil
         output.remove()
     }
 
@@ -64,7 +68,11 @@ final class SystemMediaControls {
             // Observation fires before mutation. Re-read after the accepted store update finishes.
             DispatchQueue.main.async { [weak self] in self?.observe() }
         }
-        output.update(snapshot)
+        let semantic = player.semantic
+        if publication.admit(snapshot, at: Date(), force: semantic != publishedSemantic) {
+            publishedSemantic = semantic
+            output.update(snapshot)
+        }
     }
 
     private func handle(_ command: SystemMediaCommand) -> Bool {
@@ -79,6 +87,34 @@ final class SystemMediaControls {
             guard player.canSkipTrack else { return false }
             if command == .next { player.next() } else { player.previous() }
         }
+        return true
+    }
+}
+
+/// System media interpolates its own elapsed time. Refresh ordinary anchors at most once per
+/// second; semantic changes, seeks and position discontinuities publish immediately.
+struct SystemMediaPublicationGate {
+    private var previous: SystemMediaSnapshot?
+    private var publishedAt: Date?
+
+    mutating func admit(_ snapshot: SystemMediaSnapshot?, at now: Date, force: Bool = false) -> Bool {
+        let elapsed = publishedAt.map { now.timeIntervalSince($0) } ?? .infinity
+        let semanticChanged: Bool
+        let discontinuity: Bool
+        if let snapshot, let previous {
+            semanticChanged =
+                snapshot.title != previous.title || snapshot.artist != previous.artist
+                || snapshot.duration != previous.duration || snapshot.playing != previous.playing
+                || snapshot.canToggle != previous.canToggle || snapshot.canSkip != previous.canSkip
+            let expected = min(previous.duration, previous.position + (previous.playing ? max(0, elapsed) : 0))
+            discontinuity = abs(snapshot.position - expected) > 0.25
+        } else {
+            semanticChanged = snapshot != previous
+            discontinuity = false
+        }
+        guard publishedAt == nil || force || semanticChanged || discontinuity || elapsed >= 1 else { return false }
+        previous = snapshot
+        publishedAt = now
         return true
     }
 }

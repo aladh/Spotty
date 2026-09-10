@@ -497,6 +497,72 @@ struct PlaybackEventOutcomeTests {
 
     @Test
     @MainActor
+    func timingTicksLeaveSemanticDeviceAndQueueObserversAsleep() async {
+        let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        seedReadyLocalPlayback(player, uri: "spotify:track:projection")
+        let semanticChanges = ObservationCounter()
+        let timingChanges = ObservationCounter()
+        withObservationTracking {
+            _ = player.displayedTrackTitle
+            _ = player.isPlaying
+            _ = player.canTogglePlayback
+            _ = player.connectDevices
+            _ = player.activeRemoteDevice
+            _ = player.queueNextEntries
+            _ = player.duration
+        } onChange: {
+            semanticChanges.increment()
+        }
+        withObservationTracking {
+            _ = player.position
+            _ = player.positionAnchorDate
+        } onChange: {
+            timingChanges.increment()
+        }
+        for position in 1...100 { #expect(player.setTiming(position: Double(position))) }
+        #expect(semanticChanges.count == 0)
+        #expect(timingChanges.count == 1)
+        #expect(player.position == 100)
+        _ = player.send(
+            .presentation(
+                PlaybackPresentationSnapshot(
+                    currentTrack: player.state.currentTrack, transport: .paused, timing: player.state.timing)),
+            source: .user)
+        #expect(semanticChanges.count == 1)
+        #expect(!player.isPlaying)
+        await player.shutdownForTermination()
+    }
+
+    @Test
+    func systemMediaPublicationBoundsOrdinaryTimingButImmediatelyPublishesDiscontinuities() {
+        var gate = SystemMediaPublicationGate()
+        let start = Date(timeIntervalSince1970: 100)
+        func snapshot(_ position: Double, playing: Bool = true) -> SystemMediaSnapshot {
+            SystemMediaSnapshot(
+                title: "Track", artist: "Artist", duration: 180,
+                position: position, playing: playing, canToggle: true, canSkip: true)
+        }
+        let admitted1 = gate.admit(snapshot(0), at: start)
+        #expect(admitted1)
+        for tick in 1...4 {
+            let time = Double(tick) / 5
+            let admitted2 = gate.admit(snapshot(time), at: start.addingTimeInterval(time))
+            #expect(!admitted2)
+        }
+        let admitted3 = gate.admit(snapshot(1), at: start.addingTimeInterval(1))
+        #expect(admitted3)
+        let admitted4 = gate.admit(snapshot(40), at: start.addingTimeInterval(1.2))
+        #expect(admitted4)
+        let admitted5 = gate.admit(snapshot(40, playing: false), at: start.addingTimeInterval(1.3))
+        #expect(admitted5)
+        let admitted6 = gate.admit(snapshot(40.1, playing: false), at: start.addingTimeInterval(1.4), force: true)
+        #expect(admitted6)
+        let admitted7 = gate.admit(nil, at: start.addingTimeInterval(1.5))
+        #expect(admitted7)
+    }
+
+    @Test
+    @MainActor
     func testCatalogPlaybackObservationSkipsTimingTicks() async {
         let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
         seedReadyLocalPlayback(player, uri: "spotify:track:indicator")

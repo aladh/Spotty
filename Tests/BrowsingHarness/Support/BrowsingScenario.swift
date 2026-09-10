@@ -25,6 +25,10 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     /// A declared viewing cadence, not a readiness timeout or simulated network delay.
     var dwellMilliseconds = 250
     var combinedHydration: Bool? = nil
+    /// Rich interactive library; omitted in historical measurement scenarios.
+    var expandedLibrary: Bool? = nil
+    /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
+    var forceSynchronousLayout: Bool? = nil
 
     func validate() throws {
         guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),
@@ -58,6 +62,11 @@ enum BrowsingFailure: Error, LocalizedError {
 }
 
 struct BrowsingFixtures: Sendable {
+    static let topLevelPlaylistCount = 20
+    static let folderNames = ["Focus", "Weekend"]
+    static let playlistsPerFolder = 4
+    static let expandedPlaylistCount = topLevelPlaylistCount + folderNames.count * playlistsPerFolder
+
     let playlists: [PathfinderPlaylist]
     let details: [String: PathfinderPlaylistUnion]
     let home: PathfinderHome
@@ -87,7 +96,8 @@ struct BrowsingFixtures: Sendable {
                 ]
             ]
         }
-        let records: [[String: Any]] = (0..<2).map { index in
+        let playlistCount = scenario.expandedLibrary == true ? Self.expandedPlaylistCount : 2
+        let records: [[String: Any]] = (0..<playlistCount).map { index in
             [
                 "uri": "spotify:playlist:synthetic\(index)", "name": "Synthetic Mix \(index + 1)",
                 "description": "Deterministic browsing fixture",

@@ -232,3 +232,38 @@ unavailable display. #379 still needs control-input-to-visible-feedback measurem
 meet or explicitly revise its rendering target. State observation, display-link callbacks and
 accessibility automation do not substitute for that control measurement. #378's real Rust
 construction/rehydration-to-ready fault timing remains unchanged by this Demo follow-up.
+
+### AppKit-scheduled queue rendering (2026-09-10)
+
+The [follow-up samples](measurements/2026-09-10-queue-rendering.json) use source `88c099c`,
+with the existing per-result control patch applied only to the control checkout. The
+[scenario](../../Tests/BrowsingHarness/queue-rendering.json) keeps the prior combined workload
+and open queue inspector, but lets AppKit schedule layout/display instead of forcing it from
+readiness/checkpoint calls. Each variant completed 40 checkpoints, eight playback traces and
+six 96-track hydration waves, with visible windows, Reduce Motion off, denied networking and
+zero forbidden mutations. No compilation, UI inspection or export ran during either workload.
+
+| Measure | Batched | Per result |
+| --- | ---: | ---: |
+| Signposted workload duration | 15.90 s | 62.48 s |
+| Main-thread CPU between first/last checkpoint | 12.29 s | 61.17 s |
+| Total queue publications, including lifecycle setup | 45 | 606 |
+| Complete app frames | 188 | 252 |
+| Frames with an Instruments-reported hitch | 117 (62.23%) | 152 (60.32%) |
+| Full pipelined frame lifetime p95 | 197.21 ms | 209.53 ms |
+| Reported hitch duration p95 | 325.00 ms | 191.67 ms |
+| Observed display callback nominal rate | 120 Hz | 60 Hz |
+
+This is one profiled sample per variant on the built-in ProMotion display and beta toolchain.
+The reported callback rate differed despite unchanged display settings, so this is not a
+fixed-refresh matched rendering experiment. Frame counts and hitch fractions describe each
+run; neither a rendering improvement nor a regression is established. Batching again reduces
+publication and CPU work, but both captures miss the proposed smoothness target. The batched
+capture emits at most four metadata batch events in a rolling second; low publication frequency
+alone does not satisfy the remaining rendering acceptance.
+
+Removing explicit synchronous layout did not eliminate hitches. Programmatic scroll jumps,
+Debug/profiling overhead and the broader UI remain possible contributors. These samples do not
+measure physical control-input latency or isolate a production root cause. **#380 remains open**
+with #379; closing it requires a satisfactory UI budget, not just this publication/CPU saving.
+The richer interactive Demo library is a separate fixture and was not used in these captures.

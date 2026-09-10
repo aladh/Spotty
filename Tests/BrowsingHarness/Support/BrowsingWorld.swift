@@ -159,6 +159,19 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
 
     func home() async throws -> PathfinderHome { record("home"); return fixtures.home }
     func libraryPlaylists() async throws -> [PathfinderPlaylist] { record("library"); return fixtures.playlists }
+    func playlistLibrary() async throws -> [PlaylistLibraryNode] {
+        let nodes = try await libraryPlaylists().compactMap(CatalogMapping.item(from:))
+            .map(PlaylistLibraryNode.init(playlist:))
+        guard scenario.expandedLibrary == true else { return nodes }
+        let folders = BrowsingFixtures.folderNames.enumerated().map { index, name in
+            let offset = BrowsingFixtures.topLevelPlaylistCount + index * BrowsingFixtures.playlistsPerFolder
+            return PlaylistLibraryNode(
+                folderURI: "spotify:folder:synthetic-\(name.lowercased())", title: name,
+                children: Array(nodes.dropFirst(offset).prefix(BrowsingFixtures.playlistsPerFolder)))
+        }
+        return folders + Array(nodes.prefix(BrowsingFixtures.topLevelPlaylistCount))
+    }
+
     func profile() async throws -> PathfinderProfile {
         PathfinderProfile(username: "synthetic", name: "Synthetic Listener", uri: "spotify:user:synthetic", avatar: nil)
     }

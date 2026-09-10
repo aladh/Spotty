@@ -117,6 +117,9 @@ Run the isolated demo under its [standing authorization](../product/safe-testing
 ```
 
 For interactive browsing without the automated workload, use `./script/build_and_run.sh --demo`.
+Its default [Demo scenario](../../Tests/BrowsingHarness/demo.json) has 28 playlists: 20 top-level
+rows and two folders containing four playlists each, so the sidebar scrolls. Explicit scenario
+paths and profiling retain their declared fixture size.
 Both commands build an isolated Debug-only Spotty demo with the normal window, root view,
 navigation, commands, and lifecycle.
 It never launches or terminates the live Spotty app. The [version-1 scenario](../../Tests/BrowsingHarness/scenario.json)
@@ -237,3 +240,8 @@ Name the XML files `PREFIX-signposts.xml`, `PREFIX-hitches.xml`,
 missing app frames is an error. The output includes complete-frame counts, Instruments hitch
 incidence, descriptive duration quantiles and half-open rolling-second batch counts. Inspect the
 report's window visibility, motion setting and functional result separately before accepting a run.
+
+The [queue rendering scenario](../../Tests/BrowsingHarness/queue-rendering.json) sets
+`forceSynchronousLayout` to false to let AppKit schedule layout/display. The harness retains an
+attached playlist scroll view across virtualization and reacquires it when SwiftUI replaces it.
+Omitting the flag retains historical synchronous stress behavior; compare only identical modes.

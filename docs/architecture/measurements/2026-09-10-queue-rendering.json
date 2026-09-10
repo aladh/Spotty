@@ -1,0 +1,366 @@
+{
+  "sourceRevision": "88c099c718e401e32a226697e195c8c8716613ce",
+  "controlPatchSHA256": "1857185c46b2d88ac9aa49dadc44d2139a9a3e0b45a2f353aac87ce26619588d",
+  "configuration": {
+    "runsPerVariant": 1,
+    "build": "Debug",
+    "scenario": "Tests/BrowsingHarness/queue-rendering.json",
+    "queueInspector": "open",
+    "display": "Built-in Liquid Retina XDR, ProMotion 120 Hz capable",
+    "notes": [
+      "AppKit schedules layout; no explicit synchronous layout/display in this scenario.",
+      "Programmatic scroll jumps, not physical-input latency.",
+      "Reported display callback nominal rate differs between samples; do not treat this as a fixed-rate rendering comparison.",
+      "Beta OS and toolchain; descriptive samples, not a statistical rendering result."
+    ],
+    "os": "macOS 27.0 (26A5425a)",
+    "xcode": "27.0 (27A5252f)",
+    "swift": "6.4 (swiftlang-6.4.0.33.1 clang-2100.3.33.1)",
+    "compileSDK": "macOS 26.5 (Command Line Tools compatibility SDK selected by Scripts/swiftpm-env.sh)",
+    "cpu": "Apple M1 Max",
+    "processorCount": 10,
+    "physicalMemoryBytes": 34359738368,
+    "displayPhysicalPixels": [
+      3456,
+      2234
+    ],
+    "displayLogicalPoints": [
+      1728,
+      1117
+    ],
+    "displayScale": 2
+  },
+  "variants": {
+    "batched": {
+      "passed": true,
+      "scenario": {
+        "artworkCount": 48,
+        "artworkPixels": 640,
+        "combinedHydration": true,
+        "cycles": 3,
+        "dwellMilliseconds": 250,
+        "forceSynchronousLayout": false,
+        "mode": "playback",
+        "trackCount": 1000,
+        "version": 2
+      },
+      "windowPoints": [
+        960,
+        692
+      ],
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 135.08333335630596,
+        "callbackGapP99Milliseconds": 325.3487916663289,
+        "displayCallbackCount": 501,
+        "maximumCallbackGapMilliseconds": 849.0797916892916,
+        "missedDisplayOpportunityCount": 1411,
+        "nominalFramesPerSecond": 120,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 13,
+          "nowPlaying": 78,
+          "queue": 8,
+          "timing": 97
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": true,
+        "windowVisibleAtStart": true
+      },
+      "queueRefresh": {
+        "cancellations": 3,
+        "joins": 7,
+        "metadataResults": 586,
+        "publications": 45,
+        "starts": 12
+      },
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1610.087708,
+          "firstMetadataMilliseconds": 880.959958,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 458.495541,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1295.04425,
+          "firstMetadataMilliseconds": 908.506916,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 430.475166,
+          "publications": 5,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 885.733166,
+          "firstMetadataMilliseconds": 412.69875,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 97.16325,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1073.080208,
+          "firstMetadataMilliseconds": 584.956083,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 119.231083,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1026.867708,
+          "firstMetadataMilliseconds": 400.293,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 95.957792,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 1529.867125,
+          "firstMetadataMilliseconds": 955.593667,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 267.998333,
+          "publications": 6,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "mainThreadCPUSeconds": 12.292411,
+      "networkSandboxVerified": true,
+      "mutationAttempts": 0,
+      "rendering": {
+        "workloadSeconds": 15.900808625,
+        "completeApplicationFrames": 188,
+        "boundaryCrossingFramesExcluded": 3,
+        "completeFrameLifetimesMilliseconds": {
+          "count": 188,
+          "minimum": 20.526375,
+          "p50": 36.939583,
+          "p95": 197.214666,
+          "p99": 395.223291,
+          "maximum": 421.303125
+        },
+        "framesWithHitches": 117,
+        "hitchFreeFramePercent": 37.765957446808514,
+        "hitchDurationMilliseconds": {
+          "count": 117,
+          "minimum": 8.333208,
+          "p50": 83.332958,
+          "p95": 324.998791,
+          "p99": 366.665375,
+          "maximum": 391.665333
+        },
+        "metadataBatches": 25,
+        "maximumMetadataBatchesInRollingSecond": 4,
+        "metadataBatchGapMilliseconds": {
+          "count": 24,
+          "minimum": 123.363041,
+          "p50": 239.200875,
+          "p95": 2160.339583,
+          "p99": 2535.536375,
+          "maximum": 2723.522833
+        },
+        "metadataBatchOffsetsMilliseconds": [
+          76.636333,
+          775.999792,
+          1642.661667,
+          1766.024708,
+          2059.183208,
+          2347.740792,
+          4508.080375,
+          4646.890708,
+          4886.091583,
+          6453.998583,
+          6637.81375,
+          6791.166667,
+          6977.216542,
+          9512.752917,
+          9649.606333,
+          9903.570958,
+          10050.242333,
+          11452.505417,
+          11717.166083,
+          12001.29175,
+          12140.69125,
+          14864.214083,
+          15014.9855,
+          15195.24225,
+          15339.349
+        ]
+      },
+      "captureID": "run.ro1Atq0z"
+    },
+    "perResult": {
+      "passed": true,
+      "scenario": {
+        "artworkCount": 48,
+        "artworkPixels": 640,
+        "combinedHydration": true,
+        "cycles": 3,
+        "dwellMilliseconds": 250,
+        "forceSynchronousLayout": false,
+        "mode": "playback",
+        "trackCount": 1000,
+        "version": 2
+      },
+      "windowPoints": [
+        960,
+        692
+      ],
+      "responsiveness": {
+        "callbackGapP95Milliseconds": 192.92729173321277,
+        "callbackGapP99Milliseconds": 341.6609583655372,
+        "displayCallbackCount": 655,
+        "maximumCallbackGapMilliseconds": 831.9003332871944,
+        "missedDisplayOpportunityCount": 5564,
+        "nominalFramesPerSecond": 60,
+        "observerInvalidations": {
+          "catalogIndicator": 5,
+          "devices": 14,
+          "nowPlaying": 644,
+          "queue": 8,
+          "timing": 330
+        },
+        "reducedMotion": false,
+        "windowVisibleAtEnd": true,
+        "windowVisibleAtStart": true
+      },
+      "queueRefresh": {
+        "cancellations": 3,
+        "joins": 7,
+        "metadataResults": 586,
+        "publications": 606,
+        "starts": 12
+      },
+      "queueHydration": [
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9209.324958,
+          "firstMetadataMilliseconds": 384.180125,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 99.842666,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 10
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9662.337209,
+          "firstMetadataMilliseconds": 383.931542,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 100.332167,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 11
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9356.947625,
+          "firstMetadataMilliseconds": 330.790583,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 94.136125,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 20
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9201.079042,
+          "firstMetadataMilliseconds": 532.000959,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 133.129667,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 21
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 10454.71425,
+          "firstMetadataMilliseconds": 429.401709,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 93.93875,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 30
+        },
+        {
+          "cancellations": 0,
+          "completeMilliseconds": 9609.287167,
+          "firstMetadataMilliseconds": 613.322334,
+          "joins": 1,
+          "metadataResults": 96,
+          "orderingMilliseconds": 214.304209,
+          "publications": 98,
+          "starts": 1,
+          "tracks": 96,
+          "wave": 31
+        }
+      ],
+      "mainThreadCPUSeconds": 61.16735,
+      "networkSandboxVerified": true,
+      "mutationAttempts": 0,
+      "rendering": {
+        "workloadSeconds": 62.482221709,
+        "completeApplicationFrames": 252,
+        "boundaryCrossingFramesExcluded": 0,
+        "completeFrameLifetimesMilliseconds": {
+          "count": 252,
+          "minimum": 18.811375,
+          "p50": 103.169875,
+          "p95": 209.532958,
+          "p99": 368.946416,
+          "maximum": 411.115125
+        },
+        "framesWithHitches": 152,
+        "hitchFreeFramePercent": 39.682539682539684,
+        "hitchDurationMilliseconds": {
+          "count": 152,
+          "minimum": 8.33325,
+          "p50": 91.666333,
+          "p95": 191.666666,
+          "p99": 358.332041,
+          "maximum": 383.331916
+        },
+        "metadataBatches": 0,
+        "maximumMetadataBatchesInRollingSecond": 0,
+        "metadataBatchGapMilliseconds": {
+          "count": 0
+        },
+        "metadataBatchOffsetsMilliseconds": []
+      },
+      "captureID": "run.Om5Mkqtn"
+    }
+  }
+}

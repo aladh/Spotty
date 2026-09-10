@@ -122,6 +122,69 @@ private func queueRefreshTrack(_ uri: String) -> CatalogTrack {
 struct QueueRefreshConvergenceTests {
     @Test
     @MainActor
+    func metadataPublishesInBatchesAndFlushesWhileAnotherRequestIsStalled() async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRefreshMetadataRemote()
+        let service = QueueService(
+            webQueue: QueueRefreshFailingWebQueue(),
+            metadata: TrackMetadataService(remote: remote), clock: clock)
+        await service.reset(accountEpoch: 1)
+        let uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"]
+        var updates: [ProvenanceQueueSnapshot] = []
+        let refresh = Task {
+            await service.refresh(
+                fallbackEntries: uris.enumerated().map {
+                    QueueEntry(uri: $0.element, provider: "connect", occurrence: $0.offset)
+                }, currentTrackURI: "spotify:track:current", accountEpoch: 1,
+                onUpdate: { updates.append($0) })
+        }
+        #expect(await waitUntil { await remote.requestedURIs.count == 3 })
+        #expect(updates.count == 1, "order appears before enrichment")
+        await remote.completeAll(uris[0])
+        await remote.completeAll(uris[1])
+        #expect(await waitUntil { await service.refreshDiagnostics.metadataResults == 2 })
+        #expect(await waitUntil { clock.waiterCount == 1 })
+        #expect(updates.count == 1, "a burst does not publish per track")
+        clock.releaseAll()
+        #expect(await waitUntil { updates.count == 2 })
+        #expect(Set(updates.last?.tracks.map(\.uri) ?? []) == Set(uris.prefix(2)))
+        await remote.completeAll(uris[2])
+        #expect(await waitUntil { await service.refreshDiagnostics.metadataResults == 3 })
+        #expect(await waitUntil { clock.waiterCount == 1 })
+        clock.releaseAll()
+        let result = await refresh.value
+        #expect(result?.tracks.count == 3)
+        #expect(updates.count == 3)
+        #expect(clock.requestedSleeps == [0.05, 0.05])
+    }
+
+    @Test
+    @MainActor
+    func accountReplacementCancelsAnUnpublishedMetadataBatch() async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRefreshMetadataRemote()
+        let service = QueueService(
+            webQueue: QueueRefreshFailingWebQueue(),
+            metadata: TrackMetadataService(remote: remote), clock: clock)
+        await service.reset(accountEpoch: 1)
+        let uri = "spotify:track:old-account"
+        var updates = 0
+        let refresh = Task {
+            await service.refresh(
+                fallbackEntries: [QueueEntry(uri: uri, provider: "connect")],
+                currentTrackURI: "spotify:track:current", accountEpoch: 1, onUpdate: { _ in updates += 1 })
+        }
+        #expect(await waitUntil { await remote.requestedURIs.count == 1 })
+        await remote.completeAll(uri)
+        #expect(await waitUntil { clock.waiterCount == 1 })
+        await service.reset(accountEpoch: 2)
+        #expect(await refresh.value == nil)
+        #expect(await waitUntil { clock.waiterCount == 0 })
+        #expect(updates == 1, "old metadata never publishes after reset")
+    }
+
+    @Test
+    @MainActor
     func webFallbackRetainsAlreadyKnownConnectMetadata() async {
         let web = QueueRefreshWebQueue()
         let remote = QueueRefreshMetadataRemote()

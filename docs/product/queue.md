@@ -14,6 +14,14 @@
   present), never by track URI. Duplicate URIs or duplicate UIDs that cannot be proven fail
   closed. The now-playing row and Recently played tab are not removable queue entries. Play from the queue
   remains a deliberate primary action (Return/double-click), not a single-click.
+- Selection follows a valid Connect occurrence UID through reorder and metadata enrichment and
+  survives closing/reopening the inspector. Removed occurrences are pruned even while it is closed;
+  account replacement clears selection. Position-based fallback rows cannot promise continuity
+  when no stable occurrence identity is available.
+- Authoritative ordering and cached labels appear immediately. Missing metadata arrives in batches
+  no more often than every 50 ms; one stalled lookup must not hold completed labels until the whole
+  queue finishes. Shared refresh work survives panel cancellation when it can still serve a matching
+  caller, while account replacement cancels unpublished batches.
 - Queue replacement calls Spotify Connect `set_queue` with remaining protocol `next_tracks`, current
   `prev_tracks`, and the exact incoming ProvidedTrack metadata map (`metadata`, `uid`, `provider`,
   and every other snapshot player.proto field). Never synthesize `is_queued` or alter presentation

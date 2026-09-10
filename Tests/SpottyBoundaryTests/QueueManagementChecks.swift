@@ -307,8 +307,79 @@ private func connectQueueState(revision: UInt64, sessionGeneration: UInt64) -> R
     )
 }
 
+private final class SplitQueueDeadlineClock: PlaybackClock, @unchecked Sendable {
+    let first = CooperativeParkedClock()
+    let later = CooperativeParkedClock()
+    private let lock = NSLock()
+    private var firstDeadlineAvailable = true
+
+    func now() -> Date { first.now() }
+    func sleep(seconds: TimeInterval) async throws {
+        let useFirst = lock.withLock {
+            guard seconds == 8, firstDeadlineAvailable else { return false }
+            firstDeadlineAvailable = false
+            return true
+        }
+        try await (useFirst ? first : later).sleep(seconds: seconds)
+    }
+}
+
 @Suite("Queue Management")
 struct QueueManagementTests {
+    @Test @MainActor
+    func observationTimeoutDoesNotCancelRemainingBatchDispatch() async {
+        let clock = SplitQueueDeadlineClock()
+        let remote = QueueRemoteClient(.park)
+        let player = PlaybackStore(
+            environment: queueEnvironment(remote: remote, clock: clock),
+            feedback: TransientFeedbackPresenter(clock: clock))
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        player.addToQueue(uris: ["spotify:track:a", "spotify:track:b", "spotify:track:c"])
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        let firstID = player.state.intents.last!.command.id
+        #expect(await waitUntil { clock.first.waiterCount == 1 })
+        await remote.completePark(success: true)
+        #expect(await waitUntil { await remote.sendCount == 2 })
+        let firstDeadline = player.effects.settlement(of: .commandDeadline(firstID))
+        clock.first.releaseAll()
+        await firstDeadline?.wait()
+        #expect(player.state.intents.first?.outcome == .timedOut)
+        await remote.completePark(success: true)
+        #expect(await waitUntil { await remote.sendCount == 3 })
+        await remote.completePark(success: true)
+        #expect(await waitUntil { player.feedback.message?.text == "Queue requests sent for 3 songs" })
+        await player.shutdownForTermination()
+    }
+
+    @Test @MainActor
+    func ambiguousEarlierAppendCannotDonateItsOccurrenceToAnOverlappingRequest() async {
+        let clock = CooperativeParkedClock()
+        let remote = QueueRemoteClient(.park)
+        let player = PlaybackStore(
+            environment: queueEnvironment(remote: remote, clock: clock),
+            feedback: TransientFeedbackPresenter(clock: clock))
+        seedRemoteOwner(player)
+        await seedAuthoritativeQueue(player)
+        let uri = "spotify:track:new"
+        player.addToQueue(uris: [uri])
+        #expect(await waitUntil { await remote.sendCount == 1 })
+        player.addToQueue(uris: [uri])
+        #expect(await waitUntil { player.state.intents.filter { $0.command.kind == .queue }.count == 2 })
+        await remote.completePark(success: false)
+        #expect(await waitUntil { await remote.sendCount == 2 })
+        var observed = player.state.queue
+        observed.entries.append(PlaybackQueueItem(uri: uri, provider: "queue", uid: "ambiguous"))
+        observed.revision += 1
+        observed.receivedAt = clock.now()
+        #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
+        // The single occurrence could belong to the first append whose acknowledgement failed.
+        #expect(player.state.intents.last?.outcome == .dispatched)
+        await remote.completePark(success: true)
+        #expect(await waitUntil { player.state.intents.last?.outcome == .sent })
+        await player.shutdownForTermination()
+    }
+
     @Test @MainActor
     func confirmedRemovalCannotHoldAdmissionAfterItsDeadline() async {
         let clock = CooperativeParkedClock()

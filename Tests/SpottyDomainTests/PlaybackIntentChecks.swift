@@ -155,4 +155,72 @@ struct PlaybackIntentChecks {
         #expect(restart.outcome == .observedConfirmed)
     }
 
+    @Test func unsentPlayRollbackSettlesTheSeekItDisplaces() {
+        var state = PlaybackState(
+            session: .ready, transport: .paused, currentTrack: CurrentTrack(uri: "spotify:track:a"))
+        let play = UUID(), seek = UUID()
+        let events: [PlaybackEvent] = [
+            .commandStarted(
+                PendingPlaybackCommand(
+                    id: play, kind: .transport, expectedTransport: .playing,
+                    expectedTrack: CurrentTrack(uri: "spotify:track:b"), startedAt: now)),
+            .commandStarted(
+                PendingPlaybackCommand(
+                    id: seek, kind: .seek, expectedTransport: nil,
+                    expectedTiming: PlaybackTiming(position: 20), startedAt: now)),
+            .commandTimedOut(id: play),
+        ]
+        for event in events {
+            _ = PlaybackReducer.reduce(
+                &state,
+                envelope: PlaybackEventEnvelope(
+                    accountEpoch: 0,
+                    engineEpoch: 0, source: .command, receivedAt: now, event: event))
+        }
+        #expect(state.intents.first(where: { $0.command.id == seek })?.outcome == .superseded)
+        #expect(state.pendingCommands.isEmpty)
+        #expect(state.currentTrack?.uri == "spotify:track:a")
+        let settled = state
+        #expect(
+            !PlaybackReducer.reduce(
+                &state,
+                envelope: PlaybackEventEnvelope(
+                    accountEpoch: 0,
+                    engineEpoch: 0, source: .command, receivedAt: now, event: .commandTimedOut(id: seek))))
+        #expect(state == settled)
+    }
+
+    @Test func unrelatedRawURISnapshotKeepsItsActualTransport() {
+        var state = PlaybackState(
+            session: .ready, transport: .paused, currentTrack: CurrentTrack(uri: "spotify:track:a"))
+        let id = UUID()
+        let events: [(PlaybackEventSource, PlaybackEvent)] = [
+            (
+                .command,
+                .commandStarted(
+                    PendingPlaybackCommand(
+                        id: id, kind: .transport,
+                        expectedTransport: .playing, expectedTrackURI: "spotify:track:b", startedAt: now))
+            ),
+            (.command, .commandDispatched(id: id, at: now)),
+            (
+                .enginePlayback,
+                .enginePlayback(
+                    EnginePlaybackSnapshot(
+                        transport: .paused,
+                        trackURI: "spotify:track:c", timing: PlaybackTiming(position: 30)))
+            ),
+        ]
+        for (source, event) in events {
+            _ = PlaybackReducer.reduce(
+                &state,
+                envelope: PlaybackEventEnvelope(
+                    accountEpoch: 0,
+                    engineEpoch: 0, source: source, receivedAt: now, event: event))
+        }
+        #expect(state.currentTrack?.uri == "spotify:track:c")
+        #expect(state.transport == .paused)
+        #expect(state.intents.last?.outcome == .superseded)
+    }
+
 }

@@ -48,7 +48,8 @@ extension PlaybackStore {
                         guard
                             let intentID = self.startQueueIntent(
                                 adding: uri, timeoutEffect: effectID,
-                                accountEpoch: epoch, engineEpoch: engineEpoch)
+                                accountEpoch: epoch, engineEpoch: engineEpoch,
+                                remainingRequests: ordered.count - completed - 1)
                         else { return }
                         do {
                             guard
@@ -126,7 +127,8 @@ extension PlaybackStore {
                     guard
                         let intentID = self.startQueueIntent(
                             adding: uri, timeoutEffect: effectID,
-                            accountEpoch: epoch, engineEpoch: engineEpoch)
+                            accountEpoch: epoch, engineEpoch: engineEpoch,
+                            remainingRequests: ordered.count - completed - 1)
                     else { return }
                     guard
                         let permit = self.makePlaybackDispatchPermit(
@@ -187,7 +189,8 @@ extension PlaybackStore {
 
     private func startQueueIntent(
         adding uri: String? = nil, removing uids: Set<String>? = nil,
-        timeoutEffect: PlaybackEffectID, accountEpoch: UInt64, engineEpoch: UInt64
+        timeoutEffect: PlaybackEffectID, accountEpoch: UInt64, engineEpoch: UInt64,
+        remainingRequests: Int = 0
     ) -> UUID? {
         guard !Task.isCancelled, !isTearingDown,
             self.accountEpoch == accountEpoch, engineGeneration == engineEpoch
@@ -207,6 +210,9 @@ extension PlaybackStore {
             let reserved =
                 state.intents.filter { !$0.outcome.isTerminal }
                 .compactMap { $0.queueMinimumCounts?[uri] }.max() ?? 0
+            // Keep an overlapping reservation even if its predecessor later reports failure:
+            // transport failure does not prove Spotify did not append. Rebasing could let that
+            // predecessor's lone occurrence falsely confirm this distinct request.
             intent.queueMinimumCounts = [uri: max(baseline, reserved) + 1]
         }
         let lifetime = playbackLifetime
@@ -228,18 +234,28 @@ extension PlaybackStore {
                     }
                     return
                 }
+                let wasSent = self.state.intents.first(where: { $0.command.id == id })?.outcome == .sent
                 if self.send(.commandTimedOut(id: id), source: .command, playbackLifetime: lifetime) {
                     // A sent replacement may already have returned and released its slot.
                     // Its observation deadline cannot cancel a newer replacement registration.
-                    if timeoutEffect != .queueReplacement || self.queueReplacementToken == id {
+                    let cancelExecution =
+                        timeoutEffect == .queueReplacement ? self.queueReplacementToken == id : !wasSent
+                    if cancelExecution {
                         self.effects.cancel(timeoutEffect)
                         if timeoutEffect == .queueReplacement { self.queueReplacementToken = nil }
                     }
                     let dispatched = self.state.intents.first { $0.command.id == id }?.dispatchedAt != nil
-                    self.feedback.informational(
+                    var message =
                         dispatched
-                            ? "Spotify has not confirmed the queue request. Its result is unknown."
-                            : "The queue request expired before it was sent.")
+                        ? "Spotify has not confirmed the queue request. Its result is unknown."
+                        : "The queue request expired before it was sent."
+                    if cancelExecution, remainingRequests > 0 {
+                        message +=
+                            remainingRequests == 1
+                            ? " The remaining queue request was not sent."
+                            : " \(remainingRequests) remaining queue requests were not sent."
+                    }
+                    self.feedback.informational(message)
                 }
             })
         return id
@@ -437,6 +453,9 @@ extension PlaybackStore {
     private func finishQueueReplacementIfCurrent(_ token: UUID) {
         guard queueReplacementToken == token else { return }
         queueReplacementToken = nil
+        if state.intents.first(where: { $0.command.id == token })?.outcome.isTerminal != false {
+            effects.cancel(.commandDeadline(token))
+        }
         effects.complete(.queueReplacement)
     }
 

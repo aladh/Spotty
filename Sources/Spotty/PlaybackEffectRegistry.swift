@@ -178,7 +178,7 @@ final class PlaybackEffectRegistry {
     func cancelPlaybackCommands() {
         let ids = tasks.keys.filter { id in
             switch id {
-            case .command, .queueCommand, .queueReplacement: true
+            case .command, .commandDeadline, .queueCommand, .queueReplacement: true
             default: false
             }
         }

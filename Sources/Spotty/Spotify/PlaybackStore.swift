@@ -488,6 +488,10 @@ final class PlaybackStore {
                     }
                 }
             }
+            let settledIntentIDs = next.intents.filter { intent in
+                intent.outcome.isTerminal && intent.outcome != .timedOut
+                    && state.intents.first(where: { $0.command.id == intent.command.id })?.outcome.isTerminal != true
+            }.map(\.command.id)
             let confirmedTracks = next.intents.compactMap { intent -> String? in
                 guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,
                     state.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed
@@ -496,6 +500,7 @@ final class PlaybackStore {
             }
             state = next
             for uri in confirmedTracks { recordPlayed(uri) }
+            for id in settledIntentIDs where queueReplacementToken != id { effects.cancel(.commandDeadline(id)) }
             engineGeneration = next.engineEpoch
             let nextIndicator = CurrentTrackIndicator(state: next)
             if currentTrackIndicator != nextIndicator {
@@ -649,7 +654,7 @@ final class PlaybackStore {
         ifStillWanted: @escaping @MainActor @Sendable () -> Bool
     ) -> PlaybackDispatchPermit? {
         // Preserve claim receipts until the next reducer publication consumes them.
-        playbackDispatchPermits.removeAll { $0.permit.isResolved && $0.intentID == nil }
+        playbackDispatchPermits.removeAll { $0.permit.canDiscard }
         if let commandID, !state.pendingCommands.values.contains(where: { $0.id == commandID }) {
             return nil
         }

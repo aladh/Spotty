@@ -24,6 +24,7 @@ ConnectionSnapshotCallback = "ConnectionStateCallback"
 QueueSnapshotCallback = "QueueCallback"
 PlaybackSnapshotCallback = "PlaybackStateCallback"
 DevicesSnapshotCallback = "DevicesCallback"
+ConnectClusterStateCallback = "ConnectClusterStateCallback"
 
 [export]
 # Keep the semantic nullable-pointer aliases in the C shim. cbindgen 0.29.4
@@ -40,6 +41,9 @@ exclude = [
     "SpottyNullableQueueTrackPointer",
     "SpottyNullableDevicePointer",
     "SpottyNullableQueueSnapshot",
+    "SpottyNullableConnectionSnapshotPointer",
+    "SpottyNullablePlaybackSnapshotPointer",
+    "SpottyNullableQueueSnapshotPointer",
     "SpottyPlaybackResult",
     "SpottyPlaybackAudioControlEvent",
 ]
@@ -52,4 +56,5 @@ include = [
     "SpottyProtocolDevice",
     "SpottyDevicesSnapshot",
     "SpottyPlaybackSnapshot",
+    "SpottyConnectClusterState",
 ]

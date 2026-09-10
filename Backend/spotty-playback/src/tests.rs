@@ -811,6 +811,11 @@ fn exported_c_function_signatures() -> Vec<ExportedCFunctionSignature> {
         "void (AudioDataCallback)"
     );
     signature!(
+        spotty_playback_register_connect_cluster_state_callback,
+        extern "C" fn(ConnectClusterStateCallback),
+        "void (ConnectClusterStateCallback)"
+    );
+    signature!(
         spotty_playback_register_connection_state_callback,
         extern "C" fn(ConnectionSnapshotCallback),
         "void (ConnectionStateCallback)"
@@ -916,7 +921,7 @@ fn parse_abi_signature_fixture(fixture: &str) -> Vec<ExportedCFunctionSignature>
 #[test]
 fn exported_c_function_signatures_are_stable() {
     let signatures = exported_c_function_signatures();
-    assert_eq!(signatures.len(), 36);
+    assert_eq!(signatures.len(), 37);
 }
 
 /// The checked-in C fixture is compared to the header by `Scripts/check.sh`; this Rust-side
@@ -1069,6 +1074,18 @@ int main(void) {
     EMIT_FIELD(SpottyConnectionSnapshot, credentials_rejected);
     EMIT_FIELD(SpottyConnectionSnapshot, device_id);
     EMIT_FIELD(SpottyConnectionSnapshot, last_error);
+
+    EMIT_TYPE(SpottyConnectClusterState);
+    EMIT_FIELD(SpottyConnectClusterState, cluster_revision);
+    EMIT_FIELD(SpottyConnectClusterState, session_generation);
+    EMIT_FIELD(SpottyConnectClusterState, source);
+    EMIT_FIELD(SpottyConnectClusterState, local_device_id);
+    EMIT_FIELD(SpottyConnectClusterState, active_device_id);
+    EMIT_FIELD(SpottyConnectClusterState, devices);
+    EMIT_FIELD(SpottyConnectClusterState, device_count);
+    EMIT_FIELD(SpottyConnectClusterState, connection);
+    EMIT_FIELD(SpottyConnectClusterState, playback);
+    EMIT_FIELD(SpottyConnectClusterState, queue);
 
     EMIT_TYPE(SpottyPlaybackResult);
     printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultOk|%d\n", (int)SpottyPlaybackResultOk);
@@ -1259,6 +1276,20 @@ int main(void) {
         device_id,
         last_error
     );
+    rust_layout!(
+        "SpottyConnectClusterState",
+        SpottyConnectClusterState,
+        cluster_revision,
+        session_generation,
+        source,
+        local_device_id,
+        active_device_id,
+        devices,
+        device_count,
+        connection,
+        playback,
+        queue
+    );
     rust_values.insert(
         "type|SpottyPlaybackResult|size".to_string(),
         std::mem::size_of::<i32>().to_string(),
@@ -1405,6 +1436,111 @@ fn connection_snapshot_callback_copies_nullable_fields() {
             resume_pending: false,
         },
     );
+}
+
+#[test]
+fn aggregate_connect_snapshot_is_reentrant_and_keeps_nested_rows_borrowed() {
+    extern "C" fn capture(snapshot: *const SpottyConnectClusterState) {
+        let snapshot = unsafe { &*snapshot };
+        assert_eq!(snapshot.cluster_revision, 91);
+        assert_eq!(snapshot.session_generation, 7);
+        assert_eq!(snapshot.source, 2);
+        assert_eq!(snapshot.device_count, 1);
+        assert!(!snapshot.local_device_id.is_null());
+        assert!(!snapshot.connection.is_null());
+        assert!(!snapshot.playback.is_null());
+        assert!(snapshot.queue.is_null());
+        let playback = unsafe { &*snapshot.playback };
+        assert_eq!(playback.revision, snapshot.cluster_revision);
+        assert_eq!(playback.session_generation, snapshot.session_generation);
+        assert_eq!(playback.is_active_device, 1);
+        assert!(!snapshot.devices.is_null());
+        let device = unsafe { &*snapshot.devices };
+        assert_eq!(
+            unsafe { CStr::from_ptr(device.id) }.to_str().unwrap(),
+            "fixture-device"
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(device.name) }.to_str().unwrap(),
+            "Fixture"
+        );
+        assert_eq!(
+            unsafe { CStr::from_ptr(device.device_type) }
+                .to_str()
+                .unwrap(),
+            "Computer"
+        );
+
+        let connection = unsafe { &*snapshot.connection };
+        assert_eq!(connection.is_active_device, 1);
+        assert_eq!(
+            unsafe { CStr::from_ptr(connection.device_id) }
+                .to_str()
+                .unwrap(),
+            "fixture-local"
+        );
+
+        // A foreign callback may synchronously re-enter Rust. Aggregate payload construction
+        // owns SNAPSHOT_REVISION only while copying state; delivery itself is outside that lock.
+        let _ = stamped_snapshot(|stamp| stamp);
+    }
+
+    let devices = vec![ProtocolConnectDevice {
+        id: "fixture-device".to_string(),
+        name: "Fixture".to_string(),
+        device_type: "Computer".to_string(),
+    }];
+    let playback = PlaybackObservation {
+        is_playing: true,
+        is_paused: false,
+        track_unavailable: false,
+        audio_key_refused: false,
+        track_uri: "spotify:track:fixture".to_string(),
+        context_uri: Some("spotify:playlist:fixture".to_string()),
+        position_ms: 42,
+        duration_ms: 100,
+        shuffle: false,
+        repeat_track: false,
+        repeat_context: false,
+        is_active_device: true,
+        timestamp_ms: 123,
+    };
+    send_connect_cluster_state(
+        capture,
+        SnapshotStamp {
+            revision: 91,
+            session_generation: 7,
+        },
+        2,
+        Some("fixture-local"),
+        "fixture-device",
+        &devices,
+        &ConnectionState {
+            session_connected: true,
+            spirc_ready: true,
+            device_id: Some("fixture-local".to_string()),
+            last_error: None,
+            credentials_rejected: false,
+            is_active_device: true,
+            resume_pending: false,
+        },
+        Some(&playback),
+        None,
+    );
+}
+
+#[test]
+fn aggregate_connection_pins_cluster_role_and_device_identity() {
+    let connection = ConnectionState {
+        is_active_device: true,
+        device_id: Some("stale-device".to_string()),
+        ..Default::default()
+    };
+
+    let pinned = pin_connection_to_cluster(connection, Some("cluster-device"), false);
+
+    assert!(!pinned.is_active_device);
+    assert_eq!(pinned.device_id.as_deref(), Some("cluster-device"));
 }
 
 #[test]

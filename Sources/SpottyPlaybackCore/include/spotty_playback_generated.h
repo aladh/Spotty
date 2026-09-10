@@ -24,6 +24,29 @@ typedef void (*AudioControlCallback)(SpottyPlaybackAudioControlEvent);
 // - `sample_count`: Number of f32 values (frames * 2 for stereo).
 typedef void (*AudioDataCallback)(SpottyNullableFloatSamples, size_t);
 
+// Coherent observation of one Connect cluster application. Every nested pointer is borrowed
+// for the duration of the callback; Swift must copy the fields it retains before returning.
+// `cluster_revision` is shared by all nested snapshots and orders cluster observations. The
+// component `revision` fields remain present so existing projection code can preserve its
+// per-stream ordering metadata. `source` is 1 for the HTTP bootstrap fetch and 2 for a dealer
+// push. A missing player state produces null playback and queue pointers; an empty device list
+// is represented by a null devices pointer and a zero count.
+typedef struct SpottyConnectClusterState {
+  uint64_t cluster_revision;
+  uint64_t session_generation;
+  uint8_t source;
+  SpottyNullableCString local_device_id;
+  SpottyNullableCString active_device_id;
+  SpottyNullableDevicePointer devices;
+  size_t device_count;
+  SpottyNullableConnectionSnapshotPointer connection;
+  SpottyNullablePlaybackSnapshotPointer playback;
+  SpottyNullableQueueSnapshotPointer queue;
+} SpottyConnectClusterState;
+
+// Callback for one coherent Connect cluster observation.
+typedef void (*ConnectClusterStateCallback)(const struct SpottyConnectClusterState*);
+
 // Connection observation delivered as a C struct. `device_id` and `last_error` are valid only
 // for the callback; Swift must copy them before returning. Null means missing; outbound empty
 // strings and strings containing an interior NUL are also delivered as null fields. Flags are
@@ -324,6 +347,10 @@ void spotty_playback_register_audio_control_callback(AudioControlCallback callba
 // Called from librespot's player thread for each decoded audio chunk. The samples pointer is
 // valid only for the callback invocation, and the callback must be thread-safe.
 void spotty_playback_register_audio_data_callback(AudioDataCallback callback);
+
+// Registers a callback for one coherent Connect cluster observation. Nested snapshot pointers
+// are borrowed for the callback invocation and must be copied before returning.
+void spotty_playback_register_connect_cluster_state_callback(ConnectClusterStateCallback callback);
 
 // Registers a callback to receive connection state change notifications.
 // Called whenever the connection state changes (connect, disconnect, error, etc.).

@@ -1,7 +1,16 @@
 use crate::*;
 use std::collections::HashMap;
 
+#[cfg(test)]
 pub(crate) fn send_playback_state(player_state: &PlayerState, is_active_device: bool) {
+    send_playback_state_with_callback(player_state, is_active_device);
+}
+
+/// Publishes protocol playback facts through the legacy callback.
+pub(crate) fn send_playback_state_with_callback(
+    player_state: &PlayerState,
+    is_active_device: bool,
+) {
     debug!("send_playback_state called");
 
     // Log context URI - this is the "active playlist/album/artist" being played from
@@ -11,47 +20,20 @@ pub(crate) fn send_playback_state(player_state: &PlayerState, is_active_device: 
         update_current_context_uri(context_uri);
     }
 
-    let Some(callback) = registered_callback(&CONTROL_CALLBACKS.playback_state) else {
+    let (shuffle, repeat_track, repeat_context) = playback_options(player_state);
+    update_playback_options(shuffle, repeat_track, repeat_context);
+
+    let callback = registered_callback(&CONTROL_CALLBACKS.playback_state);
+    let Some(callback) = callback else {
         debug!("No playback state callback registered, skipping update");
         return;
     };
-
-    // Extract track URI
-    let track_uri = player_state
-        .track
-        .as_ref()
-        .map(|t| t.uri.clone())
-        .unwrap_or_default();
-
-    // Extract playback options (shuffle, repeat)
-    let options = player_state.options.as_ref();
-    let shuffle = options.map(|o| o.shuffling_context).unwrap_or(false);
-    let repeat_track = options.map(|o| o.repeating_track).unwrap_or(false);
-    let repeat_context = options.map(|o| o.repeating_context).unwrap_or(false);
-    update_playback_options(shuffle, repeat_track, repeat_context);
 
     // Forward protocol playing/paused bits. Swift projects transport presentation.
     let (stamp, observation) = stamped_snapshot(|stamp| {
         (
             stamp,
-            PlaybackObservation {
-                is_playing: player_state.is_playing,
-                is_paused: player_state.is_paused,
-                track_unavailable: false,
-                audio_key_refused: false,
-                track_uri,
-                context_uri: Some(player_state.context_uri.clone()),
-                position_ms: player_state.position_as_of_timestamp,
-                duration_ms: player_state.duration,
-                shuffle,
-                repeat_track,
-                repeat_context,
-                // This role bit was derived from the same cluster observation by the caller.
-                // Keeping it inside the stamped payload means Swift never has to pair this
-                // playback row with a separately arriving connection callback.
-                is_active_device,
-                timestamp_ms: player_state.timestamp,
-            },
+            playback_observation_from_player_state(player_state, is_active_device),
         )
     });
 
@@ -68,6 +50,44 @@ pub(crate) fn send_playback_state(player_state: &PlayerState, is_active_device: 
     );
 
     send_playback_snapshot(callback, stamp, &observation);
+}
+
+fn playback_options(player_state: &PlayerState) -> (bool, bool, bool) {
+    let options = player_state.options.as_ref();
+    (
+        options.map(|o| o.shuffling_context).unwrap_or(false),
+        options.map(|o| o.repeating_track).unwrap_or(false),
+        options.map(|o| o.repeating_context).unwrap_or(false),
+    )
+}
+
+/// Builds protocol playback facts without assigning a callback revision. The aggregate Connect
+/// publisher owns that revision so all fields are delivered as one cluster observation.
+pub(crate) fn playback_observation_from_player_state(
+    player_state: &PlayerState,
+    is_active_device: bool,
+) -> PlaybackObservation {
+    let track_uri = player_state
+        .track
+        .as_ref()
+        .map(|track| track.uri.clone())
+        .unwrap_or_default();
+    let (shuffle, repeat_track, repeat_context) = playback_options(player_state);
+    PlaybackObservation {
+        is_playing: player_state.is_playing,
+        is_paused: player_state.is_paused,
+        track_unavailable: false,
+        audio_key_refused: false,
+        track_uri,
+        context_uri: Some(player_state.context_uri.clone()),
+        position_ms: player_state.position_as_of_timestamp,
+        duration_ms: player_state.duration,
+        shuffle,
+        repeat_track,
+        repeat_context,
+        is_active_device,
+        timestamp_ms: player_state.timestamp,
+    }
 }
 
 /// Send playback state update from local player events (Playing, Paused)
@@ -492,7 +512,7 @@ struct ProtocolTrackBacking {
     artist_uri: Option<CString>,
 }
 
-struct QueueSnapshotBacking {
+pub(crate) struct QueueSnapshotBacking {
     track_uri: Option<CString>,
     track_provider: Option<CString>,
     track_uid: Option<CString>,
@@ -594,7 +614,7 @@ fn protocol_track_row(backing: &ProtocolTrackBacking) -> SpottyProtocolQueueTrac
     }
 }
 
-fn queue_snapshot_backing(state: &QueueState) -> QueueSnapshotBacking {
+pub(crate) fn queue_snapshot_backing(state: &QueueState) -> QueueSnapshotBacking {
     let (track_uri, track_provider, track_uid) = match &state.track {
         Some(track) => (
             optional_callback_c_string(Some(track.uri.as_str())),
@@ -626,7 +646,7 @@ fn queue_snapshot_backing(state: &QueueState) -> QueueSnapshotBacking {
     backing
 }
 
-fn queue_snapshot_from_backing(
+pub(crate) fn queue_snapshot_from_backing(
     backing: &QueueSnapshotBacking,
     state: &QueueState,
 ) -> SpottyQueueSnapshot {
@@ -697,7 +717,13 @@ pub(crate) fn free_queue_snapshot(snapshot: *mut SpottyQueueSnapshot) {
 /// Upcoming presentation (delimiter hiding, playable-track filtering) is Swift-owned
 /// `QueueProtocolProjection`. This function must not drop delimiter or autoplay rows: they
 /// are required for occurrence-safe `set_queue` replacement.
+#[cfg(test)]
 pub(crate) fn process_and_send_queue(player_state: PlayerState) {
+    process_and_send_queue_with_callback(player_state);
+}
+
+/// Applies and caches a queue snapshot through the legacy callback.
+pub(crate) fn process_and_send_queue_with_callback(player_state: PlayerState) {
     debug!("process_and_send_queue called");
 
     // Log context URI for queue processing too
@@ -706,15 +732,45 @@ pub(crate) fn process_and_send_queue(player_state: PlayerState) {
         update_current_context_uri(&player_state.context_uri);
     }
 
+    let state = queue_state_from_player_state(&player_state);
+
+    // Cache before entering Swift. A legacy callback may re-enter through the queue getter or
+    // cleanup; assigning after delivery would expose the previous queue and could repopulate a
+    // snapshot that cleanup deliberately cleared.
+    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = Some(state.clone());
+
+    // Cache even when Swift has not registered a callback yet. The getter replaces
+    // `/me/player/queue` for bootstrap after a provisional empty SetQueue, so a cluster
+    // tick that arrives before registration must still be recoverable.
+    let callback = registered_callback(&CONTROL_CALLBACKS.queue);
+    if let Some(callback) = callback {
+        send_queue_snapshot(callback, &state);
+    } else {
+        debug!("No queue callback registered; caching snapshot for getter recovery");
+    }
+}
+
+/// Builds the queue projection carried by a Connect cluster without publishing it. Aggregate
+/// Connect delivery uses this so playback, queue, devices, and connection facts share one stamp.
+pub(crate) fn queue_state_from_player_state(player_state: &PlayerState) -> QueueState {
+    stamped_snapshot(|stamp| queue_state_from_player_state_with_stamp(player_state, stamp))
+}
+
+/// Builds queue state using a revision already reserved by the caller. Aggregate Connect
+/// delivery uses this while holding the revision lock, then delivers after releasing it.
+pub(crate) fn queue_state_from_player_state_with_stamp(
+    player_state: &PlayerState,
+    stamp: SnapshotStamp,
+) -> QueueState {
     let protocol_next_tracks = collect_protocol_tracks(&player_state.next_tracks);
     let protocol_prev_tracks = collect_protocol_tracks(&player_state.prev_tracks);
     let queue_revision = player_state.queue_revision.clone();
     let (disallow_set_queue, disallow_removing_from_next_tracks) =
-        queue_replacement_disallowed(&player_state);
-    let current_track = player_state.track.into_option().and_then(|t| {
+        queue_replacement_disallowed(player_state);
+    let current_track = player_state.track.as_ref().and_then(|t| {
         debug!("current track[0] uri='{}' provider='{}'", t.uri, t.provider);
         if t.uri.starts_with("spotify:track:") {
-            Some(to_queue_item(&t))
+            Some(to_queue_item(t))
         } else {
             None
         }
@@ -727,7 +783,7 @@ pub(crate) fn process_and_send_queue(player_state: PlayerState) {
         protocol_prev_tracks.len()
     );
 
-    let state = stamped_snapshot(|stamp| QueueState {
+    QueueState {
         revision: stamp.revision,
         session_generation: stamp.session_generation,
         track: current_track,
@@ -736,18 +792,7 @@ pub(crate) fn process_and_send_queue(player_state: PlayerState) {
         queue_revision,
         disallow_set_queue,
         disallow_removing_from_next_tracks,
-    });
-
-    // Cache even when Swift has not registered a callback yet. The getter replaces
-    // `/me/player/queue` for bootstrap after a provisional empty SetQueue, so a cluster
-    // tick that arrives before registration must still be recoverable. Send first, then
-    // move into LAST_QUEUE so the callback does not run with that lock held.
-    if let Some(callback) = registered_callback(&CONTROL_CALLBACKS.queue) {
-        send_queue_snapshot(callback, &state);
-    } else {
-        debug!("No queue callback registered; caching snapshot for getter recovery");
     }
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = Some(state);
 }
 
 /// The last queue the cluster described, or null if no cluster update has arrived.

@@ -100,6 +100,7 @@ pub(crate) struct ControlCallbacks {
     pub(crate) playback_state: Mutex<Option<PlaybackSnapshotCallback>>,
     pub(crate) devices: Mutex<Option<DevicesSnapshotCallback>>,
     pub(crate) connection_state: Mutex<Option<ConnectionSnapshotCallback>>,
+    pub(crate) connect_cluster_state: Mutex<Option<ConnectClusterStateCallback>>,
 }
 
 pub(crate) static CONTROL_CALLBACKS: Lazy<ControlCallbacks> = Lazy::new(ControlCallbacks::default);

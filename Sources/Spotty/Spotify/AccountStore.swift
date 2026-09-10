@@ -268,7 +268,8 @@ final class AccountStore {
         case .absent:
             phase = .signedOut
         case .denied:
-            phase = .failed("Spotty cannot access its saved Spotify session. Allow Keychain access and try again.")
+            phase = .failed(
+                "Spotty cannot access its saved Spotify session. Check its session-file permissions and try again.")
         case .failed:
             phase = .failed("Spotty could not read its saved Spotify session. Try again or sign in again.")
         }

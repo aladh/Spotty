@@ -14,6 +14,7 @@ boundary; routine implementation work does not require reading the whole history
 | [ADR 003: Playback command effects](ADR-003-playback-command-effects.md) | Keep `PlaybackEffectRegistry`; no TCA or generic Effect abstraction for the current architecture. |
 | [ADR 005: Retain librespot](ADR-005-retain-librespot.md) | Keep the pinned Rust/librespot leaf as the sole production engine; no replacement roadmap. |
 | [ADR 006: Prebuilt playback engine](ADR-006-prebuilt-playback-engine.md) | Consume a checksum-pinned XCFramework for ordinary app builds; retain explicit engine source workflows. |
+| [ADR 007: File-backed session persistence](ADR-007-session-persistence.md) | Store the OAuth grant in a private file independently of release signing. |
 
 ## Historical decisions
 

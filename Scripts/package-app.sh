@@ -256,7 +256,7 @@ fi
 
 "$project_root/Scripts/validate-app.sh" --local "$app_path"
 if [[ -n "$development_identity" ]]; then
-    "$project_root/Scripts/validate-app.sh" --keychain-stable "$app_path"
+    "$project_root/Scripts/validate-app.sh" --development-signed "$app_path"
 fi
 
 if [[ "$build_configuration" == "release" && -n "$development_identity" ]]; then

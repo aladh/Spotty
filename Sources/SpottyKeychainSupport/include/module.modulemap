@@ -1,5 +1,0 @@
-module SpottyKeychainSupport {
-    header "SpottyKeychainSupport.h"
-    link framework "Security"
-    export *
-}

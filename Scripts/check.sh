@@ -29,7 +29,6 @@ fi
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
 if [[ "$check_scope" != rust ]]; then
-    "$project_root/Scripts/check-keychain-support.sh"
     "$project_root/Scripts/format-swift-self-test.sh"
     "$project_root/Scripts/format-swift.sh" --check
 fi
@@ -200,13 +199,11 @@ SPOTTY_BUILD_BROWSING_HARNESS=1 swift test --disable-sandbox --no-parallel \
 # Check mutation access against the actual testable Debug module built by the boundary suite.
 "$project_root/Scripts/check-playback-projection-access.sh"
 
-# Authenticated development must never silently fall back to a self-signed identity. On current
-# macOS that gives the Keychain item a per-build CDHash partition and recreates the password prompt
-# after every rebuild. Packaging may remain self-signed for deterministic build verification, but
-# the launch entry point must require the Apple anchor + Team ID validator.
+# Preserve the established Apple-issued development launch identity and staged replacement.
+# Session persistence no longer depends on signing or Keychain authorization.
 if ! rg -q --fixed-strings 'SPOTTY_DEVELOPMENT_SIGNING_IDENTITY' \
     "$project_root/script/build_and_run.sh" \
-    || ! rg -q --fixed-strings 'validate-app.sh" --keychain-stable' \
+    || ! rg -q --fixed-strings 'validate-app.sh" --development-signed' \
         "$project_root/script/build_and_run.sh" \
     || ! rg -q --fixed-strings 'SPOTTY_APP_PATH="$staged_app_bundle"' \
         "$project_root/script/build_and_run.sh" \

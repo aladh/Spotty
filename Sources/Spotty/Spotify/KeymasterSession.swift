@@ -7,7 +7,7 @@
 
 import Foundation
 
-private typealias DefaultKeymasterTokenStore = KeymasterKeychainStore
+private typealias DefaultKeymasterTokenStore = KeymasterFileStore
 
 /// The live keymaster grant: one access token, kept valid, shared by everything that needs it.
 ///
@@ -28,7 +28,7 @@ actor KeymasterSession {
     /// `KeymasterAuth.refresh`.
     typealias Refresher = @Sendable (String) async throws -> KeymasterTokens
 
-    /// A single bounded lane for blocking Keychain/defaults operations. The worker is owned by
+    /// A single bounded lane for blocking session-file operations. The worker is owned by
     /// this session rather than by an untracked detached task, so its ordering outlives every
     /// suspended token operation that submitted work to it.
     private let persistence: KeymasterPersistenceWorker
@@ -51,7 +51,7 @@ actor KeymasterSession {
     private var refreshInFlight: Task<KeymasterTokens, Error>?
     /// Advanced by `supersedeRefresh()`. A refresh that was in flight when the grant was
     /// cleared or replaced must not write what it eventually returns — that would put the
-    /// signed-out account's refresh token straight back into the keychain.
+    /// signed-out account's refresh token straight back into the session file.
     private var generation = 0
 
     init(
@@ -118,7 +118,7 @@ actor KeymasterSession {
 
     /// Retries a previous secure-store failure when the user explicitly asks to connect again.
     /// A denied/unavailable read is cached for the current attempt so it cannot look absent, but
-    /// it must not become a permanent process-lifetime result after Keychain access recovers.
+    /// it must not become a permanent process-lifetime result after file access recovers.
     func retryGrantState() async -> KeymasterGrantState {
         await waitForAdoption()
         if tokens == nil, loadFailure != nil {
@@ -173,7 +173,7 @@ actor KeymasterSession {
     }
 
     /// Loads persisted state lazily on this actor rather than synchronously while the main-actor
-    /// controller is being initialized. A Keychain lookup can take time to resolve an older
+    /// controller is being initialized. A file lookup can take time to resolve an older
     /// item's ACL; that must not prevent SwiftUI from presenting the window.
     ///
     /// The load itself is a single flight: `hasLoadedStore` is not set until the read finishes,
@@ -397,7 +397,7 @@ actor KeymasterSession {
         } catch KeymasterAuthError.grantRevoked {
             // Nothing to retry: this refresh token is dead and every later attempt spends the
             // same one. Left in place it fails forever and survives relaunch, because the
-            // keychain item outlives the process — so forgetting it here is the whole fix for
+            // session file outlives the process — so forgetting it here is the whole fix for
             // the loop, and the announcement is what gets the user back to a sign-in.
             //
             // Guarded like the success path below: a logout during the network call already
@@ -424,7 +424,7 @@ actor KeymasterSession {
 
         // Back on the actor. A logout that landed during the network call already cleared the
         // grant, so this result belongs to an account that is gone — persisting it would
-        // recreate the keychain item behind logout's back.
+        // recreate the session file behind logout's back.
         guard startedAt == generation else {
             throw KeymasterSessionError.noGrant
         }

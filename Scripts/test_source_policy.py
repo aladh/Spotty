@@ -66,8 +66,6 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/Spotty/Spotify/PlaybackStore+Queue.swift", "PartnerAPI()", {"injected-dependencies"}),
             ("Sources/Spotty/Views/Nested/Example.swift", "PartnerAPI()", {"injected-dependencies"}),
             ("Sources/Spotty/Spotify/PlaybackEnvironment.swift", "PartnerAPI()", set()),
-            ("Sources/Spotty/Spotify/KeychainManager.swift", "let key = kSecAttrAccessGroup", {"legacy-keychain"}),
-            ("Sources/Spotty/Spotify/Other.swift", "let key = kSecAttrAccessGroup", set()),
             ("Sources/Spotty/Views/Example.swift", "view.draggable(item)", {"unsupported-drag-ui"}),
             ("Tests/Example.swift", "view.draggable(item)", set()),
         ]
@@ -114,7 +112,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
         owners = [
             "README.md", "SECURITY.md", "CONTRIBUTING.md",
             "Sources/Spotty/SpottyApp.swift",
-            "Sources/Spotty/Spotify/KeychainManager.swift",
+            "Sources/Spotty/Spotify/KeymasterFileStore.swift",
             "Sources/Spotty/Spotify/PlaybackCore.swift",
             "Sources/Spotty/Spotify/RustPlaybackEngine.swift",
             "Backend/spotty-playback/src/player_event_pump.rs",

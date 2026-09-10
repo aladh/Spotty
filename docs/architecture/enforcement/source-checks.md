@@ -21,7 +21,6 @@ a Swift parse guarantee. Review owner scope when introducing files or new syntax
 | `SRC-ISO-001`, `SRC-INOUT-001` | Unsafe isolation escapes and split revision ownership |
 | `SRC-UI-001`, `SRC-DUP-004` | Appearance ownership and unsupported drag APIs |
 | `SRC-HYG-001`, `CI-TOOL-001`, `ABI-ARC-001` | Retired Swift symbols; syntax-only facets of Rust-free app scripts and workflow action/credential/published-engine policies |
-| `SRC-KEY-001` | Retired Keychain APIs |
 | `SRC-RUST-FFI-001`, `SRC-RUST-PLAY-001` | Panic-barrier/runtime entry and playing-event write ownership |
 
 Additional owners:
@@ -30,8 +29,8 @@ Additional owners:
 - `SRC-HYG-002`–`004`: [repository-text checks](../../../Scripts/check-source-policy.sh),
   [artifact hygiene](../../../Scripts/check.sh), gitignore, and privacy review.
 - `SRC-SIGN-001`: signing assertions in [check.sh](../../../Scripts/check.sh), plus the
-  [signing contract](../../development/signing.md). Spelling checks do not establish Keychain trust.
+  [signing contract](../../development/signing.md). Spelling checks do not establish signature validity.
 
-Retired IDs `SRC-OBS-001`–`003`, `SRC-WRITER-001`, `SRC-DUP-003`, `CI-OBS-001`,
+Retired IDs `SRC-KEY-001`, `SRC-OBS-001`–`003`, `SRC-WRITER-001`, `SRC-DUP-003`, `CI-OBS-001`,
 `CI-SWIFT-001`, and `ABI-JSON-001` remain historical references. Do not recreate duplicate snapshots
 of behavior now covered by the package graph, deterministic suites, or semantic review.

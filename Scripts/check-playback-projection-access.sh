@@ -65,7 +65,7 @@ fi
 # boundary test always builds a testable SpottyCore module; include both known Swift module
 # locations, then select exactly one C module-map location. Passing the generated and checked-in
 # module maps together produces a Clang redefinition diagnostic.
-swift_module_paths=(-I "$project_root/Sources/SpottyKeychainSupport/include")
+swift_module_paths=()
 for candidate in "$swift_bin_path" "$swift_bin_path/Modules"; do
     if [[ -d "$candidate" ]]; then
         swift_module_paths+=(-I "$candidate")

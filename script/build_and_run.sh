@@ -53,7 +53,7 @@ if [[ -z "${SPOTTY_SIGNING_IDENTITY:-}" && -z "${SPOTTY_DEVELOPMENT_SIGNING_IDEN
 fi
 
 SPOTTY_APP_PATH="$staged_app_bundle" "$root_dir/Scripts/package-app.sh" "$package_mode"
-"$root_dir/Scripts/validate-app.sh" --keychain-stable "$staged_app_bundle"
+"$root_dir/Scripts/validate-app.sh" --development-signed "$staged_app_bundle"
 pkill -x "$app_name" >/dev/null 2>&1 || true
 pkill -x "$previous_app_name" >/dev/null 2>&1 || true
 for _ in {1..20}; do

@@ -102,11 +102,10 @@ let package = Package(
     ],
     targets: [
         playbackSelection,
-        .target(name: "SpottyKeychainSupport", linkerSettings: [.linkedFramework("Security")]),
         .target(
             name: "SpottyCore",
             dependencies: [
-                "SpottyDomain", "SpottyPlaybackCore", "SpottyKeychainSupport",
+                "SpottyDomain", "SpottyPlaybackCore",
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Spotty",

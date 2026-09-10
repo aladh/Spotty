@@ -5,8 +5,9 @@ Start with [AGENTS.md](AGENTS.md) for repository rules and the
 
 ## Pull-request execution
 
-[Thermos review](docs/development/thermos-review.md) provides one advisory correctness
-and quality review when a same-repository PR first becomes ready.
+[Thermos review](docs/development/thermos-review.md) reviews each push to a ready
+same-repository PR for correctness and quality, resolves its own threads once they are addressed,
+and approves when no actionable findings remain.
 
 A request to open a PR authorizes the agent to create a branch, commit the complete in-scope change,
 push it, open the PR, monitor available checks/reviews during the run, and address automated

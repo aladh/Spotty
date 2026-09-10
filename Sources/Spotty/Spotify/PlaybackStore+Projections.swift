@@ -9,42 +9,37 @@ import SpottyDomain
 import Foundation
 
 extension PlaybackStore {
-    var phase: Phase { state.session }
-    var trackURI: String { state.currentTrack?.uri ?? "" }
-    var trackTitle: String { state.currentTrack?.title ?? "Nothing playing" }
-    var artistName: String { state.currentTrack?.artist ?? "Choose something to play" }
-    var artworkURL: URL? { state.currentTrack?.artworkURL }
-    var isPlaying: Bool { state.transport == .playing }
-    var isShuffleEnabled: Bool { state.options.shuffle }
-    var repeatMode: RepeatMode { state.options.repeatMode }
+    var phase: Phase { semantic.session }
+    var trackURI: String { semantic.currentTrack?.uri ?? "" }
+    var trackTitle: String { semantic.currentTrack?.title ?? "Nothing playing" }
+    var artistName: String { semantic.currentTrack?.artist ?? "Choose something to play" }
+    var artworkURL: URL? { semantic.currentTrack?.artworkURL }
+    var isPlaying: Bool { semantic.transport == .playing }
+    var isShuffleEnabled: Bool { semantic.options.shuffle }
+    var repeatMode: RepeatMode { semantic.options.repeatMode }
     var isActiveDevice: Bool {
-        if case .local = state.owner { return true }
+        if case .local = semantic.owner { return true }
         return false
     }
-    var position: TimeInterval { state.timing.position }
-    var duration: TimeInterval { state.timing.duration }
-    var positionAnchorDate: Date { state.timing.anchoredAt }
-    var queueNextEntries: [QueueEntry] {
-        state.queue.entries.map {
-            QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
-        }
-    }
-    var connectDevices: [ConnectDevice] {
-        state.devices.devices.map {
-            ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
-        }
-    }
-    var localDeviceID: String? { state.devices.localDeviceID }
+    var position: TimeInterval { timeline.position }
+    var duration: TimeInterval { playbackDuration }
+    var positionAnchorDate: Date { timeline.anchoredAt }
+    var queueNextEntries: [QueueEntry] { presentedQueueEntries }
+    var connectDevices: [ConnectDevice] { presentedDevices }
+    var localDeviceID: String? { presentedLocalDeviceID }
     var defaultLocalPlaybackDevice: ConnectDevice? {
         guard canStartPlayback else { return nil }
+        _ = semantic
+        _ = presentedDevices
+        _ = presentedLocalDeviceID
         return ConnectDeviceProjection.defaultLocalDevice(in: state).map {
             ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: false)
         }
     }
     var isPlaybackCommandPending: Bool { catalogPlaybackAvailability.hasPendingPlaybackCommand }
-    var hasCurrentTrackMetadata: Bool { (state.currentTrack?.metadataSource ?? .none) != .none }
-    var playbackNotice: PlaybackNotice? { state.notice }
-    var transientCommandError: String? { state.notice?.message }
+    var hasCurrentTrackMetadata: Bool { (semantic.currentTrack?.metadataSource ?? .none) != .none }
+    var playbackNotice: PlaybackNotice? { semantic.notice }
+    var transientCommandError: String? { semantic.notice?.message }
     var isConnected: Bool { catalogPlaybackAvailability.isConnected }
     var catalogCurrentTrack: CatalogTrack? {
         guard !trackURI.isEmpty else { return nil }
@@ -97,7 +92,7 @@ extension PlaybackStore {
     var activeRemoteDevice: ConnectDevice? {
         guard !isActiveDevice, hasCurrentTrack else { return nil }
         let device: PlaybackDevice?
-        switch state.owner {
+        switch semantic.owner {
         case let .remote(value), let .uncertain(.some(value)):
             device = value
         default:
@@ -117,14 +112,14 @@ extension PlaybackStore {
     var remotePlaybackBanner: RemotePlaybackBannerPresentation? {
         remotePlaybackBannerPresentation(
             phase: phase,
-            owner: state.owner,
+            owner: semantic.owner,
             hasCurrentTrack: hasCurrentTrack,
             isPlaying: isPlaying
         )
     }
 
     var commandRoute: ConnectCommandRoute {
-        connectCommandRoute(owner: state.owner, localDeviceID: localDeviceID)
+        connectCommandRoute(owner: semantic.owner, localDeviceID: localDeviceID)
     }
 }
 
@@ -149,4 +144,31 @@ func remotePlaybackBannerPresentation(
         ),
         isPlaying: isPlaying
     )
+}
+
+/// Display facts without source watermarks, pending-operation bookkeeping or timing samples.
+struct PlaybackSemanticProjection: Equatable {
+    let accountEpoch: UInt64
+    let engineEpoch: UInt64
+    let session: PlaybackSessionPhase
+    let owner: PlaybackOwner
+    let transport: PlaybackTransportState
+    let currentTrack: CurrentTrack?
+    let playbackContextURI: String?
+    let options: PlaybackOptions
+    let notice: PlaybackNotice?
+    let pendingSeekID: UUID?
+
+    init(state: PlaybackState) {
+        accountEpoch = state.accountEpoch
+        engineEpoch = state.engineEpoch
+        session = state.session
+        owner = state.owner
+        transport = state.transport
+        currentTrack = state.currentTrack
+        playbackContextURI = state.playbackContextURI
+        options = state.options
+        notice = state.notice
+        pendingSeekID = state.pendingCommands[.seek]?.id
+    }
 }

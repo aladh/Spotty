@@ -178,7 +178,15 @@ struct PlaybackDispatchContext: Equatable, Sendable {
 final class PlaybackStore {
     typealias Phase = PlaybackSessionPhase
 
-    private(set) var state = PlaybackState(accountEpoch: 1)
+    @ObservationIgnored private(set) var state = PlaybackState(accountEpoch: 1)
+    /// Equatable publications derived only from accepted reducer state. Source revisions and
+    /// timing anchors cannot invalidate semantic, device or queue observers.
+    private(set) var semantic = PlaybackSemanticProjection(state: PlaybackState(accountEpoch: 1))
+    private(set) var timeline = PlaybackTiming(anchoredAt: .distantPast)
+    private(set) var playbackDuration: TimeInterval = 0
+    private(set) var presentedQueueEntries: [QueueEntry] = []
+    private(set) var presentedDevices: [ConnectDevice] = []
+    private(set) var presentedLocalDeviceID: String?
     /// Coarse track/transport observation for catalog rows. Timing changes never rewrite this
     /// value, so its observers only wake when the current track or playing state changes.
     private(set) var currentTrackIndicator = CurrentTrackIndicator()
@@ -267,6 +275,7 @@ final class PlaybackStore {
         feedback: TransientFeedbackPresenter
     ) {
         self.environment = environment
+        timeline = state.timing
         self.feedback = feedback
         let metadataService = TrackMetadataService(remote: environment.remote)
         self.metadataService = metadataService
@@ -498,7 +507,28 @@ final class PlaybackStore {
                 else { return nil }
                 return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
             }
+            let queueEntriesChanged = next.queue.entries != state.queue.entries
+            let devicesChanged = next.devices.devices != state.devices.devices
             state = next
+            let nextSemantic = PlaybackSemanticProjection(state: next)
+            if semantic != nextSemantic { semantic = nextSemantic }
+            if timeline != next.timing { timeline = next.timing }
+            if playbackDuration != next.timing.duration { playbackDuration = next.timing.duration }
+            if queueEntriesChanged {
+                let nextQueue = next.queue.entries.map {
+                    QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
+                }
+                if presentedQueueEntries != nextQueue { presentedQueueEntries = nextQueue }
+            }
+            if devicesChanged {
+                let nextDevices = next.devices.devices.map {
+                    ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
+                }
+                if presentedDevices != nextDevices { presentedDevices = nextDevices }
+            }
+            if presentedLocalDeviceID != next.devices.localDeviceID {
+                presentedLocalDeviceID = next.devices.localDeviceID
+            }
             for uri in confirmedTracks { recordPlayed(uri) }
             for id in settledIntentIDs where queueReplacementToken != id { effects.cancel(.commandDeadline(id)) }
             engineGeneration = next.engineEpoch

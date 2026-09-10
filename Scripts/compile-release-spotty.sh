@@ -26,7 +26,7 @@ swift build "${swift_arguments[@]}"
 bin_path="$(swift build "${swift_arguments[@]}" --show-bin-path)"
 case "$bin_path" in
     */release)
-        debug_binary="$project_root/.build/debug/Spotty"
+        debug_binary="${bin_path%/release}/debug/Spotty"
         ;;
     */Products/Release)
         debug_binary="${bin_path%/Release}/Debug/Spotty"

@@ -286,14 +286,16 @@ jobs:
                 comments: [$findings[0][] | {path, line, side: "RIGHT", body}]}' \
               | gh api --method POST "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" --input - > /dev/null
           }
+          placement=inline
           if ! request "$body" findings.json; then
             if [ "$FINDINGS" -eq 0 ]; then exit 1; fi
-            echo '::warning::Inline placement was rejected; publishing findings in the review body instead.'
+            echo '::warning::Inline placement was rejected (for example a finding on a binary or unchanged line); publishing findings in the review body instead.'
+            placement=body
             inline=$(jq -r '.[] | "- `\(.path):\(.line)` — \(.body)"' findings.json)
             echo '[]' > no-findings.json
             request "$(printf '%s\n\nFindings:\n%s' "$body" "$inline")" no-findings.json
           fi
-          echo "Published $event review of $HEAD_SHA with $FINDINGS inline finding(s); $open_threads Thermos thread(s) remain open"
+          echo "Published $event review of $HEAD_SHA with $FINDINGS finding(s) ($placement); $open_threads Thermos thread(s) remain open"
 
       - name: Summarize review trace
         if: ${{ !cancelled() && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}

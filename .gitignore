@@ -10,3 +10,5 @@ Backend/spotty-playback/target/
 DerivedData/
 dist/
 .spotty-connect-device-id
+__pycache__/
+*.py[cod]

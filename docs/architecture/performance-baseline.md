@@ -22,6 +22,45 @@ Renderer backpressure: of 1,971 one-millisecond playing observations, 1,935 were
 deliberate producer sleep, with no allocator hotspot. Those measurements did not justify a Core
 Media sample-buffer pool at the time; new optimization decisions need a current baseline.
 
+## Synthetic playback and browsing comparison (2026-09-10)
+
+Debug Spotty Demo, macOS 27.0 (26A5425a), 10 logical processors, 32 GiB, 960 × 692 window,
+2× scale, 120 Hz display, reduced motion off. The isolated `playback.json` scenario uses 1,000
+tracks, 48 artwork fixtures, three browsing cycles, and concurrent 5 Hz playback samples. Both
+runs passed 40 browsing checkpoints and seven playback/lifetime traces, with network isolation
+verified. No UI automation ran concurrently with either measurement.
+
+| Measure | Before projections | After projections |
+| --- | ---: | ---: |
+| Now-playing observer invalidations | 99 | 40 |
+| Device observer invalidations | 90 | 13 |
+| Queue observer invalidations | 90 | 2 |
+| Catalog-indicator invalidations | 5 | 5 |
+| Main-run-loop callback gap p95 | 90.2 ms | 62.2 ms |
+| Main-run-loop callback gap p99 | 197.9 ms | 146.4 ms |
+| Maximum callback gap | 648.7 ms | 658.8 ms |
+| Browsing elapsed time | 15.45 s | 15.69 s |
+| Process CPU consumed during browsing | 16.20 s | 14.15 s |
+
+Reports: `run.1cZyJ9nU` at `ca93ce3` (before), `run.qEy750jC` at `ffab157` (after), both with
+an empty tracked diff. They precede the final harness review corrections to exact cluster barriers,
+recovery preservation and callback invocation counting. A second after run (`run.yi56SLpy`, same
+presentation implementation before commit) counted the same semantic invalidations and measured
+12.72 CPU seconds, showing timing variance. These are directional samples, not a statistical
+performance guarantee. CPU includes all process threads, not specifically MainActor time.
+
+The display link measures main-run-loop opportunities, not rendered frames. The proposed frame
+budget is still missed; no input-to-pixel measurement is claimed. Seven named synthetic settlements
+ranged from 8.25 to 81.06 ms after the change; disconnect-to-ready was 16.98 ms through the synthetic
+ports, not a Rust/Spotify network reconnection. Remaining now-playing invalidations include catalog
+metadata enrichment. A deterministic boundary test separately verifies that 100 timing-only
+publications invalidate neither semantic, device nor queue readers.
+
+Reproduce with `Scripts/browse-synthetic.sh Tests/BrowsingHarness/playback.json`. The script prints
+the fresh report path; see [verification](../development/verification.md) for
+isolation and report limitations. This Debug workload does not replace the historical live Release
+playback measurement above.
+
 ## Binary size
 
 CI reports release sizes for comparison, not as a pass/fail budget. Read the run summary with

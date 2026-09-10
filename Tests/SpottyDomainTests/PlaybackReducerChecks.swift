@@ -376,8 +376,8 @@ struct PlaybackReducerTests {
                 &state,
                 envelope: envelope(source: .command, event: .commandFinished(id: pauseID, accepted: true, notice: nil))
             )
-            #expect((!lateFinishAccepted) == true, "a late finish after snapshot reconciliation is rejected")
-            #expect((state) == (afterReconcile), "a late finish cannot mutate already-reconciled state")
+            #expect(lateFinishAccepted, "a late finish consumes its explicit confirmation")
+            #expect(state.transport == afterReconcile.transport, "a late finish cannot change reconciled playback")
 
             let resumeID = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
             _ = PlaybackReducer.reduce(

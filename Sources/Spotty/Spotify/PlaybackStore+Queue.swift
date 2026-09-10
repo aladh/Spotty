@@ -45,15 +45,23 @@ extension PlaybackStore {
                     guard let self else { return }
                     var completed = 0
                     for uri in ordered {
+                        guard
+                            let intentID = self.startQueueIntent(
+                                adding: uri, timeoutEffect: effectID,
+                                accountEpoch: epoch, engineEpoch: engineEpoch,
+                                remainingRequests: ordered.count - completed - 1)
+                        else { return }
                         do {
                             guard
-                                let permit = self.makePlaybackDispatchPermit(ifStillWanted: {
-                                    self.queueDispatchStillCurrent(
-                                        accountEpoch: epoch,
-                                        engineEpoch: engineEpoch,
-                                        route: route
-                                    )
-                                })
+                                let permit = self.makePlaybackDispatchPermit(
+                                    intentID: intentID,
+                                    ifStillWanted: {
+                                        self.queueDispatchStillCurrent(
+                                            accountEpoch: epoch,
+                                            engineEpoch: engineEpoch,
+                                            route: route
+                                        )
+                                    })
                             else { return }
                             guard
                                 let outcome = try await self.coordinator.performRemoteCommand(
@@ -63,7 +71,11 @@ extension PlaybackStore {
                                     permit: permit
                                 )
                             else { return }
-                            guard case .success = outcome else {
+                            guard
+                                let accepted = self.finishQueueIntent(
+                                    intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
+                            else { return }
+                            guard accepted else {
                                 guard
                                     self.queueDispatchStillCurrent(
                                         accountEpoch: epoch,
@@ -113,13 +125,21 @@ extension PlaybackStore {
                 var completed = 0
                 for uri in ordered {
                     guard
-                        let permit = self.makePlaybackDispatchPermit(ifStillWanted: {
-                            self.queueDispatchStillCurrent(
-                                accountEpoch: epoch,
-                                engineEpoch: engineEpoch,
-                                route: route
-                            )
-                        })
+                        let intentID = self.startQueueIntent(
+                            adding: uri, timeoutEffect: effectID,
+                            accountEpoch: epoch, engineEpoch: engineEpoch,
+                            remainingRequests: ordered.count - completed - 1)
+                    else { return }
+                    guard
+                        let permit = self.makePlaybackDispatchPermit(
+                            intentID: intentID,
+                            ifStillWanted: {
+                                self.queueDispatchStillCurrent(
+                                    accountEpoch: epoch,
+                                    engineEpoch: engineEpoch,
+                                    route: route
+                                )
+                            })
                     else { return }
                     do {
                         guard
@@ -128,7 +148,11 @@ extension PlaybackStore {
                                 permit: permit
                             )
                         else { return }
-                        guard case .success = outcome else {
+                        guard
+                            let accepted = self.finishQueueIntent(
+                                intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
+                        else { return }
+                        guard accepted else {
                             guard
                                 self.queueDispatchStillCurrent(
                                     accountEpoch: epoch,
@@ -163,6 +187,101 @@ extension PlaybackStore {
             })
     }
 
+    private func startQueueIntent(
+        adding uri: String? = nil, removing uids: Set<String>? = nil,
+        timeoutEffect: PlaybackEffectID, accountEpoch: UInt64, engineEpoch: UInt64,
+        remainingRequests: Int = 0
+    ) -> UUID? {
+        guard !Task.isCancelled, !isTearingDown,
+            self.accountEpoch == accountEpoch, engineGeneration == engineEpoch
+        else { return nil }
+        let id = UUID()
+        let now = environment.clock.now()
+        var intent = PlaybackIntent(
+            command: PendingPlaybackCommand(
+                id: id, kind: .queue, expectedTransport: nil, startedAt: now), baselineTrackURI: state.currentTrack?.uri
+        )
+        intent.baselineOwner = state.owner
+        intent.queueContextURI = state.queue.contextURI
+        intent.queueRevision = state.queue.revision
+        intent.removedQueueUIDs = uids
+        if let uri {
+            let baseline = state.queue.entries.filter { $0.uri == uri }.count
+            let reserved =
+                state.intents.filter { !$0.outcome.isTerminal }
+                .compactMap { $0.queueMinimumCounts?[uri] }.max() ?? 0
+            // Keep an overlapping reservation even if its predecessor later reports failure:
+            // transport failure does not prove Spotify did not append. Rebasing could let that
+            // predecessor's lone occurrence falsely confirm this distinct request.
+            intent.queueMinimumCounts = [uri: max(baseline, reserved) + 1]
+        }
+        let lifetime = playbackLifetime
+        send(.queueIntentStarted(intent), source: .command, playbackLifetime: lifetime)
+        let deadlineID = PlaybackEffectID.commandDeadline(id)
+        effects.replace(
+            deadlineID,
+            with: Task { [weak self] in
+                guard let self else { return }
+                defer { self.effects.complete(deadlineID) }
+                do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
+                guard !Task.isCancelled, self.playbackLifetime == lifetime, !self.isTearingDown else { return }
+                if self.state.intents.first(where: { $0.command.id == id })?.outcome.isTerminal == true {
+                    // Observation already settled the request, but an unreturned transport must
+                    // not hold the replacement admission slot forever.
+                    if timeoutEffect == .queueReplacement, self.queueReplacementToken == id {
+                        self.effects.cancel(.queueReplacement)
+                        self.queueReplacementToken = nil
+                    }
+                    return
+                }
+                let wasSent = self.state.intents.first(where: { $0.command.id == id })?.outcome == .sent
+                if self.send(.commandTimedOut(id: id), source: .command, playbackLifetime: lifetime) {
+                    // A sent replacement may already have returned and released its slot.
+                    // Its observation deadline cannot cancel a newer replacement registration.
+                    let cancelExecution =
+                        timeoutEffect == .queueReplacement ? self.queueReplacementToken == id : !wasSent
+                    if cancelExecution {
+                        self.effects.cancel(timeoutEffect)
+                        if timeoutEffect == .queueReplacement { self.queueReplacementToken = nil }
+                    }
+                    let dispatched = self.state.intents.first { $0.command.id == id }?.dispatchedAt != nil
+                    var message =
+                        dispatched
+                        ? "Spotify has not confirmed the queue request. Its result is unknown."
+                        : "The queue request expired before it was sent."
+                    if cancelExecution, remainingRequests > 0 {
+                        message +=
+                            remainingRequests == 1
+                            ? " The remaining queue request was not sent."
+                            : " \(remainingRequests) remaining queue requests were not sent."
+                    }
+                    self.feedback.informational(message)
+                }
+            })
+        return id
+    }
+
+    private func finishQueueIntent(
+        _ id: UUID, outcome: Result<Void, PlaybackCommandFailure>,
+        accountEpoch: UInt64, engineEpoch: UInt64
+    ) -> Bool? {
+        guard !Task.isCancelled, !isTearingDown, self.accountEpoch == accountEpoch,
+            engineGeneration == engineEpoch
+        else { return nil }
+        let accepted: Bool
+        if case .success = outcome { accepted = true } else { accepted = false }
+        send(
+            .queueIntentFinished(id: id, accepted: accepted), source: .command,
+            engineEpoch: engineEpoch, accountEpoch: accountEpoch)
+        guard let intent = state.intents.first(where: { $0.command.id == id }) else { return nil }
+        switch intent.outcome {
+        case .superseded, .timedOut: return nil
+        default: break
+        }
+        if case .failure(.reconnectRequired) = outcome { recoverEngineAfterCommandFailure() }
+        return intent.outcome == .observedConfirmed || accepted
+    }
+
     func removeUpcomingQueueOccurrences(selectedIDs: Set<String>) {
         guard queueReplacementToken == nil, !isTearingDown else { return }
         let presentationEntries = queueNextEntries
@@ -186,7 +305,12 @@ extension PlaybackStore {
                 let epoch = accountEpoch
                 let engineEpoch = engineGeneration
                 let beforeEntries = presentationEntries
-                let token = UUID()
+                guard
+                    let intentID = startQueueIntent(
+                        removing: Set(beforeEntries.filter { selectedIDs.contains($0.id) }.map(\.uid)),
+                        timeoutEffect: .queueReplacement, accountEpoch: epoch, engineEpoch: engineEpoch)
+                else { return }
+                let token = intentID
                 queueReplacementToken = token
                 effects.replace(
                     .queueReplacement,
@@ -195,15 +319,17 @@ extension PlaybackStore {
                         do {
                             guard let self else { return }
                             guard
-                                let permit = self.makePlaybackDispatchPermit(ifStillWanted: {
-                                    self.queueReplacementStillCurrent(
-                                        token: token,
-                                        accountEpoch: epoch,
-                                        engineEpoch: engineEpoch,
-                                        from: from,
-                                        to: to
-                                    )
-                                })
+                                let permit = self.makePlaybackDispatchPermit(
+                                    intentID: intentID,
+                                    ifStillWanted: {
+                                        self.queueReplacementStillCurrent(
+                                            token: token,
+                                            accountEpoch: epoch,
+                                            engineEpoch: engineEpoch,
+                                            from: from,
+                                            to: to
+                                        )
+                                    })
                             else { return }
                             guard
                                 let outcome = try await self.coordinator.performRemoteCommand(
@@ -221,11 +347,11 @@ extension PlaybackStore {
                                     permit: permit
                                 )
                             else { return }
-                            if case let .failure(error) = outcome {
-                                // Keep failures on the existing catch path so queue feedback
-                                // remains unchanged.
-                                throw error
-                            }
+                            guard
+                                let accepted = self.finishQueueIntent(
+                                    intentID, outcome: outcome, accountEpoch: epoch, engineEpoch: engineEpoch)
+                            else { return }
+                            if !accepted, case let .failure(error) = outcome { throw error }
                             guard
                                 self.queueReplacementStillCurrent(
                                     token: token,
@@ -327,6 +453,9 @@ extension PlaybackStore {
     private func finishQueueReplacementIfCurrent(_ token: UUID) {
         guard queueReplacementToken == token else { return }
         queueReplacementToken = nil
+        if state.intents.first(where: { $0.command.id == token })?.outcome.isTerminal != false {
+            effects.cancel(.commandDeadline(token))
+        }
         effects.complete(.queueReplacement)
     }
 
@@ -345,7 +474,7 @@ extension PlaybackStore {
     }
 
     private static func removedFromQueueMessage(count: Int) -> String {
-        count == 1 ? "Removed from Queue" : "Removed \(count) songs from Queue"
+        count == 1 ? "Queue removal request sent" : "Queue removal request sent for \(count) songs"
     }
 
     /// Pulls the backend's last-known queue so the panel opens with content even

@@ -12,6 +12,7 @@ public struct PlaybackState: Equatable, Sendable {
     public var queue: PlaybackQueueSnapshot
     public var devices: PlaybackDeviceSnapshot
     public var pendingCommands: [PlaybackCommandKind: PendingPlaybackCommand]
+    public var intents: [PlaybackIntent] = []
     public var notice: PlaybackNotice?
     public var sourceRevisions: [PlaybackEventSource: UInt64]
     public var transportCommandResolutions: [UUID: PlaybackTransportCommandResolution]

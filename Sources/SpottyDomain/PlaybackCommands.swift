@@ -22,6 +22,8 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
     public var latestAuthoritativeTiming: PlaybackTiming?
     /// Concrete play target when the caller already knows the track to present.
     public let expectedTrack: CurrentTrack?
+    /// Requested identity even when no optimistic metadata/presentation was supplied.
+    public let expectedTrackURI: String?
     /// Exact presentation captured at `commandStarted` for a known play target.
     public let rollbackPresentation: PlaybackPresentationSnapshot?
     /// Requested shuffle value for a live options command. Repeat commands leave this nil.
@@ -47,6 +49,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
         rollbackTiming: PlaybackTiming? = nil,
         latestAuthoritativeTiming: PlaybackTiming? = nil,
         expectedTrack: CurrentTrack? = nil,
+        expectedTrackURI: String? = nil,
         rollbackPresentation: PlaybackPresentationSnapshot? = nil,
         expectedShuffle: Bool? = nil,
         rollbackShuffle: Bool? = nil,
@@ -64,6 +67,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
         self.rollbackTiming = rollbackTiming
         self.latestAuthoritativeTiming = latestAuthoritativeTiming
         self.expectedTrack = expectedTrack
+        self.expectedTrackURI = expectedTrackURI
         self.rollbackPresentation = rollbackPresentation
         self.expectedShuffle = expectedShuffle
         self.rollbackShuffle = rollbackShuffle

@@ -51,6 +51,10 @@ public enum PlaybackEvent: Sendable {
     case queue(PlaybackQueueSnapshot)
     case devices(PlaybackDeviceSnapshot)
     case commandStarted(PendingPlaybackCommand)
+    case queueIntentStarted(PlaybackIntent)
+    case queueIntentFinished(id: UUID, accepted: Bool)
+    case commandDispatched(id: UUID, at: Date)
+    case commandTimedOut(id: UUID)
     case commandFinished(id: UUID, accepted: Bool, notice: PlaybackNotice?)
     case notice(PlaybackNotice?)
 }

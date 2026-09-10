@@ -157,7 +157,7 @@ public enum QueueAddFeedbackPolicy: Sendable {
         if completed == requested {
             return QueueAddFeedback(
                 kind: .success,
-                message: requested == 1 ? "Added to Queue" : "Added \(requested) songs to Queue"
+                message: requested == 1 ? "Queue request sent" : "Queue requests sent for \(requested) songs"
             )
         }
         if completed == 0 {
@@ -170,7 +170,7 @@ public enum QueueAddFeedbackPolicy: Sendable {
         }
         return QueueAddFeedback(
             kind: .informational,
-            message: "Added \(completed) of \(requested) songs to Queue"
+            message: "Queue requests sent for \(completed) of \(requested) songs"
         )
     }
 }

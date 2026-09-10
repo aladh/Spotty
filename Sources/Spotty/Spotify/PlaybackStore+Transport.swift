@@ -11,15 +11,11 @@ import OSLog
 
 extension PlaybackStore {
     func play(uri: String) {
-        submitPlay(uri: uri) { [weak self] accepted in
-            if accepted { self?.recordPlayed(uri) }
-        }
+        submitPlay(uri: uri)
     }
 
     func play(track: CatalogTrack) {
-        submitPlay(uri: track.uri, expectedTrack: currentTrack(from: track)) { [weak self] accepted in
-            if accepted { self?.recordPlayed(track.uri) }
-        }
+        submitPlay(uri: track.uri, expectedTrack: currentTrack(from: track))
     }
 
     func playPlaylist(_ item: CatalogItem) {
@@ -42,26 +38,18 @@ extension PlaybackStore {
                 expectedTrack: expectedTrack,
                 local: .playTracks(trackURIs),
                 remote: .play(trackURIs: trackURIs)
-            ) { [weak self] accepted in
-                guard let self, accepted, let expectedTrack else { return }
-                self.recordPlayed(expectedTrack.uri)
-            }
+            )
             return
         }
-        submitPlay(uri: item.uri, expectedTrack: expectedTrack) { [weak self] accepted in
-            guard let self, accepted, let expectedTrack else { return }
-            self.recordPlayed(expectedTrack.uri)
-        }
+        submitPlay(uri: item.uri, expectedTrack: expectedTrack)
     }
 
     private func submitPlay(
         uri: String,
-        expectedTrack: CurrentTrack? = nil,
-        completion: @escaping @MainActor (Bool) -> Void = { _ in }
+        expectedTrack: CurrentTrack? = nil
     ) {
         let value = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
-            completion(false)
             return
         }
         performRoutedCommand(
@@ -70,8 +58,7 @@ extension PlaybackStore {
             expectedTiming: expectedTrack.map { playTargetTiming(from: $0) },
             expectedTrack: expectedTrack,
             local: .playURI(value),
-            remote: .play(uri: value),
-            completion: completion
+            remote: .play(uri: value)
         )
     }
 
@@ -246,7 +233,7 @@ extension PlaybackStore {
         let successTargetName = device.id == localDeviceID ? "This Mac" : device.name
         let announceSuccess: @MainActor (Bool) -> Void = { [weak self] accepted in
             if accepted {
-                self?.feedback.success("Playing on \(successTargetName)")
+                self?.feedback.success("Playback request sent to \(successTargetName)")
             }
         }
         if device.id == localDeviceID {

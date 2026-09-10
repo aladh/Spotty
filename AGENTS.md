@@ -21,9 +21,7 @@ replacing Spotify styling with macOS defaults. Keep scope small using the
 
 Document intent, usage, and non-obvious constraints; link to code rather than duplicating mechanics.
 Update the canonical owner and remove stale guidance. Keep review dispositions in review threads.
-Use `AGENTS.md` for actionable project constraints: global rules here, path-specific rules in the
-nearest file, and procedures in their canonical guide. Treat these files as scarce, always-loaded
-context: add a rule only when omitting it creates recurring material risk and it cannot be enforced
-or discovered reliably elsewhere. Do not add tree inventories, implementation maps, exhaustive
-state lists, test catalogs, task history, or prose copies of linked contracts. Prefer correcting or
-deleting existing text; justify net growth.
+Treat `AGENTS.md` files as scarce, always-loaded context: add a rule only when omitting it creates
+recurring material risk and it cannot be enforced or discovered reliably elsewhere. Do not add tree
+inventories, implementation maps, exhaustive state lists, test catalogs, task history, or prose
+copies of linked contracts. Prefer correcting or deleting existing text; justify net growth.

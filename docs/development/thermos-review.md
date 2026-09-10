@@ -23,10 +23,12 @@ the thread if the reasoning holds. PR readiness follows
 
 ## Repeat a review
 
-Select **Run workflow** on **Thermos review**, choose the default branch, and enter the PR
-number. This posts another full review of the current head, even if it was already reviewed. The
-PR must still be open, ready, and from this repository. A push while a review is running cancels
-that run; the next run covers both pushes.
+Comment `@thermos review` on the PR, or select **Run workflow** on **Thermos review**, choose the
+default branch, and enter the PR number. Either posts another full review of the current head,
+even if it was already reviewed. The PR must still be open, ready, and from this repository, and
+the comment must come from the owner, a member, or a collaborator. Both paths run the workflow
+and reviewer configuration from the default branch. A push while a review is running cancels that
+run; the next run covers both pushes.
 
 ## Setup and trust
 

@@ -109,9 +109,13 @@ struct BrowsingFixtures: Sendable {
         "Paper Satellites", "Cedar House", "Lena Hart", "Atlas Bloom", "Night Weather", "Theo Lane",
     ]
     static let listenerNames = [
-        "Jerry Seinfeld", "Elaine Benes", "George Costanza", "Cosmo Kramer", "Newman",
+        "Mara Vale", "Ellis Rowe", "Lena Hart", "Theo Lane", "Nina Cole",
     ]
 
+    static func playlistName(at index: Int) -> String { playlistNames[index % playlistNames.count] }
+    static func playlistDescription(at index: Int) -> String {
+        playlistDescriptions[index % playlistDescriptions.count]
+    }
     static func trackName(at index: Int) -> String { trackNames[index % trackNames.count] }
     static func albumName(at index: Int) -> String { albumNames[index % albumNames.count] }
     static func artistName(at index: Int) -> String { artistNames[index % artistNames.count] }
@@ -158,8 +162,8 @@ struct BrowsingFixtures: Sendable {
         let playlistCount = scenario.expandedLibrary == true ? Self.expandedPlaylistCount : 2
         let records: [[String: Any]] = (0..<playlistCount).map { index in
             [
-                "uri": "spotify:playlist:synthetic\(index)", "name": Self.playlistNames[index],
-                "description": Self.playlistDescriptions[index],
+                "uri": "spotify:playlist:synthetic\(index)", "name": Self.playlistName(at: index),
+                "description": Self.playlistDescription(at: index),
                 "images": ["items": [image(index)]],
                 "ownerV2": [
                     "data": ["name": Self.listenerName(at: index), "uri": "spotify:user:synthetic\(index)"]

@@ -173,7 +173,9 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
     }
 
     func profile() async throws -> PathfinderProfile {
-        PathfinderProfile(username: "synthetic", name: "Jerry Seinfeld", uri: "spotify:user:synthetic", avatar: nil)
+        PathfinderProfile(
+            username: "synthetic", name: BrowsingFixtures.listenerName(at: 0),
+            uri: "spotify:user:synthetic", avatar: nil)
     }
     func playlist(id: String) async throws -> PathfinderPlaylistUnion {
         record("playlist.\(id)")

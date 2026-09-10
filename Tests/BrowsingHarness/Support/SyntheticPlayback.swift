@@ -243,7 +243,7 @@ final class SyntheticPlayback: @unchecked Sendable {
                 devices: RustDevicesState(
                     revision: revision, sessionGeneration: generation, activeDeviceID: activeID,
                     devices: [
-                        ConnectProtocolDevice(id: Self.localID, name: "Jerry's MacBook", type: "computer"),
+                        ConnectProtocolDevice(id: Self.localID, name: "Personal MacBook", type: "computer"),
                         ConnectProtocolDevice(id: Self.remoteID, name: "Living Room", type: "speaker"),
                     ]),
                 connection: RustConnectionState(

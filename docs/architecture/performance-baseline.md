@@ -188,7 +188,9 @@ After the display configuration changed, the built-in Liquid Retina XDR was avai
 [visible samples](measurements/2026-09-10-visible-acceptance.json) replace the earlier display
 blocker with measured evidence; they do not replace the matched, unprofiled batching comparison.
 
-Two final marked captures used the same Debug combined workload and 960 × 692 window with the
+The measured code/fixture contents are committed at `8d1a1cd`; later flag-order, non-playback
+menu-separator and JSON-label cleanups do not alter this playback workload. Two final marked
+captures used the same Debug combined workload and 960 × 692 window with the
 queue inspector open throughout: one with Reduce Motion off, one on. Each passed 40 browsing
 checkpoints, eight playback/lifetime traces, six 96-track hydration waves, network denial and zero
 forbidden mutation attempts. Both reported visible windows at start and end. Reduce Motion was

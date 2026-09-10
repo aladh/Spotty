@@ -7,14 +7,14 @@ source "$project_root/Scripts/embed-sparkle.sh"
 cd "$project_root"
 automated=true
 profile=false
-if [[ "${1:-}" == "--profile" ]]; then
-    profile=true
+while (( $# > 0 )); do
+    case "$1" in
+        --profile) profile=true ;;
+        --interactive) automated=false ;;
+        *) break ;;
+    esac
     shift
-fi
-if [[ "${1:-}" == "--interactive" ]]; then
-    automated=false
-    shift
-fi
+done
 if (( $# > 1 )); then
     print -u2 "Usage: $0 [--profile] [--interactive] [scenario.json]"
     exit 2

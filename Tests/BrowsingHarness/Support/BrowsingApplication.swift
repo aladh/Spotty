@@ -390,8 +390,8 @@ private struct BrowsingApp: App {
             .commands {
                 CommandMenu("Demo") {
                     Button("Run Measurement") { Task { await run.perform() } }
-                    Divider()
                     if run.world.scenario.mode == .playback {
+                        Divider()
                         Button("Reject Next Playback Command") { run.world.playback.inject(.reject) }
                         Button("Hold Next Observation") { run.world.playback.inject(.holdObservation) }
                         Button("Release Held Observations") {

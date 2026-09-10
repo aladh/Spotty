@@ -21,11 +21,11 @@
       692
     ],
     "queueInspector": "open throughout measured workload",
-    "configuration": "Debug",
     "xcode": "27.0 (27A5252f)",
     "sdk": "macOS 26.5",
     "template": "Animation Hitches + os_signpost",
-    "os": "Version 27.0 (Build 26A5425a)"
+    "os": "Version 27.0 (Build 26A5425a)",
+    "buildConfiguration": "Debug"
   },
   "source": {
     "baseCommit": "e15404ab25ed06b3474f9279cb53d70615337634",
@@ -39,7 +39,8 @@
       "Tests/BrowsingHarness/Support/SyntheticPlayback.swift": "f6fbb639c9228da9f34c9a9c1cd274752c119058adf514e0d9cc52d59f532309",
       "Tests/BrowsingHarness/measurement.json": "eea954ee5655c724751dabba55b74c1e550e36a67aed08699a124e86a8e42412"
     },
-    "note": "Both final marked runs use these measured code/fixture contents. Per-run tracked-diff hashes include documentation state and are not content digests of untracked analysis scripts. The summary script is reviewed with this artifact."
+    "note": "Both final marked runs use the recorded code/fixture contents, committed at measuredCommit. Subsequent flag-order, non-playback menu-separator and JSON-label cleanups do not change this measured playback workload; hashes identify the measured revision, not later cleanup contents. Per-run tracked-diff hashes include documentation state and are not content digests of untracked analysis scripts. The summary script is reviewed with this artifact.",
+    "measuredCommit": "8d1a1cd47fd61c6450eab25ac8d71fb50f09e68d"
   },
   "method": {
     "quantiles": "Sorted lower order statistic at floor((n-1)*p); descriptive single-run distributions, not population estimates.",

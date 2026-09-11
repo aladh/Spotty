@@ -16,9 +16,9 @@ Two subagents inspect the same change, and a coordinator reconciles them:
 
 - **Sense.** Each changed claim about the repository is true at the head; content sits in the
   canonical owner named by the [documentation index](../README.md) and is linked rather than
-  duplicated; files under `docs/` follow the [documentation guidance](../AGENTS.md), while root
-  files follow root rules and their own purpose; links and anchors resolve; the change reads
-  correctly in context.
+  duplicated; files under `docs/` follow the [documentation guidance](../AGENTS.md), while other
+  in-scope files follow their nearest `AGENTS.md` and their own purpose; links and anchors resolve;
+  the change reads correctly in context.
 - **Specification guard.** Every hunk in a governed document is classified as wording, a
   correction of a product contract to verified shipped behavior, or a change of requirement, rule,
   or record. Governed documents are the [product contracts](../product/README.md) under

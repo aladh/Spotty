@@ -115,7 +115,7 @@ struct PlaybackPanelTests {
         do {
             // DTO-shape smoke: current-track identity is uri/provider/uid, not catalog labels.
             // Upcoming presentation lives in the QueueProtocolProjection domain suite; wire
-            // coverage is Rust layout/callback/getter tests (`TST-QUE-001`).
+            // coverage is Rust layout/callback/getter tests.
             let decoded = RustQueueState(
                 revision: 1,
                 sessionGeneration: 1,

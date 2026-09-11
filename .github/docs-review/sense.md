@@ -15,12 +15,9 @@ For every changed Markdown file in the range under audit:
    guidance live in that owner: repository-wide rules in the root `AGENTS.md`, path-specific rules
    in the nearest `AGENTS.md`, and procedures in their development or product guide. Content added
    to the wrong document, or duplicated from its owner instead of linked, is a finding.
-3. **Documentation guidance.** The root `AGENTS.md` "Documentation and instructions" section asks
-   for intent, usage, and non-obvious constraints; links to code rather than duplicated mechanics;
-   updating the canonical owner and removing stale guidance; and treating `AGENTS.md` files as
-   scarce, with no tree inventories, implementation maps, exhaustive state lists, test catalogs,
-   task history, or prose copies of linked contracts. Read that section at the head and apply what
-   it says; flag text that narrates a past change or restates code line by line.
+3. **Documentation guidance.** For files under `docs/`, read `docs/AGENTS.md` at the head and apply
+   its rules. For root files, apply the root `AGENTS.md` and the file's own purpose. Flag text that
+   narrates a past change or restates code line by line.
 4. **Links and anchors.** Every relative link resolves and every `#anchor` matches a heading in the
    target. Check anchors the change added or whose target heading the change renamed.
 5. **Clarity.** The change reads correctly in context: no contradiction with the surrounding

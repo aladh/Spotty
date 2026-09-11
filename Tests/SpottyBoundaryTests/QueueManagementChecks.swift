@@ -390,7 +390,8 @@ struct QueueManagementTests {
             feedback: feedback)
         seedRemoteOwner(player)
         player.addToQueue(uris: ["spotify:track:one", "spotify:track:one", "spotify:track:two"])
-        #expect((await waitUntil { remote.sendCount == 3 }) == true, "ordered add finished")
+        // Dispatch is observed before the coordinator finishes and publishes the batch result.
+        #expect((await waitUntil { feedback.message != nil }) == true, "ordered add finished")
         let endpoints = remote.commands.map(\.endpoint)
         #expect(
             (endpoints) == ([.addToQueue, .addToQueue, .addToQueue]),

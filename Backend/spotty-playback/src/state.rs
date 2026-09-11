@@ -197,7 +197,7 @@ impl EngineGeneration {
 }
 
 /// The one lock holding generation-scoped engine state.
-pub(crate) static ENGINE: Lazy<Mutex<EngineGeneration>> =
+static ENGINE: Lazy<Mutex<EngineGeneration>> =
     Lazy::new(|| Mutex::new(EngineGeneration::default()));
 
 /// A write named a generation that no longer owns the engine. The caller logs or ignores it;

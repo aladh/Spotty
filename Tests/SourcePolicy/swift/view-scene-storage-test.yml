@@ -1,0 +1,11 @@
+---
+id: view-scene-storage
+valid:
+- '@SceneStorage("showsPlaybackInspector") var visible = false'
+- "@State var selection: String?"
+- // @AppStorage("panel") var panel = 0
+- let text = "UserDefaults.standard"
+invalid:
+- '@AppStorage("panel") var panel = 0'
+- 'UserDefaults.standard.set(true, forKey: "panel")'
+- 'Foundation.UserDefaults(suiteName: "app")'

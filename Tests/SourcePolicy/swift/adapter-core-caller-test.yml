@@ -1,0 +1,10 @@
+---
+id: adapter-core-caller
+valid:
+- 'let result: PlaybackEngineResult'
+- "// PlaybackCore.resume()"
+- let text = "PlaybackCore"
+invalid:
+- PlaybackCore.resume()
+- 'let result: PlaybackCore.Result'
+- let resume = PlaybackCore.resume

@@ -196,7 +196,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)))
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked))
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             let item = CatalogItem(
                 id: "empty",
@@ -283,7 +283,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)), duration: 4)
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
 
             await catalog.homeLibrary.loadProfile()
@@ -349,7 +349,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)), duration: 4)
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             await catalog.homeLibrary.loadProfile()
             await catalog.homeLibrary.loadPlaylists()
@@ -416,7 +416,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)), duration: 4)
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             await catalog.homeLibrary.loadProfile()
             await catalog.homeLibrary.loadPlaylists()
@@ -477,7 +477,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)), duration: 4)
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             await catalog.homeLibrary.loadProfile()
             await catalog.homeLibrary.loadPlaylists()
@@ -534,7 +534,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)), duration: 4)
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             await catalog.homeLibrary.loadProfile()
             await catalog.homeLibrary.loadPlaylists()
@@ -601,7 +601,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)), duration: 4)
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             await catalog.homeLibrary.loadProfile()
             await catalog.homeLibrary.loadPlaylists()
@@ -640,7 +640,7 @@ struct PlaylistMutationTests {
                 return
             }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)), duration: 4)
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             await catalog.homeLibrary.loadProfile()
             await catalog.homeLibrary.loadPlaylists()
@@ -714,7 +714,7 @@ struct PlaylistMutationTests {
         do {
             let services = ScriptedPlaylistServices()
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .suspend(3_600)))
+            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked))
             let catalog = makeCatalog(services: services, session: session, feedback: feedback)
             let first = fixtureTrack(id: "uid-a", uri: "spotify:track:a", duration: 1.49)
             let second = fixtureTrack(id: "uid-b", uri: "spotify:track:b", duration: 2.5)

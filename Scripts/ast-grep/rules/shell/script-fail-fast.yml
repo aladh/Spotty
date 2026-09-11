@@ -1,0 +1,20 @@
+---
+id: script-fail-fast
+language: Bash
+severity: error
+message: Shell entry points use Bash or zsh and enable errexit, nounset and pipefail at top level.
+files:
+- Scripts/**/*.sh
+- script/**/*.sh
+- Backend/spotty-playback/*.sh
+note: Sourced helpers inherit their caller flags. Bash parses zsh with recovery, so
+  this is only an entry-point shape check.
+rule:
+  kind: program
+  regex: "^#!"
+  any:
+  - not:
+      regex: '^#![ \t]*(\S*/(bash|zsh)|\S*/env[ \t]+(-S[ \t]+)?(bash|zsh))([ \t]|\n|$)'
+  - not:
+      has:
+        pattern: set -euo pipefail

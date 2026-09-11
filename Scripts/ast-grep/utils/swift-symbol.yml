@@ -1,0 +1,7 @@
+---
+id: swift-symbol
+language: Swift
+rule:
+  any:
+  - kind: simple_identifier
+  - kind: type_identifier

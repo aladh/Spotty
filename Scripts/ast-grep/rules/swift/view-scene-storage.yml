@@ -1,0 +1,19 @@
+---
+id: view-scene-storage
+language: Swift
+severity: error
+message: Keep window presentation state in State/SceneStorage; views do not persist
+  application preferences.
+files:
+- Sources/Spotty/Views/**/*.swift
+- Sources/Spotty/RootView.swift
+rule:
+  any:
+  - matches: swift-symbol
+    regex: "^UserDefaults$"
+  - kind: attribute
+    has:
+      kind: user_type
+      has:
+        kind: type_identifier
+        regex: "^AppStorage$"

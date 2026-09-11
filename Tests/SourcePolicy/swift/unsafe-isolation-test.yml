@@ -1,0 +1,12 @@
+---
+id: unsafe-isolation
+valid:
+- nonisolated let value = 0
+- "// nonisolated(unsafe) var value = 0"
+- let text = "nonisolated(unsafe)"
+- 'nonisolated /* explanation */ var value: Int { 0 }'
+invalid:
+- nonisolated(unsafe) var value = 0
+- nonisolated ( unsafe ) var value = 0
+- nonisolated /* comment */ (unsafe) var value = 0
+- nonisolated( /* comment */ unsafe) var value = 0

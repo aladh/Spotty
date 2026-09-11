@@ -1,0 +1,25 @@
+---
+id: logging-owner
+valid:
+- SpottyLog.playback.info("Request accepted")
+- debugLog("Engine", "Request failed")
+- let fingerprint = value.fingerprint
+- "// print(secret)"
+- 'let text = "Logger(subsystem: x)"'
+- import OSLog
+- FileHandle.standardInput.readDataToEndOfFile()
+- 'try FileHandle(forWritingTo: url).write(contentsOf: data)'
+- 'let text = "FileHandle.standardError"'
+invalid:
+- print(token)
+- Swift.print(token)
+- 'let log = Logger(subsystem: "app", category: "auth")'
+- 'let log = os.Logger.init(subsystem: "app", category: "auth")'
+- NSLog("%s", payload)
+- fputs(message, stderr)
+- let output = debugPrint
+- FileHandle.standardError.write(Data())
+- Foundation.FileHandle.standardError.write(Data())
+- let errorStream = FileHandle.standardError
+- FileHandle.standardOutput.write(data)
+- let handle = stderr

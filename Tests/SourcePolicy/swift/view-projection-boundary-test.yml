@@ -1,0 +1,16 @@
+---
+id: view-projection-boundary
+valid:
+- player.semantic
+- store.currentTrackIndicator
+- TrackPlaylistActions()
+- "// PlaybackReducer.apply(event)"
+- let name = "PlaybackState"
+invalid:
+- 'let state: PlaybackState'
+- PlaybackReducer.apply(event)
+- 'let environment: PlaybackEnvironment'
+- PathfinderPlaylistMutationResponse()
+- 'PathfinderAddVariables(playlistId: id, uris: uris)'
+- 'PathfinderRemoveVariables(playlistId: id, uids: uids)'
+- PlaylistItemPosition.bottom

@@ -1,0 +1,12 @@
+---
+id: retired-keychain-api
+language: Swift
+severity: error
+message: Session persistence uses KeymasterFileStore (ADR 007); do not access retired
+  Keychain entries.
+files:
+- Sources/**/*.swift
+- Tests/**/*.swift
+rule:
+  matches: swift-symbol
+  regex: "^(SecItem(Add|CopyMatching|Update|Delete)|SecKeychain[A-Za-z0-9_]*|kSecClass(GenericPassword|InternetPassword))$"

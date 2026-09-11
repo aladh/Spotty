@@ -23,4 +23,4 @@ injected SpottyCore workflows. No suite signs in, initiates live playback, or sh
   at once, or an intricate script of its own — and a comment saying so.
 - Boundary tests and helpers touching their state are `@MainActor`; the complete gate runs that
   target with `--no-parallel`. Use deterministic cooperative synchronization for polling and for
-  negative assertions about completed effects, not fixed sleeps or blocking waits.
+  negative assertions about completed effects, not blocking waits.

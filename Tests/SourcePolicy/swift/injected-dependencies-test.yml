@@ -1,0 +1,24 @@
+---
+id: injected-dependencies
+valid:
+- dependencies.catalog.search()
+- "// PartnerAPI()"
+- let text = "KeymasterSession.shared"
+- FakePartnerAPI()
+- PlaybackCore.start()
+invalid:
+- PartnerAPI()
+- Module.PartnerAPI()
+- |-
+  SpotifyConnectAPI(
+   session: session
+  )
+- SpotifyWebPlayerAPI()
+- KeymasterAuth.authorize()
+- KeymasterSession.shared
+- RustPlaybackEngine.shared
+- PartnerAPI.init()
+- Module.SpotifyWebPlayerAPI.init()
+- Module.KeymasterSession.shared
+- let make = SpotifyConnectAPI.init
+- PlaybackEnvironment.live()

@@ -1,0 +1,25 @@
+---
+id: no-generic-effects
+language: Swift
+severity: error
+message: Keep PlaybackEffectRegistry and the domain reducer; ADR 003 excludes TCA
+  and a generic Effect abstraction.
+files:
+- Sources/**/*.swift
+- Package.swift
+rule:
+  any:
+  - matches: swift-symbol
+    regex: "^ComposableArchitecture$"
+  - all:
+    - any:
+      - kind: class_declaration
+      - kind: typealias_declaration
+    - has:
+        field: name
+        kind: type_identifier
+        regex: "^Effect$"
+    - has:
+        kind: type_parameters
+  - kind: line_string_literal
+    regex: "(?i)swift-composable-architecture|thecomposablearchitecture"

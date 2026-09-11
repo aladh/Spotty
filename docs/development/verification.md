@@ -32,7 +32,7 @@ SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ```
 
 The full gate includes source policies; CI runs those once in the Linux `Source policies` job,
-separately from the Swift and Rust scopes. `check-source-policy.sh` needs Python 3 and ast-grep
+separately from the Swift and Rust scopes. `check-source-policy.sh` needs Python 3, Ruby, and ast-grep
 at the version in `Scripts/ast-grep/version`. Install with `brew install ast-grep` when Homebrew
 provides that version, or install the exact CLI with npm:
 
@@ -41,9 +41,10 @@ npm install --prefix /tmp/spotty-ast-grep "@ast-grep/cli@$(cat Scripts/ast-grep/
 SPOTTY_AST_GREP=/tmp/spotty-ast-grep/node_modules/.bin/ast-grep ./Scripts/check-source-policy.sh
 ```
 
-[Source policies](../architecture/enforcement/source-checks.md) index the rules and their limits.
-When changing a rule, cover syntax variants and file-owner exceptions. A clean syntax scan does
-not replace Swift compilation or behavior tests.
+[Source policies](../architecture/enforcement/source-checks.md) explain the rules and their limits.
+The same scan roots run locally and in CI, including tests, launch/engine scripts, and the package
+manifest. Rule fixtures cover matching; routing tests cover file owners and exceptions. A clean
+syntax scan does not replace Swift compilation or behavior tests.
 
 The full and Rust scopes require the [engine toolchain](setup.md#engine-development).
 The Swift scope and packaging use the pinned binary without the Rust compiler. Verification also

@@ -1,0 +1,29 @@
+---
+id: logging-owner
+language: Swift
+severity: error
+message: Use SpottyLog/debugLog; logging backends and standard output/error belong to DebugLog.swift.
+files:
+- Sources/**/*.swift
+ignores:
+- Sources/SpottyEngineAdapter/DebugLog.swift
+note: Centralized output does not prove payloads are privacy-safe. Review dynamic
+  fields under PRIVACY.md.
+rule:
+  any:
+  - matches: swift-symbol
+    regex: "^(Logger|OSLog|OSSignposter|NSLog|os_log|os_signpost|print|debugPrint|dump|fputs|puts|printf|fprintf|stderr|stdout)$"
+  - kind: navigation_expression
+    has:
+      field: target
+      regex: "(^|\\.)FileHandle$"
+    all:
+    - has:
+        field: suffix
+        has:
+          matches: swift-symbol
+          regex: "^(standardError|standardOutput)$"
+  not:
+    inside:
+      kind: import_declaration
+      stopBy: end

@@ -1,0 +1,11 @@
+---
+id: adapter-c-import
+valid:
+- import SpottyDomain
+- 'let snapshot: RustQueueState'
+- "// import SpottyPlaybackCore"
+- let text = "spotty_playback_resume()"
+invalid:
+- import SpottyPlaybackCore
+- spotty_playback_resume()
+- let resume = spotty_playback_resume

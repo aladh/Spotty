@@ -6,6 +6,8 @@ replacing Spotify styling with macOS defaults. Keep scope small using the
 ## Development
 
 - Use the [documentation index](docs/README.md) for product contracts and procedures.
+- [Source policies](Scripts/ast-grep/rules) own enforceable syntax constraints and their exceptions;
+  use the [source-check guide](docs/architecture/enforcement/source-checks.md) when changing them.
 - Spotty is maintained exclusively by agents. Finish implementation and relevant verification;
   report remaining blockers or unperformed acceptance steps.
 - Follow [PR execution and acceptance](CONTRIBUTING.md#pull-request-execution).

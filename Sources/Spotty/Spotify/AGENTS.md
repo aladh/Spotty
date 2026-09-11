@@ -23,8 +23,7 @@ and playback boundaries.
   primitives and reads the `isTearingDown` flag the owner sets; it does not coalesce teardown.
 - Views never read the reducer snapshot; they read published projections per
   [ADR 002 tradeoffs](../../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md#tradeoffs).
-- Session persistence follows [ADR 007](../../../docs/architecture/adrs/ADR-007-session-persistence.md);
-  never read, migrate, or modify retired Keychain entries.
+- Session persistence follows [ADR 007](../../../docs/architecture/adrs/ADR-007-session-persistence.md).
 
 ## Boundary invariants
 
@@ -34,12 +33,12 @@ and playback boundaries.
 - Track identity is the market/requested Spotify track ID. Relinked decode IDs and metadata may
   enrich it but never replace it or create a second identity model.
 - Ordered sources carry revisions; account and engine generations reject stale callbacks and
-  requests. Do not use `lastRevision: inout`; compare and commit revision state at its owner.
+  requests. Compare and commit revision state at its owner.
 - `QueueService` owns precedence and context identity. `QueueProtocolProjection` projects upcoming
   rows from unfiltered Connect tracks; metadata must not reorder or erase newer authoritative state.
 - Follow the engine contract for typed observations, Swift presentation policy, and the single
   reconnect rehydration sequence. Resume targets come from sticky resume-load URIs via
   `ResumeLoadPlan`, never presentation snapshots.
 - Keep read-only catalog access separate from playlist mutation. Writes use `PlaylistMutating` and
-  `PlaylistMutationController`; Pathfinder mutation DTOs do not enter views.
+  `PlaylistMutationController`.
 - Follow [privacy](../../../PRIVACY.md) for logging; never log credentials or private identifiers.

@@ -1,0 +1,19 @@
+---
+id: test-no-wall-sleep
+language: Swift
+severity: error
+message: Use HarnessClock or cooperative synchronization in deterministic tests; real
+  sleeps belong in the interactive measurement harness.
+files:
+- Tests/SpottyBoundaryTests/**/*.swift
+- Tests/SpottyDomainTests/**/*.swift
+- Tests/BrowsingHarness/Checks/**/*.swift
+rule:
+  any:
+  - matches: swift-wall-sleep
+  - kind: navigation_expression
+    has:
+      kind: navigation_suffix
+      has:
+        kind: simple_identifier
+        regex: "^asyncAfter$"

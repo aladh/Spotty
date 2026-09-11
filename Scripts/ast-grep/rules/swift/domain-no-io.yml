@@ -1,0 +1,41 @@
+---
+id: domain-no-io
+language: Swift
+severity: error
+message: Keep SpottyDomain free of I/O and task scheduling; inject values and move
+  live timing to SpottyCore.
+files:
+- Sources/SpottyDomain/**/*.swift
+note: The Linux build owns unavailable UI/audio/FFI imports. This rule covers known
+  Foundation I/O and scheduler APIs that can compile there; it is not a purity proof.
+rule:
+  any:
+  - matches: swift-symbol
+    regex: "^(URLSession|URLSessionConfiguration|URLCache|HTTPCookieStorage|FileManager|FileHandle|UserDefaults|ProcessInfo|Process|FoundationNetworking|NSHomeDirectory|NSTemporaryDirectory)$"
+  - matches: swift-task-creation
+  - matches: swift-wall-sleep
+  - kind: navigation_expression
+    has:
+      field: target
+      kind: simple_identifier
+      regex: "^(Double|Float|Int|UInt|Bool)$"
+    all:
+    - has:
+        kind: navigation_suffix
+        has:
+          kind: simple_identifier
+          regex: "^random$"
+  - kind: call_expression
+    has:
+      kind: simple_identifier
+      regex: "^(Data|String)$"
+    all:
+    - has:
+        kind: call_suffix
+        has:
+          kind: value_arguments
+          has:
+            kind: value_argument
+            has:
+              kind: value_argument_label
+              regex: "^contentsOf$"

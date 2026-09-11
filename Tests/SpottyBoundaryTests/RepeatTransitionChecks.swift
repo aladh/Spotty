@@ -107,7 +107,7 @@ private actor ScriptedRepeatRemote: RemotePlaybackClient {
         sends.append(RepeatSend(endpoint: command.endpoint, enabled: booleanValue(command)))
         defer { completedSends += 1 }
         if sleepUntilCancelled {
-            try await Task.sleep(nanoseconds: 60_000_000_000)
+            try await HarnessClock.parked().sleep(seconds: 60)
             return
         }
         if sends.count == holdAfterCount {

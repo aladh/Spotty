@@ -37,15 +37,6 @@ public enum SpotifyTransientRetry {
             self.unitJitter = unitJitter
         }
 
-        public static let production = Timing(
-            now: { Date() },
-            sleep: { seconds in
-                guard seconds > 0 else { return }
-                try await Task.sleep(for: .seconds(seconds))
-            },
-            unitJitter: { Double.random(in: 0...1) }
-        )
-
     }
 
     public static func isRetryableStatus(_ status: Int) -> Bool {

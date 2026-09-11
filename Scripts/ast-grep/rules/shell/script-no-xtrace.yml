@@ -1,0 +1,35 @@
+---
+id: script-no-xtrace
+language: Bash
+severity: error
+message: Do not enable shell tracing in build or account tooling; expanded commands
+  can expose credentials.
+files:
+- Scripts/**/*.sh
+- script/**/*.sh
+- Backend/spotty-playback/*.sh
+rule:
+  kind: command
+  has:
+    field: name
+    regex: "^set$"
+  all:
+  - any:
+    - has:
+        any:
+        - kind: word
+        - kind: string
+        - kind: raw_string
+        regex: ^["\']?-[a-zA-Z]*x[a-zA-Z]*["\']?$
+    - has:
+        any:
+        - kind: word
+        - kind: string
+        - kind: raw_string
+        regex: ^["\']?-o["\']?$
+        precedes:
+          any:
+          - kind: word
+          - kind: string
+          - kind: raw_string
+          regex: ^["\']?xtrace["\']?$

@@ -3,10 +3,8 @@
 Follow [ADR 002](../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md) for this
 portable, deterministic policy layer.
 
-- This target has no UI, audio, network, storage, or FFI dependency. Do not import AppKit, SwiftUI,
-  AVFoundation, or `SpottyPlaybackCore`, and do not smuggle environment access through closures or
-  globals. CI's `Linux domain` job compiles this target and runs its tests where none of those
-  modules exist, so a forbidden import is a build failure rather than a review finding.
+- This target is portable policy. The Linux build enforces the module boundary. Review injected
+  closures and globals for environment access. Live retry timing belongs to the app adapter.
 - Reducer acceptance and lifetime values are behavior, not implementation trivia. Preserve stale,
   superseded, teardown, cancellation, epoch, and revision semantics when adding events or effects.
   Settled intent outcomes are immutable;

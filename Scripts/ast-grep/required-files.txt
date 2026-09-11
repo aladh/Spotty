@@ -1,0 +1,11 @@
+README.md
+SECURITY.md
+CONTRIBUTING.md
+Sources/Spotty/SpottyApp.swift
+Sources/SpottyEngineAdapter/PlaybackCore.swift
+Sources/Spotty/Spotify/KeymasterFileStore.swift
+Sources/SpottyEngineAdapter/RustPlaybackEngine.swift
+Backend/spotty-playback/src/player_event_pump.rs
+script/build_and_run.sh
+Scripts/package-app.sh
+Scripts/validate-app.sh

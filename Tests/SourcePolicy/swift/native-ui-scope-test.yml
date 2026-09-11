@@ -1,0 +1,13 @@
+---
+id: native-ui-scope
+valid:
+- 'Window("Spotty", id: "main") { RootView() }'
+- NSWorkspace.shared.open(url)
+- let text = "WKWebView()"
+- "// Settings { Preferences() }"
+invalid:
+- import WebKit
+- 'WKWebView(frame: .zero)'
+- SwiftUI.Settings { Preferences() }
+- Settings { Preferences() }
+- List(rows).refreshable { await load() }

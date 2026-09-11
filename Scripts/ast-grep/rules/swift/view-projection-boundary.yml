@@ -1,0 +1,14 @@
+---
+id: view-projection-boundary
+language: Swift
+severity: error
+message: Views consume published projections and narrow actions; reducer snapshots
+  and Pathfinder mutation DTOs stay below the UI.
+files:
+- Sources/Spotty/Views/**/*.swift
+- Sources/Spotty/RootView.swift
+rule:
+  matches: swift-symbol
+  regex: "^(PlaybackState|PlaybackReducer|PlaybackEnvironment|Pathfinder[A-Za-z0-9_]*|PlaylistItemPosition)$"
+note: This catches named reducer/protocol dependencies; access through an untyped
+  alias still needs review.

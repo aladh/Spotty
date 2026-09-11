@@ -43,23 +43,14 @@ class WorkflowInvariantTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_failures_name_the_broken_invariant(self):
-        for kind, expected in [('permissions', 'workflow permissions'),
-                               ('runner', 'macOS image must remain macos-26'),
-                               ('checkout', 'checkout must disable persisted credentials'),
-                               ('pin', 'action must use a full commit SHA'),
+        for kind, expected in [('runner', 'macOS image must remain macos-26'),
                                ('aggregate', 'aggregate must run even after failures'),
                                ('repeats', 'main must repeat boundary checks three times')]:
             with self.subTest(kind=kind):
                 variant = copy.deepcopy(self.workflow)
                 steps = variant['jobs']['macos']['steps']
-                if kind == 'permissions':
-                    variant['permissions'] = {'contents': 'write'}
-                elif kind == 'runner':
+                if kind == 'runner':
                     variant['jobs']['macos']['runs-on'] = 'macos-latest'
-                elif kind == 'checkout':
-                    steps[0]['with']['persist-credentials'] = True
-                elif kind == 'pin':
-                    steps[0]['uses'] = 'actions/checkout@main'
                 elif kind == 'aggregate':
                     next(s for s in steps if s['name'] == 'Require every quality lane')['if'] = 'success()'
                 elif kind == 'repeats':
@@ -98,7 +89,7 @@ class WorkflowInvariantTests(unittest.TestCase):
 
     def test_source_script_coverage_and_candidate_digest_are_preserved(self):
         cases = [
-            ('check-source-policy.sh', 'scan --config sgconfig.yml Sources Backend/spotty-playback/src Scripts .github/workflows',
+            ('check-source-policy.sh', 'scan --config sgconfig.yml Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift',
              'scan --config sgconfig.yml Sources', 'local source scan must cover'),
             ('check-source-policy.sh', "-p 'test_*policy.py'", "-p 'missing*.py'", 'Python policy fixtures'),
             ('playback-candidate-needed.sh', './Backend/spotty-playback/source-input-digest.sh)',

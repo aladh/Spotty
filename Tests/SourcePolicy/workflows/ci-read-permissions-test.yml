@@ -1,0 +1,70 @@
+---
+id: ci-read-permissions
+valid:
+- |-
+  permissions: {contents: read}
+  jobs: {}
+- |-
+  permissions:
+    contents: read
+  jobs: {}
+- "{permissions: {contents: read}, jobs: {}}"
+- |-
+  "permissions": {"contents": "read"}
+  jobs: {}
+- |-
+  permissions:
+    # comment
+    contents: read
+  jobs: {}
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      permissions:
+        contents: read
+      runs-on: ubuntu-latest
+- '{permissions: {contents: read}, jobs: {check: {permissions: {contents: read}}}}'
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      env:
+        permissions: {contents: write}
+invalid:
+- 'jobs: {}'
+- |-
+  permissions: {contents: write}
+  jobs: {}
+- |-
+  permissions: {contents: read, actions: write}
+  jobs: {}
+- "{permissions: {}, jobs: {}}"
+- |-
+  permissions: {contents: read}
+  permissions: {contents: write}
+  jobs: {}
+- |-
+  permissions:
+    # comment
+    contents: read
+    actions: write
+  jobs: {}
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      permissions: {contents: write}
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      permissions:
+        contents: read
+        actions: write
+- '{permissions: {contents: read}, jobs: {check: {permissions: {contents: write}}}}'
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      "permissions": {"contents": "write"}

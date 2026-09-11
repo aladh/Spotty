@@ -1,0 +1,11 @@
+---
+id: model-dependencies
+valid:
+- 'struct Selection { var ids: Set<String> = [] }'
+- 'let track: CatalogItem'
+- let text = "PlaybackStore"
+invalid:
+- 'let player: PlaybackStore'
+- 'let catalog: any CatalogProviding'
+- PartnerAPI()
+- Foundation.URLSession.shared

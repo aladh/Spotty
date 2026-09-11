@@ -1,0 +1,18 @@
+---
+id: workflow-shell-interpolation
+language: Yaml
+severity: error
+message: Pass Actions expressions through env and quote shell variables; do not interpolate
+  expressions into run scripts.
+files:
+- ".github/workflows/*.yml"
+- ".github/workflows/*.yaml"
+rule:
+  matches: yaml-pair
+  all:
+  - has:
+      field: key
+      regex: ^["']?run["']?$
+  - has:
+      field: value
+      regex: "\\$\\{\\{"

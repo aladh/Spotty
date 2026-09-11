@@ -1,0 +1,11 @@
+---
+id: ci-fail-closed
+valid:
+- 'continue-on-error: false'
+- 'steps: [{run: ./Scripts/check.sh}]'
+- "# continue-on-error: true"
+invalid:
+- 'continue-on-error: true'
+- 'continue-on-error: ${{ inputs.optional }}'
+- "{continue-on-error: true}"
+- 'continue-on-error: "false"'

@@ -1,0 +1,12 @@
+---
+id: fixed-appearance
+language: Swift
+severity: error
+message: Spotty has one fixed dark appearance; do not add appearance-mode selection.
+files:
+- Sources/Spotty/**/*.swift
+rule:
+  any:
+  - matches: swift-symbol
+    regex: "^(colorScheme|effectiveAppearance|preferredColorScheme)$"
+  - pattern: 'NSAppearance(named: .aqua)'

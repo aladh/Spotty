@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SpottyDomain
 
 /// A client token and how long it is good for.
 nonisolated struct GrantedClientToken: Sendable, Equatable {
@@ -46,6 +47,7 @@ actor ClientTokenProvider {
 
     private let fetcher: Fetcher
     private let deviceIdStore: DeviceIdStoring
+    private var generation: UInt64 = 0
     private var cached: GrantedClientToken?
     private var inFlight: Task<GrantedClientToken, Error>?
 
@@ -70,13 +72,20 @@ actor ClientTokenProvider {
         }
 
         let deviceId = deviceIdStore.deviceId()
-        let task = Task { [fetcher] in try await fetcher(deviceId) }
+        let startedAt = generation
+        // Commit inside the shared task, before any joiner can expose the token to HTTP callers.
+        let task = Task { try await self.fetchAndCommit(deviceId: deviceId, generation: startedAt) }
         inFlight = task
-        defer { inFlight = nil }
+        defer { if inFlight == task { inFlight = nil } }
+        return try await task.value.token
+    }
 
-        let granted = try await task.value
+    private func fetchAndCommit(deviceId: String, generation: UInt64) async throws -> GrantedClientToken {
+        let granted = try await fetcher(deviceId)
+        guard generation == self.generation else { throw CancellationError() }
         cached = granted
-        return granted.token
+        inFlight = nil
+        return granted
     }
 
     /// Drops the cached token, so the next caller fetches a fresh one. For a 401, where the
@@ -89,7 +98,10 @@ actor ClientTokenProvider {
     /// endpoint that can answer with a proof-of-work challenge this app cannot solve.
     func invalidate(rejected: String) {
         guard cached?.token == rejected else { return }
+        generation &+= 1
         cached = nil
+        inFlight?.cancel()
+        inFlight = nil
     }
 }
 
@@ -174,7 +186,11 @@ nonisolated enum ClientTokenRequest {
         return GrantedClientToken(token: token, expiresAt: now.addingTimeInterval(lifetime))
     }
 
-    static func send(deviceId: String) async throws -> GrantedClientToken {
+    static func send(
+        deviceId: String,
+        transport: SpotifyCredentials.Transport = { try await URLSession.shared.data(for: $0) },
+        retryTiming: SpotifyTransientRetry.Timing = .production
+    ) async throws -> GrantedClientToken {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/x-protobuf", forHTTPHeaderField: "Content-Type")
@@ -184,7 +200,8 @@ nonisolated enum ClientTokenRequest {
 
         debugLog("ClientToken", "[POST] \(endpoint.absoluteString)")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await TokenRequestTransport.send(
+            request, transport: transport, timing: retryTiming, retryNetworkErrors: true)
 
         guard let http = response as? HTTPURLResponse else {
             throw ClientTokenError.malformedResponse

@@ -14,7 +14,6 @@ nonisolated protocol CatalogProviding: Sendable {
     func searchArtists(_ term: String, limit: Int) async throws -> [PathfinderArtist]
     func searchPlaylists(_ term: String, limit: Int) async throws -> [PathfinderPlaylist]
     func home() async throws -> PathfinderHome
-    func libraryPlaylists() async throws -> [PathfinderPlaylist]
     func playlistLibrary() async throws -> [PlaylistLibraryNode]
     func libraryAlbums() async throws -> [PathfinderAlbum]
     func libraryArtists() async throws -> [PathfinderArtist]
@@ -33,11 +32,6 @@ nonisolated enum CatalogProviderCapabilityError: Error {
 }
 
 extension CatalogProviding {
-    /// Flat fallback for providers without folder support; PartnerAPI supplies the full hierarchy.
-    func playlistLibrary() async throws -> [PlaylistLibraryNode] {
-        try await libraryPlaylists().compactMap(CatalogMapping.item(from:)).map(PlaylistLibraryNode.init(playlist:))
-    }
-
     func searchAlbums(_: String, limit _: Int) async throws -> [PathfinderAlbum] {
         throw CatalogProviderCapabilityError.unsupported
     }

@@ -19,6 +19,8 @@ struct PlaylistSelectionAppearance: NSViewRepresentable {
         private static let leases = NSMapTable<NSTableView, Lease>.weakToStrongObjects()
         private weak var table: NSTableView?
 
+        isolated deinit { detach() }
+
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -34,6 +36,10 @@ struct PlaylistSelectionAppearance: NSViewRepresentable {
                 detach()
                 return
             }
+            attach(to: next)
+        }
+
+        func attach(to next: NSTableView) {
             guard table !== next else { return }
             detach()
             let lease = Self.leases.object(forKey: next) ?? Lease(next)

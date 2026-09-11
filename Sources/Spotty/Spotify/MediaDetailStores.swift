@@ -81,7 +81,7 @@ final class AlbumDetailStore {
                     guard !isCancellation(error), self.isCurrent(handle) else {
                         return
                     }
-                    self.error = error.localizedDescription
+                    self.error = CatalogErrorPresentation.message(for: error)
                 }
             }
         }
@@ -157,7 +157,7 @@ final class ArtistDetailStore {
                     guard !isCancellation(error), self.isCurrent(handle) else {
                         return
                     }
-                    self.error = error.localizedDescription
+                    self.error = CatalogErrorPresentation.message(for: error)
                 }
             }
         }

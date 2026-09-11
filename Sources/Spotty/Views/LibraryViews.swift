@@ -35,69 +35,60 @@ struct SearchView: View {
                     message: "Find tracks, artists, albums, and playlists."
                 )
                 .padding(CatalogLayout.contentPadding)
-            } else if store.isSearching && store.isEmpty {
-                LoadingState(label: "Searching Spotify")
-                    .padding(CatalogLayout.contentPadding)
-            } else if let error = store.error, store.isEmpty {
-                EmptyState(
-                    icon: "exclamationmark.magnifyingglass",
-                    title: "Couldn't search Spotify",
-                    message: error,
-                    actionTitle: "Try Again",
-                    actionSystemImage: "arrow.clockwise"
-                ) {
-                    Task { await store.search(searchText) }
-                }
-                .padding(CatalogLayout.contentPadding)
-            } else if store.isEmpty {
-                EmptyState(
-                    icon: "magnifyingglass",
-                    title: "No results for “\(searchText)”",
-                    message: "Try another track, artist, or album."
-                )
-                .padding(CatalogLayout.contentPadding)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 24) {
-                        if !store.failedSections.isEmpty {
-                            partialFailureBanner
-                        }
-                        if !store.artists.isEmpty {
-                            MediaShelf(
-                                section: CatalogSection(id: "search-artists", title: "Artists", items: store.artists),
-                                playback: playback,
-                                onSelect: onSelect
-                            )
-                        }
-                        if !store.albums.isEmpty {
-                            MediaShelf(
-                                section: CatalogSection(id: "search-albums", title: "Albums", items: store.albums),
-                                playback: playback,
-                                onSelect: onSelect
-                            )
-                        }
-                        if !store.playlists.isEmpty {
-                            MediaShelf(
-                                section: CatalogSection(
-                                    id: "search-playlists", title: "Playlists", items: store.playlists),
-                                playback: playback,
-                                onSelect: onSelect
-                            )
-                        }
-                        if !store.tracks.isEmpty {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Tracks").font(.system(size: 24, weight: .bold))
-                                TrackTable(
-                                    tracks: store.trackCollection,
-                                    metadata: metadata,
+                CatalogContentState(
+                    isLoading: store.isSearching, isEmpty: store.isEmpty, error: store.error,
+                    loadingLabel: "Searching Spotify", errorTitle: "Couldn't search Spotify",
+                    errorIcon: "exclamationmark.magnifyingglass", placeholderPadding: CatalogLayout.contentPadding,
+                    retry: { await store.search(searchText) }
+                ) {
+                    EmptyState(
+                        icon: "magnifyingglass", title: "No results for “\(searchText)”",
+                        message: "Try another track, artist, or album.")
+                } content: {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 24) {
+                            if !store.failedSections.isEmpty {
+                                partialFailureBanner
+                            }
+                            if !store.artists.isEmpty {
+                                MediaShelf(
+                                    section: CatalogSection(
+                                        id: "search-artists", title: "Artists", items: store.artists),
                                     playback: playback,
-                                    playlistActions: playlistActions
+                                    onSelect: onSelect
                                 )
-                                .frame(minHeight: 280)
+                            }
+                            if !store.albums.isEmpty {
+                                MediaShelf(
+                                    section: CatalogSection(id: "search-albums", title: "Albums", items: store.albums),
+                                    playback: playback,
+                                    onSelect: onSelect
+                                )
+                            }
+                            if !store.playlists.isEmpty {
+                                MediaShelf(
+                                    section: CatalogSection(
+                                        id: "search-playlists", title: "Playlists", items: store.playlists),
+                                    playback: playback,
+                                    onSelect: onSelect
+                                )
+                            }
+                            if !store.tracks.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Tracks").font(.system(size: 24, weight: .bold))
+                                    TrackTable(
+                                        tracks: store.trackCollection,
+                                        metadata: metadata,
+                                        playback: playback,
+                                        playlistActions: playlistActions
+                                    )
+                                    .frame(minHeight: 280)
+                                }
                             }
                         }
+                        .padding(CatalogLayout.contentPadding)
                     }
-                    .padding(CatalogLayout.contentPadding)
                 }
             }
         }
@@ -148,41 +139,15 @@ struct LibraryView: View {
 
     var body: some View {
         ScrollView {
-            if isLoading && items.isEmpty {
-                LoadingState(label: "Loading \(title.lowercased())")
-                    .padding(CatalogLayout.contentPadding)
-            } else if items.isEmpty {
-                Group {
-                    if !playback.isConnected {
-                        EmptyState(
-                            icon: "person.crop.circle.badge.plus",
-                            title: "Connect Spotify",
-                            message: playback.statusText,
-                            actionTitle: playback.connectionActionTitle,
-                            actionSystemImage: "link"
-                        ) {
-                            playback.connect()
-                        }
-                    } else if let error {
-                        EmptyState(
-                            icon: "exclamationmark.triangle",
-                            title: "Couldn't load \(title.lowercased())",
-                            message: error,
-                            actionTitle: "Try Again",
-                            actionSystemImage: "arrow.clockwise"
-                        ) {
-                            Task { await reload() }
-                        }
-                    } else {
-                        EmptyState(
-                            icon: "tray",
-                            title: "No \(title.lowercased()) found",
-                            message: "This part of your Spotify library is empty."
-                        )
-                    }
-                }
-                .padding(CatalogLayout.contentPadding)
-            } else {
+            CatalogContentState(
+                isLoading: isLoading, isEmpty: items.isEmpty, error: error,
+                loadingLabel: "Loading \(title.lowercased())", errorTitle: "Couldn't load \(title.lowercased())",
+                placeholderPadding: CatalogLayout.contentPadding, connection: playback, retry: reload
+            ) {
+                EmptyState(
+                    icon: "tray", title: "No \(title.lowercased()) found",
+                    message: "This part of your Spotify library is empty.")
+            } content: {
                 VStack(alignment: .leading, spacing: 20) {
                     Text(title)
                         .font(.system(size: 32, weight: .bold))
@@ -237,37 +202,14 @@ struct TrackCollectionView: View {
 
             CatalogTableDivider()
 
-            if isLoading && tracks.tracks.isEmpty {
-                LoadingState(label: "Loading \(title.lowercased())")
-            } else if tracks.tracks.isEmpty {
-                if !playback.isConnected {
-                    EmptyState(
-                        icon: "person.crop.circle.badge.plus",
-                        title: "Connect Spotify",
-                        message: "Your Spotify tracks will appear after you connect.",
-                        actionTitle: playback.connectionActionTitle,
-                        actionSystemImage: "link"
-                    ) {
-                        playback.connect()
-                    }
-                } else if let error = reloadError {
-                    EmptyState(
-                        icon: "exclamationmark.triangle",
-                        title: "Couldn't load tracks",
-                        message: error,
-                        actionTitle: "Try Again",
-                        actionSystemImage: "arrow.clockwise"
-                    ) {
-                        Task { await reload() }
-                    }
-                } else {
-                    EmptyState(
-                        icon: emptyIcon,
-                        title: emptyTitle ?? "No tracks to show",
-                        message: emptyMessage ?? subtitle
-                    )
-                }
-            } else {
+            CatalogContentState(
+                isLoading: isLoading, isEmpty: tracks.tracks.isEmpty, error: reloadError,
+                loadingLabel: "Loading \(title.lowercased())", errorTitle: "Couldn't load tracks",
+                connection: playback, connectionMessage: "Your Spotify tracks will appear after you connect.",
+                retry: reload
+            ) {
+                EmptyState(icon: emptyIcon, title: emptyTitle ?? "No tracks to show", message: emptyMessage ?? subtitle)
+            } content: {
                 TrackTable(
                     tracks: tracks,
                     metadata: metadata,

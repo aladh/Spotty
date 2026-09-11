@@ -103,7 +103,6 @@ struct AuthCredentialRetryTests {
         try? await session.adopt(grant(access: "access-a", refresh: "refresh-a"))
 
         let announcements = RevocationProbe(session.grantRevocations())
-        await session.drainActor()
 
         let pending = Task { try await session.refreshIgnoringExpiry(rejected: "access-a") }
         await refresher.waitUntilParked()
@@ -148,7 +147,6 @@ struct AuthCredentialRetryTests {
         try? await session.adopt(grant(access: "access-a", refresh: "refresh-a"))
 
         let announcements = RevocationProbe(session.grantRevocations())
-        await session.drainActor()
 
         let pending = Task { try await session.refreshIgnoringExpiry(rejected: "access-a") }
         await refresher.waitUntilParked()

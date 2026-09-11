@@ -90,10 +90,10 @@ struct TransientFeedbackTests {
             let cooperative = CooperativeParkedClock()
             let cancelling = TransientFeedbackPresenter(clock: cooperative, duration: 4)
             cancelling.success("First")
-            _ = await waitUntil { cooperative.waiterCount == 1 }
+            await expectEventually { cooperative.waiterCount == 1 }
             let firstID = cancelling.message?.id
             cancelling.failure("Second")
-            _ = await waitUntil { cooperative.waiterCount == 1 && cancelling.message?.text == "Second" }
+            await expectEventually { cooperative.waiterCount == 1 && cancelling.message?.text == "Second" }
             #expect((cancelling.message?.text) == ("Second"), "replacement is the only visible message")
             #expect((cancelling.message?.id != firstID) == true, "replacement is a new identity")
             #expect(
@@ -106,19 +106,19 @@ struct TransientFeedbackTests {
             let uncooperative = HarnessClock(sleep: .uncooperativelyParked)
             let stale = TransientFeedbackPresenter(clock: uncooperative, duration: 4)
             stale.success("Keep me")
-            _ = await waitUntil { uncooperative.waiterCount == 1 }
+            await expectEventually { uncooperative.waiterCount == 1 }
             stale.failure("Replacement")
-            _ = await waitUntil { uncooperative.waiterCount == 2 }
+            await expectEventually { uncooperative.waiterCount == 2 }
             #expect((stale.message?.text) == ("Replacement"), "replacement is showing before stale wake")
             let replacementID = stale.message?.id
 
             uncooperative.releaseNext()
-            _ = await waitUntil { uncooperative.waiterCount == 1 }
+            await expectEventually { uncooperative.waiterCount == 1 }
             #expect((stale.message?.text) == ("Replacement"), "a stale dismissal cannot remove the replacement")
             #expect((stale.message?.id) == (replacementID), "replacement identity is unchanged")
 
             uncooperative.releaseNext()
-            _ = await waitUntil { stale.message == nil }
+            await expectEventually { stale.message == nil }
             #expect((stale.message) == nil, "the current dismissal still expires the replacement")
         }
 
@@ -153,7 +153,7 @@ struct TransientFeedbackTests {
             )
             seedReady(localSuccess)
             localSuccess.addToQueue(uris: ["spotify:track:local-ok"])
-            _ = await waitUntil { localSuccessFeedback.message?.kind == .success }
+            await expectEventually { localSuccessFeedback.message?.kind == .success }
             #expect((localSuccessFeedback.message?.text) == ("Queue request sent"), "local add success")
             #expect((localSuccess.transientCommandError) == nil, "local add success is not a playback notice")
             await localSuccess.shutdownForTermination()
@@ -165,7 +165,7 @@ struct TransientFeedbackTests {
             )
             seedReady(localFailure)
             localFailure.addToQueue(uris: ["spotify:track:local-fail"])
-            _ = await waitUntil { localFailureFeedback.message?.kind == .failure }
+            await expectEventually { localFailureFeedback.message?.kind == .failure }
             #expect(
                 (localFailureFeedback.message?.text) == ("Could not add that track to the queue."), "local add failure")
             #expect((localFailure.transientCommandError) == nil, "local add failure is not a playback notice")
@@ -196,7 +196,7 @@ struct TransientFeedbackTests {
             )
             seedRemoteOwner(remoteSuccess)
             remoteSuccess.addToQueue(uris: ["spotify:track:remote-ok"])
-            _ = await waitUntil { remoteSuccessFeedback.message?.kind == .success }
+            await expectEventually { remoteSuccessFeedback.message?.kind == .success }
             #expect((remoteSuccessFeedback.message?.text) == ("Queue request sent"), "remote add success")
             #expect((remote.sendCount) == (1), "remote add still sends add_to_queue")
             #expect((remoteSuccess.transientCommandError) == nil, "remote add success is not a playback notice")
@@ -210,7 +210,7 @@ struct TransientFeedbackTests {
             )
             seedRemoteOwner(remoteFailure)
             remoteFailure.addToQueue(uris: ["spotify:track:remote-fail"])
-            _ = await waitUntil { remoteFailureFeedback.message?.kind == .failure }
+            await expectEventually { remoteFailureFeedback.message?.kind == .failure }
             #expect(
                 (remoteFailureFeedback.message?.text) == ("Could not add that track to the queue."),
                 "remote add failure")

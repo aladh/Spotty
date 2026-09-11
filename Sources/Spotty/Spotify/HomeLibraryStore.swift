@@ -238,7 +238,7 @@ final class HomeLibraryStore {
         SpottyLog.catalog.error(
             "Catalog section failed: \(section.rawValue, privacy: .public); error=\(String(describing: type(of: error)), privacy: .public)"
         )
-        errors[section] = error.localizedDescription
+        errors[section] = CatalogErrorPresentation.message(for: error)
     }
 
     private func updateLibraryItemCache() {

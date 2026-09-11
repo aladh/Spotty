@@ -180,7 +180,7 @@ final class SearchStore {
         } catch CatalogProviderCapabilityError.unsupported {
         } catch {
             guard flight.shouldReport(error, for: handle) else { return }
-            errors[section] = error.localizedDescription
+            errors[section] = CatalogErrorPresentation.message(for: error)
         }
     }
 

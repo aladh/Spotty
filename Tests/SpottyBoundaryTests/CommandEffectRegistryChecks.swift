@@ -19,24 +19,17 @@ private final class CancellationFlag: @unchecked Sendable {
     }
 }
 
-/// Work duration if cancellation fails. `awaitBounded` still fails the check well before 60s.
-private let cancellationWorkNanoseconds: UInt64 = 50_000_000
-private let cancellationWaitNanoseconds: UInt64 = 200_000_000
-
+/// Cancellation is the only way parked work completes. Time is only a failing-test watchdog.
+@MainActor
 private func awaitBounded(_ task: Task<Void, Never>) async -> Bool {
-    await withTaskGroup(of: Bool.self) { group in
-        group.addTask {
-            await task.value
-            return true
-        }
-        group.addTask {
-            try? await Task.sleep(nanoseconds: cancellationWaitNanoseconds)
-            return false
-        }
-        let finished = await group.next() ?? false
-        group.cancelAll()
-        return finished
+    let completed = CancellationFlag()
+    let observer = Task {
+        await task.value; completed.mark()
     }
+    let finished = await waitUntil { completed.isSet }
+    if !finished { task.cancel() }
+    await observer.value
+    return finished
 }
 
 @Suite("Command Effect Registry")
@@ -44,6 +37,7 @@ struct CommandEffectRegistryTests {
     @Test
     @MainActor
     func testCommandEffectRegistry() async {
+        let cancellationClock = HarnessClock.parked()
         do {
             let effects = PlaybackEffectRegistry()
             let commandID = UUID()
@@ -51,7 +45,7 @@ struct CommandEffectRegistryTests {
 
             let superseded: Task<Void, Never> = Task {
                 do {
-                    try await Task.sleep(nanoseconds: cancellationWorkNanoseconds)
+                    try await cancellationClock.sleep(seconds: 1)
                 } catch {}
                 if !Task.isCancelled {
                     finishedWithoutCancel.mark()
@@ -71,7 +65,7 @@ struct CommandEffectRegistryTests {
 
             let command: Task<Void, Never> = Task {
                 do {
-                    try await Task.sleep(nanoseconds: cancellationWorkNanoseconds)
+                    try await cancellationClock.sleep(seconds: 1)
                 } catch {}
                 if !Task.isCancelled {
                     commandSurvived.mark()
@@ -80,7 +74,7 @@ struct CommandEffectRegistryTests {
             let lifecycle: Task<Void, Never> = Task {
                 await withTaskCancellationHandler {
                     do {
-                        try await Task.sleep(nanoseconds: cancellationWorkNanoseconds)
+                        try await cancellationClock.sleep(seconds: 1)
                     } catch {}
                 } onCancel: {
                     lifecycleCancelled.mark()
@@ -110,7 +104,7 @@ struct CommandEffectRegistryTests {
             let supersededRegistration = PlaybackEffectRegistration()
             let superseded: Task<Void, Never> = Task {
                 do {
-                    try await Task.sleep(nanoseconds: cancellationWorkNanoseconds)
+                    try await cancellationClock.sleep(seconds: 1)
                 } catch {}
                 effects.complete(.command(commandID), registration: supersededRegistration)
             }
@@ -120,7 +114,7 @@ struct CommandEffectRegistryTests {
             let replacement: Task<Void, Never> = Task {
                 await withTaskCancellationHandler {
                     do {
-                        try await Task.sleep(nanoseconds: cancellationWorkNanoseconds)
+                        try await cancellationClock.sleep(seconds: 1)
                     } catch {}
                 } onCancel: {
                     replacementCancelled.mark()

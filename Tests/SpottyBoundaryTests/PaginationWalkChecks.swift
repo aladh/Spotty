@@ -40,7 +40,7 @@ struct PaginationWalkTests {
                 guard operation == "libraryV3" else { return (500, Data()) }
                 return (200, libraryEntitiesPage(itemCount: offset == 0 ? 0 : 1, totalCount: 0))
             }
-            let playlists = try? await partnerAPI(transport: playlistsTransport.send).libraryPlaylists()
+            let playlists = try? await partnerAPI(transport: playlistsTransport.send).playlistLibrary()
             #expect((playlists?.count) == (0), "empty first library page yields no playlists")
             #expect(
                 (playlistsTransport.offsets(for: "libraryV3")) == ([0]), "empty first library page does not continue")

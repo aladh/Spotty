@@ -151,42 +151,34 @@ struct PlaylistDetailView: View {
                     .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, minHeight: 240)
-        } else if store.isLoading && store.tracks.isEmpty {
-            LoadingState(label: "Loading \(item.title)")
-        } else if let error = store.error, store.tracks.isEmpty {
-            EmptyState(
-                icon: "exclamationmark.triangle",
-                title: "Couldn't load this playlist",
-                message: error,
-                actionTitle: "Try Again",
-                actionSystemImage: "arrow.clockwise"
-            ) {
-                Task { await store.load(item) }
-            }
-        } else if store.tracks.isEmpty {
-            EmptyState(
-                icon: "music.note.list",
-                title: "This playlist is empty",
-                message: "Spotify returned no playable tracks."
-            )
         } else {
-            VStack(spacing: 0) {
-                if store.error != nil {
-                    staleRefreshWarning
-                    CatalogTableDivider()
+            CatalogContentState(
+                isLoading: store.isLoading, isEmpty: store.tracks.isEmpty, error: store.error,
+                loadingLabel: "Loading \(item.title)", errorTitle: "Couldn't load this playlist",
+                retry: { await store.load(item) }
+            ) {
+                EmptyState(
+                    icon: "music.note.list", title: "This playlist is empty",
+                    message: "Spotify returned no playable tracks.")
+            } content: {
+                VStack(spacing: 0) {
+                    if store.error != nil {
+                        staleRefreshWarning
+                        CatalogTableDivider()
+                    }
+                    TrackTable(
+                        tracks: store.trackCollection,
+                        metadata: metadata,
+                        playback: playback,
+                        variant: .playlist,
+                        searchQuery: searchText,
+                        playlistActions: playlistActions,
+                        onSelect: onSelect,
+                        playlistHeader: AnyView(expandedHeader),
+                        compactPlaylistHeader: AnyView(compactHeader)
+                    )
+                    .id(item.uri)
                 }
-                TrackTable(
-                    tracks: store.trackCollection,
-                    metadata: metadata,
-                    playback: playback,
-                    variant: .playlist,
-                    searchQuery: searchText,
-                    playlistActions: playlistActions,
-                    onSelect: onSelect,
-                    playlistHeader: AnyView(expandedHeader),
-                    compactPlaylistHeader: AnyView(compactHeader)
-                )
-                .id(item.uri)
             }
         }
     }

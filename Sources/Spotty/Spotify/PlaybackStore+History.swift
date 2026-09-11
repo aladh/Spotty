@@ -19,7 +19,7 @@ extension PlaybackStore {
         history = ShufflePolicy.pruned(history, now: now)
 
         shuffleHistoryCache = history
-        Task { await environment.preferences.setShuffleHistory(history) }
+        preferenceWriter.submit(epoch: accountEpoch) { [history] in await $0.setShuffleHistory(history) }
 
         let track = catalog.metadata.knownTrack(for: uri)
         let info = catalog.metadata.displayInfo(for: uri)

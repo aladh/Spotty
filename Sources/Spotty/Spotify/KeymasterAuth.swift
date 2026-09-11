@@ -7,6 +7,7 @@
 
 import CryptoKit
 import Foundation
+import SpottyDomain
 
 #if canImport(AppKit)
     import AppKit
@@ -44,6 +45,7 @@ nonisolated struct KeymasterTokens: Sendable, Equatable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case schemaVersion
         case accessToken
         case refreshToken
         case expiresAt
@@ -53,6 +55,11 @@ nonisolated struct KeymasterTokens: Sendable, Equatable, Codable {
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        guard version == 1 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion, in: container, debugDescription: "Unsupported session schema")
+        }
         accessToken = try container.decode(String.self, forKey: .accessToken)
         refreshToken = try container.decode(String.self, forKey: .refreshToken)
         expiresAt = try container.decode(Date.self, forKey: .expiresAt)
@@ -63,6 +70,16 @@ nonisolated struct KeymasterTokens: Sendable, Equatable, Codable {
                 Bool.self,
                 forKey: .requiresReauthentication
             ) ?? false
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(1, forKey: .schemaVersion)
+        try container.encode(accessToken, forKey: .accessToken)
+        try container.encode(refreshToken, forKey: .refreshToken)
+        try container.encode(expiresAt, forKey: .expiresAt)
+        try container.encode(username, forKey: .username)
+        try container.encode(requiresReauthentication, forKey: .requiresReauthentication)
     }
 
     /// Refresh once the access token has this many seconds or less of validity left.
@@ -302,21 +319,21 @@ nonisolated enum KeymasterAuth {
         fallbackRefreshToken: String?,
         now: Date = Date(),
     ) throws -> KeymasterTokens {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let accessToken = json["access_token"] as? String
-        else {
-            throw KeymasterAuthError.malformedTokenResponse
+        struct Response: Decodable {
+            let access_token: String
+            let refresh_token: String?
+            let expires_in: Double
+            let username: String?
         }
-
-        guard let refreshToken = json["refresh_token"] as? String ?? fallbackRefreshToken else {
-            throw KeymasterAuthError.malformedTokenResponse
-        }
-
-        let expiresIn = json["expires_in"] as? Double ?? 3600
-
-        // The accesspoint needs the username and only this response carries it, so a refresh
-        // that omits it must not blank the stored one.
-        let username = json["username"] as? String ?? ""
+        guard let response = try? JSONDecoder().decode(Response.self, from: data),
+            !response.access_token.isEmpty,
+            response.expires_in.isFinite, response.expires_in > 0,
+            let refreshToken = response.refresh_token ?? fallbackRefreshToken,
+            !refreshToken.isEmpty
+        else { throw KeymasterAuthError.malformedTokenResponse }
+        let accessToken = response.access_token
+        let expiresIn = response.expires_in
+        let username = response.username ?? ""
 
         return KeymasterTokens(
             accessToken: accessToken,
@@ -343,7 +360,11 @@ nonisolated enum KeymasterAuth {
 
     // MARK: - Private
 
-    private static func postToken(body: Data, fallbackRefreshToken: String?) async throws -> KeymasterTokens {
+    static func postToken(
+        body: Data, fallbackRefreshToken: String?,
+        transport: SpotifyCredentials.Transport = { try await URLSession.shared.data(for: $0) },
+        retryTiming: SpotifyTransientRetry.Timing = .production
+    ) async throws -> KeymasterTokens {
         var request = URLRequest(url: tokenEndpoint)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -351,7 +372,8 @@ nonisolated enum KeymasterAuth {
 
         debugLog("KeymasterAuth", "[POST] \(tokenEndpoint.absoluteString)")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await TokenRequestTransport.send(
+            request, transport: transport, timing: retryTiming, retryNetworkErrors: false)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1

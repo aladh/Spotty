@@ -131,7 +131,7 @@ extension PlaybackStore {
             let remote = devices.first(where: { $0.isActive && $0.id != localID })
         {
             lastRemoteDeviceID = remote.id
-            Task { await environment.preferences.setLastRemoteDeviceID(remote.id) }
+            preferenceWriter.submit(epoch: accountEpoch) { await $0.setLastRemoteDeviceID(remote.id) }
         }
         if let queue = cluster.queue,
             acceptsConnectQueueCallback(generation: queue.sessionGeneration, revision: queue.revision)
@@ -464,7 +464,7 @@ extension PlaybackStore {
         guard accepted else { return }
         if let remote = devices.first(where: { $0.isActive && $0.id != localDeviceID }) {
             lastRemoteDeviceID = remote.id
-            Task { await environment.preferences.setLastRemoteDeviceID(remote.id) }
+            preferenceWriter.submit(epoch: accountEpoch) { await $0.setLastRemoteDeviceID(remote.id) }
         }
     }
 

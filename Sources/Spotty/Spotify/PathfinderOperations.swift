@@ -133,29 +133,6 @@ nonisolated struct PathfinderOperation: Sendable, Equatable {
         sha256Hash: "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240",
     )
 
-    /// "Is each of these in the library?", replacing `/me/tracks/contains`. Answers positionally.
-    static let areEntitiesInLibrary = PathfinderOperation(
-        name: "areEntitiesInLibrary",
-        sha256Hash: "134337999233cc6fdd6b1e6dbf94841409f04a946c5c7b744b09ba0dfe5a85ed",
-    )
-
-    /// The library writes, which share one hash and differ by name — and which take uris of
-    /// *any* kind, so saving a track, saving an album and following an artist are the same call
-    /// with different prefixes. Six Web API endpoints collapse into these two.
-    static let addToLibrary = PathfinderOperation(
-        name: "addToLibrary",
-        sha256Hash: libraryMutationHash,
-    )
-
-    static let removeFromLibrary = PathfinderOperation(
-        name: "removeFromLibrary",
-        sha256Hash: libraryMutationHash,
-    )
-
-    /// Shared with pin/unpin, which this app does not use.
-    private static let libraryMutationHash =
-        "1ad0d40b3c09660d818b9e770eb1e84745dfbe941df159a64f8772b6fa2bfc3a"
-
     /// Spotify's own start page: a greeting and a list of titled shelves.
     ///
     /// Harvested rather than vendored — libspot has no home operation. The live web client

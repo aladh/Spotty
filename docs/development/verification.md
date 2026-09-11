@@ -46,7 +46,11 @@ When changing a rule, cover syntax variants and file-owner exceptions. A clean s
 not replace Swift compilation or behavior tests.
 
 The full and Rust scopes require the [engine toolchain](setup.md#engine-development).
-The Swift scope and packaging use the pinned binary without Rust tools. Checks do not sign in or
+The Swift scope and packaging use the pinned binary without the Rust compiler. Verification also
+requires Ruby (for parsed workflow invariants) and pinned cbindgen (for source header reproducibility);
+`package-app.sh` runs this gate and therefore needs both tools. Standalone
+`compile-release-spotty.sh` does not. A differing source input digest produces a pin-freshness warning without
+implicitly rebuilding or replacing the independently released engine. Checks do not sign in or
 initiate playback. See the [enforcement inventory](../architecture/enforcement.md) for coverage.
 
 CI uses one macOS job for conditional Rust verification/candidate production, then Swift Debug
@@ -55,7 +59,7 @@ combined key; separate configuration directories remain inside `.build`. CI rest
 only when tracked compiler input contents match the manifest saved with that build cache; changed and
 new inputs keep checkout timestamps. Rust verification disables incremental products and keeps line-table
 debug information to reduce cache transfer without changing assertions or test coverage. Release
-caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust tools are blocked
+caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust compiler tools are blocked
 before Swift runs. A separate `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
 in a Swift container; `Package.swift` declares only those two targets off macOS, so an AppKit,
 SwiftUI, AVFoundation, or playback-FFI import in the domain fails to compile there. Main requires
@@ -67,8 +71,10 @@ source-policy and domain jobs still run; neither is conditional. Other PRs skip 
 documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
 runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
 requires Rust; a base without macOS classification keeps macOS enabled. Detection errors fail CI. Skipped Rust steps are accepted only after an
-explicit successful app-only decision. Pinned cbindgen binaries are cached by version, runner image/architecture, and Rust toolchain,
-with a version check before reuse. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
+explicit successful app-only decision. Pinned cbindgen binaries are cached by version and runner image/architecture,
+with a version check before reuse. Header regeneration and the Python playback checks also run on
+app-only PRs. cbindgen parses source files directly without Cargo metadata; it remains available after
+CI blocks the Rust compiler tools. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
 header. `--check` verifies reproducibility; set `SPOTTY_CBINDGEN` if the pinned tool is not on `PATH`.
@@ -97,7 +103,8 @@ swift test --disable-sandbox --no-parallel --filter AuthFlowTests/testAuthFlow
 ```
 
 Use `SPOTTY_CHECK_REPEATS=N ./Scripts/check.sh` with `N` from 1 through 25 when concurrency or
-lifetime work merits stress.
+lifetime work merits stress. Main runs three passes. Boundary synchronization failures report their
+call sites; injected clocks drive scheduling while elapsed-time limits serve only as hang watchdogs.
 
 ## Clean and risk-specific verification
 

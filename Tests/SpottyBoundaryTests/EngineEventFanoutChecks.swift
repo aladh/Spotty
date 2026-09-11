@@ -13,11 +13,6 @@ struct EngineEventFanoutTests {
     @MainActor
     func testEngineEventFanout() {
         do {
-            let inverted = AssignThenYieldAfterUnlockFanout()
-            #expect(
-                (collectInversionSchedule(inverted)) == ([2, 1]),
-                "assign-then-yield-after-unlock delivers B before A under A-prepare/B-complete/A-yield")
-
             let serialized = EngineEventFanout(clock: SystemPlaybackClock())
             #expect(
                 (collectInversionSchedule(serialized)) == ([1, 2]),
@@ -157,54 +152,6 @@ private protocol TestableEventFanout: AnyObject, Sendable {
 }
 
 extension EngineEventFanout: TestableEventFanout {}
-
-/// Replica of the pre-fix `RustPlaybackEngine.emit`: sequence under the lock, yield after unlock.
-private final class AssignThenYieldAfterUnlockFanout: TestableEventFanout, @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuations: [UUID: AsyncStream<RustPlaybackEventEnvelope>.Continuation] = [:]
-    private var sequence: UInt64 = 0
-
-    func events(
-        onStart: (@Sendable () -> Void)?,
-        onTermination: (@Sendable () -> Void)?
-    ) -> AsyncStream<RustPlaybackEventEnvelope> {
-        let id = UUID()
-        return AsyncStream(bufferingPolicy: .bufferingNewest(64)) { continuation in
-            lock.lock()
-            continuations[id] = continuation
-            lock.unlock()
-            continuation.onTermination = { [weak self] _ in
-                self?.lock.lock()
-                self?.continuations[id] = nil
-                self?.lock.unlock()
-                onTermination?()
-            }
-            onStart?()
-        }
-    }
-
-    func emit(_ event: RustPlaybackEvent, afterPrepare: (@Sendable () -> Void)?) {
-        let (envelope, targets) = lockedPrepare(event)
-        afterPrepare?()
-        for continuation in targets {
-            continuation.yield(envelope)
-        }
-    }
-
-    private func lockedPrepare(
-        _ event: RustPlaybackEvent
-    ) -> (RustPlaybackEventEnvelope, [AsyncStream<RustPlaybackEventEnvelope>.Continuation]) {
-        lock.lock()
-        defer { lock.unlock() }
-        sequence &+= 1
-        let envelope = RustPlaybackEventEnvelope(
-            sequence: sequence,
-            receivedAt: Date(),
-            event: event
-        )
-        return (envelope, Array(continuations.values))
-    }
-}
 
 private func collectInversionSchedule(_ fanout: some TestableEventFanout) -> [UInt64] {
     collectInversionSchedule(fanout, subscriberCount: 1)[0]

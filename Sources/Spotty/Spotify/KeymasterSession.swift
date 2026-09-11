@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Synchronization
 
 private typealias DefaultKeymasterTokenStore = KeymasterFileStore
 
@@ -22,7 +23,7 @@ actor KeymasterSession {
 
     /// Async listeners waiting for a terminal grant revocation. The stream is instance-scoped:
     /// tests can construct an isolated session without ever notifying the live application.
-    private var revocationContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private nonisolated let revocationContinuations = Mutex<[UUID: AsyncStream<Void>.Continuation]>([:])
 
     /// Injected so the rotation policy can be tested without a network. The real one is
     /// `KeymasterAuth.refresh`.
@@ -71,28 +72,16 @@ actor KeymasterSession {
     nonisolated func grantRevocations() -> AsyncStream<Void> {
         let id = UUID()
         return AsyncStream { continuation in
-            Task { await self.installRevocationContinuation(continuation, id: id) }
-            continuation.onTermination = { _ in
-                Task { await self.removeRevocationContinuation(id: id) }
+            revocationContinuations.withLock { $0[id] = continuation }
+            continuation.onTermination = { [weak self] _ in
+                self?.revocationContinuations.withLock { $0[id] = nil }
             }
         }
     }
 
-    private func installRevocationContinuation(
-        _ continuation: AsyncStream<Void>.Continuation,
-        id: UUID
-    ) {
-        revocationContinuations[id] = continuation
-    }
-
-    private func removeRevocationContinuation(id: UUID) {
-        revocationContinuations[id] = nil
-    }
-
     private func announceRevocation() {
-        for continuation in revocationContinuations.values {
-            continuation.yield(())
-        }
+        let continuations = revocationContinuations.withLock { Array($0.values) }
+        for continuation in continuations { continuation.yield(()) }
     }
 
     /// Whether a grant has been completed on this machine.
@@ -226,13 +215,6 @@ actor KeymasterSession {
             default: nil
             }
         hasLoadedStore = true
-    }
-
-    var username: String? {
-        get async {
-            await ensureGrantVisible()
-            return tokens?.username
-        }
     }
 
     /// Records the outcome of a fresh grant.

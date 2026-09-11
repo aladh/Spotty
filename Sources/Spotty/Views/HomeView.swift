@@ -18,37 +18,18 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 30) {
-                if store.isLoading(.home) && store.homeSections.isEmpty {
-                    LoadingState(label: "Loading your Spotify home")
-                } else if !playback.isConnected {
+                CatalogContentState(
+                    isLoading: store.isLoading(.home), isEmpty: store.homeSections.isEmpty,
+                    error: store.error(for: .home), loadingLabel: "Loading your Spotify home",
+                    errorTitle: "Couldn't load Spotify Home", connection: playback,
+                    connectionIcon: "music.note.house", connectionTitle: "Your music will appear here",
+                    disconnectOverridesContent: true,
+                    retry: { await store.loadHome(force: true) }
+                ) {
                     EmptyState(
-                        icon: "music.note.house",
-                        title: "Your music will appear here",
-                        message: playback.statusText,
-                        actionTitle: playback.connectionActionTitle,
-                        actionSystemImage: "link"
-                    ) {
-                        playback.connect()
-                    }
-                } else if store.homeSections.isEmpty {
-                    if let error = store.error(for: .home) {
-                        EmptyState(
-                            icon: "exclamationmark.triangle",
-                            title: "Couldn't load Spotify Home",
-                            message: error,
-                            actionTitle: "Try Again",
-                            actionSystemImage: "arrow.clockwise"
-                        ) {
-                            Task { await store.loadHome(force: true) }
-                        }
-                    } else {
-                        EmptyState(
-                            icon: "rectangle.stack",
-                            title: "Spotify Home is empty",
-                            message: "Spotify didn't return any recommendations."
-                        )
-                    }
-                } else {
+                        icon: "rectangle.stack", title: "Spotify Home is empty",
+                        message: "Spotify didn't return any recommendations.")
+                } content: {
                     HStack {
                         Text(store.greeting)
                             .font(.system(size: 32, weight: .bold))

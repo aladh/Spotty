@@ -89,7 +89,7 @@ nonisolated struct AcceptedConnectQueue: Sendable {
 }
 
 /// Optional suspension points around reset, `acceptConnect`, and `recordCommittedReplacement`.
-/// Production stores `nil` and does not `await`. Checks inject `QueueServiceTestHook`.
+/// Only Debug builds dispatch these hooks. Release contains no hook suspension points.
 protocol QueueServiceHook: Sendable {
     func beforeReset() async
     func beforeAcceptConnect() async
@@ -212,9 +212,11 @@ actor QueueService {
 
     func reset(accountEpoch: UInt64) async {
         cancelRefreshFlight()
-        if let hook {
-            await hook.beforeReset()
-        }
+        #if DEBUG
+            if let hook {
+                await hook.beforeReset()
+            }
+        #endif
         guard !Task.isCancelled else { return }
         cancelRefreshFlight()
         self.accountEpoch = accountEpoch
@@ -235,10 +237,11 @@ actor QueueService {
         accountEpoch requestedEpoch: UInt64,
         engineEpoch: UInt64
     ) async -> QueueMutationSnapshot? {
-        if let hook {
-            // Production stores nil, so this await is check-only and does not hop the live actor.
-            await hook.beforeRecordCommittedReplacement()
-        }
+        #if DEBUG
+            if let hook {
+                await hook.beforeRecordCommittedReplacement()
+            }
+        #endif
         guard !Task.isCancelled else { return nil }
         guard requestedEpoch == accountEpoch else { return nil }
         guard var current = mutation, current.engineEpoch == engineEpoch else { return nil }
@@ -262,10 +265,11 @@ actor QueueService {
         disallowSetQueue: Bool = false,
         disallowRemovingFromNextTracks: Bool = false
     ) async -> AcceptedConnectQueue? {
-        if let hook {
-            // Production stores nil, so this await is check-only and does not hop the live actor.
-            await hook.beforeAcceptConnect()
-        }
+        #if DEBUG
+            if let hook {
+                await hook.beforeAcceptConnect()
+            }
+        #endif
         guard !Task.isCancelled else { return nil }
         guard requestedEpoch == accountEpoch else { return nil }
         if let sourceRevision {

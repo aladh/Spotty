@@ -4,34 +4,34 @@
 
 ## Toolchain, platform, and package graph
 
-| IDs | Purpose | Owner |
-| --- | --- | --- |
-| `FMT-SWIFT-001`–`003`, `FMT-RUST-001`–`002` | Consistent formatting and warning-clean builds | [Verification](../../development/verification.md), [check.sh](../../../Scripts/check.sh) |
-| `CMP-PLT-001`, `CMP-DEP-001`, `CMP-FFI-001`, `CMP-CHK-001`–`002` | Platform, dependency direction, and non-shipping test targets | [Package.swift](../../../Package.swift), [source policies](source-checks.md) |
-| `CMP-TCA-001` | Keep the domain free of a second effect framework | [ADR 003](../adrs/ADR-003-playback-command-effects.md) |
-| `CMP-LIVE-001` | Production uses live integrations; fixtures remain in tests | [Dependency ownership](../adrs/ADR-002-playback-state-and-dependencies.md), [test guidance](../../../Tests/AGENTS.md) |
-| `CMP-PKG-001` | Valid bundle metadata | [check.sh](../../../Scripts/check.sh), [packaging](../../development/releases.md) |
+| Purpose | Owner |
+| --- | --- |
+| Consistent formatting and warning-clean builds | [Verification](../../development/verification.md), [check.sh](../../../Scripts/check.sh) |
+| Platform, dependency direction, and non-shipping test targets | [Package.swift](../../../Package.swift), [source policies](source-checks.md) |
+| Keep the domain free of a second effect framework | [ADR 003](../adrs/ADR-003-playback-command-effects.md) |
+| Production uses live integrations; fixtures remain in tests | [Dependency ownership](../adrs/ADR-002-playback-state-and-dependencies.md), [test guidance](../../../Tests/AGENTS.md) |
+| Valid bundle metadata | [check.sh](../../../Scripts/check.sh), [packaging](../../development/releases.md) |
 
 ## ABI and cross-language contracts
 
-| IDs | Purpose | Owner |
-| --- | --- | --- |
-| `ABI-SYM-001`, `ABI-USE-001` | Agreement between selected headers, exports, and Swift consumption | [check.sh](../../../Scripts/check.sh) |
-| `ABI-SIG-001` | Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), consumed by [generate-c-header.sh](../../../Scripts/generate-c-header.sh), [test_playback_header.py](../../../Scripts/test_playback_header.py), and [tests.rs](../../../Backend/spotty-playback/src/tests.rs) |
-| `ABI-GEN-001` | Reproducible generated declarations and layouts | [Header generator](../../../Scripts/generate-c-header.sh) |
-| `ABI-SWIFT-001` | Required callbacks, enums, and nullable pointer shapes survive Swift import | [Compiler probes](../../../Scripts/check-c-header-imports.sh) |
-| `ABI-ARC-001` | Immutable matched library/header artifacts; Rust-free app builds | [ADR 006](../adrs/ADR-006-prebuilt-playback-engine.md), [artifact workflow](../../development/playback-artifacts.md) |
+| Purpose | Owner |
+| --- | --- |
+| Agreement between selected headers, exports, and Swift consumption | [check.sh](../../../Scripts/check.sh) |
+| Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), consumed by [generate-c-header.sh](../../../Scripts/generate-c-header.sh), [test_playback_header.py](../../../Scripts/test_playback_header.py), and [tests.rs](../../../Backend/spotty-playback/src/tests.rs) |
+| Reproducible generated declarations and layouts | [Header generator](../../../Scripts/generate-c-header.sh) |
+| Required callbacks, enums, and nullable pointer shapes survive Swift import | [Compiler probes](../../../Scripts/check-c-header-imports.sh) |
+| Immutable matched library/header artifacts; Rust-free app builds | [ADR 006](../adrs/ADR-006-prebuilt-playback-engine.md), [artifact workflow](../../development/playback-artifacts.md) |
 
 Generated headers do not replace signature/layout probes or memory-ownership review. Published
 consumers validate their selected artifact; the Rust lane validates the evolving producer ABI.
 
 ## CI and release workflow
 
-`CI-WF-001`, `CI-RG-001`, `CI-RUST-001`, `CI-FMT-001`, `CI-REL-001`, and `CI-TOOL-001` cover
-workflow presence, tool selection, cache integrity, and complete verification. Their executable
-owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
+CI checks cover workflow presence, tool selection, cache integrity, and complete verification.
+Their executable owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
 [check.sh](../../../Scripts/check.sh). [Source policies](source-checks.md) cover the syntax-only
-facets of `CI-TOOL-001` and `ABI-ARC-001`; artifact validation and build execution remain here. The required aggregate includes source policies, Rust,
+facets of Rust-free app scripts, workflow trust, and published-engine use; artifact validation and
+build execution remain here. The required aggregate includes source policies, Rust,
 Swift/architecture, and Release compilation. Source policies run unconditionally in the `policy`
 job; [ci_rust_policy.py](../../../Scripts/ci_rust_policy.py) sets `macos_needed=false` for
 docs-only PR changes, which skips the `macos` job and with it Rust, Swift/architecture, and Release

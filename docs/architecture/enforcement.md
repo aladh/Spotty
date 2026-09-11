@@ -23,15 +23,11 @@ Do not promote concurrency, epochs, queue provenance, lifecycle, optimistic roll
 correctness into regex snapshots. Conversely, do not rely on prose when the package graph or a small
 source check can own an exact boundary.
 
-Stable IDs are defined only in these documentation tables; they do not appear in check.sh, CI, or
-ast-grep rule files. They exist for cross-referencing within the docs and PR discussion, not for
-code/CI search. They are navigation, not an API.
-
 ## Mechanically enforced families
 
 - [Build, ABI, and CI](enforcement/build-and-abi.md): toolchain, package graph, cross-language contracts, and workflows.
 - [Deterministic behavior](enforcement/behavior.md): state, lifetimes, protocol projections, and mutations.
-- [Source and topology](enforcement/source-checks.md): lexical boundaries and retired rule IDs.
+- [Source and topology](enforcement/source-checks.md): lexical boundaries and their rule files.
 
 ## Semantic review
 

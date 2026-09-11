@@ -1,4 +1,4 @@
-name: Thermos review
+name: Documentation review
 
 on:
   pull_request:
@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: thermos-review-${{ inputs.pr_number || github.event.pull_request.number || github.event.issue.number }}
+  group: docs-review-${{ inputs.pr_number || github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
-       contains(github.event.comment.body, '@thermos review'))
+       contains(github.event.comment.body, '@docs-review review'))
     permissions:
       contents: read
       pull-requests: read
@@ -38,9 +38,10 @@ jobs:
     uses: ./.github/workflows/agent-review.yml
     with:
       pr_number: ${{ format('{0}', inputs.pr_number || github.event.pull_request.number || github.event.issue.number) }}
-      reviewer_name: Thermos review
-      review_marker: '<!-- spotty-thermos-review -->'
-      config_directory: .github/thermos-review
-      primary_agent: thermos
+      reviewer_name: Documentation review
+      review_marker: '<!-- spotty-docs-review -->'
+      config_directory: .github/docs-review
+      primary_agent: docs-review
       expected_auditors: '2'
-      legacy_unmarked_threads: 'true'
+      legacy_unmarked_threads: 'false'
+      path_regex: '^(docs/|README\.md$|PRIVACY\.md$|SECURITY\.md$|CONTRIBUTING\.md$|(.*/)?AGENTS\.md$)'

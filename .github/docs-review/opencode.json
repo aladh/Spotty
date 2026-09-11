@@ -1,0 +1,49 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/muse-spark-1.3-contributor-free",
+  "share": "disabled",
+  "autoupdate": false,
+  "lsp": false,
+  "formatter": false,
+  "permission": {
+    "*": "deny",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "bash": "allow",
+    "websearch": "allow",
+    "webfetch": "allow",
+    "external_directory": "allow",
+    "edit": "allow"
+  },
+  "agent": {
+    "docs-review": {
+      "mode": "primary",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "variant": "xhigh",
+      "description": "Coordinate the documentation review and write its findings, thread actions, and summary.",
+      "prompt": "{file:orchestration.md}",
+      "permission": {
+        "task": {
+          "*": "deny",
+          "docs-sense": "allow",
+          "docs-spec": "allow"
+        }
+      }
+    },
+    "docs-sense": {
+      "mode": "subagent",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "variant": "xhigh",
+      "description": "Reviews whether documentation changes are correct, placed in their canonical owner, and useful.",
+      "prompt": "{file:sense.md}"
+    },
+    "docs-spec": {
+      "mode": "subagent",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "variant": "xhigh",
+      "description": "Guards product contracts, repository rules, and historical records against undeclared changes.",
+      "prompt": "{file:spec.md}"
+    }
+  }
+}

@@ -14,30 +14,27 @@ These checks do not resolve symbols, establish execution order, or replace compi
 tests. The pinned Swift grammar can recover valid Swift as error nodes, so a clean scan is not even
 a Swift parse guarantee. Review owner scope when introducing files or new syntax.
 
-| IDs | Boundary |
+| Boundary | Rule files |
 | --- | --- |
-| `SRC-DEP-001` | Live dependency construction stays out of views and feature stores |
-| `SRC-ISO-001`, `SRC-INOUT-001` | Unsafe isolation escapes and split revision ownership |
-| `SRC-UI-001`, `SRC-DUP-004` | Appearance ownership and unsupported drag APIs |
-| `SRC-HYG-001`, `CI-TOOL-001`, `ABI-ARC-001` | Retired Swift symbols; syntax-only facets of Rust-free app scripts and workflow action/credential/published-engine policies |
-| `SRC-RUST-FFI-001` | Panic-barrier and runtime entry ownership |
+| Live dependency construction stays out of views and feature stores | `injected-dependencies.yml` |
+| Unsafe isolation escapes and split revision ownership | `unsafe-isolation.yml`, `revision-inout.yml` |
+| Appearance ownership and unsupported drag APIs | `dark-appearance-required.yml`, `fixed-appearance.yml`, `unsupported-drag-ui.yml` |
+| Retired Swift symbols | `retired-mock-symbols.yml` |
+| Rust-free app scripts, workflow action pins and checkout credentials, and published-engine use in CI (syntax-only facets; see [build and CI](build-and-abi.md#ci-and-release-workflow)) | `app-script-rust-free.yml`, `workflow-action-pins.yml`, `workflow-checkout-credentials.yml`, `ci-published-engine.yml` |
+| Panic-barrier and runtime entry ownership | `rust-ffi-panic-barrier.yml`, `rust-runtime-owner.yml` |
 
 Additional owners:
 
-- `SRC-PROJ-001`: [compiler access probes](../../../Scripts/check-playback-projection-access.sh).
-- `SRC-HYG-002`–`004`: [repository-text checks](../../../Scripts/check-source-policy.sh),
-  [artifact hygiene](../../../Scripts/check.sh), gitignore, and privacy review.
-- `SRC-SIGN-001`: signing assertions in [check.sh](../../../Scripts/check.sh), plus the
+- Playback projection access: [compiler access probes](../../../Scripts/check-playback-projection-access.sh).
+- Repository text and artifact hygiene: [repository-text checks](../../../Scripts/check-source-policy.sh),
+  [artifact hygiene](../../../Scripts/check.sh), the
+  [notices preamble prefix check](../../../Scripts/test_notices_policy.py), gitignore, and privacy review.
+- Signing: signing assertions in [check.sh](../../../Scripts/check.sh), plus the
   [signing contract](../../development/signing.md). Spelling checks do not establish signature validity.
 
-Retired IDs `SRC-KEY-001`, `SRC-OBS-001`–`003`, `SRC-WRITER-001`, `SRC-DUP-003`, `SRC-RUST-PLAY-001`,
-`SRC-FFI-001`–`002`, `SRC-DOM-001`, `CI-OBS-001`, `CI-SWIFT-001`, and `ABI-JSON-001` remain
-historical references. Do not recreate duplicate snapshots of behavior now covered by the package
-graph, deterministic suites, or semantic review. `SRC-RUST-PLAY-001` matched the literal
-`IS_PLAYING.store(true, ...)` spelling; the flag is now a private field of `EngineGeneration` whose
-only write-true path is `note_playing_event`, so the compiler owns that boundary.
-`SRC-FFI-001`–`002` named the only Swift importer of `SpottyPlaybackCore` and the only caller of its
-`PlaybackCore` adapter; the package graph owns both now that `SpottyEngineAdapter` is the sole target
-depending on the binary and `PlaybackCore` is internal to it. `SRC-DOM-001` listed the modules
-`SpottyDomain` must not import; the [Linux domain lane](build-and-abi.md) compiles and tests that
-target where none of them exist.
+Do not recreate duplicate snapshots of behavior now covered by the package graph, deterministic
+suites, or semantic review. The compiler owns three former lexical boundaries: the playing flag is
+private to `EngineGeneration` and becomes true only through `note_playing_event`;
+`SpottyEngineAdapter` is the sole target depending on the playback binary and keeps `PlaybackCore`
+internal; and the [Linux domain lane](build-and-abi.md) compiles `SpottyDomain` where app and playback
+modules do not exist.

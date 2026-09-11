@@ -43,11 +43,11 @@
   behavior. The menu action and keyboard handler use the same playback admission and routing.
 
 
-- The black player shelf is 80 points tall, with 56-point artwork, 14-point track titles,
+- The black player shelf is 72 points tall, with 56-point artwork, 14-point track titles,
   12-point artist/time labels, and a 32-point play button. The centered progress area scales
   with window width; the remote-owner strip remains separate. Queue and device-chooser icons
   use 16-point filled glyphs in adjacent 32-point targets, with 70% white at rest and white on hover.
-  Open controls use #1db954 with a 4-point dot and brighten to #1ed760 on hover. Connect shows a
+  Open controls use #1ed760 with a 4-point dot. Connect shows a
   computer glyph for a remote computer owner and the device/speaker glyph otherwise.
   Queue and Connect share one inspector: selecting the other icon switches its contents, selecting
   the active icon closes it, and the header close button clears the active indicator. Queue retains
@@ -76,8 +76,9 @@
   that obsolete gesture. Disabled playback cannot seek.
   Interpolate idle progress smoothly from confirmed playing snapshots using
   [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift), without per-frame
-  SwiftUI layout. New snapshots, pauses, seeks, track/owner changes re-anchor it. Reduce Motion
-  disables interpolation. During interaction the native slider owns the visible position and
+  SwiftUI layout. A new snapshot within a small tolerance of the presented position leaves the
+  running animation alone; a larger drift eases onto the corrected path, and pauses, seeks, and
+  track/owner changes re-anchor it immediately. Reduce Motion disables interpolation. During interaction the native slider owns the visible position and
   commit; interpolation never changes playback state or sends a seek.
 - Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
   style picker because Connect exposes no shuffle-style parameter.

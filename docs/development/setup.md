@@ -1,5 +1,7 @@
 # Development setup
 
+[Agent operations](../../CONTRIBUTING.md) · Run commands from the repository root.
+
 Ordinary app builds download the pinned playback binary; engine development uses the included Rust
 source.
 
@@ -10,6 +12,8 @@ Development requires:
 - An Apple Silicon Mac running macOS 26.2 or newer; the app's runtime target is macOS 15+.
 - Xcode 26.6 with Swift 6.3.3.
 - [ripgrep](https://github.com/BurntSushi/ripgrep) for repository verification.
+- Python 3, used by `check.sh`, `check-source-policy.sh`, `package-app.sh`, and
+  `browse-synthetic.sh`.
 - Spotify Premium only for live integration testing authorized under the
   [product contract](../product/safe-testing.md#safe-acceptance-testing).
 
@@ -48,11 +52,12 @@ regeneration.
 ## Engine development
 
 Install [Rustup](https://rustup.rs/) when changing the Rust engine or running its tests.
-`rust-toolchain.toml` pins the components and ARM64 macOS target. Install cbindgen 0.29.4 for header
+`rust-toolchain.toml` pins the components and ARM64 macOS target.
+<!-- Renovate's cbindgen custom manager (renovate.json) matches the version in the next line. -->
+Install cbindgen 0.29.4 for header
 regeneration: `cargo install cbindgen --locked --version 0.29.4`.
 
 Producing an engine artifact also requires Python 3.11 or newer for dependency-notice generation.
-It is not an app-build prerequisite.
 
 See [build and verification](verification.md#normal-verification) for Rust checks and
 [playback binary artifacts](playback-artifacts.md#playback-binary-artifacts) for source builds, the local

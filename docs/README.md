@@ -14,7 +14,9 @@ contracts and records.
 - [Build and verification](development/verification.md): launch, formatting, tests, and diagnostics.
 - [Playback binary artifacts](development/playback-artifacts.md): local candidates, publication, and app pins.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.
-- [Thermos review](development/thermos-review.md): incremental PR review, approval, and limits.
+- [Agent reviews](development/agent-reviews.md): shared review pipeline, approval, thread handling, and trust.
+- [Thermos review](development/thermos-review.md): correctness and quality review of every ready PR.
+- [Documentation review](development/docs-review.md): sense and product-specification guard for documentation PRs.
 
 ## Product
 

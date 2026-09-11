@@ -12,8 +12,6 @@ struct MediaDetailHeader: View {
     let description: String
     let detail: String
     let itemCount: String?
-    let canPlay: Bool
-    let play: () -> Void
     let style: MediaDetailHeaderStyle
     @State private var availableWidth: CGFloat = 0
 
@@ -22,17 +20,13 @@ struct MediaDetailHeader: View {
         description: String = "",
         detail: String = "",
         itemCount: String? = nil,
-        canPlay: Bool = false,
-        style: MediaDetailHeaderStyle = .standard,
-        play: @escaping () -> Void = {}
+        style: MediaDetailHeaderStyle = .standard
     ) {
         self.item = item
         self.description = description
         self.detail = detail
         self.itemCount = itemCount
-        self.canPlay = canPlay
         self.style = style
-        self.play = play
     }
 
     var body: some View {
@@ -47,16 +41,6 @@ struct MediaDetailHeader: View {
             .padding(.horizontal, CatalogLayout.contentPadding)
             .padding(.top, style == .playlist ? 64 : 20)
             .padding(.bottom, style == .playlist ? 24 : 16)
-            .background {
-                if style == .playlist {
-                    LinearGradient(
-                        colors: SpottyPalette.playlistHeroGradient,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .ignoresSafeArea(edges: .horizontal)
-                }
-            }
     }
 
     @ViewBuilder
@@ -164,11 +148,6 @@ struct MediaDetailHeader: View {
                     .font(.system(size: 14))
                     .foregroundStyle(SpottyPalette.textSecondary)
                     .lineLimit(2)
-            }
-
-            if style == .standard {
-                CircularPlayButton(action: play, isEnabled: canPlay)
-                    .accessibilityHint("Starts this \(item.kind.rawValue.lowercased())")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

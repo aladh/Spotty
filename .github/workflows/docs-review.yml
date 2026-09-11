@@ -1,0 +1,48 @@
+name: Documentation review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review again in full (posts another review)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-review-${{ inputs.pr_number || github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+       contains(github.event.comment.body, '@docs-review review'))
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/agent-review.yml
+    with:
+      pr_number: ${{ format('{0}', inputs.pr_number || github.event.pull_request.number || github.event.issue.number) }}
+      reviewer_name: Documentation review
+      review_marker: '<!-- spotty-docs-review -->'
+      config_directory: .github/docs-review
+      primary_agent: docs-review
+      expected_auditors: '2'
+      legacy_unmarked_threads: 'false'
+      can_approve: 'false'
+      path_regex: '^(docs/|README\.md$|PRIVACY\.md$|SECURITY\.md$|CONTRIBUTING\.md$|(.*/)?AGENTS\.md$)'

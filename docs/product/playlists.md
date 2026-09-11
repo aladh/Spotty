@@ -2,8 +2,11 @@
 
 [Product contracts](README.md) · [Safe testing](safe-testing.md)
 
-- The playlist hero starts near the content edge on a roughly 230-point dark blue-gray gradient,
-  with roughly 170-point artwork and a responsive title. At roughly 840 points wide and above it uses the
+- The playlist hero starts near the content edge on a gradient derived from the artwork's dominant
+  color fading into the near-black canvas (the same treatment album and artist detail headers use),
+  with no fixed height: 64-point top and 24-point bottom padding around the artwork and text. Artwork
+  is 232 points at 1,000 points wide and above, 192 points from 600 points wide, and otherwise clamped
+  between 128 and 192 points, alongside a responsive title. At roughly 840 points wide and above it uses the
   96-point heavy title treatment, while preserving compact breakpoints and long-title scaling. It shows
   the loaded plain-text description and known owner, song count, and aggregate duration without
   inferring visibility. Its action strip has a 56-point green Play button, the existing shuffle

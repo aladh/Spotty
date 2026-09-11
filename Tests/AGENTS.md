@@ -2,11 +2,11 @@
 
 Use [verification](../docs/development/verification.md#normal-verification) for suite selection and
 commands. Domain tests cover pure policy without Rust; boundary tests link the engine and exercise
-injected SpottyCore workflows. Neither suite signs in, initiates live playback, or ships.
+injected SpottyCore workflows. No suite signs in, initiates live playback, or ships.
 
 - Use reduced, synthetic fixtures following [PRIVACY.md](../PRIVACY.md).
-- Preserve deterministic execution. The complete `Scripts/check.sh` gate must run both targets in
-  full; focused local runs may filter tests.
+- Preserve deterministic execution. The complete `Scripts/check.sh` gate must run every test target
+  in full; focused local runs may filter tests.
 - Test concurrency, lifetime, queue provenance, and rollback through behavior, not regex snapshots.
   Source checks are only for lexical or topology invariants.
 - Reducer changes must keep `PlaybackReducerModelChecks` green. Prefer strengthening its invariants
@@ -22,6 +22,5 @@ injected SpottyCore workflows. Neither suite signs in, initiates live playback, 
   private fake needs a reason the harness genuinely cannot express — conforming to two protocols
   at once, or an intricate script of its own — and a comment saying so.
 - Boundary tests and helpers touching their state are `@MainActor`; the complete gate runs that
-  target with `--no-parallel`. Use its shared `waitUntil` for async polling and
-  `PlaybackEffectRegistry.settlement(of:)` for negative assertions about completed effects, not
-  fixed sleeps or blocking waits. Domain tests retain their own cooperative waits.
+  target with `--no-parallel`. Use deterministic cooperative synchronization for polling and for
+  negative assertions about completed effects, not fixed sleeps or blocking waits.

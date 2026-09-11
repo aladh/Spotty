@@ -41,9 +41,11 @@ Expired artifacts or a changed producer CI definition require a fresh main CI ru
 CI builds candidates for engine-input or engine build/validation script changes relative to the
 PR base or previous main push. Unrelated Swift-phase or Ubuntu-image edits do not build candidates
 or invalidate an existing candidate; producer, source-policy, and workflow trust changes still do.
-Select the earlier engine-changing main run when the latest run has no candidate. Missing bases or
-unrecognized workflow layouts build conservatively; Git comparison failures fail CI. An app change
-requiring a newer ABI must update its published pin.
+Select the earlier engine-changing main run when the latest run has no candidate. An all-zero base
+SHA (`playback-candidate-needed.sh`) or an unrecognized producer workflow layout builds
+conservatively; an invalid or unfetchable base, or a Git comparison failure, fails CI instead.
+`ci_rust_policy.py` is stricter still and raises on a missing base. An app change requiring a newer
+ABI must update its published pin.
 
 Use the completed main push run's head SHA and run ID. Add `-f dry_run=true` to validate without
 publishing:

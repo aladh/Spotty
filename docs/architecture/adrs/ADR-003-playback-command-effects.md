@@ -42,7 +42,7 @@ metadata cannot. Spotify does not echo our operation ID, so confirmation means a
 state, not proof that our command caused it. Navigation matches a changed track or restarted
 position on the same owner; unchanged same-track observations remain unconfirmed.
 
-Each admitted request gets an eight-second account-scoped deadline in the existing registry.
+Each admitted request gets an eight-second account-scoped deadline.
 Expiration releases pending admission and invalidates unsent permits, while sent actions remain
 irrevocable. Late observations still update playback truth; terminal intent outcomes never change.
 The retained history keeps the latest 128 records plus any active requests. Queue appends reserve

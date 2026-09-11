@@ -2,7 +2,8 @@
 
 Keep the Rust/librespot leaf within [engine ownership](../../docs/architecture/playback-engine-ownership.md)
 and [ADR 005](../../docs/architecture/adrs/ADR-005-retain-librespot.md). ABI changes follow the
-[engine contract](../../docs/architecture/engine-contract.md).
+[engine contract](../../docs/architecture/engine-contract.md). The app consumes this crate only as a
+published artifact under [ADR 006](../../docs/architecture/adrs/ADR-006-prebuilt-playback-engine.md).
 
 - `EngineGeneration` in `state.rs` owns everything scoped to one engine generation — session,
   Spirc, player, mixer, player-event sender, task registry, playing flag and its event stamp,
@@ -19,11 +20,14 @@ and [ADR 005](../../docs/architecture/adrs/ADR-005-retain-librespot.md). ABI cha
 - Reconnect captures `SESSION_GENERATION` at trigger time and revalidates it after acquiring the
   lifecycle mutex. A stale cleanup/reconnect must not tear down or rebuild a newer generation.
   Exported init rechecks its already-initialized no-op inside the mutex.
+- A retired recovery attempt must not mutate lifecycle state or report for its replacement; see the
+  [retained-engine guarantees](../../docs/architecture/engine-contract.md#retained-engine-guarantees).
 - A superseded grant/run must not write credentials or lifecycle state. Routine cleanup is not grant
   supersession; preserve the distinct generation rules and their tests.
-- Every `spotty-playback` `extern "C"` export enters through the panic-barrier helpers in `ffi.rs`.
-  Use `block_on_export`; call `refuse_if_nested_runtime` before mutating flags that nested `block_on`
-  would have reached. Nested runtime re-entry returns `ERROR_GENERAL` and is not supersession.
+- Every `spotty-playback` `extern "C"` export enters through the panic-barrier helpers in `ffi.rs`
+  and runs async work through `block_on_export`; call `refuse_if_nested_runtime` before mutating
+  flags that nested `block_on` would have reached. Nested runtime re-entry returns `ERROR_GENERAL`
+  and is not supersession.
 - Map panics to the defined sentinel. Do not replace the process panic hook, hold Rust locks while
   invoking Swift, or assume the barrier makes invalid foreign pointers safe.
 - Emit bounded PCM and immutable typed observations with non-blocking callbacks. Preserve the

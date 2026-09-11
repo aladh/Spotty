@@ -44,9 +44,11 @@ arbitration and active-device facts remain protocol work; display sorting and tr
 do not belong here.
 
 Rust supplies bounded PCM and typed protocol observations through the
-[C boundary](../../Sources/SpottyPlaybackCore/include/spotty_playback.h). It retains sticky resume
-identity, while Swift selects resume targets. Readiness stays held until reconnect rehydration
-finishes; do not create a second protocol state machine across that boundary.
+[C boundary](../../Sources/SpottyPlaybackCore/include/spotty_playback.h). That checked-in header is
+the producer-canonical copy; the app actually compiles against the copy shipped inside the pinned
+XCFramework. It retains sticky resume identity, while Swift selects resume targets. Readiness stays
+held until reconnect rehydration finishes; do not create a second protocol state machine across
+that boundary.
 
 See [engine contracts](engine-contract.md) for non-obvious lifetime and FFI semantics,
 [product contracts](../product/README.md) for observable behavior, and the

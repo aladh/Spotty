@@ -35,11 +35,11 @@ struct ConnectPanelContent: View {
                             .foregroundStyle(SpottyPalette.mediaGreen)
                             Text("\(currentDeviceStatus) on \(deviceName(device))")
                                 .font(.system(size: 14))
-                                .foregroundStyle(Color(white: 0.7))
+                                .foregroundStyle(SpottyPalette.textSecondary)
                         }
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(white: 0.122), in: RoundedRectangle(cornerRadius: 8))
+                        .background(SpottyPalette.navigationControl, in: RoundedRectangle(cornerRadius: 8))
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(
                             "\(player.defaultLocalPlaybackDevice != nil ? "Default device" : "Current device"), \(deviceName(device)), \(currentDeviceStatus)"
@@ -58,7 +58,7 @@ struct ConnectPanelContent: View {
                     if player.connectDevices.isEmpty {
                         Text(player.isConnected ? "No devices found" : "Connect Spotify to see available devices.")
                             .font(.system(size: 14))
-                            .foregroundStyle(Color(white: 0.7))
+                            .foregroundStyle(SpottyPalette.textSecondary)
                             .padding(.horizontal, 8)
                     }
                 }
@@ -93,7 +93,7 @@ private struct ConnectDeviceRow: View {
             .padding(.horizontal, 16)
             .frame(height: 56)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovering ? Color(white: 0.165) : .clear, in: RoundedRectangle(cornerRadius: 4))
+            .background(isHovering ? SpottyPalette.elevatedHighlight : .clear, in: RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -1,6 +1,6 @@
 # ADR 007: File-backed session persistence
 
-Status: accepted.
+Status: accepted on 2026-09-09.
 
 ## Context
 

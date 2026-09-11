@@ -314,7 +314,7 @@ struct TrackTable: View {
             .overlay(alignment: .bottom) { Color.white.opacity(0.1).frame(height: 1) }
 
             .padding(.horizontal, 24)
-            .background(Color(white: 0.122))
+            .background(showsCompactHeader ? SpottyPalette.catalogCanvas : Color.clear)
 
         return List(selection: $selection) {
             if let playlistHeader {

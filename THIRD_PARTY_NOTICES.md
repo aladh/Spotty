@@ -31,7 +31,9 @@ SOFTWARE.
 
 The Rust bridge links upstream [librespot](https://github.com/librespot-org/librespot), pinned to
 commit `a1b66d3c8a14e55a9572a9e17467150dca618c9a`, including its unmodified `connect` crate.
-librespot is MIT licensed and carries the copyright below.
+`librespot-core` and `librespot-playback` are retained copies with narrow patches, described in
+`Backend/spotty-playback/vendor/librespot/README.md`. librespot is MIT licensed and carries the
+copyright below.
 
 Copyright (c) 2015 Paul Lietar
 
@@ -65,15 +67,16 @@ python3 Scripts/generate-playback-notices.py \
 ```
 
 The generated directory contains `ThirdPartyNotices.md`, a machine-readable `manifest.json`, and
-the complete UTF-8 license and notice texts under `licenses/`. The current Apple Silicon graph
-contains 269 third-party packages and 188 unique full license texts. The manifest records each
-package's lockfile checksum or pinned git revision, source location, license expression, and the
-SHA-256 and byte count for every bundled text. The generator fails closed when a source package has
-no discoverable license text and no explicit pinned upstream override.
+the complete UTF-8 license and notice texts under `licenses/`. The manifest records the third-party
+package count, unique full license text count, each package's lockfile checksum or pinned git
+revision, source location, license expression, and the SHA-256 and byte count for every bundled
+text. The generator fails closed when a source package has no discoverable license text and no
+explicit pinned upstream override.
 
 ## Sparkle
 
-[Sparkle](https://sparkle-project.org/) provides application updates. Its bundled license follows.
+[Sparkle](https://sparkle-project.org/) provides application updates, pinned at exactly 2.9.6 in
+`Package.swift`; `Package.resolved` records the resolved revision. Its bundled license follows.
 
 Copyright (c) 2006-2013 Andy Matuschak.
 Copyright (c) 2009-2013 Elgato Systems GmbH.

@@ -8,10 +8,11 @@ and playback boundaries.
 
 - Follow [ADR 002](../../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md) for
   reducer-owned state, lifetime revalidation, injected dependencies, and transient feedback.
-- `PlaybackCoordinator` serializes commands and `PlaybackEffectRegistry` owns store-level tasks.
-  Reducer acceptance normally gates follow-ups; only documented same-lifetime transport
-  reconciliation may succeed after a rejected finish. Other stale, superseded, teardown,
-  cancellation, and epoch-invalidated outcomes stay inert.
+- `PlaybackCoordinator` serializes command execution; registry ownership is in the
+  [SpottyCore guidance](../AGENTS.md). Reducer acceptance normally gates follow-ups; only documented
+  same-lifetime transport reconciliation may succeed after a rejected finish. Other stale,
+  superseded, teardown, cancellation, and epoch-invalidated outcomes stay inert. Command outcomes
+  follow [ADR 003 intent outcomes](../../../docs/architecture/adrs/ADR-003-playback-command-effects.md#intent-outcomes).
 - Start store tasks with `effects.run` and resume after every `await` through
   `PlaybackStore.stillCurrent`. Do not hand-pick lifetime checks at a call site; express a
   deliberate omission with its scope argument and say why. Catalog requests use
@@ -20,6 +21,11 @@ and playback boundaries.
   side effects from that report rather than diffing published state or re-asking `accepts`.
 - `PlaybackStore` owns the one `SessionTeardownController`. `AccountStore` supplies account
   primitives and reads the `isTearingDown` flag the owner sets; it does not coalesce teardown.
+- Views never read the reducer snapshot; they read published projections per
+  [ADR 002 tradeoffs](../../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md#tradeoffs).
+- Session persistence follows [ADR 007](../../../docs/architecture/adrs/ADR-007-session-persistence.md);
+  never read, migrate, or modify retired Keychain entries.
+
 ## Boundary invariants
 
 - The FFI, fan-out, and audio-rendering invariants live with their code in

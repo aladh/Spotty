@@ -1,5 +1,7 @@
 use crate::*;
 use std::collections::HashMap;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 /// One `PlayerEvent::Playing` publication.
 ///
@@ -687,6 +689,12 @@ pub(crate) fn current_device_id() -> Option<String> {
 // Position tracking - updated from player events
 pub(crate) static POSITION_MS: AtomicU32 = AtomicU32::new(0);
 
+/// The last position report as one word for `player_control::displayed_position_ms`: the
+/// position in the high 32 bits and the low 32 bits of the monotonic millisecond it arrived.
+/// Written atomically so a reader never pairs a new position with an older arrival time.
+/// Zero arrival bits mean no report since the last reset.
+pub(crate) static POSITION_REPORT: AtomicU64 = AtomicU64::new(0);
+
 /// Where playback should pick up after a deactivation, or 0 when there is nothing to
 /// recover.
 ///
@@ -904,9 +912,34 @@ pub(crate) fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Milliseconds since the first call in this process, starting at 1 so the value is never the
+/// zero that `POSITION_REPORT` uses for "no report". Monotonic, so wall-clock adjustments
+/// cannot move a reported position backwards or forwards.
+pub(crate) fn monotonic_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+pub(crate) fn pack_position_report(position_ms: u32, reported_at_ms: u64) -> u64 {
+    (u64::from(position_ms) << 32) | u64::from(reported_at_ms as u32)
+}
+
+/// Returns `(position_ms, reported_at_ms)` with the arrival time truncated to 32 bits.
+pub(crate) fn unpack_position_report(report: u64) -> (u32, u32) {
+    ((report >> 32) as u32, report as u32)
+}
+
 /// Update position from player event
 pub(crate) fn update_position(position_ms: u32) {
     POSITION_MS.store(position_ms, Ordering::SeqCst);
+    let report = pack_position_report(position_ms, monotonic_ms());
+    POSITION_REPORT.store(report, Ordering::SeqCst);
+}
+
+/// Clears the live position and its report so a new session cannot display a stale one.
+pub(crate) fn reset_position() {
+    POSITION_MS.store(0, Ordering::SeqCst);
+    POSITION_REPORT.store(0, Ordering::SeqCst);
 }
 
 pub(crate) fn update_current_context_uri(context_uri: &str) {

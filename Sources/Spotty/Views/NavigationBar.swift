@@ -12,6 +12,7 @@ struct NavigationBar: View {
     @FocusState private var focusedControl: FocusTarget?
     @State private var homeIsHovered = false
     @State private var searchIsHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
@@ -23,8 +24,12 @@ struct NavigationBar: View {
                         isHome || homeIsHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
                     )
                     .frame(width: 48, height: 48)
-                    .background(SpottyPalette.navigationControl, in: Circle())
+                    .background(
+                        homeIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl, in: Circle()
+                    )
+                    .scaleEffect(homeIsHovered ? 1.04 : 1)
             }
+            .animationIfAllowed(.easeOut(duration: 0.15), value: homeIsHovered, reduceMotion: reduceMotion)
             .onHover { homeIsHovered = $0 }
             .accessibilityLabel("Home")
             .help("Home")
@@ -47,17 +52,19 @@ struct NavigationBar: View {
                 .keyboardShortcut("l", modifiers: .command)
                 TextField("What do you want to play?", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 16))
+                    .font(.system(size: 14, weight: .medium))
                     .focused($focusedControl, equals: .search)
                     .accessibilityLabel("Search Spotify")
                     .onSubmit(showSearch)
                     .onTapGesture { showSearch() }
             }
             .onHover { searchIsHovered = $0 }
-            .padding(.horizontal, 16)
-            .frame(maxWidth: 460)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: 474)
             .frame(height: 48)
-            .background(SpottyPalette.navigationControl, in: Capsule())
+            .background(
+                searchIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl, in: Capsule()
+            )
             .overlay {
                 Capsule().strokeBorder(focusedControl == .search ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
             }
@@ -65,8 +72,8 @@ struct NavigationBar: View {
         .labelStyle(.iconOnly)
         .buttonStyle(.plain)
         .font(.system(size: 18))
-        .frame(width: 516)
-        .padding(.vertical, 6)
+        .frame(width: 530)
+        .padding(.vertical, 8)
         .onChange(of: searchText) {
             if !searchText.isEmpty { showSearch() }
         }

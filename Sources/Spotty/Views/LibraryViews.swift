@@ -65,12 +65,14 @@ struct SearchView: View {
                         if !store.artists.isEmpty {
                             MediaShelf(
                                 section: CatalogSection(id: "search-artists", title: "Artists", items: store.artists),
+                                playback: playback,
                                 onSelect: onSelect
                             )
                         }
                         if !store.albums.isEmpty {
                             MediaShelf(
                                 section: CatalogSection(id: "search-albums", title: "Albums", items: store.albums),
+                                playback: playback,
                                 onSelect: onSelect
                             )
                         }
@@ -78,6 +80,7 @@ struct SearchView: View {
                             MediaShelf(
                                 section: CatalogSection(
                                     id: "search-playlists", title: "Playlists", items: store.playlists),
+                                playback: playback,
                                 onSelect: onSelect
                             )
                         }
@@ -187,10 +190,10 @@ struct LibraryView: View {
                     LazyVGrid(
                         columns: MediaGridLayout.columns,
                         alignment: .leading,
-                        spacing: 18
+                        spacing: CatalogLayout.gridSpacing
                     ) {
                         ForEach(items) { item in
-                            MediaCard(item: item) { onSelect(item) }
+                            MediaCard(item: item, playback: playback) { onSelect(item) }
                         }
                     }
                 }

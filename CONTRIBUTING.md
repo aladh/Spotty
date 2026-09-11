@@ -7,7 +7,10 @@ Start with [AGENTS.md](AGENTS.md) for repository rules and the
 
 [Thermos review](docs/development/thermos-review.md) reviews each push to a ready
 same-repository PR for correctness and quality, resolves its own threads once they are addressed,
-and approves when no actionable findings remain.
+and approves when no actionable findings remain. The comment-only
+[documentation review](docs/development/docs-review.md) reviews PRs that touch documentation the
+same way without approving, and additionally requires that any change to a product contract,
+repository rule, or historical record be declared in the PR description.
 
 A request to open a PR authorizes the agent to create a branch, commit the complete in-scope change,
 push it, open the PR, monitor available checks/reviews during the run, and address automated

@@ -164,9 +164,10 @@ struct PlaybackPositionSlider: NSViewRepresentable {
         }
 
         /// Authoritative updates carry the store's own anchor. When nothing about the anchor,
-        /// duration, or motion state actually changed, this returns before `synchronizePosition()`
-        /// so the running Core Animation is left untouched instead of being restarted every call
-        /// (e.g. every second from a 1 Hz `TimelineView`).
+        /// duration, or motion state actually changed and Core Animation is carrying the thumb,
+        /// only chrome (enabled/engaged colors) is refreshed so the running animation is left
+        /// untouched instead of being restarted every call (e.g. every second from a 1 Hz
+        /// `TimelineView`). A static thumb still advances from the same anchor on every call.
         func updatePosition(
             _ position: Double, anchoredAt: Date, duration: Double, isPlaying: Bool = false, reduceMotion: Bool = false
         ) {
@@ -176,6 +177,11 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             if newAnchorPosition == anchorPosition, anchoredAt == self.anchoredAt, newMaxValue == maxValue,
                 newHasDuration == hasDuration, isPlaying == plays, reduceMotion == self.reduceMotion
             {
+                if animatesProgress {
+                    progressDrawing.refreshChrome(hasTrack: hasDuration, engaged: isEngaged)
+                } else {
+                    synchronizePosition()
+                }
                 return
             }
             maxValue = newMaxValue
@@ -196,14 +202,21 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             renderProgress()
         }
 
+        private var isEngaged: Bool {
+            isEnabled && (isTrackingPosition || isHovering || (hasKeyboardFocus && window?.isKeyWindow == true))
+        }
+
+        /// Mirrors the drawing's own decision to run Core Animation rather than draw a static thumb.
+        private var animatesProgress: Bool {
+            plays && !reduceMotion && !isTrackingPosition && hasDuration && window != nil
+        }
+
         func renderProgress() {
             guard let cell = cell as? NSSliderCell else { return }
             progressDrawing.frame = bounds
-            let engaged =
-                isEnabled && (isTrackingPosition || isHovering || (hasKeyboardFocus && window?.isKeyWindow == true))
             progressDrawing.update(
                 bar: cell.barRect(flipped: isFlipped), knob: cell.knobRect(flipped: isFlipped),
-                remaining: max(0, maxValue - doubleValue), hasTrack: hasDuration, engaged: engaged,
+                remaining: max(0, maxValue - doubleValue), hasTrack: hasDuration, engaged: isEngaged,
                 animates: plays && !reduceMotion && !isTrackingPosition
             )
         }

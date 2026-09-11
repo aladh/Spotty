@@ -76,8 +76,9 @@
   that obsolete gesture. Disabled playback cannot seek.
   Interpolate idle progress smoothly from confirmed playing snapshots using
   [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift), without per-frame
-  SwiftUI layout. New snapshots, pauses, seeks, track/owner changes re-anchor it. Reduce Motion
-  disables interpolation. During interaction the native slider owns the visible position and
+  SwiftUI layout. A new snapshot within a small tolerance of the presented position leaves the
+  running animation alone; a larger drift eases onto the corrected path, and pauses, seeks, and
+  track/owner changes re-anchor it immediately. Reduce Motion disables interpolation. During interaction the native slider owns the visible position and
   commit; interpolation never changes playback state or sends a seek.
 - Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
   style picker because Connect exposes no shuffle-style parameter.

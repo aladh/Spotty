@@ -1897,3 +1897,39 @@ fn protocol_context_clears_without_local_events_resurrecting_resume_context() {
         ]
     );
 }
+
+// The display getter advances the last Player report by the time since it arrived, bounded to
+// one librespot update interval, so a 1 Hz Swift sample no longer carries a 0-200 ms error.
+
+#[test]
+fn displayed_position_advances_by_elapsed_time_while_playing() {
+    assert_eq!(interpolate_position_ms(1_000, 10_000, 10_120, true), 1_120);
+}
+
+#[test]
+fn displayed_position_is_capped_at_one_update_interval() {
+    assert_eq!(
+        interpolate_position_ms(1_000, 10_000, 20_000, true),
+        1_000 + POSITION_INTERPOLATION_CAP_MS as u32
+    );
+}
+
+#[test]
+fn displayed_position_is_raw_when_paused_or_never_reported() {
+    assert_eq!(interpolate_position_ms(1_000, 10_000, 10_120, false), 1_000);
+    assert_eq!(interpolate_position_ms(1_000, 0, 10_120, true), 1_000);
+}
+
+#[test]
+fn displayed_position_ignores_clock_going_backwards_and_saturates() {
+    assert_eq!(interpolate_position_ms(1_000, 10_000, 9_000, true), 1_000);
+    assert_eq!(interpolate_position_ms(u32::MAX, 10_000, 10_100, true), u32::MAX);
+}
+
+#[test]
+fn update_position_records_when_the_report_arrived() {
+    let before = monotonic_ms();
+    update_position(4_242);
+    assert_eq!(current_position_ms(), 4_242);
+    assert!(POSITION_REPORTED_AT_MS.load(Ordering::SeqCst) >= before);
+}

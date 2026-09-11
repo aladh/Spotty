@@ -160,11 +160,27 @@ struct PlaybackPositionSliderChecks {
         #expect(
             PlaybackProgressDrawing.animationDecision(presentedX: 51, targetX: 50, pointsPerSecond: 10) == .keep)
         #expect(
-            PlaybackProgressDrawing.animationDecision(presentedX: 80, targetX: 50, pointsPerSecond: 10)
-                == .restart(from: 80))
+            PlaybackProgressDrawing.animationDecision(presentedX: 60, targetX: 50, pointsPerSecond: 10)
+                == .restart(from: 60))
         #expect(
             PlaybackProgressDrawing.animationDecision(presentedX: 51, targetX: 50, pointsPerSecond: 0)
                 == .restart(from: 50))
+        // A seek or track change: drift well beyond the snap threshold restarts from the target.
+        #expect(
+            PlaybackProgressDrawing.animationDecision(presentedX: 10, targetX: 50, pointsPerSecond: 10)
+                == .restart(from: 50))
+    }
+
+    @Test func staticThumbAdvancesOnUnchangedAnchor() {
+        let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
+        var time = Date(timeIntervalSince1970: 1_000)
+        slider.now = { time }
+        let t0 = time
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true, reduceMotion: true)
+        #expect(slider.doubleValue == 60)
+        time = t0.addingTimeInterval(2)
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true, reduceMotion: true)
+        #expect(slider.doubleValue == 62)
     }
 
     @Test func nativeAccessibilityAdjustmentAndDisabledCommit() {

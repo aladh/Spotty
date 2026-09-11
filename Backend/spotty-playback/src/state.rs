@@ -1,5 +1,7 @@
 use crate::*;
 use std::collections::HashMap;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 // Player state. The retained engine has one production player implementation: librespot's own
 // `Player`, which decodes in-process and delivers bounded PCM through `proxy_sink`.
@@ -375,6 +377,10 @@ pub(crate) fn current_device_id() -> Option<String> {
 // Position tracking - updated from player events
 pub(crate) static POSITION_MS: AtomicU32 = AtomicU32::new(0);
 
+/// Process-monotonic milliseconds at which `POSITION_MS` was last written, for the bounded
+/// display interpolation in `player_control::displayed_position_ms`. Zero means never.
+pub(crate) static POSITION_REPORTED_AT_MS: AtomicU64 = AtomicU64::new(0);
+
 /// Where playback should pick up after a deactivation, or 0 when there is nothing to
 /// recover.
 ///
@@ -558,9 +564,17 @@ pub(crate) fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Milliseconds since the first call in this process. Monotonic, so wall-clock adjustments
+/// cannot move a reported position backwards or forwards.
+pub(crate) fn monotonic_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
 /// Update position from player event
 pub(crate) fn update_position(position_ms: u32) {
     POSITION_MS.store(position_ms, Ordering::SeqCst);
+    POSITION_REPORTED_AT_MS.store(monotonic_ms(), Ordering::SeqCst);
 }
 
 pub(crate) fn update_current_context_uri(context_uri: &str) {

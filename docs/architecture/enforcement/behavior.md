@@ -35,7 +35,9 @@ pending commands, transport resolutions, intents, and source revisions carried f
 generation; per-source revisions are monotone within an epoch pair and an accepted revision must
 strictly advance its source; terminal intent outcomes are immutable; the pending table stays
 coherent with its keys and intent records; intent retention stays within 128 plus active requests;
-published timing is never negative; `accepts` never permits what `reduce` refuses; `commandStarted`
-captures rollback from the pre-command presentation; and a rejected finish restores exactly the
-fields that command claimed to the values observed before it started. Traces are generated from a
-SplitMix64 seed, so a reported seed and step index reproduces the failing trace exactly.
+published timing is never negative; a gate (`accepts`) refusal implies a reduction (`reduce`)
+refusal; `commandStarted` captures rollback from the pre-command presentation; and a rejected
+finish for an undispatched pending command restores the fields that command claimed to the
+pre-command values (a held seek with newer authoritative timing keeps that sample). Traces are
+generated from a SplitMix64 seed, so a reported seed and step index reproduces the failing trace
+exactly.

@@ -9,31 +9,3 @@ struct CatalogTableDivider: View {
             .accessibilityHidden(true)
     }
 }
-
-/// A compact, unambiguous primary action for artwork-led detail headers.
-struct CircularPlayButton: View {
-    let action: () -> Void
-    let isEnabled: Bool
-
-    init(action: @escaping () -> Void, isEnabled: Bool = true) {
-        self.action = action
-        self.isEnabled = isEnabled
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "play.fill")
-                .symbolRenderingMode(.monochrome)
-                .font(.body.weight(.bold))
-                .foregroundStyle(SpottyPalette.playerButtonForeground)
-                .frame(width: 38, height: 38)
-        }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.circle)
-        .controlSize(.large)
-        .tint(SpottyPalette.mediaGreen)
-        .disabled(!isEnabled)
-        .help("Play")
-        .accessibilityLabel("Play")
-    }
-}

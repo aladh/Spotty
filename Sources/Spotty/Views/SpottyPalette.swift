@@ -8,6 +8,9 @@ enum SpottyPalette {
     static let textPrimary = Color.white
     static let textSecondary = Color(white: 0.7)
     static let navigationControl = Color(white: 0.122)
+    static let elevatedHighlight = Color(white: 0.165)
+    static let selectedControl = Color(white: 0.157)
+    static let selectedControlInactive = Color(white: 0.13)
     static let mediaGreen = Color(red: 0.118, green: 0.843, blue: 0.376)
     // Spotify-familiar elevations: canvas, resting card, and hovered card.
     static let catalogCanvas = Color(red: 0.071, green: 0.071, blue: 0.071)
@@ -20,7 +23,7 @@ enum SpottyPalette {
     static let quickAccessSurface = Color(red: 0.16, green: 0.16, blue: 0.16)
     static let quickAccessSurfaceHover = Color(red: 0.22, green: 0.22, blue: 0.22)
     // The player is a distinct, near-black anchor rather than another raised media card.
-    static let playerShelf = Color(red: 0.035, green: 0.035, blue: 0.035)
+    static let playerShelf = Color.black
     static let playerDivider = Color.primary.opacity(0.10)
     static let playerPrimary = textPrimary
     static let playerSecondary = textSecondary

@@ -16,12 +16,17 @@ struct AlbumDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MediaDetailHeader(
-                item: item,
-                detail: store.releaseDate,
-                canPlay: playback.canStartPlayback
-            ) {
-                playback.playURI(item.uri)
+            DetailHeroBackground(artworkURL: item.artworkURL) {
+                VStack(spacing: 0) {
+                    MediaDetailHeader(item: item, detail: store.releaseDate)
+                    DetailActionRow(
+                        canPlay: playback.canStartPlayback,
+                        playAccessibilityLabel: "Play",
+                        playAccessibilityHint: "Starts this \(item.kind.rawValue.lowercased())"
+                    ) {
+                        playback.playURI(item.uri)
+                    }
+                }
             }
             CatalogTableDivider()
             if store.isLoading && store.tracks.isEmpty {
@@ -67,8 +72,17 @@ struct ArtistDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MediaDetailHeader(item: item, canPlay: playback.canStartPlayback) {
-                playback.playURI(item.uri)
+            DetailHeroBackground(artworkURL: item.artworkURL) {
+                VStack(spacing: 0) {
+                    MediaDetailHeader(item: item)
+                    DetailActionRow(
+                        canPlay: playback.canStartPlayback,
+                        playAccessibilityLabel: "Play",
+                        playAccessibilityHint: "Starts this \(item.kind.rawValue.lowercased())"
+                    ) {
+                        playback.playURI(item.uri)
+                    }
+                }
             }
             CatalogTableDivider()
             if store.isLoading && store.releases.isEmpty {
@@ -93,7 +107,7 @@ struct ArtistDetailView: View {
                         spacing: 18
                     ) {
                         ForEach(store.releases) { release in
-                            MediaCard(item: release) { onSelect(release) }
+                            MediaCard(item: release, playback: playback) { onSelect(release) }
                         }
                     }
                     .padding(CatalogLayout.contentPadding)

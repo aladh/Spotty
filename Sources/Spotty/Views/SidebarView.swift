@@ -11,11 +11,11 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Playlists")
+            Text("Your Library")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(SpottyPalette.textPrimary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 20)
+                .padding(.leading, 16)
+                .padding(.vertical, 12)
                 .accessibilityAddTraits(.isHeader)
 
             List(selection: $selection) {
@@ -149,8 +149,8 @@ private struct SidebarPlaylistRow: View {
         .padding(8)
         .background(
             isSelected
-                ? Color(white: controlActiveState == .inactive ? 0.13 : 0.157)
-                : (isHovering ? Color(white: 0.122) : .clear),
+                ? (controlActiveState == .inactive ? SpottyPalette.selectedControlInactive : SpottyPalette.selectedControl)
+                : (isHovering ? SpottyPalette.navigationControl : .clear),
             in: RoundedRectangle(cornerRadius: 4)
         )
         .background { PlaylistSelectionAppearance() }

@@ -102,7 +102,7 @@ struct SidePanelView: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.plain)
             .font(.system(size: 16))
-            .foregroundStyle(Color(white: 0.7))
+            .foregroundStyle(SpottyPalette.textSecondary)
             .frame(width: 32, height: 32)
             .help("Close sidebar")
         }
@@ -395,7 +395,7 @@ private struct HistoryRow: View {
             .contentShape(Rectangle())
             .background(
                 SpottyPalette.historySurface(isHovering: isHovering),
-                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
             )
         }
         .buttonStyle(.plain)

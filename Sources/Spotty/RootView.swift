@@ -33,10 +33,18 @@ struct RootView: View {
                 )
                 .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
                 .frame(maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.leading, 8)
+                .padding(.trailing, 4)
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(.leading, 4)
+                    .padding(.trailing, 8)
             }
+            .padding(.bottom, 8)
+            .background { Color.black.ignoresSafeArea() }
             .inspector(isPresented: $showsSidePanel) {
                 SidePanelView(
                     metadata: catalog.metadata,
@@ -47,7 +55,7 @@ struct RootView: View {
                     onClose: { showsSidePanel = false }
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-                .padding(.horizontal, 8)
+                .padding(.trailing, 8)
                 .padding(.bottom, 8)
                 .background(.black)
                 .inspectorColumnWidth(min: 260, ideal: 280, max: 360)

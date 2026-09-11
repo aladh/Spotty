@@ -45,97 +45,71 @@ struct PlaylistDetailView: View {
     }
 
     private var expandedHeader: some View {
-        VStack(spacing: 0) {
-            MediaDetailHeader(
-                item: item,
-                description: store.description,
-                detail: playlistMetadataText ?? "",
-                style: .playlist
-            )
+        DetailHeroBackground(artworkURL: item.artworkURL) {
+            VStack(spacing: 0) {
+                MediaDetailHeader(
+                    item: item,
+                    description: store.description,
+                    detail: playlistMetadataText ?? "",
+                    style: .playlist
+                )
 
-            HStack(spacing: 24) {
-                Button {
-                    playback.playPlaylist(item)
-                } label: {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .offset(x: 2)
-                        .frame(width: 56, height: 56)
-                        .background(SpottyPalette.mediaGreen, in: Circle())
+                DetailActionRow(
+                    canPlay: playback.canStartPlayback,
+                    playAccessibilityLabel: "Play playlist",
+                    shuffle: DetailActionRowShuffle(
+                        isEnabled: playback.isShuffleEnabled,
+                        toggle: { playback.toggleShuffle() }
+                    ),
+                    play: { playback.playPlaylist(item) }
+                ) {
+                    searchField
                 }
-                .buttonStyle(.plain)
-                .disabled(!playback.canStartPlayback)
-                .pointingHandCursor(enabled: playback.canStartPlayback)
-                .accessibilityLabel("Play playlist")
-                .help("Play playlist")
+            }
+        }
+    }
 
-                Button {
-                    playback.toggleShuffle()
-                } label: {
-                    Image(systemName: "shuffle")
-                        .font(.system(size: 24))
-                        .foregroundStyle(playback.isShuffleEnabled ? SpottyPalette.mediaGreen : .secondary)
-                        .frame(width: 32, height: 40)
-                        .overlay(alignment: .bottom) {
-                            if playback.isShuffleEnabled {
-                                Circle().fill(SpottyPalette.mediaGreen).frame(width: 4, height: 4)
-                            }
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Button {
+                showsSearch = true
+                searchFocused = true
+            } label: {
+                Image(systemName: "magnifyingglass").font(.system(size: 16))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Search in playlist")
+            .help("Search in playlist")
+            if showsSearch {
+                TextField("Search in playlist", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused($searchFocused)
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .onExitCommand {
+                        if searchText.isEmpty {
+                            showsSearch = false
+                            searchFocused = false
+                        } else {
+                            searchText = ""
                         }
-                }
-                .buttonStyle(.plain)
-                .disabled(!playback.canStartPlayback)
-                .pointingHandCursor(enabled: playback.canStartPlayback)
-                .accessibilityLabel(playback.isShuffleEnabled ? "Disable shuffle" : "Enable shuffle")
-                .help("Fewer repeats shuffle")
-
-                Spacer(minLength: 8)
-                HStack(spacing: 8) {
+                    }
+                if !searchText.isEmpty {
                     Button {
-                        showsSearch = true
+                        searchText = ""
                         searchFocused = true
                     } label: {
-                        Image(systemName: "magnifyingglass").font(.system(size: 16))
+                        Image(systemName: "xmark").font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Search in playlist")
-                    .help("Search in playlist")
-                    if showsSearch {
-                        TextField("Search in playlist", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .focused($searchFocused)
-                            .frame(minWidth: 0, maxWidth: .infinity)
-                            .onExitCommand {
-                                if searchText.isEmpty {
-                                    showsSearch = false
-                                    searchFocused = false
-                                } else {
-                                    searchText = ""
-                                }
-                            }
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                                searchFocused = true
-                            } label: {
-                                Image(systemName: "xmark").font(.system(size: 12))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Clear search field")
-                        }
-                    }
+                    .accessibilityLabel("Clear search field")
                 }
-                .padding(8)
-                .frame(width: showsSearch ? 190 : 32, height: 32)
-                .background(
-                    showsSearch ? SpottyPalette.quickAccessSurface : .clear, in: RoundedRectangle(cornerRadius: 4))
             }
-            .padding(.horizontal, CatalogLayout.contentPadding)
-            .frame(height: 96)
-            .background(SpottyPalette.catalogCanvas)
-
         }
+        .padding(8)
+        .frame(width: showsSearch ? 190 : 32, height: 32)
+        .background(
+            showsSearch ? SpottyPalette.quickAccessSurface : .clear, in: RoundedRectangle(cornerRadius: 4))
     }
 
     private var compactHeader: some View {
@@ -161,7 +135,7 @@ struct PlaylistDetailView: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 64)
-        .background(Color(white: 0.157))
+        .background(SpottyPalette.selectedControl)
     }
 
     @ViewBuilder

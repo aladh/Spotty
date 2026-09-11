@@ -59,14 +59,13 @@ struct HomeView: View {
                                 .help("Refreshing Spotify")
                         }
                     }
-                    .padding(.bottom, -6)
 
                     ForEach(Array(store.homeSections.enumerated()), id: \.element.id) { index, section in
                         switch homeSectionPresentation(at: index) {
                         case .quickAccess:
                             QuickAccessShelf(section: section, onSelect: onSelect)
                         case .shelf:
-                            MediaShelf(section: section, onSelect: onSelect)
+                            MediaShelf(section: section, playback: playback, onSelect: onSelect)
                         }
                     }
                 }
@@ -133,9 +132,9 @@ private struct QuickAccessCard: View {
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .background(
                 SpottyPalette.quickAccessSurface(isHovering: isHovering),
-                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
         .buttonStyle(.plain)
         .hoverSurface(isHovering: $isHovering)
@@ -147,6 +146,7 @@ private struct QuickAccessCard: View {
 
 struct MediaShelf: View {
     let section: CatalogSection
+    let playback: CatalogPlaybackAccess
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
@@ -157,7 +157,7 @@ struct MediaShelf: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     ForEach(section.items) { item in
-                        MediaCard(item: item) { onSelect(item) }
+                        MediaCard(item: item, playback: playback) { onSelect(item) }
                     }
                 }
                 .padding(.vertical, 2)
@@ -168,9 +168,11 @@ struct MediaShelf: View {
 
 struct MediaCard: View {
     let item: CatalogItem
+    let playback: CatalogPlaybackAccess
     let action: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -178,7 +180,7 @@ struct MediaCard: View {
                 RemoteArtwork(
                     url: item.artworkURL,
                     kind: item.kind,
-                    cornerRadius: item.kind == .artist ? CatalogLayout.cardArtwork / 2 : 10
+                    cornerRadius: item.kind == .artist ? CatalogLayout.cardArtwork / 2 : 4
                 )
                 .frame(width: CatalogLayout.cardArtwork, height: CatalogLayout.cardArtwork)
                 .shadow(color: .black.opacity(isHovering ? 0.18 : 0.08), radius: isHovering ? 10 : 5, y: 4)
@@ -207,5 +209,36 @@ struct MediaCard: View {
         .help(item.kind == .track ? "Play \(item.title)" : "Open \(item.title)")
         .accessibilityLabel("\(item.title), \(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)")
         .accessibilityHint(item.kind == .track ? "Starts playback" : "Opens details")
+        // The card is itself a Button, so the play control is layered outside its label rather
+        // than nested inside it; the insets place it 8pt inside the artwork's bottom-trailing corner.
+        .overlay(alignment: .topTrailing) {
+            Button {
+                if item.kind == .playlist {
+                    playback.playPlaylist(item)
+                } else {
+                    playback.playURI(item.uri)
+                }
+            } label: {
+                Circle()
+                    .fill(SpottyPalette.mediaGreen)
+                    .frame(width: 48, height: 48)
+                    .overlay {
+                        TransportSymbol(kind: .play)
+                            .frame(width: 24, height: 24)
+                            .foregroundStyle(.black)
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(!playback.canStartPlayback)
+            .pointingHandCursor(enabled: playback.canStartPlayback)
+            .accessibilityLabel("Play \(item.title)")
+            .accessibilityHidden(!isHovering)
+            .allowsHitTesting(isHovering && playback.canStartPlayback)
+            .opacity(isHovering ? 1 : 0)
+            .offset(y: isHovering ? 0 : 8)
+            .animationIfAllowed(.easeOut(duration: 0.15), value: isHovering, reduceMotion: reduceMotion)
+            .padding(.top, CatalogLayout.cardPadding + CatalogLayout.cardArtwork - 48 - 8)
+            .padding(.trailing, CatalogLayout.cardPadding + 8)
+        }
     }
 }

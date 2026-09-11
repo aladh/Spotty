@@ -7,21 +7,19 @@ struct PlayerUtilityIcon: View {
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
 
-    private let activeColor = Color(red: 29 / 255, green: 185 / 255, blue: 84 / 255)
-
     var body: some View {
         PlaybackUtilitySymbol(kind: kind)
             .fill(style: FillStyle(eoFill: true))
             .frame(width: 16, height: 16)
             .foregroundStyle(
                 isOpen
-                    ? (isHovering && isEnabled ? SpottyPalette.mediaGreen : activeColor)
+                    ? SpottyPalette.mediaGreen
                     : Color.white.opacity(isHovering && isEnabled ? 1 : 0.7)
             )
             .frame(width: 32, height: 32)
             .overlay(alignment: .bottom) {
                 if isOpen {
-                    Circle().fill(activeColor).frame(width: 4, height: 4)
+                    Circle().fill(SpottyPalette.mediaGreen).frame(width: 4, height: 4)
                 }
             }
             .contentShape(Rectangle())

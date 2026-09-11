@@ -46,11 +46,10 @@ struct NowPlayingBar: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 .padding(.horizontal, 16)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 8)
+                .frame(maxHeight: .infinity, alignment: .center)
             }
-            .frame(height: 80)
-            .background(.black)
+            .frame(height: 72)
+            .background(SpottyPalette.playerShelf)
 
             if let banner = player.remotePlaybackBanner {
                 RemotePlaybackBanner(device: banner.device, isPlaying: banner.isPlaying)
@@ -113,7 +112,7 @@ private struct RemotePlaybackBanner: View {
         .background(SpottyPalette.mediaGreen, in: RoundedRectangle(cornerRadius: 4))
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
-        .background(.black)
+        .background(SpottyPalette.playerShelf)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(isPlaying ? "Playing" : "Paused") on \(device.name)")
     }

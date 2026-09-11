@@ -428,8 +428,7 @@ pub(crate) fn interpolate_position_ms(
     if !playing || reported_at_ms == 0 {
         return reported_ms;
     }
-    let elapsed = u64::from(now_ms.wrapping_sub(reported_at_ms))
-        .min(POSITION_INTERPOLATION_CAP_MS);
+    let elapsed = u64::from(now_ms.wrapping_sub(reported_at_ms)).min(POSITION_INTERPOLATION_CAP_MS);
     u32::try_from(u64::from(reported_ms) + elapsed).unwrap_or(u32::MAX)
 }
 

@@ -100,6 +100,10 @@ private struct SidebarPlaylistRow: View {
 
     private var isPlaying: Bool { playback.isPlayingPlaylist(playlist.uri) }
 
+    private var selectedBackground: Color {
+        controlActiveState == .inactive ? SpottyPalette.selectedControlInactive : SpottyPalette.selectedControl
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             RemoteArtwork(
@@ -149,7 +153,7 @@ private struct SidebarPlaylistRow: View {
         .padding(8)
         .background(
             isSelected
-                ? (controlActiveState == .inactive ? SpottyPalette.selectedControlInactive : SpottyPalette.selectedControl)
+                ? selectedBackground
                 : (isHovering ? SpottyPalette.navigationControl : .clear),
             in: RoundedRectangle(cornerRadius: 4)
         )

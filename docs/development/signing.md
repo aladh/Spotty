@@ -2,8 +2,7 @@
 
 [Development setup](setup.md) · [Packaging and releases](releases.md)
 
-Follow [repository authorization rules](../../AGENTS.md#development) and run commands
-from the repository root.
+Run commands from the repository root.
 
 For an authenticated launch, sign in to Xcode with an Apple Account and create an Apple Development
 certificate under its free Personal Team; paid membership is unnecessary for local personal use. If

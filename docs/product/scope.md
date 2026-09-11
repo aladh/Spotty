@@ -42,3 +42,6 @@ appearance and report that limit; do not invent a redesign. A behavior fix shoul
 appearance unless the request authorizes a visual change. If fidelity conflicts with safety,
 accessibility, or platform constraints, make the smallest necessary deviation and explain it.
 Do not rewrite the visual contract merely to legitimize an implementation's side effect.
+Inspect applicable resting, hover, selected, focused, disabled, inactive, and narrow-layout states;
+report both what was inspected and what remains unverified. Use synthetic fixtures when they provide
+repeatable visual evidence.

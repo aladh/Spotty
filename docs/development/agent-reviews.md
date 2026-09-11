@@ -15,8 +15,9 @@ A reviewer runs when a PR from this repository is opened ready, marked ready, re
 to, and on request (a trigger comment or **Run workflow** on the default branch). The first run
 audits the whole PR; later runs audit only the changes since the head that reviewer last covered,
 so a fix push gets a small follow-up rather than a repeat. A force-push or rebase falls back to a
-full review. A reviewer with a path filter skips PRs whose changed files do not match it and limits
-its diffs to matching files.
+full review. A reviewer with a path filter limits its diffs to matching files, rejects findings
+outside them, and skips PRs whose changed files do not match unless one of its own threads is still
+open, in which case it runs to reconcile those threads. Approval is opt-in per caller.
 
 The agents run with a read-only repository token and never hold the App token. They write
 `findings.json`, `thread-actions.json`, and `summary.md`; a trusted workflow step validates those

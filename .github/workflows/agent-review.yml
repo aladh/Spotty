@@ -33,7 +33,7 @@ on:
       can_approve:
         required: false
         type: string
-        default: 'true'
+        default: 'false'
 
 jobs:
   review:
@@ -134,15 +134,35 @@ jobs:
         id: path-filter
         if: steps.eligibility.outputs.skip != 'true'
         working-directory: source
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "$PATH_REGEX" ]; then
             exit 0
           fi
-          if ! git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -E "$PATH_REGEX" > /dev/null; then
-            echo "Skipping: no changed file matches path_regex"
-            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          if git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -E "$PATH_REGEX" > /dev/null; then
+            exit 0
           fi
+          # No matching change, but earlier threads owned by this reviewer still need reconciling.
+          owned_open=$(gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
+            -f query='query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+                reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved comments(first: 1) { nodes { author { login } body } } } } } } }' \
+            | jq --arg login "$REVIEWER_LOGIN" --arg marker "$REVIEW_MARKER" --arg legacy "$LEGACY_UNMARKED_THREADS" \
+              '.data.repository.pullRequest.reviewThreads
+              | if .pageInfo.hasNextPage then 1 else
+                  [.nodes[] | select(.isResolved == false
+                    and .comments.nodes[0].author.login == $login
+                    and (.comments.nodes[0].body as $body
+                      | ($body | startswith($marker))
+                        or ($legacy == "true" and ($body | startswith("<!-- spotty-") | not))))] | length end')
+          if [ "$owned_open" -gt 0 ]; then
+            echo "No changed file matches path_regex, but $owned_open owned thread(s) remain open; reviewing thread dispositions only"
+            exit 0
+          fi
+          echo "Skipping: no changed file matches path_regex and no owned thread is open"
+          echo 'skip=true' >> "$GITHUB_OUTPUT"
 
       - name: Prepare review inputs
         if: steps.eligibility.outputs.skip != 'true' && steps.path-filter.outputs.skip != 'true'
@@ -259,6 +279,10 @@ jobs:
             and (.line | type == "number" and . == floor and . > 0)
             and (.body | type == "string" and length > 0))' findings.json > /dev/null \
             || { echo '::error::findings.json is not an array of {path, line, body}'; exit 1; }
+          if [ -n "$PATH_REGEX" ]; then
+            jq -e --arg re "$PATH_REGEX" 'all(.[]; .path | test($re))' findings.json > /dev/null \
+              || { echo '::error::findings.json names a path outside this reviewer'"'"'s path_regex'; exit 1; }
+          fi
           jq -e --slurpfile threads "$REVIEW_IN/threads.json" '
             ($threads[0] | map(.id)) as $ids
             | type == "array" and (map(.id) | sort) == ($ids | sort)

@@ -96,13 +96,13 @@ fn named_lifecycle_fault_measurements() {
             let started = std::time::Instant::now();
             with_lifecycle_lock(async {
                 let _store = enter_store_section();
-                *ENGINE_TASKS.lock().unwrap() = Some(tasks);
+                with_engine(|engine| engine.tasks = Some(tasks));
                 teardown_engine_resources("five parked child fault").await;
             })
             .await;
             drain.push(started.elapsed().as_secs_f64() * 1_000.0);
             assert_eq!(settled.load(Ordering::SeqCst), 5);
-            assert!(ENGINE_TASKS.lock().unwrap().is_none());
+            assert!(with_engine(|engine| engine.tasks.is_none()));
         }
     })
     .unwrap();

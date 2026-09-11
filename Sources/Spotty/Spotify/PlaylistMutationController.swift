@@ -12,13 +12,14 @@ import Foundation
 @MainActor
 @Observable
 final class PlaylistMutationController {
+    private typealias Flight = AccountScopedSingleFlight<SingleFlightUnitKey>
+
     @ObservationIgnored private let mutations: any PlaylistMutating
     @ObservationIgnored private let session: CatalogSessionAvailability
     @ObservationIgnored private let feedback: TransientFeedbackPresenter
     @ObservationIgnored private let playlistStore: PlaylistStore
     @ObservationIgnored private let homeLibrary: HomeLibraryStore
-    @ObservationIgnored private var requestScope: UInt64 = 0
-    @ObservationIgnored private var mutationTask: Task<Void, Never>?
+    @ObservationIgnored private let flight: Flight
 
     init(
         mutations: any PlaylistMutating,
@@ -32,6 +33,9 @@ final class PlaylistMutationController {
         self.feedback = feedback
         self.playlistStore = playlistStore
         self.homeLibrary = homeLibrary
+        // A superseded or cancelled write may still have completed on the server, so the default
+        // publish gate is session validity; the failure path opts into the strict gate.
+        flight = Flight(session: session, join: .alwaysSupersede, scope: .singleSelection, publish: .sessionOnly)
     }
 
     var editableLibraryPlaylists: [CatalogItem] {
@@ -39,9 +43,7 @@ final class PlaylistMutationController {
     }
 
     func reset() {
-        requestScope &+= 1
-        mutationTask?.cancel()
-        mutationTask = nil
+        flight.reset()
     }
 
     func isLibraryPlaylistEditable(_ item: CatalogItem) -> Bool {
@@ -79,10 +81,10 @@ final class PlaylistMutationController {
             return
         }
 
-        startMutation { identity in
+        startMutation { handle in
             try await self.mutations.addToPlaylist(playlistId: playlistID, trackUris: uris)
             await self.finishSuccessfulWrite(
-                identity,
+                handle,
                 playlist: playlist,
                 message: Self.addedMessage(count: uris.count, playlistTitle: playlist.title)
             )
@@ -113,72 +115,48 @@ final class PlaylistMutationController {
             return
         }
 
-        startMutation { identity in
+        startMutation { handle in
             try await self.mutations.removeFromPlaylist(playlistId: playlistID, uids: uids)
             await self.finishSuccessfulWrite(
-                identity,
+                handle,
                 playlist: playlist,
                 message: Self.removedMessage(count: uids.count, playlistTitle: playlist.title)
             )
         }
     }
 
-    private func startMutation(_ work: @escaping @MainActor (AccountScopedRequestIdentity) async throws -> Void) {
-        requestScope &+= 1
-        let requestID = requestScope
-        let identity = session.requestIdentity(requestID: requestID)
-        mutationTask?.cancel()
-        mutationTask = Task { [weak self] in
+    private func startMutation(_ work: @escaping @MainActor (Flight.Handle) async throws -> Void) {
+        let handle = flight.begin(.unit)
+        flight.start(handle) { [weak self] in
             guard let self else { return }
-            defer {
-                if requestID == self.requestScope {
-                    self.mutationTask = nil
-                }
-            }
             do {
-                try await work(identity)
+                try await work(handle)
             } catch {
-                guard self.isCurrent(identity) else { return }
+                // Reporting a failure is a latest-intent decision, so it uses the strict gate.
+                guard self.flight.isCurrent(handle, policy: .strict) else { return }
                 self.reportFailure(error)
             }
         }
     }
 
     private func finishSuccessfulWrite(
-        _ identity: AccountScopedRequestIdentity,
+        _ handle: Flight.Handle,
         playlist: CatalogItem,
         message: String
     ) async {
         // A superseded or cancelled task may still observe a completed server write.
         // Refresh once for that write whenever the captured account/session is current.
-        // requestID and Task.isCancelled are latest-intent gates, not session validity.
-        guard sessionAllowsApply(identity) else { return }
+        // requestID and Task.isCancelled are latest-intent gates, not session validity, so this
+        // uses the flight's `.sessionOnly` publish policy.
+        guard flight.isCurrent(handle) else { return }
         await reconcileIfOpen(playlist)
-        guard sessionAllowsApply(identity) else { return }
+        guard flight.isCurrent(handle) else { return }
         feedback.success(message)
     }
 
     private func reconcileIfOpen(_ playlist: CatalogItem) async {
         guard playlistStore.loadedURI == playlist.uri else { return }
         await playlistStore.load(playlist, force: true)
-    }
-
-    /// Account/session gate for applying a completed write. Does not use request identity
-    /// or cooperative cancellation, so a superseded in-flight success can still refresh.
-    private func sessionAllowsApply(_ identity: AccountScopedRequestIdentity) -> Bool {
-        identity.accountEpoch == session.accountEpoch
-            && identity.sessionRevision == session.snapshot.revision
-            && session.isAvailable
-    }
-
-    private func isCurrent(_ identity: AccountScopedRequestIdentity) -> Bool {
-        identity.isCurrent(
-            requestID: requestScope,
-            accountEpoch: session.accountEpoch,
-            sessionRevision: session.snapshot.revision,
-            isAvailable: session.isAvailable,
-            isCancelled: Task.isCancelled
-        )
     }
 
     private func reportFailure(_ error: Error) {

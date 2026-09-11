@@ -6,7 +6,7 @@ use crate::*;
 /// bounded when a network operation is stuck.
 pub(crate) const SPIRC_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// Handles removed from the global registry by the lifecycle owner.
+/// Handles removed from [`EngineGeneration`] by the lifecycle owner.
 ///
 /// Taking the four slots through one helper keeps normal teardown and cancellation rollback on
 /// the same ownership path. Callers must signal `stop_tx` and drain `tasks` before dropping the
@@ -18,24 +18,24 @@ pub(crate) struct EngineResources {
     pub(crate) tasks: Vec<JoinHandle<()>>,
 }
 
+/// Takes every owned handle in one lock acquisition, so a concurrent publisher cannot be
+/// observed half-taken. Nothing is awaited while the lock is held: the guard is released before
+/// this returns.
 pub(crate) fn take_engine_resources() -> EngineResources {
-    let stop_tx = PLAYER_EVENT_TX
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take();
-    let spirc = SPIRC.lock().unwrap_or_else(|e| e.into_inner()).take();
-    let session = SESSION.lock().unwrap_or_else(|e| e.into_inner()).take();
-    let tasks = ENGINE_TASKS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take()
-        .unwrap_or_default();
-    EngineResources {
-        stop_tx,
-        spirc,
-        session,
-        tasks,
-    }
+    with_engine(|engine| EngineResources {
+        stop_tx: engine.player_event_tx.take(),
+        spirc: engine.spirc.take(),
+        session: engine.session.take(),
+        tasks: engine.tasks.take().unwrap_or_default(),
+    })
+}
+
+/// Drops the concrete Player and Mixer once their tasks have stopped.
+pub(crate) fn clear_engine_objects() {
+    with_engine(|engine| {
+        engine.player = None;
+        engine.mixer = None;
+    });
 }
 
 /// Tears down the current generation's owned resources.
@@ -65,18 +65,17 @@ pub(crate) async fn teardown_engine_resources(context: &str) {
 
     // The shutdown helper has already invalidated Session and notified the native renderer before
     // its first await. Drop the concrete objects only after all owned tasks have drained.
-    *PLAYER.lock().unwrap_or_else(|e| e.into_inner()) = None;
-
+    //
     // Drop the Spirc, Mixer and Session only after their tasks have stopped; those tasks retain
     // clones of all three objects.
     drop(spirc);
-    *MIXER.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    clear_engine_objects();
     drop(session);
 }
 
 /// Gracefully stops a generation's Spirc task, then drains all remaining child tasks.
 ///
-/// `ENGINE_TASKS` deliberately stores the Spirc handle first, immediately followed by the player
+/// The generation's task list deliberately stores the Spirc handle first, immediately followed by the player
 /// event pump, cluster listener, bootstrap fetch, and health check handles. The first handle is
 /// therefore the only one allowed to perform the upstream dealer close; all other tasks are
 /// aborted and joined once that owner has finished. A timeout is required because `SpircTask`

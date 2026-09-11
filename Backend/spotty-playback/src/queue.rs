@@ -737,7 +737,7 @@ pub(crate) fn process_and_send_queue_with_callback(player_state: PlayerState) {
     // Cache before entering Swift. A legacy callback may re-enter through the queue getter or
     // cleanup; assigning after delivery would expose the previous queue and could repopulate a
     // snapshot that cleanup deliberately cleared.
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = Some(state.clone());
+    store_last_queue(Some(state.clone()));
 
     // Cache even when Swift has not registered a callback yet. The getter replaces
     // `/me/player/queue` for bootstrap after a provisional empty SetQueue, so a cluster
@@ -809,8 +809,7 @@ pub(crate) fn queue_state_from_player_state_with_stamp(
 #[no_mangle]
 pub extern "C" fn spotty_playback_get_queue_snapshot() -> SpottyNullableQueueSnapshot {
     ffi_owned_ptr("spotty_playback_get_queue_snapshot", || {
-        let snapshot = LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        snapshot.map_or(std::ptr::null_mut(), |state| alloc_queue_snapshot(&state))
+        last_queue_snapshot().map_or(std::ptr::null_mut(), |state| alloc_queue_snapshot(&state))
     })
 }
 

@@ -144,6 +144,25 @@ final class PlaybackEffectRegistry {
         previousTask?.cancel()
     }
 
+    /// Registers, starts, and completes one effect in a single call.
+    ///
+    /// This is the sanctioned way to start store-owned asynchronous work: it creates the
+    /// registration, replaces the named token, and drops that registration when the operation
+    /// returns, so a site cannot forget `complete` or complete a token a newer effect already owns.
+    /// `replace`/`complete`/`cancel` remain available for the few sites that need the pieces.
+    func run(
+        _ id: PlaybackEffectID,
+        onCancel: (@MainActor () -> Void)? = nil,
+        operation: @escaping @MainActor @Sendable () async -> Void
+    ) {
+        let registration = PlaybackEffectRegistration()
+        let task = Task { [weak self] in
+            defer { self?.complete(id, registration: registration) }
+            await operation()
+        }
+        replace(id, with: task, registration: registration, onCancel: onCancel)
+    }
+
     @discardableResult
     func cancel(_ id: PlaybackEffectID) -> PlaybackEffectSettlement? {
         guard let task = tasks.removeValue(forKey: id) else {

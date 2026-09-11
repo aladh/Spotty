@@ -13,6 +13,11 @@ Keep `PlaybackEffectRegistry`; the store starts and owns tasks. Reducer acceptan
 command-follow-up policy govern results. Reuse that policy at new command sites rather than adding
 another runner. Keep callback identity separate from command-effect ownership.
 
+`PlaybackEffectRegistry.run` is how a store effect is started: it registers, runs, and completes one
+token, so no site can forget to complete it or complete one a newer effect already owns.
+`replace`/`complete`/`cancel` remain for the few sites that need the pieces. Inside an effect,
+`PlaybackStore.stillCurrent` is the only sanctioned revalidation after an `await`.
+
 Do not adopt The Composable Architecture (TCA) or introduce a generic `Effect` abstraction for the
 current playback architecture.
 

@@ -12,6 +12,14 @@ and playback boundaries.
   Reducer acceptance normally gates follow-ups; only documented same-lifetime transport
   reconciliation may succeed after a rejected finish. Other stale, superseded, teardown,
   cancellation, and epoch-invalidated outcomes stay inert.
+- Start store tasks with `effects.run` and resume after every `await` through
+  `PlaybackStore.stillCurrent`. Do not hand-pick lifetime checks at a call site; express a
+  deliberate omission with its scope argument and say why. Catalog requests use
+  `AccountScopedSingleFlight` and its named join, scope, and publish policies.
+- `PlaybackReducer.apply` reports what a reduction accepted and changed. Drive post-acceptance
+  side effects from that report rather than diffing published state or re-asking `accepts`.
+- `PlaybackStore` owns the one `SessionTeardownController`. `AccountStore` supplies account
+  primitives and reads the `isTearingDown` flag the owner sets; it does not coalesce teardown.
 ## Boundary invariants
 
 - `PlaybackCore.swift` is the only Swift importer of `SpottyPlaybackCore`;

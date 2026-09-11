@@ -11,6 +11,8 @@ import Foundation
 @MainActor
 @Observable
 final class AlbumDetailStore {
+    private typealias Flight = AccountScopedSingleFlight<String>
+
     private(set) var item: CatalogItem?
     private(set) var trackCollection = CatalogTrackCollection()
     var tracks: [CatalogTrack] { trackCollection.tracks }
@@ -21,17 +23,17 @@ final class AlbumDetailStore {
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let metadata: CatalogMetadataRepository
     @ObservationIgnored private let session: CatalogSessionAvailability
-    @ObservationIgnored private let lifetime: MediaDetailRequestLifetime
+    @ObservationIgnored private let flight: Flight
 
     init(provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability) {
         self.provider = provider
         self.metadata = metadata
         self.session = session
-        lifetime = MediaDetailRequestLifetime(session: session)
+        flight = Flight(session: session, join: .joinMatchingKey, scope: .singleSelection, publish: .strict)
     }
 
     func reset() {
-        lifetime.reset()
+        flight.reset()
         item = nil
         trackCollection.replace([])
         releaseDate = ""
@@ -41,11 +43,11 @@ final class AlbumDetailStore {
 
     func load(_ selected: CatalogItem) async {
         guard session.isAvailable, selected.kind == .album else { return }
-        switch lifetime.admit(uri: selected.uri) {
+        switch flight.admit(selected.uri) {
         case .skip:
             return
         case let .join(claim):
-            await lifetime.awaitFlight(claim)
+            await flight.awaitFlight(claim)
         case let .start(handle):
             item = selected
             trackCollection.replace([])
@@ -55,28 +57,28 @@ final class AlbumDetailStore {
             guard let id = SpotifyURI.id(from: selected.uri, kind: "album") else {
                 error = "Spotify returned an invalid album address."
                 isLoading = false
-                lifetime.abandonUnstarted(handle)
+                flight.abandonUnstarted(handle)
                 return
             }
-            await lifetime.run(handle) { [weak self] in
+            await flight.run(handle) { [weak self] in
                 guard let self else { return }
                 defer {
-                    if self.lifetime.owns(handle) {
+                    if self.flight.owns(handle) {
                         isLoading = false
                     }
                 }
                 do {
                     let album = try await provider.album(id: id)
-                    guard self.lifetime.isCurrent(handle, selectedURI: self.item?.uri) else { return }
+                    guard self.isCurrent(handle) else { return }
                     trackCollection.replace(
                         album.tracks.compactMap { CatalogMapping.albumTrack(from: $0, album: album) }
                     )
                     releaseDate = album.date?.day ?? ""
-                    self.lifetime.markLoaded(handle)
+                    self.flight.markLoaded(handle)
                     metadata.replaceTracks(tracks, from: .album)
                     metadata.loadTrackAttributes(for: tracks)
                 } catch {
-                    guard !isCancellation(error), self.lifetime.isCurrent(handle, selectedURI: self.item?.uri) else {
+                    guard !isCancellation(error), self.isCurrent(handle) else {
                         return
                     }
                     self.error = error.localizedDescription
@@ -84,11 +86,17 @@ final class AlbumDetailStore {
             }
         }
     }
+
+    private func isCurrent(_ handle: Flight.Handle) -> Bool {
+        item?.uri == handle.key && flight.isCurrent(handle)
+    }
 }
 
 @MainActor
 @Observable
 final class ArtistDetailStore {
+    private typealias Flight = AccountScopedSingleFlight<String>
+
     private(set) var item: CatalogItem?
     private(set) var releases: [CatalogItem] = []
     private(set) var isLoading = false
@@ -96,16 +104,16 @@ final class ArtistDetailStore {
 
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let session: CatalogSessionAvailability
-    @ObservationIgnored private let lifetime: MediaDetailRequestLifetime
+    @ObservationIgnored private let flight: Flight
 
     init(provider: any CatalogProviding, session: CatalogSessionAvailability) {
         self.provider = provider
         self.session = session
-        lifetime = MediaDetailRequestLifetime(session: session)
+        flight = Flight(session: session, join: .joinMatchingKey, scope: .singleSelection, publish: .strict)
     }
 
     func reset() {
-        lifetime.reset()
+        flight.reset()
         item = nil
         releases = []
         isLoading = false
@@ -114,11 +122,11 @@ final class ArtistDetailStore {
 
     func load(_ selected: CatalogItem) async {
         guard session.isAvailable, selected.kind == .artist else { return }
-        switch lifetime.admit(uri: selected.uri) {
+        switch flight.admit(selected.uri) {
         case .skip:
             return
         case let .join(claim):
-            await lifetime.awaitFlight(claim)
+            await flight.awaitFlight(claim)
         case let .start(handle):
             item = selected
             releases = []
@@ -127,13 +135,13 @@ final class ArtistDetailStore {
             guard let id = SpotifyURI.id(from: selected.uri, kind: "artist") else {
                 error = "Spotify returned an invalid artist address."
                 isLoading = false
-                lifetime.abandonUnstarted(handle)
+                flight.abandonUnstarted(handle)
                 return
             }
-            await lifetime.run(handle) { [weak self] in
+            await flight.run(handle) { [weak self] in
                 guard let self else { return }
                 defer {
-                    if self.lifetime.owns(handle) {
+                    if self.flight.owns(handle) {
                         isLoading = false
                     }
                 }
@@ -141,17 +149,21 @@ final class ArtistDetailStore {
                     async let overview = provider.artist(id: id)
                     async let discography = provider.artistDiscography(id: id)
                     let (profile, allReleases) = try await (overview, discography)
-                    guard self.lifetime.isCurrent(handle, selectedURI: self.item?.uri) else { return }
+                    guard self.isCurrent(handle) else { return }
                     let artistName = profile.profile?.name ?? selected.title
                     releases = allReleases.releases.compactMap { CatalogMapping.item(from: $0, artist: artistName) }
-                    self.lifetime.markLoaded(handle)
+                    self.flight.markLoaded(handle)
                 } catch {
-                    guard !isCancellation(error), self.lifetime.isCurrent(handle, selectedURI: self.item?.uri) else {
+                    guard !isCancellation(error), self.isCurrent(handle) else {
                         return
                     }
                     self.error = error.localizedDescription
                 }
             }
         }
+    }
+
+    private func isCurrent(_ handle: Flight.Handle) -> Bool {
+        item?.uri == handle.key && flight.isCurrent(handle)
     }
 }

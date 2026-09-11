@@ -140,7 +140,7 @@ async fn rollback_staged_generation(
     .await;
 }
 
-/// Rolls back an installed generation only if it still owns the global slots.
+/// Rolls back an installed generation only if it still owns the engine state.
 ///
 /// Cleanup can invalidate the generation while this build is waiting for a rehydration event. In
 /// that case the cleanup owner will take the slots after the lifecycle lock is released; touching
@@ -153,14 +153,30 @@ async fn rollback_installed_generation(generation: u64) {
 
     let _store = enter_store_section();
     teardown_engine_resources("initialization rollback").await;
-    with_connection(|c| {
+    if with_connection_owned(generation, |c| {
         c.spirc_ready = false;
         c.session_connected = false;
         c.resume_pending = false;
         c.device_id = None;
         c.is_active_device = false;
-    });
+    })
+    .is_err()
+    {
+        debug!("initialization rollback: generation {} is stale", generation);
+        return;
+    }
     notify_connection_state_change();
+}
+
+/// Abandons a published generation: tears it down if it is still ours, disarms the cancellation
+/// guard, and reports the transient failure the caller returns.
+async fn abandon_installed_generation(
+    generation: u64,
+    guard: &mut InstalledGenerationGuard,
+) -> InitializationFailure {
+    rollback_installed_generation(generation).await;
+    guard.disarm();
+    InitializationFailure::Transient
 }
 
 /// Synchronous cancellation fallback for the short interval after publication and before the
@@ -207,9 +223,8 @@ impl Drop for InstalledGenerationGuard {
         if let Some(session) = resources.session.as_ref() {
             session.shutdown();
         }
-        *PLAYER.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        *MIXER.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        with_connection(|c| {
+        clear_engine_objects();
+        let _ = with_connection_owned(self.generation, |c| {
             c.spirc_ready = false;
             c.session_connected = false;
             c.resume_pending = false;
@@ -381,77 +396,80 @@ pub(crate) async fn build_player_owned(
         return Err(InitializationFailure::Transient);
     }
 
-    // Every constructor has succeeded. Publish the complete generation in one store section;
-    // no callback is emitted until all object slots and task ownership are present.
+    // Every constructor has succeeded. Publish the complete generation in one store section, in
+    // one lock acquisition; no callback is emitted until all object slots and task ownership are
+    // present, and no reader can observe the generation half-installed.
     let (staged_spirc, staged_session, staged_tasks) = staged.take_for_publish();
-    // Ownership moved into the global slots below; the local clone must not shut down the
+    // Ownership moves into the engine state below; the local clone must not shut down the
     // published Session if a later await is cancelled. `InstalledGenerationGuard` now owns the
     // cancellation rollback for the published generation.
     session_guard.disarm();
-    let mut installed_guard = InstalledGenerationGuard::new(current_generation);
-    {
+    let publication = {
         let _store = enter_store_section();
-        let spirc = Arc::clone(&staged_spirc);
-        *SESSION.lock().unwrap_or_else(|e| e.into_inner()) = Some(staged_session);
-        *PLAYER.lock().unwrap_or_else(|e| e.into_inner()) = Some(player);
-        *MIXER.lock().unwrap_or_else(|e| e.into_inner()) = Some(mixer);
-        *SPIRC.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&spirc));
-        *PLAYER_EVENT_TX.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        *ENGINE_TASKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(staged_tasks);
-        with_connection(|c| {
-            c.device_id = Some(device_id.clone());
-            c.spirc_ready = false;
-            c.session_connected = false;
-            c.resume_pending = false;
-            c.credentials_rejected = false;
-            c.last_error = None;
-            c.is_active_device = active_device;
-        });
+        publish_engine_generation(
+            current_generation,
+            StagedEngine {
+                session: staged_session,
+                player,
+                mixer,
+                spirc: staged_spirc,
+                tasks: staged_tasks,
+                device_id,
+                active_device,
+            },
+        )
+    };
+    // A cleanup that bumped the generation between the check above and this store is refused
+    // here rather than overwriting its successor. The refusal hands the staged objects back so
+    // they can be drained instead of detached.
+    if let Err(rejected) = publication {
+        debug!(
+            "Publication refused: generation {} was superseded",
+            current_generation
+        );
+        rollback_staged_generation(rejected.spirc, rejected.session, rejected.tasks).await;
+        return Err(InitializationFailure::Transient);
     }
+    let mut installed_guard = InstalledGenerationGuard::new(current_generation);
 
     // The production objects and the initial Spirc task are now published. Start the remaining
-    // generation tasks only after their globals exist, and append each handle to the owned
-    // registry before the next await or fallible setup step. A listener setup failure therefore
-    // uses the same async rollback as an activation failure.
-    let (event_stop_tx, event_task) = start_player_event_pump(
-        current_player().expect("published Player"),
-        event_channel,
-        current_generation,
-    );
-    *PLAYER_EVENT_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(event_stop_tx);
-    ENGINE_TASKS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_mut()
-        .expect("published task registry")
-        .push(event_task);
+    // generation tasks only after the state exists, and append each handle to the owned registry
+    // before the next await or fallible setup step. A listener setup failure therefore uses the
+    // same async rollback as an activation failure. Every append names this generation, so a
+    // handle offered after a replacement is aborted rather than adopted.
+    let Some(published_player) = current_player() else {
+        return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
+    };
+    let (event_stop_tx, event_task) =
+        start_player_event_pump(published_player, event_channel, current_generation);
+    if set_player_event_tx(current_generation, event_stop_tx).is_err()
+        || push_engine_task(current_generation, event_task).is_err()
+    {
+        return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
+    }
 
     let cluster_task = match spawn_cluster_listener(&session, current_generation) {
         Ok(task) => task,
         Err(_) => {
-            rollback_installed_generation(current_generation).await;
-            installed_guard.disarm();
-            return Err(InitializationFailure::Transient);
+            return Err(
+                abandon_installed_generation(current_generation, &mut installed_guard).await,
+            );
         }
     };
-    ENGINE_TASKS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_mut()
-        .expect("published task registry")
-        .push(cluster_task);
-    ENGINE_TASKS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_mut()
-        .expect("published task registry")
-        .push(spawn_initial_cluster_fetch(&session, current_generation));
-    ENGINE_TASKS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_mut()
-        .expect("published task registry")
-        .push(spawn_session_health_check(current_generation));
+    if push_engine_task(current_generation, cluster_task).is_err()
+        || push_engine_task(
+            current_generation,
+            spawn_initial_cluster_fetch(&session, current_generation),
+        )
+        .is_err()
+        || push_engine_task(
+            current_generation,
+            spawn_session_health_check(current_generation),
+        )
+        .is_err()
+    {
+        return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
+    }
     clear_retired_credentials_cache();
 
     // A cleanup or newer generation can invalidate the local transaction while the Spirc task
@@ -470,7 +488,7 @@ pub(crate) async fn build_player_owned(
     // loaded, and nothing else will load one: Spirc coming up and the device
     // becoming active only make it *available* to play, not playing. Without this
     // the session returns healthy and silent while Swift still shows the pre-outage
-    // position, because IS_PLAYING and the position anchor survive the rebuild.
+    // position, because the engine playing flag and the position anchor survive the rebuild.
     //
     // The load comes from Swift. Publishing `resume_pending` with `spirc_ready`
     // still clear tells `PlaybackStore` to issue its `ResumeLoadPlan` targets now;
@@ -488,7 +506,9 @@ pub(crate) async fn build_player_owned(
         if has_resume_identity() {
             let (seq_before, notification) = with_generation_mutation(|| {
                 let seq_before = open_rehydration_window_locked(current_generation);
-                with_connection(|c| {
+                // Refused if a cleanup has already taken the generation; the window this
+                // opened then simply never publishes and the build abandons below.
+                let _ = with_connection_owned(current_generation, |c| {
                     c.session_connected = true;
                     c.resume_pending = true;
                     c.last_error = None;
@@ -504,12 +524,7 @@ pub(crate) async fn build_player_owned(
 
             let outcome = wait_for_rehydration(seq_before, REHYDRATION_WINDOW).await;
             with_generation_mutation(|| {
-                if listener_may_act(
-                    current_generation,
-                    SESSION_GENERATION.load(Ordering::SeqCst),
-                ) {
-                    with_connection(|c| c.resume_pending = false);
-                }
+                let _ = with_connection_owned(current_generation, |c| c.resume_pending = false);
             });
             debug!(
                 "[WAKE +{}ms] Rehydrate after reconnect: {:?}",
@@ -518,10 +533,10 @@ pub(crate) async fn build_player_owned(
             );
 
             if outcome == RehydrationOutcome::NeedsReinit {
-                with_connection(|c| c.session_connected = false);
-                rollback_installed_generation(current_generation).await;
-                installed_guard.disarm();
-                return Err(InitializationFailure::Transient);
+                let _ = with_connection_owned(current_generation, |c| c.session_connected = false);
+                return Err(
+                    abandon_installed_generation(current_generation, &mut installed_guard).await,
+                );
             }
         } else {
             // Nothing to resume — no saved context or track URI. Reachable when an
@@ -542,31 +557,29 @@ pub(crate) async fn build_player_owned(
         SESSION_GENERATION.load(Ordering::SeqCst),
     ) || stopped()
     {
-        rollback_installed_generation(current_generation).await;
-        installed_guard.disarm();
-        return Err(InitializationFailure::Transient);
+        return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
     }
 
     // Single commit-and-publish point: session up, device activation settled, and any requested
     // rehydration window complete. No snapshot in between can announce a half-built engine.
     // Keep the final readiness mutation behind the same short gate as rehydration loads so a
-    // command cannot pass its window check while this commit closes that window.
+    // command cannot pass its window check while this commit closes that window. The readiness
+    // write itself names this generation, so a cleanup that wins the gate cannot be overwritten.
     let Some(Ok(notification)) = with_current_generation_mutation(current_generation, || {
         if stopped() {
             return Err(());
         }
-        with_connection(|c| {
+        with_connection_owned(current_generation, |c| {
             c.spirc_ready = true;
             c.session_connected = true;
             c.resume_pending = false;
             c.credentials_rejected = false;
             c.last_error = None;
-        });
+        })
+        .map_err(|_| ())?;
         Ok(capture_connection_state_notification(current_generation))
     }) else {
-        rollback_installed_generation(current_generation).await;
-        installed_guard.disarm();
-        return Err(InitializationFailure::Transient);
+        return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
     };
     if let Some(notification) = notification {
         deliver_connection_state_notification(notification);

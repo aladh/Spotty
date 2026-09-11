@@ -13,6 +13,11 @@ writes can mix lifetimes and make stale work appear current.
   account/engine lifetime and applicable source revision; the reducer decides whether to apply them.
 - Give account lifecycle, queue authority, catalog requests, and commands explicit owners with
   read-only projections. Suspended work revalidates its lifetime before applying results.
+- Revalidation has one primitive per boundary: `PlaybackStore.stillCurrent` for playback-scoped
+  store work and `AccountScopedSingleFlight` for catalog requests, both with named scope and
+  publish policies. A site that deliberately ignores an owner states which one and why.
+- Session teardown has one owner. `PlaybackStore` coalesces, orders, and releases the gate;
+  `AccountStore` exposes only the account primitives that owner drives.
 - Assemble production dependencies at the app composition root. Views and feature stores use
   injected ports; they do not construct authentication, network, or C playback dependencies.
 - Keep PCM delivery outside observable presentation state. Transient mutation feedback also has a
@@ -24,6 +29,9 @@ writes can mix lifetimes and make stale work appear current.
 
 The reducer snapshot is not itself observable. `PlaybackStore.send` publishes equatable semantic,
 queue, device and timing projections from the accepted candidate in the same MainActor turn.
+`PlaybackReducer.apply` also reports what it accepted and changed — including per-component
+acceptance inside a Connect cluster — so the store drives follow-ups from that report instead of
+rediscovering acceptance by diffing published state.
 Source watermarks remain internal; timing-only samples update only the timeline. Views read those
 projections, while command and lifetime decisions continue to read the reducer snapshot. Local
 progress interpolation remains in the progress control. System media receives ordinary timing

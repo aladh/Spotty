@@ -18,7 +18,7 @@ fn cluster_named(active_device_id: &str) -> Cluster {
 
 fn begin_generation(generation: u64) {
     reset_cluster_apply_test_state();
-    SESSION_GENERATION.store(generation, Ordering::SeqCst);
+    set_session_generation_for_test(generation);
 }
 
 fn last_applied_device() -> Option<String> {
@@ -237,7 +237,7 @@ fn a_stale_generation_enqueued_before_teardown_does_not_apply() {
         });
         scope.spawn(|| {
             bootstrap_decided.wait();
-            SESSION_GENERATION.store(5, Ordering::SeqCst);
+            set_session_generation_for_test(5);
             generation_moved.wait();
         });
     });
@@ -284,7 +284,7 @@ fn cleanup_drops_a_pending_bootstrap_instead_of_publishing_it() {
         });
         scope.spawn(|| {
             bootstrap_decided.wait();
-            SESSION_GENERATION.store(5, Ordering::SeqCst);
+            set_session_generation_for_test(5);
             discard_retained_cluster_offers();
             cleanup_done.wait();
         });
@@ -301,7 +301,7 @@ fn a_new_generation_can_bootstrap_after_a_prior_generation_push() {
     offer_cluster(ClusterOrigin::PushedUpdate, 4, cluster_named(PUSH_DEVICE));
     assert_eq!(applied_cluster_ids(), vec![PUSH_DEVICE.to_string()]);
 
-    SESSION_GENERATION.store(5, Ordering::SeqCst);
+    set_session_generation_for_test(5);
 
     offer_cluster(
         ClusterOrigin::BootstrapFetch,
@@ -340,7 +340,7 @@ fn a_prior_generation_push_does_not_apply_after_replacement() {
         });
         scope.spawn(|| {
             push_decided.wait();
-            SESSION_GENERATION.store(5, Ordering::SeqCst);
+            set_session_generation_for_test(5);
             offer_cluster(
                 ClusterOrigin::BootstrapFetch,
                 5,

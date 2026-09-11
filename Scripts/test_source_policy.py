@@ -74,17 +74,17 @@ class SourcePolicyRoutingTests(unittest.TestCase):
                 self.assertEqual(self.scan(path, source), expected)
 
     def test_rust_owner_and_test_file_routing(self):
+        # Playing-flag write ownership is no longer a syntax policy: the flag is a private
+        # field of EngineGeneration whose only "set true" path is note_playing_event, so the
+        # compiler enforces what rust-playing-store-owner/-required used to assert.
         runtime_call = "fn f() { RUNTIME.block_on(future); }"
-        store = "fn f() { IS_PLAYING.store(true, Ordering::SeqCst); }"
         cases = [
             ("runtime.rs", runtime_call, set()),
             ("player_control.rs", runtime_call, {"rust-runtime-owner"}),
             ("nested/module.rs", runtime_call, {"rust-runtime-owner"}),
-            ("tests.rs", runtime_call + store, set()),
-            ("lifecycle_tests.rs", runtime_call + store, set()),
-            ("nested/other_tests.rs", runtime_call + store, set()),
-            ("player_control.rs", store, {"rust-playing-store-owner"}),
-            ("player_event_pump.rs", store, {"rust-playing-store-required"}),
+            ("tests.rs", runtime_call, set()),
+            ("lifecycle_tests.rs", runtime_call, set()),
+            ("nested/other_tests.rs", runtime_call, set()),
             ("tests.rs", 'pub extern "C" fn export() { work(); }', {"rust-ffi-panic-barrier"}),
         ]
         for file, source, expected in cases:

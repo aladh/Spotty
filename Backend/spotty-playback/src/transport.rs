@@ -376,14 +376,14 @@ pub(crate) fn load_at_position(
 
 /// Publishes the accepted local pause so Swift does not keep interpolating time.
 ///
-/// `IS_PLAYING` is cleared here rather than left to the event stream: the user can pause
+/// The playing flag is cleared here rather than left to the event stream: the user can pause
 /// while a track is still loading, and in that case `PlayerEvent::Playing` never fires, so
 /// there is no playing-to-paused transition for the listener to report. A locally issued
 /// pause is also not guaranteed to produce `PlayerEvent::Paused` (for example while the
 /// player is still transitioning between tracks). A later player or cluster update remains
 /// authoritative and can correct this snapshot if the command did not land.
 pub(crate) fn publish_accepted_local_pause() {
-    IS_PLAYING.store(false, Ordering::SeqCst);
+    clear_engine_playing();
     send_local_playback_state(false, POSITION_MS.load(Ordering::SeqCst));
 }
 
@@ -409,15 +409,31 @@ pub(crate) fn resume_playback() -> i32 {
         return e;
     }
 
-    if IS_PLAYING.load(Ordering::SeqCst) {
-        return 0;
+    // Read the playing flag and claim the resume slot together. Separately, a Playing event
+    // landing between the two let a second resume claim the slot and restart the track.
+    // A resume already working is what this caller wanted, so joining it reports success
+    // rather than starting a second one.
+    enum ResumeClaim {
+        AlreadyPlaying,
+        AlreadyResuming,
+        Claimed,
     }
-
-    // A resume is already working; joining it is what this caller wanted, so report success
-    // rather than starting a second one that would restart the track underneath the first.
-    if RESUMING.swap(true, Ordering::SeqCst) {
-        debug!("Resume already in progress");
-        return 0;
+    let claim = with_engine(|engine| {
+        if engine.is_playing() {
+            ResumeClaim::AlreadyPlaying
+        } else if engine.claim_resume() {
+            ResumeClaim::Claimed
+        } else {
+            ResumeClaim::AlreadyResuming
+        }
+    });
+    match claim {
+        ResumeClaim::AlreadyPlaying => return 0,
+        ResumeClaim::AlreadyResuming => {
+            debug!("Resume already in progress");
+            return 0;
+        }
+        ResumeClaim::Claimed => {}
     }
     let _resuming = ResumeGuard;
 

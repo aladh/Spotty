@@ -1,0 +1,41 @@
+---
+id: development-launch-staging
+language: Bash
+severity: error
+message: Package and validate the staged development bundle and preserve install/rollback
+  moves.
+files:
+- script/build_and_run.sh
+note: These statements must exist as code. Signing validity and non-destructive failure
+  ordering still require verification/review.
+rule:
+  kind: program
+  not:
+    all:
+    - has:
+        kind: command
+        has:
+          field: name
+          regex: /Scripts/package-app\.sh["\']?$
+        all:
+        - has:
+            pattern: SPOTTY_APP_PATH="$staged_app_bundle"
+        stopBy: end
+    - has:
+        kind: command
+        has:
+          field: name
+          regex: /Scripts/validate-app\.sh["\']?$
+        all:
+        - has:
+            kind: word
+            regex: "^--development-signed$"
+        - has:
+            pattern: '"$staged_app_bundle"'
+        stopBy: end
+    - has:
+        pattern: mv "$staged_app_bundle" "$app_bundle"
+        stopBy: end
+    - has:
+        pattern: mv "$rollback_app_bundle" "$app_bundle"
+        stopBy: end

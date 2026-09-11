@@ -13,6 +13,21 @@ AST_GREP = shutil.which(os.environ.get("SPOTTY_AST_GREP", "ast-grep"))
 
 
 class SourcePolicyRoutingTests(unittest.TestCase):
+    def test_every_rule_has_both_kinds_of_fixture(self):
+        rules = {path.stem for path in (ROOT / "Scripts/ast-grep/rules").rglob("*.yml")}
+        fixtures = list((ROOT / "Tests/SourcePolicy").rglob("*-test.yml"))
+        self.assertEqual(rules, {path.stem.removesuffix("-test") for path in fixtures})
+        parsed = json.loads(subprocess.check_output([
+            "ruby", "-ryaml", "-rjson", "-e",
+            "puts JSON.generate(ARGV.map { |p| YAML.safe_load(File.read(p)) })",
+            *map(str, fixtures),
+        ], text=True))
+        for path, fixture in zip(fixtures, parsed):
+            with self.subTest(rule=fixture["id"]):
+                self.assertEqual(fixture["id"], path.stem.removesuffix("-test"))
+                self.assertTrue(fixture.get("valid"))
+                self.assertTrue(fixture.get("invalid"))
+
     def scan(self, path, source):
         self.assertIsNotNone(AST_GREP, "ast-grep must be installed")
         with tempfile.TemporaryDirectory(prefix="spotty-source-policy-") as directory:
@@ -34,9 +49,8 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             return {finding["ruleId"] for finding in findings}
 
     def test_engine_boundary_is_owned_by_the_package_graph(self):
-        # SRC-FFI-001/-002 and SRC-DOM-001 are retired: only SpottyEngineAdapter depends on the
-        # SpottyPlaybackCore binary target, PlaybackCore is internal to it, and SpottyDomain is
-        # compiled for Linux. Nothing here may re-assert those boundaries lexically.
+        # The package graph owns imports between targets. The adapter source rules only
+        # narrow C access within that target; Linux compilation owns unavailable domain imports.
         cases = [
             ("Sources/SpottyEngineAdapter/PlaybackCore.swift", "import SpottyPlaybackCore", set()),
             ("Sources/Spotty/Spotify/Other.swift", "import SpottyPlaybackCore", set()),
@@ -98,7 +112,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("docs/example.yml", "uses: actions/checkout@main", set()),
             (".github/workflows/ci.yml", "env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}", {"ci-published-engine"}),
             ("Scripts/compile-release-spotty.sh", "cargo build", {"app-script-rust-free"}),
-            ("Scripts/package-app.sh", "tool='cbindgen'", {"app-script-rust-free"}),
+            ("Scripts/package-app.sh", "tool='cbindgen'", {"app-script-rust-free", "development-signing-input"}),
             ("Backend/spotty-playback/build-xcframework.sh", "cargo build", set()),
             ("Sources/Spotty/Example.swift", "let catalog = MockCatalog()", {"retired-mock-symbols"}),
             ("Tests/Example.swift", "let catalog = MockCatalog()", set()),
@@ -107,16 +121,90 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.scan(path, source), expected)
 
+    def test_new_boundaries_and_owner_exceptions(self):
+        cases = [
+            ("Sources/Spotty/RootView.swift", "PartnerAPI.init()", {"injected-dependencies"}),
+            ("Sources/Spotty/Spotify/Nested/NewStore.swift", "Module.KeymasterSession.shared", {"injected-dependencies"}),
+            ("Sources/Spotty/RootView.swift", "view.onDrop(of: types, perform: drop)", {"unsupported-drag-ui"}),
+            ("Sources/Spotty/RootView.swift", "let state: PlaybackState", {"view-projection-boundary"}),
+            ("Sources/Spotty/Views/Example.swift", "PathfinderAddVariables()", {"view-projection-boundary"}),
+            ("Sources/Spotty/Spotify/PathfinderPlaylist.swift", "PathfinderAddVariables()", set()),
+            ("Sources/Spotty/Views/Nested/Example.swift", "NSCache<NSString, NSImage>()", {"artwork-framework-cache"}),
+            ("Sources/Spotty/RootView.swift", '@AppStorage("panel") var panel = 0', {"view-scene-storage"}),
+            ("Sources/Spotty/Models/NewModel.swift", "let catalog: any CatalogProviding", {"model-dependencies"}),
+            ("Sources/Spotty/Spotify/CatalogStore.swift", "let catalog: any CatalogProviding", set()),
+            ("Sources/SpottyDomain/NewPolicy.swift", "UserDefaults.standard", {"domain-no-io"}),
+            ("Sources/SpottyDomain/NewPolicy.swift", "Task { await work() }", {"domain-no-io"}),
+            ("Sources/Spotty/Spotify/SpotifyRetryTiming.swift", "try await Task.sleep(for: .seconds(1))", set()),
+            ("Sources/Spotty/Spotify/KeymasterFileStore.swift", "SecItemDelete(query)", {"retired-keychain-api"}),
+            ("Tests/SpottyBoundaryTests/NewChecks.swift", "Security.SecItemDelete(query)", {"retired-keychain-api"}),
+            ("Sources/Spotty/New.swift", "Swift.print(token)", {"logging-owner"}),
+            ("Sources/SpottyEngineAdapter/DebugLog.swift", "Logger(subsystem: name, category: name)", set()),
+            ("Tests/SpottyBoundaryTests/NewChecks.swift", "print(result)", set()),
+            ("Sources/Spotty/New.swift", "import Testing", {"production-test-code"}),
+            ("Tests/SpottyDomainTests/NewChecks.swift", "import Testing", set()),
+            ("Sources/SpottyDomain/New.swift", "struct Effect<Action> {}", {"no-generic-effects"}),
+            ("Package.swift", '.package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "1.0.0")', {"no-generic-effects"}),
+            ("Sources/Spotty/New.swift", "import WebKit", {"native-ui-scope"}),
+            ("Sources/Spotty/New.swift", "Settings { Preferences() }", {"native-ui-scope"}),
+            ("Sources/SpottyEngineAdapter/New.swift", "import SpottyPlaybackCore", {"adapter-c-import"}),
+            ("Sources/SpottyEngineAdapter/New.swift", "PlaybackCore.resume()", {"adapter-core-caller"}),
+            ("Sources/SpottyEngineAdapter/RustPlaybackEngine.swift", "PlaybackCore.resume()", set()),
+            ("Sources/SpottyEngineAdapter/PlaybackCore.swift", "spotty_playback_resume()", set()),
+            ("Sources/SpottyEngineAdapter/RustPlaybackEngine.swift", "spotty_playback_resume()", {"adapter-c-import"}),
+            ("Tests/SpottyBoundaryTests/Harness/New.swift", "try await Task.sleep(for: .seconds(1))", {"test-no-wall-sleep"}),
+            ("Tests/SpottyDomainTests/NewChecks.swift", "Thread.sleep(forTimeInterval: 1)", {"test-no-wall-sleep"}),
+            ("Tests/BrowsingHarness/Checks/New.swift", "try await Task.sleep(for: .seconds(1))", {"test-no-wall-sleep"}),
+            ("Tests/BrowsingHarness/Support/Measurement.swift", "try await Task.sleep(for: .seconds(1))", set()),
+            ("Tests/BrowsingHarness/Support/New.swift", "RustPlaybackEngine.shared", {"test-live-dependencies"}),
+            ("Tests/SpottyBoundaryTests/NewChecks.swift", "Foundation.UserDefaults.standard", {"test-live-dependencies"}),
+            ("Backend/spotty-playback/src/new.rs", "fn f() { Runtime::new(); }", {"rust-runtime-creation"}),
+            ("Backend/spotty-playback/src/runtime.rs", "fn f() { Runtime::new(); }", set()),
+            ("Backend/spotty-playback/src/nested/new_tests.rs", "fn f() { Runtime::new(); }", set()),
+            ("Backend/spotty-playback/src/lifecycle_measurements.rs", "fn f() { Runtime::new(); }", set()),
+            ("Backend/spotty-playback/src/runtime.rs", "fn f() { std::panic::set_hook(hook); }", {"rust-process-globals"}),
+            ("Backend/spotty-playback/src/new.rs", 'pub extern "C-unwind" fn f() {}', {"rust-no-unwind-abi"}),
+            ("Backend/spotty-playback/vendor/librespot/lib.rs", "fn f() { std::panic::set_hook(hook); }", set()),
+            ("Scripts/new.sh", "#!/bin/bash\nwork", {"script-fail-fast"}),
+            ("Scripts/helper.sh", "helper() { work; }", set()),
+            ("Backend/spotty-playback/new.sh", "set -x", {"script-no-xtrace"}),
+            ("script/new.sh", "cargo build", {"app-script-rust-free"}),
+            (".github/workflows/other.yaml", "uses: actions/cache@main", {"workflow-action-pins"}),
+            (".github/workflows/other.yaml", 'run: echo "${{ inputs.title }}"', {"workflow-shell-interpolation"}),
+            (".github/workflows/other.yml", "permissions: write-all", {"workflow-explicit-permissions"}),
+            (".github/workflows/ci.yaml", "env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}", {"ci-published-engine"}),
+            (".github/workflows/other.yaml", "run: brew install swift-format", {"workflow-swift-tools"}),
+            ("Scripts/tools.sh", "brew install swiftlint", {"xcode-swift-tools"}),
+            (".github/workflows/ci.yaml", "continue-on-error: true", {"ci-fail-closed"}),
+            (".github/workflows/other.yml", "continue-on-error: true", set()),
+            (".github/workflows/ci.yml", "permissions: {contents: write}\njobs: {}", {"ci-read-permissions"}),
+            ("docs/example.yml", 'run: echo "${{ inputs.title }}"', set()),
+        ]
+        for path, source, expected in cases:
+            with self.subTest(path=path, source=source):
+                self.assertEqual(self.scan(path, source), expected)
+
+    def test_signing_statements_cannot_be_replaced_with_comments(self):
+        cases = [
+            ("script/build_and_run.sh", 'SPOTTY_APP_PATH="$staged_app_bundle" "$root_dir/Scripts/package-app.sh" "$package_mode"', "development-launch-staging"),
+            ("script/build_and_run.sh", '"$root_dir/Scripts/validate-app.sh" --development-signed "$staged_app_bundle"', "development-launch-staging"),
+            ("script/build_and_run.sh", 'mv "$staged_app_bundle" "$app_bundle"', "development-launch-staging"),
+            ("script/build_and_run.sh", 'mv "$rollback_app_bundle" "$app_bundle"', "development-launch-staging"),
+            ("Scripts/validate-app.sh", "codesign --verify --strict -R '=anchor apple generic'", "development-signing-validation"),
+            ("Scripts/validate-app.sh", "awk -F= '/^TeamIdentifier=/{print $2; exit}'", "development-signing-validation"),
+        ]
+        for path, statement, rule in cases:
+            with self.subTest(path=path, statement=statement):
+                source = (ROOT / path).read_text()
+                self.assertEqual(self.scan(path, source), set())
+                self.assertIn(statement, source)
+                # Keep the literal mention, but replace its executable occurrence.
+                mutated = source.replace(statement, "true") + "\n# " + statement
+                self.assertIn(rule, self.scan(path, mutated))
+
     def test_wrapper_rejects_missing_or_empty_owners(self):
         self.assertIsNotNone(AST_GREP, "ast-grep must be installed")
-        owners = [
-            "README.md", "SECURITY.md", "CONTRIBUTING.md",
-            "Sources/Spotty/SpottyApp.swift",
-            "Sources/Spotty/Spotify/KeymasterFileStore.swift",
-            "Sources/SpottyEngineAdapter/PlaybackCore.swift",
-            "Sources/SpottyEngineAdapter/RustPlaybackEngine.swift",
-            "Backend/spotty-playback/src/player_event_pump.rs",
-        ]
+        owners = (ROOT / "Scripts/ast-grep/required-files.txt").read_text().splitlines()
         for absent in owners:
             for empty in (False, True):
                 with self.subTest(owner=absent, empty=empty), tempfile.TemporaryDirectory() as directory:
@@ -124,6 +212,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
                     (root / "Scripts/ast-grep").mkdir(parents=True)
                     shutil.copy(ROOT / "Scripts/check-source-policy.sh", root / "Scripts")
                     shutil.copy(ROOT / "Scripts/ast-grep/version", root / "Scripts/ast-grep")
+                    shutil.copy(ROOT / "Scripts/ast-grep/required-files.txt", root / "Scripts/ast-grep")
                     for owner in owners:
                         path = root / owner
                         path.parent.mkdir(parents=True, exist_ok=True)

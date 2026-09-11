@@ -1,0 +1,11 @@
+---
+id: unsafe-isolation
+language: Swift
+severity: error
+message: Do not bypass production Swift isolation with nonisolated(unsafe).
+files:
+- Sources/**/*.swift
+rule:
+  pattern:
+    context: nonisolated(unsafe) var value = 0
+    selector: member_modifier

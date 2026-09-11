@@ -1,0 +1,13 @@
+---
+id: rust-no-unwind-abi
+language: Rust
+severity: error
+message: The Swift C boundary uses extern "C" with explicit panic barriers, never
+  C-unwind.
+files:
+- Backend/spotty-playback/src/**/*.rs
+rule:
+  kind: extern_modifier
+  has:
+    kind: string_literal
+    regex: ^"C-unwind"$

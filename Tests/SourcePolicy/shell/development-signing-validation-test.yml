@@ -1,0 +1,11 @@
+---
+id: development-signing-validation
+valid:
+- |-
+  codesign --verify --strict -R '=anchor apple generic' "$app"
+  awk -F= '/^TeamIdentifier=/{print $2; exit}'
+invalid:
+- |-
+  # codesign --verify --strict -R '=anchor apple generic'
+  # TeamIdentifier=
+- codesign --verify "$app"

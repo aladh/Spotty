@@ -1,0 +1,7 @@
+---
+id: yaml-pair
+language: Yaml
+rule:
+  any:
+  - kind: block_mapping_pair
+  - kind: flow_pair

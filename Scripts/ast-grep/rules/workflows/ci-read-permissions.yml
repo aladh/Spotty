@@ -1,0 +1,94 @@
+---
+id: ci-read-permissions
+language: Yaml
+severity: error
+message: 'The CI workflow token must have only contents: read.'
+files:
+- ".github/workflows/ci.yml"
+- ".github/workflows/ci.yaml"
+rule:
+  any:
+  - matches: root-map
+    has:
+      matches: yaml-pair
+      all:
+      - has:
+          field: key
+          regex: ^["']?jobs["']?$
+      - has:
+          field: value
+          regex: ".*"
+    not:
+      has:
+        matches: yaml-pair
+        all:
+        - has:
+            field: key
+            regex: ^["']?permissions["']?$
+        - has:
+            field: value
+            matches: read-permissions
+  - matches: yaml-pair
+    all:
+    - has:
+        field: key
+        regex: ^["']?permissions["']?$
+    - has:
+        field: value
+        not:
+          matches: read-permissions
+    inside:
+      matches: root-map
+utils:
+  root-map:
+    any:
+    - kind: block_mapping
+      inside:
+        kind: block_node
+        inside:
+          kind: document
+    - kind: flow_mapping
+      inside:
+        kind: flow_node
+        inside:
+          kind: document
+  read-permissions:
+    any:
+    - kind: block_node
+      has:
+        kind: block_mapping
+        has:
+          matches: yaml-pair
+          all:
+          - has:
+              field: key
+              regex: ^["']?contents["']?$
+          - has:
+              field: value
+              regex: ^["\']?read["\']?$
+        not:
+          has:
+            matches: yaml-pair
+            nthChild:
+              position: 2
+              ofRule:
+                matches: yaml-pair
+    - kind: flow_node
+      has:
+        kind: flow_mapping
+        has:
+          matches: yaml-pair
+          all:
+          - has:
+              field: key
+              regex: ^["']?contents["']?$
+          - has:
+              field: value
+              regex: ^["\']?read["\']?$
+        not:
+          has:
+            matches: yaml-pair
+            nthChild:
+              position: 2
+              ofRule:
+                matches: yaml-pair

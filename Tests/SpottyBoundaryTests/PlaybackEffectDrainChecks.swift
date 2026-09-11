@@ -8,12 +8,15 @@ struct PlaybackEffectDrainTests {
     @MainActor
     func testCooperativeAccountEffectsSettleWithinTheGracePeriod() async {
         let effects = PlaybackEffectRegistry()
+        let clock = HarnessClock.parked()
         effects.replace(
             .trackMetadata,
             with: Task {
-                try? await Task.sleep(for: .seconds(10))
+                try? await clock.sleep(seconds: 10)
             }
         )
+
+        #expect(await waitUntil { clock.waiterCount == 1 })
 
         let report = await effects.cancelAccountScopedAndDrain(
             timeoutNanoseconds: PlaybackEffectRegistry.accountDrainTimeoutNanoseconds
@@ -92,7 +95,7 @@ struct PlaybackEffectDrainTests {
         var rows: [[String: Double]] = []
         for _ in 0..<12 {
             let effects = PlaybackEffectRegistry()
-            effects.replace(.trackMetadata, with: Task { try? await Task.sleep(for: .seconds(10)) })
+            effects.replace(.trackMetadata, with: Task { try? await HarnessClock.parked().sleep(seconds: 10) })
             var started = ContinuousClock.now
             let cooperative = await effects.cancelAccountScopedAndDrain()
             #expect(cooperative.didSettleAll)

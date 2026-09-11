@@ -1,0 +1,18 @@
+---
+id: workflow-swift-tools
+language: Yaml
+severity: error
+message: Use the selected Xcode Swift formatter; do not install parallel Swift formatters
+  or linters with Homebrew.
+files:
+- ".github/workflows/*.yml"
+- ".github/workflows/*.yaml"
+rule:
+  matches: yaml-pair
+  all:
+  - has:
+      field: key
+      regex: ^["\']?run["\']?$
+  - has:
+      field: value
+      regex: (?m)(^|[\n;|&])[ \t]*["\']?(sudo[ \t]+)?brew[ \t]+install\b[^\n#]*\b(swift-format|swiftlint)\b

@@ -1,0 +1,23 @@
+---
+id: script-fail-fast
+valid:
+- |-
+  #!/bin/bash
+  set -euo pipefail
+  work
+- |-
+  #!/bin/zsh
+  # explanation
+  set -euo pipefail
+- helper() { work; }
+invalid:
+- |-
+  #!/bin/bash
+  work
+- |-
+  #!/bin/zsh
+  # set -euo pipefail
+  work
+- |-
+  #!/bin/bash
+  f() { set -euo pipefail; }

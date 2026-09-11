@@ -1,0 +1,15 @@
+---
+id: artwork-framework-cache
+language: Swift
+severity: error
+message: Use AsyncImage and framework caching; custom artwork caches/downsampling
+  require measured justification in this rule.
+files:
+- Sources/Spotty/Views/**/*.swift
+- Sources/Spotty/RootView.swift
+note: ArtworkDominantColor may use shared URLSession data to derive a tint. It must
+  not introduce a second cache. This does not detect caches implemented with arbitrary
+  collections.
+rule:
+  matches: swift-symbol
+  regex: "^(NSCache|URLCache|CGImageSourceCreateThumbnailAtIndex|CachedAsyncImage|SDWebImageSwiftUI|Kingfisher|Nuke|NukeUI)$"

@@ -1,0 +1,13 @@
+---
+id: retired-keychain-api
+valid:
+- SecRandomCopyBytes(kSecRandomDefault, count, bytes)
+- let text = "SecItemDelete(query)"
+- "// SecItemCopyMatching(query, &result)"
+- 'KeymasterFileStore(directory: temporary)'
+invalid:
+- SecItemDelete(query)
+- Security.SecItemCopyMatching(query, &result)
+- let read = SecItemCopyMatching
+- SecKeychainFindGenericPassword(nil, 0, nil, 0, nil, nil, nil, nil)
+- 'let query = [kSecClass: kSecClassGenericPassword]'

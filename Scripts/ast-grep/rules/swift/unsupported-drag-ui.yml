@@ -1,0 +1,22 @@
+---
+id: unsupported-drag-ui
+language: Swift
+severity: error
+message: Playlist drag-and-drop is outside the supported UI scope.
+files:
+- Sources/Spotty/Views/**/*.swift
+- Sources/Spotty/RootView.swift
+rule:
+  any:
+  - kind: call_expression
+    has:
+      kind: navigation_expression
+      has:
+        kind: navigation_suffix
+        has:
+          kind: simple_identifier
+          regex: "^(draggable|dropDestination|onDrop|onDrag|onInsert)$"
+  - kind: call_expression
+    has:
+      kind: simple_identifier
+      regex: "^(draggable|dropDestination|onDrop|onDrag|onInsert)$"

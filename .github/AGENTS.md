@@ -3,7 +3,8 @@
 Follow [PR acceptance](../CONTRIBUTING.md#pr-acceptance) and the
 [enforcement inventory](../docs/architecture/enforcement.md) for workflows and PR metadata.
 
-- Pin every GitHub Action to a full commit SHA and keep a readable version comment.
+- Keep a readable version comment beside action pins; the
+  [workflow source policies](../Scripts/ast-grep/rules/workflows) own pin and token syntax.
 - Use least permissions and never expose credentials to untrusted pull-request code or logs.
 - Preserve the [required CI aggregate](../docs/architecture/enforcement/build-and-abi.md#ci-and-release-workflow),
   the fail-closed change classification in [`ci_rust_policy.py`](../Scripts/ci_rust_policy.py), and

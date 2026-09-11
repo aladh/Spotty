@@ -12,8 +12,6 @@ final class HarnessClock: PlaybackClock, @unchecked Sendable {
     enum SleepBehavior: Sendable {
         /// Returns at once, so a deadline elapses immediately.
         case immediate
-        /// Suspends for `seconds`, long enough that only cancellation ends it.
-        case suspend(TimeInterval)
         /// Registers a waiter that `releaseNext()`/`releaseAll()` resumes. Cooperative
         /// cancellation throws `CancellationError` and never leaves the waiter registered.
         case parked
@@ -32,14 +30,14 @@ final class HarnessClock: PlaybackClock, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: Storage
 
-    init(now: Date = HarnessDates.fixed, sleep: SleepBehavior = .suspend(60)) {
+    init(now: Date = HarnessDates.fixed, sleep: SleepBehavior = .parked) {
         storage = Storage(now: now, behavior: sleep)
     }
 
     /// A fixed instant whose sleeps only end on cancellation. The suite's default.
     static func sticky(
         now: Date = HarnessDates.fixed,
-        sleep: SleepBehavior = .suspend(60)
+        sleep: SleepBehavior = .parked
     ) -> HarnessClock {
         HarnessClock(now: now, sleep: sleep)
     }
@@ -113,8 +111,6 @@ final class HarnessClock: PlaybackClock, @unchecked Sendable {
         switch behavior {
         case .immediate:
             return
-        case let .suspend(duration):
-            try await Task.sleep(for: .seconds(duration))
         case .parked:
             try await park(cooperatively: true)
         case .uncooperativelyParked:

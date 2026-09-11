@@ -1,0 +1,19 @@
+---
+id: workflow-swift-tools
+valid:
+- 'run: brew install ripgrep'
+- 'run: echo "brew install swift-format"'
+- |-
+  run: |
+    # brew install swiftlint
+    xcrun swift-format lint Sources
+invalid:
+- 'run: brew install swift-format'
+- 'run: "brew install swiftlint"'
+- |-
+  run: |
+    set -euo pipefail
+    brew install --quiet jq swiftlint
+- |-
+  run: >
+    sudo brew install swift-format

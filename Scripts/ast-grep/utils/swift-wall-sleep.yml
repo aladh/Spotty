@@ -1,0 +1,69 @@
+---
+id: swift-wall-sleep
+language: Swift
+rule:
+  any:
+  - kind: navigation_expression
+    all:
+    - has:
+        kind: navigation_suffix
+        has:
+          kind: simple_identifier
+          regex: "^(sleep)$"
+    - has:
+        field: target
+        any:
+        - kind: simple_identifier
+          regex: "^(Task|Thread)$"
+        - kind: navigation_expression
+          has:
+            kind: navigation_suffix
+            has:
+              kind: simple_identifier
+              regex: "^(Task|Thread)$"
+        - kind: user_type
+          has:
+            kind: type_identifier
+            regex: "^Task$"
+  - kind: navigation_expression
+    has:
+      field: target
+      any:
+      - kind: call_expression
+        has:
+          kind: simple_identifier
+          regex: "^(ContinuousClock|SuspendingClock)$"
+      - kind: await_expression
+        has:
+          kind: call_expression
+          has:
+            kind: simple_identifier
+            regex: "^(ContinuousClock|SuspendingClock)$"
+    all:
+    - has:
+        kind: navigation_suffix
+        has:
+          kind: simple_identifier
+          regex: "^sleep$"
+  - kind: call_expression
+    has:
+      kind: simple_identifier
+      regex: "^(sleep|usleep|nanosleep)$"
+  - kind: navigation_expression
+    all:
+    - has:
+        kind: navigation_suffix
+        has:
+          kind: simple_identifier
+          regex: "^(sleep|usleep|nanosleep)$"
+    - has:
+        field: target
+        any:
+        - kind: simple_identifier
+          regex: "^(Darwin|Glibc)$"
+        - kind: navigation_expression
+          has:
+            kind: navigation_suffix
+            has:
+              kind: simple_identifier
+              regex: "^(Darwin|Glibc)$"

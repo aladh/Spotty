@@ -1,0 +1,16 @@
+---
+id: test-live-dependencies
+valid:
+- HarnessEnvironment.make()
+- 'URLSession(configuration: .ephemeral)'
+- 'UserDefaults(suiteName: suite)'
+- NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+- 'KeymasterSession(store: fake)'
+- "// RustPlaybackEngine.shared"
+invalid:
+- KeymasterSession.shared
+- RustPlaybackEngine.shared
+- Foundation.UserDefaults.standard
+- 'URLSession.shared.data(from: url)'
+- PlaybackEnvironment.live()
+- KeymasterAuth.authorize()

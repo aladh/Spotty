@@ -1,0 +1,15 @@
+---
+id: script-no-xtrace
+valid:
+- set -euo pipefail
+- set +x
+- "# set -x"
+- echo "set -x"
+- set +o xtrace
+- set '+x'
+invalid:
+- set -x
+- set -euxo pipefail
+- set -o xtrace
+- set '-x'
+- set -o "xtrace"

@@ -1,0 +1,24 @@
+---
+id: domain-no-io
+valid:
+- 'Date(timeIntervalSince1970: 0)'
+- UUID()
+- Task.checkCancellation()
+- 'let work: Task<Void, Never>?'
+- let bytes = Data([1, 2])
+- 'let session: SessionLifetime'
+- "// FileManager.default"
+- let name = "URLSession"
+invalid:
+- UserDefaults.standard
+- Foundation.FileManager.default
+- ProcessInfo.processInfo.environment
+- Task { await work() }
+- Task<Void, Never> { await work() }
+- Task.detached { work() }
+- 'try await Task.sleep(for: .seconds(1))'
+- 'Double.random(in: 0...1)'
+- 'try Data(contentsOf: url)'
+- import FoundationNetworking
+- Task<Void, Never>.detached { await work() }
+- _Concurrency.Task { await work() }

@@ -745,7 +745,7 @@ private final class ParkUntilCancelledSleeper: @unchecked Sendable {
             return waiter
         }
         waiter?.resume()
-        try await Task.sleep(nanoseconds: 60_000_000_000)
+        try await HarnessClock.parked().sleep(seconds: 60)
     }
 
     func waitUntilStarted() async {
@@ -803,7 +803,7 @@ private actor ParkUntilCancelledInvalidator {
         started = nil
         didStart = true
         waiter?.resume()
-        try await Task.sleep(nanoseconds: 60_000_000_000)
+        try await HarnessClock.parked().sleep(seconds: 60)
     }
 
     func waitUntilStarted() async {

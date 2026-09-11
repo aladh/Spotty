@@ -80,7 +80,7 @@ jobs:
         with:
           version: ${{ steps.ast-grep.outputs.version }}
           config: sgconfig.yml
-          paths: Sources Backend/spotty-playback/src Scripts .github/workflows
+          paths: Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift
 
       - name: Check rule fixtures and policy owners
         run: ./Scripts/check-source-policy.sh --test-only

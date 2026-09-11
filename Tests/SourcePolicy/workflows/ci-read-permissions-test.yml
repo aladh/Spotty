@@ -1,0 +1,38 @@
+---
+id: ci-read-permissions
+valid:
+- |-
+  permissions: {contents: read}
+  jobs: {}
+- |-
+  permissions:
+    contents: read
+  jobs: {}
+- "{permissions: {contents: read}, jobs: {}}"
+- |-
+  "permissions": {"contents": "read"}
+  jobs: {}
+- |-
+  permissions:
+    # comment
+    contents: read
+  jobs: {}
+invalid:
+- 'jobs: {}'
+- |-
+  permissions: {contents: write}
+  jobs: {}
+- |-
+  permissions: {contents: read, actions: write}
+  jobs: {}
+- "{permissions: {}, jobs: {}}"
+- |-
+  permissions: {contents: read}
+  permissions: {contents: write}
+  jobs: {}
+- |-
+  permissions:
+    # comment
+    contents: read
+    actions: write
+  jobs: {}

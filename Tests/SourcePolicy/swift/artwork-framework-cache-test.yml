@@ -1,0 +1,14 @@
+---
+id: artwork-framework-cache
+valid:
+- 'AsyncImage(url: url)'
+- 'NSImage(data: data)'
+- 'URLSession.shared.data(from: url)'
+- "// NSCache<NSString, NSImage>()"
+- let name = "Nuke"
+invalid:
+- NSCache<NSString, NSImage>()
+- 'URLCache(memoryCapacity: 100, diskCapacity: 100)'
+- CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+- import Kingfisher
+- 'CachedAsyncImage(url: url)'

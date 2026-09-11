@@ -1,0 +1,8 @@
+---
+id: rust-no-unwind-abi
+valid:
+- pub extern "C" fn f() { ffi_void(|| work()) }
+- // extern "C-unwind" fn f() {}
+invalid:
+- pub extern "C-unwind" fn f() {}
+- unsafe extern "C-unwind" { fn callback(); }

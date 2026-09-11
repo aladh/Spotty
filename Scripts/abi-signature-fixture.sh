@@ -1,5 +1,3 @@
-#!/bin/zsh
-
 # Print the validated ABI fixture's export names in sorted order. Keep the fixture grammar here so
 # every caller rejects the same malformed, empty, and duplicate rows before consuming the names.
 spotty_abi_fixture_symbols() {

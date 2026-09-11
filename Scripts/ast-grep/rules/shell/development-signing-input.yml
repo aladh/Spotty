@@ -1,0 +1,20 @@
+---
+id: development-signing-input
+language: Bash
+severity: error
+message: Read SPOTTY_DEVELOPMENT_SIGNING_IDENTITY for the established development
+  signing path.
+files:
+- script/build_and_run.sh
+- Scripts/package-app.sh
+rule:
+  kind: program
+  not:
+    has:
+      kind: variable_name
+      regex: "^SPOTTY_DEVELOPMENT_SIGNING_IDENTITY$"
+      stopBy: end
+      inside:
+        any:
+        - kind: expansion
+        - kind: simple_expansion

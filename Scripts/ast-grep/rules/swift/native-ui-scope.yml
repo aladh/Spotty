@@ -1,0 +1,22 @@
+---
+id: native-ui-scope
+language: Swift
+severity: error
+message: 'Keep the supported native UI: no web views, Settings scene, or refreshable
+  surface.'
+files:
+- Sources/**/*.swift
+rule:
+  any:
+  - matches: swift-symbol
+    regex: "^(WebKit|WKWebView|WebView)$"
+  - kind: call_expression
+    has:
+      kind: simple_identifier
+      regex: "^Settings$"
+  - kind: navigation_expression
+    has:
+      kind: navigation_suffix
+      has:
+        kind: simple_identifier
+        regex: "^(Settings|refreshable)$"

@@ -154,7 +154,7 @@ final class HarnessRemote: RemotePlaybackClient, @unchecked Sendable {
         case let .failAfter(limit):
             if sendCount > limit { throw HarnessFailure.unavailable }
         case .sleepUntilCancelled:
-            try await Task.sleep(nanoseconds: 60_000_000_000)
+            try await HarnessClock.parked().sleep(seconds: 60)
         case .park:
             let id = withStorage { storage -> UInt64 in
                 storage.nextParkID &+= 1

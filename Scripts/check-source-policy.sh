@@ -20,13 +20,9 @@ fi
 export SPOTTY_AST_GREP="$ast_grep"
 
 # Required policy owners must exist and contain content, even when compiler jobs are skipped.
-for owner in README.md SECURITY.md CONTRIBUTING.md Sources/Spotty/SpottyApp.swift \
-    Sources/SpottyEngineAdapter/PlaybackCore.swift \
-    Sources/Spotty/Spotify/KeymasterFileStore.swift \
-    Sources/SpottyEngineAdapter/RustPlaybackEngine.swift \
-    Backend/spotty-playback/src/player_event_pump.rs; do
+while IFS= read -r owner; do
     [[ -f "$owner" && -s "$owner" ]] || { echo "Missing or empty policy owner: $owner" >&2; exit 1; }
-done
+done < Scripts/ast-grep/required-files.txt
 
 if grep -nE "MockCatalog|PlaybackController|demo catalog" \
     "README.md" >&2; then
@@ -46,5 +42,5 @@ fi
 python3 -B -m unittest discover -s Scripts -p 'test_*policy.py'
 # CI's ast-grep action already scans production and emits GitHub annotations.
 if [[ "${1:-}" != --test-only ]]; then
-    "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src Scripts .github/workflows
+    "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift
 fi

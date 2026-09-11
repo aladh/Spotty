@@ -1,0 +1,21 @@
+---
+id: rust-runtime-creation
+language: Rust
+severity: error
+message: Construct the process Tokio runtime only in runtime.rs.
+files:
+- Backend/spotty-playback/src/**/*.rs
+ignores:
+- Backend/spotty-playback/src/runtime.rs
+- Backend/spotty-playback/src/**/tests.rs
+- Backend/spotty-playback/src/**/*_tests.rs
+- Backend/spotty-playback/src/lifecycle_measurements.rs
+rule:
+  kind: scoped_identifier
+  regex: "(^|::)(Runtime::new|Builder::new_(multi_thread|current_thread))$"
+  not:
+    inside:
+      matches: rust-cfg-test-module
+      stopBy: end
+note: lifecycle_measurements.rs is declared under cfg(test) in lib.rs and uses a paused
+  Tokio test clock.

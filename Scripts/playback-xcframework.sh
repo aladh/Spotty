@@ -1,5 +1,3 @@
-#!/bin/sh
-
 # Shared read-only lookup for the selected SpottyPlaybackCore XCFramework. Keep the SwiftPM
 # artifact lookup here so build, verification, packaging, and size reporting inspect the same
 # binary/header pair. This file is sourced by the entry-point scripts.

@@ -15,8 +15,7 @@ published artifact under [ADR 006](../../docs/architecture/adrs/ADR-006-prebuilt
   mutex. The engine guard must never escape an accessor, cross an `await`, or be held while a
   Swift callback runs, and no helper may re-enter the lifecycle mutex.
 - Only `EngineGeneration::note_playing_event` can report local playback: the flag is private, so
-  a play or load command cannot claim success the player never reported. This replaces the
-  retired `rust-playing-store-owner` / `rust-playing-store-required` ast-grep rules.
+  a play or load command cannot claim success the player never reported.
 - Reconnect captures `SESSION_GENERATION` at trigger time and revalidates it after acquiring the
   lifecycle mutex. A stale cleanup/reconnect must not tear down or rebuild a newer generation.
   Exported init rechecks its already-initialized no-op inside the mutex.
@@ -24,12 +23,11 @@ published artifact under [ADR 006](../../docs/architecture/adrs/ADR-006-prebuilt
   [retained-engine guarantees](../../docs/architecture/engine-contract.md#retained-engine-guarantees).
 - A superseded grant/run must not write credentials or lifecycle state. Routine cleanup is not grant
   supersession; preserve the distinct generation rules and their tests.
-- Every `spotty-playback` `extern "C"` export enters through the panic-barrier helpers in `ffi.rs`
-  and runs async work through `block_on_export`; call `refuse_if_nested_runtime` before mutating
-  flags that nested `block_on` would have reached. Nested runtime re-entry returns `ERROR_GENERAL`
-  and is not supersession.
-- Map panics to the defined sentinel. Do not replace the process panic hook, hold Rust locks while
-  invoking Swift, or assume the barrier makes invalid foreign pointers safe.
+- [Rust source policies](../../Scripts/ast-grep/rules/rust) own panic-barrier and runtime API
+  constraints. Call `refuse_if_nested_runtime` before mutating flags that nested `block_on` would
+  have reached. Nested runtime re-entry returns `ERROR_GENERAL` and is not supersession.
+- Map panics to the defined sentinel. Do not hold Rust locks while invoking Swift or assume the
+  barrier makes invalid foreign pointers safe.
 - Emit bounded PCM and immutable typed observations with non-blocking callbacks. Preserve the
   engine contract's readiness hold and sticky resume identity.
 - Keep decoded PCM on `proxy_sink`; do not reintroduce a parallel audio/protocol path, debug selector,

@@ -1,0 +1,17 @@
+---
+id: script-fail-fast
+language: Bash
+severity: error
+message: Executable shell scripts enable errexit, nounset and pipefail at top level.
+files:
+- Scripts/**/*.sh
+- script/**/*.sh
+- Backend/spotty-playback/*.sh
+note: Sourced helpers inherit their caller flags. Bash parses zsh with recovery, so
+  this is only an entry-point shape check.
+rule:
+  kind: program
+  regex: "^#![^\\n]*(/|\\s)(bash|zsh)\\b"
+  not:
+    has:
+      pattern: set -euo pipefail

@@ -1,0 +1,25 @@
+---
+id: workflow-explicit-permissions
+language: Yaml
+severity: error
+message: Use an explicit permission map instead of write-all/read-all; grant each
+  job only its required scopes.
+files:
+- ".github/workflows/*.yml"
+- ".github/workflows/*.yaml"
+rule:
+  matches: yaml-pair
+  all:
+  - has:
+      field: key
+      regex: ^["']?permissions["']?$
+  - has:
+      field: value
+      not:
+        any:
+        - kind: block_node
+          has:
+            kind: block_mapping
+        - kind: flow_node
+          has:
+            kind: flow_mapping

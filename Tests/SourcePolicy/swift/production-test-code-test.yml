@@ -1,0 +1,10 @@
+---
+id: production-test-code
+valid:
+- import Foundation
+- "// import Testing"
+- let text = "@testable import SpottyCore"
+invalid:
+- import Testing
+- import XCTest
+- "@testable import SpottyEngineAdapter"

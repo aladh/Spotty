@@ -1,0 +1,42 @@
+---
+id: development-signing-validation
+language: Bash
+severity: error
+message: Development validation must check the Apple anchor and inspect the TeamIdentifier.
+files:
+- Scripts/validate-app.sh
+note: The syntax check cannot establish certificate trust or correct use of the extracted
+  identifier.
+rule:
+  kind: program
+  not:
+    all:
+    - has:
+        kind: command
+        has:
+          field: name
+          regex: "^codesign$"
+        all:
+        - has:
+            kind: word
+            regex: "^--verify$"
+        - has:
+            kind: word
+            regex: "^--strict$"
+        - has:
+            kind: word
+            regex: "^-R$"
+        - has:
+            kind: raw_string
+            regex: "^'=anchor apple generic'$"
+        stopBy: end
+    - has:
+        kind: command
+        has:
+          field: name
+          regex: "^awk$"
+        all:
+        - has:
+            kind: raw_string
+            regex: TeamIdentifier=
+        stopBy: end

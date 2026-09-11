@@ -1,0 +1,18 @@
+---
+id: test-no-wall-sleep
+valid:
+- 'try await clock.sleep(seconds: 1)'
+- await Task.yield()
+- await waitUntil { finished }
+- "// Thread.sleep(forTimeInterval: 1)"
+- 'let text = "Task.sleep(for: .seconds(1))"'
+invalid:
+- 'try await Task.sleep(for: .seconds(1))'
+- 'try await _Concurrency.Task.sleep(nanoseconds: 1)'
+- 'Thread.sleep(forTimeInterval: 1)'
+- Darwin.usleep(1000)
+- sleep(1)
+- 'try await ContinuousClock().sleep(for: .seconds(1))'
+- 'DispatchQueue.main.asyncAfter(deadline: .now() + 1) { done() }'
+- 'try await Task<Never, Never>.sleep(nanoseconds: 1)'
+- 'try await SuspendingClock().sleep(for: .seconds(1))'

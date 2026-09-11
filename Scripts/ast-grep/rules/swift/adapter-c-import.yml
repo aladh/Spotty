@@ -1,0 +1,14 @@
+---
+id: adapter-c-import
+language: Swift
+severity: error
+message: Only PlaybackCore.swift imports or names the binary C API inside SpottyEngineAdapter.
+files:
+- Sources/SpottyEngineAdapter/**/*.swift
+ignores:
+- Sources/SpottyEngineAdapter/PlaybackCore.swift
+note: The package graph owns the outer target boundary; this rule narrows C access
+  within the adapter target.
+rule:
+  matches: swift-symbol
+  regex: "^(SpottyPlaybackCore|spotty_playback_[A-Za-z0-9_]+)$"

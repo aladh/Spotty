@@ -1,0 +1,16 @@
+---
+id: production-test-code
+language: Swift
+severity: error
+message: Test frameworks and testable imports belong in non-shipping test targets.
+files:
+- Sources/**/*.swift
+rule:
+  any:
+  - kind: import_declaration
+    has:
+      stopBy: end
+      kind: simple_identifier
+      regex: "^(Testing|XCTest)$"
+  - kind: attribute
+    regex: "^@testable\\b"

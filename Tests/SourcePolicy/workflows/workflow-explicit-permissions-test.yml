@@ -1,0 +1,15 @@
+---
+id: workflow-explicit-permissions
+valid:
+- 'permissions: {}'
+- 'permissions: {contents: read}'
+- |-
+  permissions:
+    contents: read
+    pull-requests: write
+invalid:
+- 'permissions: write-all'
+- 'permissions: read-all'
+- 'permissions: "write-all"'
+- "{permissions: write-all}"
+- 'permissions: ${{ inputs.permissions }}'

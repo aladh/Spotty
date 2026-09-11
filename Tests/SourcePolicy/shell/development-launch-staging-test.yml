@@ -1,0 +1,15 @@
+---
+id: development-launch-staging
+valid:
+- |-
+  SPOTTY_APP_PATH="$staged_app_bundle" "$root/Scripts/package-app.sh" --debug
+  "$root/Scripts/validate-app.sh" --development-signed "$staged_app_bundle"
+  mv "$staged_app_bundle" "$app_bundle"
+  mv "$rollback_app_bundle" "$app_bundle"
+invalid:
+- |-
+  # SPOTTY_APP_PATH="$staged_app_bundle"
+  # validate-app.sh --development-signed
+  # mv "$staged_app_bundle" "$app_bundle"
+  # mv "$rollback_app_bundle" "$app_bundle"
+- SPOTTY_APP_PATH="$app_bundle" "$root/Scripts/package-app.sh"

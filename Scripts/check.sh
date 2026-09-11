@@ -202,27 +202,6 @@ SPOTTY_BUILD_BROWSING_HARNESS=1 swift test --disable-sandbox --no-parallel \
 # Check mutation access against the actual testable Debug module built by the boundary suite.
 "$project_root/Scripts/check-playback-projection-access.sh"
 
-# Preserve the established Apple-issued development launch identity and staged replacement.
-# Session persistence no longer depends on signing or Keychain authorization.
-if ! rg -q --fixed-strings 'SPOTTY_DEVELOPMENT_SIGNING_IDENTITY' \
-    "$project_root/script/build_and_run.sh" \
-    || ! rg -q --fixed-strings 'validate-app.sh" --development-signed' \
-        "$project_root/script/build_and_run.sh" \
-    || ! rg -q --fixed-strings 'SPOTTY_APP_PATH="$staged_app_bundle"' \
-        "$project_root/script/build_and_run.sh" \
-    || ! rg -q --fixed-strings 'mv "$staged_app_bundle" "$app_bundle"' \
-        "$project_root/script/build_and_run.sh" \
-    || ! rg -q --fixed-strings 'mv "$rollback_app_bundle" "$app_bundle"' \
-        "$project_root/script/build_and_run.sh" \
-    || ! rg -q --fixed-strings 'SPOTTY_DEVELOPMENT_SIGNING_IDENTITY' \
-        "$project_root/Scripts/package-app.sh" \
-    || ! rg -q --fixed-strings 'TeamIdentifier=' "$project_root/Scripts/validate-app.sh" \
-    || ! rg -q --fixed-strings "codesign --verify --strict -R '=anchor apple generic'" \
-        "$project_root/Scripts/validate-app.sh"; then
-    print -u2 "Authenticated development signing policy is incomplete"
-    exit 1
-fi
-
 if find "$project_root/Sources/Spotty" -type d -name LogicChecks -print -quit | rg -q .; then
     print -u2 "Logic tests must live in Spotty's non-shipping test targets, not the app target"
     exit 1

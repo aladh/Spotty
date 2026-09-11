@@ -1,0 +1,45 @@
+---
+id: swift-task-creation
+language: Swift
+rule:
+  any:
+  - kind: constructor_expression
+    has:
+      field: constructed_type
+      has:
+        kind: type_identifier
+        regex: "^Task$"
+  - kind: call_expression
+    has:
+      kind: simple_identifier
+      regex: "^Task$"
+  - kind: navigation_expression
+    has:
+      field: target
+      any:
+      - kind: simple_identifier
+        regex: "^Task$"
+      - kind: navigation_expression
+        has:
+          kind: navigation_suffix
+          has:
+            kind: simple_identifier
+            regex: "^Task$"
+      - kind: user_type
+        has:
+          kind: type_identifier
+          regex: "^Task$"
+    all:
+    - has:
+        kind: navigation_suffix
+        has:
+          kind: simple_identifier
+          regex: "^(init|detached)$"
+  - kind: call_expression
+    has:
+      kind: navigation_expression
+      has:
+        kind: navigation_suffix
+        has:
+          kind: simple_identifier
+          regex: "^Task$"

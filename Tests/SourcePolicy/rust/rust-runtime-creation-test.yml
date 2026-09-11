@@ -1,0 +1,11 @@
+---
+id: rust-runtime-creation
+valid:
+- fn f() { block_on_export(work()); }
+- "// Runtime::new()"
+- "#[cfg(test)] mod tests { fn f() { tokio::runtime::Runtime::new(); } }"
+invalid:
+- fn f() { tokio::runtime::Runtime::new(); }
+- fn f() { Runtime::new(); }
+- fn f() { tokio::runtime::Builder::new_current_thread().build(); }
+- use tokio::runtime::Builder::new_multi_thread;

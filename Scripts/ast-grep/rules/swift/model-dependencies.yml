@@ -1,0 +1,10 @@
+---
+id: model-dependencies
+language: Swift
+severity: error
+message: Model types carry data and pure policy; inject system dependencies into stores/adapters.
+files:
+- Sources/Spotty/Models/**/*.swift
+rule:
+  matches: swift-symbol
+  regex: "^(PlaybackStore|PlaybackEnvironment|LocalPlaybackEngine|RemotePlaybackClient|PlaybackAccountClient|CatalogProviding|PlaylistMutating|PartnerAPI|SpotifyConnectAPI|SpotifyWebPlayerAPI|KeymasterSession|URLSession|UserDefaults|FileManager)$"

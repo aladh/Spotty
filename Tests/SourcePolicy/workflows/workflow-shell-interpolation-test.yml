@@ -1,0 +1,15 @@
+---
+id: workflow-shell-interpolation
+valid:
+- 'run: echo "$TITLE"'
+- 'env: {TITLE: "${{ github.event.pull_request.title }}"}'
+- '# run: echo "${{ inputs.title }}"'
+invalid:
+- 'run: echo "${{ github.event.pull_request.title }}"'
+- '{run: "echo ${{ github.head_ref }}"}'
+- |-
+  run: |
+    echo "${{ inputs.name }}"
+- |-
+  run: >
+    echo ${{ secrets.TOKEN }}

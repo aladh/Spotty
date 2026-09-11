@@ -1,0 +1,9 @@
+---
+id: development-signing-input
+valid:
+- identity="${SPOTTY_DEVELOPMENT_SIGNING_IDENTITY:-}"
+invalid:
+- "# SPOTTY_DEVELOPMENT_SIGNING_IDENTITY"
+- echo SPOTTY_DEVELOPMENT_SIGNING_IDENTITY
+- identity="$OTHER_IDENTITY"
+- SPOTTY_DEVELOPMENT_SIGNING_IDENTITY="self-signed"

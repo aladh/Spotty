@@ -1,0 +1,25 @@
+---
+id: rust-process-globals
+language: Rust
+severity: error
+message: An embedded engine must not replace process panic hooks or terminate its
+  host; return the FFI sentinel.
+files:
+- Backend/spotty-playback/src/**/*.rs
+rule:
+  any:
+  - kind: scoped_identifier
+    regex: "^(std::)?(panic::(set_hook|take_hook|update_hook)|process::(exit|abort))$"
+  - kind: identifier
+    regex: "^(set_hook|take_hook|update_hook)$"
+  - kind: scoped_use_list
+    has:
+      field: path
+      regex: "^(std::)?process$"
+    all:
+    - has:
+        kind: use_list
+        has:
+          kind: identifier
+          regex: "^(exit|abort)$"
+          stopBy: end

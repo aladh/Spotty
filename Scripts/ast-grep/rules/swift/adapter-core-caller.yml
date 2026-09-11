@@ -1,0 +1,13 @@
+---
+id: adapter-core-caller
+language: Swift
+severity: error
+message: RustPlaybackEngine is the only caller of the internal PlaybackCore facade.
+files:
+- Sources/SpottyEngineAdapter/**/*.swift
+ignores:
+- Sources/SpottyEngineAdapter/PlaybackCore.swift
+- Sources/SpottyEngineAdapter/RustPlaybackEngine.swift
+rule:
+  matches: swift-symbol
+  regex: "^PlaybackCore$"

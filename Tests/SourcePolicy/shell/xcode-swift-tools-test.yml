@@ -1,0 +1,11 @@
+---
+id: xcode-swift-tools
+valid:
+- xcrun swift-format lint Sources
+- brew install ast-grep
+- echo "brew install swift-format"
+- "# brew install swiftlint"
+invalid:
+- brew install swift-format
+- brew install --quiet jq swiftlint
+- brew install "swift-format"

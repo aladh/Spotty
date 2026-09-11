@@ -1,0 +1,24 @@
+---
+id: xcode-swift-tools
+language: Bash
+severity: error
+message: Use the selected Xcode Swift formatter; do not install parallel Swift formatters
+  or linters with Homebrew.
+files:
+- Scripts/**/*.sh
+- script/**/*.sh
+rule:
+  kind: command
+  has:
+    field: name
+    regex: "^brew$"
+  all:
+  - has:
+      kind: word
+      regex: "^install$"
+  - has:
+      any:
+      - kind: word
+      - kind: string
+      - kind: raw_string
+      regex: ^["\']?(swift-format|swiftlint)["\']?$

@@ -865,8 +865,9 @@ mod player_event_pump_policy {
             }
         }
         let queue = crate::queue_snapshot_tests::fixture_queue_state();
-        let _restore_queue =
-            RestoreQueue(with_engine(|engine| engine.last_queue.replace(queue.clone())));
+        let _restore_queue = RestoreQueue(with_engine(|engine| {
+            engine.last_queue.replace(queue.clone())
+        }));
         let previous_callback = *CONTROL_CALLBACKS
             .playback_state
             .lock()

@@ -162,7 +162,10 @@ async fn rollback_installed_generation(generation: u64) {
     })
     .is_err()
     {
-        debug!("initialization rollback: generation {} is stale", generation);
+        debug!(
+            "initialization rollback: generation {} is stale",
+            generation
+        );
         return;
     }
     notify_connection_state_change();

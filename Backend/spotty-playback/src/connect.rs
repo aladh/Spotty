@@ -824,18 +824,45 @@ pub(crate) fn spawn_cluster_listener(
 
         debug!("Cluster listener ended (generation={})", generation);
 
-        let current_gen = SESSION_GENERATION.load(Ordering::SeqCst);
-        if !should_recover_after_cluster_end(generation, current_gen, teardown_in_progress()) {
+        // The end-of-stream decision belongs to this listener generation. Keep its state capture
+        // and disconnected write on the same side of invalidation; delivery and task spawning
+        // remain outside the short synchronous gate.
+        let transition = with_current_generation_mutation(generation, || {
+            if !should_recover_after_cluster_end(
+                generation,
+                SESSION_GENERATION.load(Ordering::SeqCst),
+                teardown_in_progress(),
+            ) {
+                return None;
+            }
+            let intent = with_engine_owned(generation, |engine| {
+                let intent = RecoveryIntent {
+                    was_playing: engine.is_playing(),
+                    was_active: engine.connection.is_active_device,
+                };
+                engine.connection.session_connected = false;
+                engine.connection.last_error =
+                    Some("Cluster listener ended unexpectedly".to_string());
+                intent
+            })
+            .ok()?;
+            Some((intent, capture_connection_state_notification(generation)))
+        })
+        .flatten();
+
+        let Some((intent, notification)) = transition else {
+            let current_gen = SESSION_GENERATION.load(Ordering::SeqCst);
             debug!(
                 "Cluster listener ended without recovery (generation={}, current={})",
                 generation, current_gen
             );
             return;
-        }
+        };
 
-        let intent = RecoveryIntent::capture();
-        mark_disconnected("Cluster listener ended unexpectedly");
-        spawn_reconnection_loop(intent);
+        if let Some(notification) = notification {
+            deliver_connection_state_notification(notification);
+        }
+        spawn_reconnection_loop_for_generation(intent, generation);
     });
 
     Ok(task)

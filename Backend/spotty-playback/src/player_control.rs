@@ -434,7 +434,7 @@ pub(crate) fn displayed_position_ms() -> u32 {
         reported_ms,
         reported_at_ms,
         monotonic_ms() as u32,
-        IS_PLAYING.load(Ordering::SeqCst),
+        engine_is_playing(),
     )
 }
 

@@ -529,7 +529,9 @@ struct PlaybackEventOutcomeTests {
         do {
             let successEngine = HarnessEngine()
             let successGate = HarnessEngineGate()
-            successEngine.onPositionMilliseconds = { [successGate] in successGate.wait(); return 42_000 }
+            successEngine.onPositionMilliseconds = { [successGate] in
+                successGate.wait(); return 42_000
+            }
             let success = HarnessEnvironment.makePlaybackStore(
                 HarnessEnvironment.make(engine: successEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
@@ -544,7 +546,9 @@ struct PlaybackEventOutcomeTests {
 
             let staleAccountEngine = HarnessEngine()
             let staleAccountGate = HarnessEngineGate()
-            staleAccountEngine.onPositionMilliseconds = { [staleAccountGate] in staleAccountGate.wait(); return 42_000 }
+            staleAccountEngine.onPositionMilliseconds = { [staleAccountGate] in
+                staleAccountGate.wait(); return 42_000
+            }
             let staleAccount = HarnessEnvironment.makePlaybackStore(
                 HarnessEnvironment.make(engine: staleAccountEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
@@ -572,7 +576,9 @@ struct PlaybackEventOutcomeTests {
 
             let staleEngineEngine = HarnessEngine()
             let staleEngineGate = HarnessEngineGate()
-            staleEngineEngine.onPositionMilliseconds = { [staleEngineGate] in staleEngineGate.wait(); return 42_000 }
+            staleEngineEngine.onPositionMilliseconds = { [staleEngineGate] in
+                staleEngineGate.wait(); return 42_000
+            }
             let staleEngine = HarnessEnvironment.makePlaybackStore(
                 HarnessEnvironment.make(engine: staleEngineEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
@@ -591,7 +597,9 @@ struct PlaybackEventOutcomeTests {
 
             let cancelEngine = HarnessEngine()
             let cancelGate = HarnessEngineGate()
-            cancelEngine.onPositionMilliseconds = { [cancelGate] in cancelGate.wait(); return 42_000 }
+            cancelEngine.onPositionMilliseconds = { [cancelGate] in
+                cancelGate.wait(); return 42_000
+            }
             let cancelled = HarnessEnvironment.makePlaybackStore(
                 HarnessEnvironment.make(engine: cancelEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
@@ -696,7 +704,9 @@ struct PlaybackEventOutcomeTests {
         do {
             let namedEngine = HarnessEngine()
             let namedGate = HarnessEngineGate()
-            namedEngine.onQueueSnapshot = { [namedGate, namedEngine] in namedGate.wait(); return namedEngine.snapshot }
+            namedEngine.onQueueSnapshot = { [namedGate, namedEngine] in
+                namedGate.wait(); return namedEngine.snapshot
+            }
             let namedRemote = HarnessRemote(metadata: .park)
             let named = HarnessEnvironment.makePlaybackStore(
                 HarnessEnvironment.make(engine: namedEngine, remote: namedRemote)
@@ -1031,8 +1041,8 @@ struct PlaybackEventOutcomeTests {
             let clockNow = Date(timeIntervalSince1970: 1_800_000_000)
             let receipt = Date(timeIntervalSince1970: 1_800_000_050)
             let player = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-        )
+                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+            )
             seedReadyLocalPlayback(player, uri: "spotify:track:clocked")
 
             _ = player.setTiming(position: 12)
@@ -1147,7 +1157,9 @@ struct PlaybackEventOutcomeTests {
     func testPositionRefreshCannotCrossTrackTransition() async {
         let engine = HarnessEngine()
         let gate = HarnessEngineGate()
-        engine.onPositionMilliseconds = { [gate] in gate.wait(); return 42_000 }
+        engine.onPositionMilliseconds = { [gate] in
+            gate.wait(); return 42_000
+        }
         let player = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(engine: engine, remote: HarnessRemote(metadataTitle: "Resolved"))
         )

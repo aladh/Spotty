@@ -896,12 +896,16 @@ final class HarnessTrackAttributes: TrackAttributesProviding, @unchecked Sendabl
     var requestCount: Int { requests.count }
 
     func attributes(for uris: [String]) async throws -> [String: TrackAttributes] {
-        lock.lock()
-        storedRequests.append(uris)
-        let override = storedOnAttributes
-        lock.unlock()
+        let override = record(uris)
         guard let override else { return [:] }
         return try await override(uris)
+    }
+
+    private func record(_ uris: [String]) -> (@Sendable ([String]) async throws -> [String: TrackAttributes])? {
+        lock.lock()
+        defer { lock.unlock() }
+        storedRequests.append(uris)
+        return storedOnAttributes
     }
 }
 

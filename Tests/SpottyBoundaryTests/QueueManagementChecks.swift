@@ -766,7 +766,8 @@ struct QueueManagementTests {
         let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
         let hook = QueueServiceTestHook()
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock(),
+            environment: HarnessEnvironment.make(
+                remote: remote, clock: SystemPlaybackClock(),
                 queueServiceHook: hook),
             feedback: feedback
         )
@@ -960,7 +961,8 @@ struct QueueManagementTests {
         let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
         let hook = QueueServiceTestHook()
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock(),
+            environment: HarnessEnvironment.make(
+                remote: remote, clock: SystemPlaybackClock(),
                 queueServiceHook: hook),
             feedback: feedback
         )
@@ -1066,7 +1068,8 @@ struct QueueManagementTests {
         let teardownFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
         let teardownHook = QueueServiceTestHook()
         let teardown = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: teardownRemote, clock: SystemPlaybackClock(),
+            environment: HarnessEnvironment.make(
+                remote: teardownRemote, clock: SystemPlaybackClock(),
                 queueServiceHook: teardownHook),
             feedback: teardownFeedback
         )
@@ -1102,7 +1105,8 @@ struct QueueManagementTests {
         let epochFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
         let epochHook = QueueServiceTestHook()
         let epochPlayer = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock(),
+            environment: HarnessEnvironment.make(
+                remote: remote, clock: SystemPlaybackClock(),
                 queueServiceHook: epochHook),
             feedback: epochFeedback
         )
@@ -1127,7 +1131,8 @@ struct QueueManagementTests {
         let cancelFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
         let cancelHook = QueueServiceTestHook()
         let cancelPlayer = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: cancelRemote, clock: SystemPlaybackClock(),
+            environment: HarnessEnvironment.make(
+                remote: cancelRemote, clock: SystemPlaybackClock(),
                 queueServiceHook: cancelHook),
             feedback: cancelFeedback
         )

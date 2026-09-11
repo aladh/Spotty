@@ -2,6 +2,7 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
 
 /// Barrier-controlled checks for process-local engine event delivery order.
 ///

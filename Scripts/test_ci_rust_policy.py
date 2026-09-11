@@ -218,6 +218,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         gate = steps[names[-1]]
         self.assertIn("if: always()", gate)
         for binding in ("POLICY_RESULT: ${{ needs.policy.result }}",
+                        "DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}",
                         "RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}",
                         "RUST_RESULT: ${{ steps.rust.outcome }}",
                         "CHECKS_RESULT: ${{ steps.debug.outcome }}",
@@ -286,7 +287,8 @@ chmod +x "$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
 class AggregateGateTests(unittest.TestCase):
     def test_only_an_explicit_app_only_decision_allows_skipped_rust(self):
         script = workflow_script("Require every quality lane")
-        env = {**os.environ, "POLICY_RESULT": "success", "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
+        env = {**os.environ, "POLICY_RESULT": "success", "DOMAIN_LINUX_RESULT": "success",
+               "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
         for needed in ("true", "false", "", "invalid"):
             for result in ("success", "skipped", "failure", "cancelled", ""):
                 with self.subTest(needed=needed, result=result):
@@ -294,7 +296,7 @@ class AggregateGateTests(unittest.TestCase):
                                                env={**env, "RUST_NEEDED": needed, "RUST_RESULT": result})
                     expected = (needed, result) in (("true", "success"), ("false", "skipped"))
                     self.assertEqual(completed.returncode == 0, expected)
-        for lane in ("POLICY_RESULT", "CHECKS_RESULT", "RELEASE_RESULT"):
+        for lane in ("POLICY_RESULT", "DOMAIN_LINUX_RESULT", "CHECKS_RESULT", "RELEASE_RESULT"):
             with self.subTest(lane=lane):
                 completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
                                            env={**env, "RUST_NEEDED": "false", "RUST_RESULT": "skipped", lane: "failure"})

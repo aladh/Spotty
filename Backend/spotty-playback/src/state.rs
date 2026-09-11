@@ -84,6 +84,7 @@ pub(crate) struct ConnectionState {
 /// Discipline (see `AGENTS.md`): the guard never escapes an accessor, is never held across an
 /// `.await`, and no Swift callback is invoked while it is held. Every accessor below finishes
 /// its reads and writes and returns a plain value.
+#[derive(Default)]
 pub(crate) struct EngineGeneration {
     /// The generation that owns this state; mirrors [`SESSION_GENERATION`].
     pub(crate) session_generation: u64,
@@ -130,29 +131,6 @@ pub(crate) struct EngineGeneration {
     pub(crate) last_queue: Option<QueueState>,
     pub(crate) last_devices_fingerprint: Option<DevicesFingerprint>,
     pub(crate) connection: ConnectionState,
-}
-
-impl Default for EngineGeneration {
-    fn default() -> Self {
-        Self {
-            session_generation: 0,
-            player: None,
-            session: None,
-            mixer: None,
-            spirc: None,
-            player_event_tx: None,
-            tasks: None,
-            is_playing: false,
-            playing_event: PlayingEventStamp::default(),
-            resuming: false,
-            shuffle: false,
-            repeat_track: false,
-            repeat_context: false,
-            last_queue: None,
-            last_devices_fingerprint: None,
-            connection: ConnectionState::default(),
-        }
-    }
 }
 
 impl EngineGeneration {
@@ -819,9 +797,11 @@ pub(crate) fn with_current_generation_mutation<T>(
 /// owner might still try to write is refused by [`with_engine_owned`] from this point on.
 pub(crate) fn advance_session_generation() -> u64 {
     with_generation_mutation(|| {
-        let invalidated = SESSION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-        with_engine(|engine| engine.session_generation = invalidated);
-        invalidated
+        with_engine(|engine| {
+            let invalidated = SESSION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+            engine.session_generation = invalidated;
+            invalidated
+        })
     })
 }
 
@@ -832,9 +812,11 @@ pub(crate) fn advance_session_generation() -> u64 {
 #[cfg(test)]
 pub(crate) fn set_session_generation_for_test(generation: u64) -> u64 {
     with_generation_mutation(|| {
-        let previous = SESSION_GENERATION.swap(generation, Ordering::SeqCst);
-        with_engine(|engine| engine.session_generation = generation);
-        previous
+        with_engine(|engine| {
+            let previous = SESSION_GENERATION.swap(generation, Ordering::SeqCst);
+            engine.session_generation = generation;
+            previous
+        })
     })
 }
 

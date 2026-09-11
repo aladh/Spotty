@@ -14,11 +14,14 @@ independent reviewers; report only what you verified.
   and the chosen side.
 - **Repository rules**: the root `AGENTS.md`, every nested `AGENTS.md`, and `CONTRIBUTING.md`.
   Changing a rule changes how every future PR is judged.
-- **Historical records**: published release notes under `docs/releases/`, dated measurement
-  sections in `docs/architecture/performance-baseline.md` and the JSON under
-  `docs/architecture/measurements/`, and the decision and status text of accepted ADRs under
-  `docs/architecture/adrs/`. These describe what was true at a point in time; later knowledge is
-  added alongside them, not written into them.
+- **Historical records**: published release notes under `docs/releases/`, completed dated
+  measurement sections in `docs/architecture/performance-baseline.md` and the JSON under
+  `docs/architecture/measurements/`, and the context, decision, and consequences text of accepted
+  ADRs under `docs/architecture/adrs/`. These describe what was true at a point in time; later
+  knowledge is added alongside them, not written into them. Fields the repository maintains in
+  place are not records: an ADR's status line and the ADR index (`docs/architecture/adrs/README.md`
+  says to mark superseded decisions and keep the index current), and the "Current status" note at
+  the top of the performance baseline. Edits to those are wording.
 
 ## Procedure
 

@@ -139,7 +139,7 @@ jobs:
           if [ -z "$PATH_REGEX" ]; then
             exit 0
           fi
-          if ! git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -qE "$PATH_REGEX"; then
+          if ! git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -E "$PATH_REGEX" > /dev/null; then
             echo "Skipping: no changed file matches path_regex"
             echo 'skip=true' >> "$GITHUB_OUTPUT"
           fi

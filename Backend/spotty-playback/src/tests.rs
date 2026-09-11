@@ -1903,33 +1903,58 @@ fn protocol_context_clears_without_local_events_resurrecting_resume_context() {
 
 #[test]
 fn displayed_position_advances_by_elapsed_time_while_playing() {
-    assert_eq!(interpolate_position_ms(1_000, 10_000, 10_120, true), 1_120);
+    let displayed = interpolate_position_ms(1_000, 10_000, 10_120, true);
+    assert_eq!(displayed, 1_120);
 }
 
 #[test]
 fn displayed_position_is_capped_at_one_update_interval() {
-    assert_eq!(
-        interpolate_position_ms(1_000, 10_000, 20_000, true),
-        1_000 + POSITION_INTERPOLATION_CAP_MS as u32
-    );
+    let displayed = interpolate_position_ms(1_000, 10_000, 20_000, true);
+    let cap = POSITION_INTERPOLATION_CAP_MS as u32;
+    assert_eq!(displayed, 1_000 + cap);
 }
 
 #[test]
 fn displayed_position_is_raw_when_paused_or_never_reported() {
-    assert_eq!(interpolate_position_ms(1_000, 10_000, 10_120, false), 1_000);
-    assert_eq!(interpolate_position_ms(1_000, 0, 10_120, true), 1_000);
+    let paused = interpolate_position_ms(1_000, 10_000, 10_120, false);
+    assert_eq!(paused, 1_000);
+    let never_reported = interpolate_position_ms(1_000, 0, 10_120, true);
+    assert_eq!(never_reported, 1_000);
 }
 
 #[test]
-fn displayed_position_ignores_clock_going_backwards_and_saturates() {
-    assert_eq!(interpolate_position_ms(1_000, 10_000, 9_000, true), 1_000);
-    assert_eq!(interpolate_position_ms(u32::MAX, 10_000, 10_100, true), u32::MAX);
+fn displayed_position_survives_clock_wrap_and_saturates() {
+    // The arrival time sits just below the 32-bit wrap; 120 ms later the clock has wrapped.
+    let wrapped = interpolate_position_ms(1_000, u32::MAX - 19, 100, true);
+    assert_eq!(wrapped, 1_120);
+    let saturated = interpolate_position_ms(u32::MAX, 10_000, 10_100, true);
+    assert_eq!(saturated, u32::MAX);
 }
 
 #[test]
-fn update_position_records_when_the_report_arrived() {
-    let before = monotonic_ms();
+fn position_report_packs_position_and_arrival_as_one_word() {
+    let report = pack_position_report(4_242, 0x1_0000_0007);
+    assert_eq!(unpack_position_report(report), (4_242, 7));
+}
+
+#[test]
+fn update_position_records_when_the_report_arrived_and_reset_clears_it() {
+    let _guard = lock_global_state();
+    let saved_position = POSITION_MS.load(Ordering::SeqCst);
+    let saved_report = POSITION_REPORT.load(Ordering::SeqCst);
+
+    let before = monotonic_ms() as u32;
     update_position(4_242);
+    let (position, reported_at) = unpack_position_report(POSITION_REPORT.load(Ordering::SeqCst));
     assert_eq!(current_position_ms(), 4_242);
-    assert!(POSITION_REPORTED_AT_MS.load(Ordering::SeqCst) >= before);
+    assert_eq!(position, 4_242);
+    let recent = reported_at.wrapping_sub(before) < 1_000;
+    assert!(reported_at != 0 && recent);
+
+    reset_position();
+    assert_eq!(current_position_ms(), 0);
+    assert_eq!(POSITION_REPORT.load(Ordering::SeqCst), 0);
+
+    POSITION_MS.store(saved_position, Ordering::SeqCst);
+    POSITION_REPORT.store(saved_report, Ordering::SeqCst);
 }

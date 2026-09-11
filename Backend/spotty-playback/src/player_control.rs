@@ -346,7 +346,7 @@ pub(crate) async fn cleanup_player_globals() {
     SHUFFLE_STATE.store(false, Ordering::SeqCst);
     REPEAT_TRACK_STATE.store(false, Ordering::SeqCst);
     REPEAT_CONTEXT_STATE.store(false, Ordering::SeqCst);
-    POSITION_MS.store(0, Ordering::SeqCst);
+    reset_position();
     // Belongs to the session being torn down. Surviving a logout would let a resume seek to
     // an offset from the previous lifecycle, or another account's playback.
     RESUME_POSITION_MS.store(0, Ordering::SeqCst);
@@ -417,16 +417,19 @@ pub(crate) fn current_position_ms() -> u32 {
 pub(crate) const POSITION_INTERPOLATION_CAP_MS: u64 = 250;
 
 /// Pure form of the display getter: the reported position advanced by the bounded elapsed time.
+/// Arrival and current times are the low 32 bits of `monotonic_ms`; wrapping subtraction keeps
+/// the elapsed time right across the 49-day wrap, and a zero arrival means no report.
 pub(crate) fn interpolate_position_ms(
     reported_ms: u32,
-    reported_at_ms: u64,
-    now_ms: u64,
+    reported_at_ms: u32,
+    now_ms: u32,
     playing: bool,
 ) -> u32 {
     if !playing || reported_at_ms == 0 {
         return reported_ms;
     }
-    let elapsed = now_ms.saturating_sub(reported_at_ms).min(POSITION_INTERPOLATION_CAP_MS);
+    let elapsed = u64::from(now_ms.wrapping_sub(reported_at_ms))
+        .min(POSITION_INTERPOLATION_CAP_MS);
     u32::try_from(u64::from(reported_ms) + elapsed).unwrap_or(u32::MAX)
 }
 
@@ -434,10 +437,12 @@ pub(crate) fn interpolate_position_ms(
 /// playing. Swift still owns interpolation between its own samples; this only removes the
 /// 0-200 ms sampling error each sample would otherwise carry.
 pub(crate) fn displayed_position_ms() -> u32 {
+    let (reported_ms, reported_at_ms) =
+        unpack_position_report(POSITION_REPORT.load(Ordering::SeqCst));
     interpolate_position_ms(
-        POSITION_MS.load(Ordering::SeqCst),
-        POSITION_REPORTED_AT_MS.load(Ordering::SeqCst),
-        monotonic_ms(),
+        reported_ms,
+        reported_at_ms,
+        monotonic_ms() as u32,
         IS_PLAYING.load(Ordering::SeqCst),
     )
 }

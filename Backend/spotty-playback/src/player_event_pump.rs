@@ -977,6 +977,7 @@ mod player_event_pump_policy {
         playing_event_stamp: PlayingEventStamp,
         resume_position_ms: u32,
         position_ms: u32,
+        position_report: u64,
         track_uri: Option<String>,
         context_uri: Option<String>,
     }
@@ -988,6 +989,7 @@ mod player_event_pump_policy {
             playing_event_stamp: playing_event_stamp(),
             resume_position_ms: RESUME_POSITION_MS.load(Ordering::SeqCst),
             position_ms: POSITION_MS.load(Ordering::SeqCst),
+            position_report: POSITION_REPORT.load(Ordering::SeqCst),
             track_uri: CURRENT_TRACK_URI
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -1005,6 +1007,7 @@ mod player_event_pump_policy {
         replace_playing_event_stamp_for_test(snapshot.playing_event_stamp);
         RESUME_POSITION_MS.store(snapshot.resume_position_ms, Ordering::SeqCst);
         POSITION_MS.store(snapshot.position_ms, Ordering::SeqCst);
+        POSITION_REPORT.store(snapshot.position_report, Ordering::SeqCst);
         *CURRENT_TRACK_URI.lock().unwrap_or_else(|e| e.into_inner()) = snapshot.track_uri;
         *CURRENT_CONTEXT_URI
             .lock()

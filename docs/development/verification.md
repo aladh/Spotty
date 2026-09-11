@@ -81,11 +81,12 @@ Swift formatting:
 ./Scripts/format-swift.sh --write
 ```
 
-Tests live in `Tests/SpottyDomainTests/`, `Tests/SpottyBoundaryTests/`, and
-`Tests/BrowsingHarness/Checks` (the SwiftPM `SpottyBrowsingHarnessTests` target) — all discoverable
-SwiftPM test targets. `Tests/ABI`, `Tests/Compiler`, and `Tests/SourcePolicy` hold fixtures read by
-scripts rather than test targets. Discover test names with `swift test list`, then filter for
-focused iteration:
+Tests live in `Tests/SpottyDomainTests/` and `Tests/SpottyBoundaryTests/` (ordinary SwiftPM test
+targets) and `Tests/BrowsingHarness/Checks` (the `SpottyBrowsingHarnessTests` target, which
+`Package.swift` includes only when `SPOTTY_BUILD_BROWSING_HARNESS=1` is set; `check.sh` sets it).
+`Tests/ABI`, `Tests/Compiler`, and `Tests/SourcePolicy` hold fixtures read by scripts rather than
+test targets. Discover test names with `swift test list` (add `SPOTTY_BUILD_BROWSING_HARNESS=1` to
+include the harness target), then filter for focused iteration:
 
 ```bash
 swift test --disable-sandbox --filter ProtobufTests/testProtobuf

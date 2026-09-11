@@ -4,8 +4,8 @@
 
 ## Current status
 
-The 2026-09-10 measurements below were taken with the engine pinned at `playback-v0.1.4`
-(`Package.swift`). Release 0.2.5 pins `playback-v0.1.5` and has not been re-measured.
+The 2026-09-10 measurements below were taken when `Package.swift` pinned `playback-v0.1.4`.
+It now pins `playback-v0.1.5` (release 0.2.5), which has not been re-measured.
 
 ## Historical measured baseline (2026-08-23)
 
@@ -49,15 +49,14 @@ verified. No UI automation ran concurrently with either measurement.
 | Browsing elapsed time | 15.45 s | 15.69 s |
 | Process CPU consumed during browsing | 16.20 s | 14.15 s |
 
-Reports: `run.1cZyJ9nU` (before), `run.qEy750jC` (after), both from the squash commit for this
-change, `ef77361` (#385) on main, with
-an empty tracked diff. They precede the final harness review corrections to exact cluster barriers,
-recovery preservation and callback invocation counting. A second after run (`run.yi56SLpy`, same
-presentation implementation before commit) counted the same semantic invalidations and measured
-12.72 CPU seconds, showing timing variance. These are directional samples, not a statistical
-performance guarantee. CPU includes all process threads, not specifically MainActor time.
-These `run.*` reports live under the untracked `.build/browsing-runs/` directory and are not
-archived under `docs/architecture/measurements/`.
+Both runs were taken on the branch squashed as `ef77361` (#385) with an empty tracked diff. Their
+reports were written to the untracked `.build/browsing-runs/` directory and were not archived under
+`docs/architecture/measurements/`, so these rows are unarchived historical observations. They
+precede the final harness review corrections to exact cluster barriers, recovery preservation and
+callback invocation counting. A second after run with the same presentation implementation counted
+the same semantic invalidations and measured 12.72 CPU seconds, showing timing variance. These are
+directional samples, not a statistical performance guarantee. CPU includes all process threads, not
+specifically MainActor time.
 
 The display link measures main-run-loop opportunities, not rendered frames. The proposed frame
 budget is still missed; no input-to-pixel measurement is claimed. Seven named synthetic settlements
@@ -113,22 +112,22 @@ publication to one update per result; it is a benchmark fixture, not a shipped m
 Three runs per variant completed 40 browsing checkpoints, eight playback/lifetime traces and six
 96-track hydration waves. Configuration: M1 Max, 10 logical processors, 32 GiB, macOS 27.0
 (26A5425a), Xcode 27.0 (27A5252f), macOS 26.5 SDK, Debug, 960 × 692 window, inspector closed.
-Xcode 27.0 is the local `xcode-select` toolchain, and the macOS 26.5 SDK is the `SDKROOT` that
-[Scripts/swiftpm-env.sh](../../Scripts/swiftpm-env.sh) selects; CI (`.github/workflows/ci.yml`)
-instead runs on the `macos-26` runner with Xcode 26.6 selected explicitly.
 Each fresh process uses new artwork paths; framework disk caches may be warm. The source emits
 on independent 200 ms deadlines: measured offered rates were 4.97–5.00 Hz. Synthetic metadata
 waits 15 ms per lookup with production concurrency of eight. App Nap is suppressed for the finite
 workload while idle system sleep remains allowed. No build or UI inspection ran during these six
 measurements; network denial and zero forbidden mutation attempts passed in every run.
 
-Reproduce with `Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json`.
+Rerun the current scenario with `Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json`.
+This exercises today's checkout and engine pin, not the recorded commits, pin, or control patch, so
+it does not reproduce the figures above.
 
 The session exposed a 60 Hz Screen Sharing Virtual Display at 2× scale. All measured windows were
 occluded at start and end and recorded zero display callbacks. These are useful publication,
 CPU and hydration measurements, **not rendered-frame or input-to-visible-feedback evidence**.
 The subsequent reduced-motion inspection was blocked by the locked Mac; its setting remained off.
-No physical 120 Hz display was exposed. #379 and the render-budget portion of #380 remain open.
+No physical 120 Hz display was exposed. #379 remains open; #380 closed on 2026-09-10 and moved its
+render-budget portion to #379.
 
 Per-run medians, with ranges in parentheses:
 
@@ -225,8 +224,10 @@ either measured interval. Earlier exploratory captures are excluded from these r
 | Maximum enrichment batches in a rolling second | 4 | 3 |
 | Minimum spacing between enrichment batch events | 121.48 ms | 119.44 ms |
 
-Reproduce with `Scripts/browse-synthetic.sh --profile --interactive Tests/BrowsingHarness/measurement.json`,
-then choose **Demo > Run Measurement** with the queue inspector open.
+Rerun the current scenario with
+`Scripts/browse-synthetic.sh --profile --interactive Tests/BrowsingHarness/measurement.json`, then
+choose **Demo > Run Measurement** with the queue inspector open; this measures today's checkout,
+not the recorded commits.
 [Scripts/profile_synthetic.py](../../Scripts/profile_synthetic.py) is the recorder that
 `browse-synthetic.sh` invokes to produce the trace; the
 [summary helper](../../Scripts/summarize_synthetic_trace.py) resolves exported XML references,
@@ -245,8 +246,8 @@ input and separate harness-forced layout costs before choosing a rendering fix.
 
 The proposed 20-enrichment-publications/second ceiling passed these visible workload samples.
 This does not establish that a 50 ms batching policy is sufficient for the overall rendering budget:
-substantial hitches remain while publication frequency is low. #380 retains that budget acceptance,
-coordinated with #379; the missing evidence is now a satisfactory rendering result, not an
+substantial hitches remain while publication frequency is low. #380 closed on 2026-09-10 and moved
+that budget acceptance to #379; the missing evidence is now a satisfactory rendering result, not an
 unavailable display. #379 still needs control-input-to-visible-feedback measurement and work to
 meet or explicitly revise its rendering target. State observation, display-link callbacks and
 accessibility automation do not substitute for that control measurement. #378's real Rust
@@ -264,8 +265,10 @@ readiness/checkpoint calls. Each variant completed 40 checkpoints, eight playbac
 six 96-track hydration waves, with visible windows, Reduce Motion off, denied networking and
 zero forbidden mutations. No compilation, UI inspection or export ran during either workload.
 
-Reproduce with `Scripts/browse-synthetic.sh --profile --interactive Tests/BrowsingHarness/queue-rendering.json`,
-then choose **Demo > Run Measurement**.
+Rerun the current scenario with
+`Scripts/browse-synthetic.sh --profile --interactive Tests/BrowsingHarness/queue-rendering.json`,
+then choose **Demo > Run Measurement**; this measures today's checkout, not the recorded commits or
+control patch.
 
 | Measure | Batched | Per result |
 | --- | ---: | ---: |
@@ -288,6 +291,7 @@ alone does not satisfy the remaining rendering acceptance.
 
 Removing explicit synchronous layout did not eliminate hitches. Programmatic scroll jumps,
 Debug/profiling overhead and the broader UI remain possible contributors. These samples do not
-measure physical control-input latency or isolate a production root cause. **#380 remains open**
-with #379; closing it requires a satisfactory UI budget, not just this publication/CPU saving.
+measure physical control-input latency or isolate a production root cause. **#379 remains open** as
+the sole rendering-budget owner after #380 closed on 2026-09-10; closing it requires a satisfactory
+UI budget, not just this publication/CPU saving.
 The richer interactive Demo library is a separate fixture and was not used in these captures.

@@ -75,8 +75,8 @@ explicit pinned upstream override.
 
 ## Sparkle
 
-[Sparkle](https://sparkle-project.org/) provides application updates, pinned at 2.9.6 by
-`Package.resolved`. Its bundled license follows.
+[Sparkle](https://sparkle-project.org/) provides application updates, pinned at exactly 2.9.6 in
+`Package.swift`; `Package.resolved` records the resolved revision. Its bundled license follows.
 
 Copyright (c) 2006-2013 Andy Matuschak.
 Copyright (c) 2009-2013 Elgato Systems GmbH.

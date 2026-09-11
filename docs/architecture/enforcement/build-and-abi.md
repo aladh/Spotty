@@ -17,7 +17,7 @@
 | IDs | Purpose | Owner |
 | --- | --- | --- |
 | `ABI-SYM-001`, `ABI-USE-001` | Agreement between selected headers, exports, and Swift consumption | [check.sh](../../../Scripts/check.sh) |
-| `ABI-SIG-001` | Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), consumed by [generate-c-header.sh](../../../Scripts/generate-c-header.sh), [test_playback_header.py](../../../Scripts/test_playback_header.py), [source-input-digest.sh](../../../Backend/spotty-playback/source-input-digest.sh), and [tests.rs](../../../Backend/spotty-playback/src/tests.rs) |
+| `ABI-SIG-001` | Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), consumed by [generate-c-header.sh](../../../Scripts/generate-c-header.sh), [test_playback_header.py](../../../Scripts/test_playback_header.py), and [tests.rs](../../../Backend/spotty-playback/src/tests.rs) |
 | `ABI-GEN-001` | Reproducible generated declarations and layouts | [Header generator](../../../Scripts/generate-c-header.sh) |
 | `ABI-SWIFT-001` | Required callbacks, enums, and nullable pointer shapes survive Swift import | [Compiler probes](../../../Scripts/check-c-header-imports.sh) |
 | `ABI-ARC-001` | Immutable matched library/header artifacts; Rust-free app builds | [ADR 006](../adrs/ADR-006-prebuilt-playback-engine.md), [artifact workflow](../../development/playback-artifacts.md) |

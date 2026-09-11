@@ -22,11 +22,11 @@ Local packages are development artifacts:
 ./Scripts/package-app.sh --debug
 ./Scripts/package-app.sh --release
 ./Scripts/validate-app.sh --local
-./Scripts/validate-app.sh --development-signed
 ```
 
-`archive-app.sh` only delegates to `package-app.sh --release`; `SPOTTY_SIGNING_IDENTITY` selects the
-signing identity it uses. Unset, packaging falls back to the checkout-local self-signed identity.
+`archive-app.sh` delegates building and signing to `package-app.sh --release`, then archives the
+resulting app as `dist/Spotty-<version>.zip` with `ditto`. `SPOTTY_SIGNING_IDENTITY` selects the
+signing identity. Unset, packaging falls back to the checkout-local self-signed identity.
 `SPOTTY_SIGNING_IDENTITY="-"` is an ad-hoc signature, used by
 [release.yml](../../.github/workflows/release.yml). For a hardened-runtime Developer ID archive,
 supply a Developer ID identity explicitly:

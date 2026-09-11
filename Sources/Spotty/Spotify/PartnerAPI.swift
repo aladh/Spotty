@@ -285,15 +285,6 @@ nonisolated struct PartnerAPI: Sendable {
 
     // MARK: - Library
 
-    /// The user's saved playlists, walked to the end.
-    ///
-    /// Decoded entities can be fewer than what the pages carried. See
-    /// `PathfinderLibraryPage`, and `Pagination` for why walks advance by page entries rather
-    /// than by decoded entities.
-    func libraryPlaylists() async throws -> [PathfinderPlaylist] {
-        try await libraryEntities(filter: LibraryFilter.playlists)
-    }
-
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
         struct FolderRequest: Sendable {
             let uri: String?
@@ -414,45 +405,6 @@ nonisolated struct PartnerAPI: Sendable {
                 pageEntryCount: page.items?.count ?? 0,
                 totalCount: page.totalCount
             )
-        }
-    }
-
-    /// Which of these are in the library, keyed by id.
-    ///
-    /// A uri the service does not answer for is **left out** rather than reported false, so a
-    /// truncated response leaves a track unresolved and asked about again instead of cached as
-    /// "not saved".
-    func entitiesInLibrary(uris: [String]) async throws -> [String: Bool] {
-        guard !uris.isEmpty else { return [:] }
-
-        let response: PathfinderLibraryMembershipResponse = try await query(
-            .areEntitiesInLibrary,
-            variables: PathfinderLibraryLookupVariables(uris: uris),
-        )
-
-        return response.statuses(for: uris)
-    }
-
-    /// Saves anything — a track, an album, an artist — by uri.
-    func addToLibrary(uris: [String]) async throws {
-        try await mutateLibrary(.addToLibrary, uris: uris)
-    }
-
-    func removeFromLibrary(uris: [String]) async throws {
-        try await mutateLibrary(.removeFromLibrary, uris: uris)
-    }
-
-    private func mutateLibrary(_ operation: PathfinderOperation, uris: [String]) async throws {
-        guard !uris.isEmpty else { return }
-
-        let response: PathfinderLibraryMutationResponse = try await transact(
-            operation,
-            variables: PathfinderLibraryWriteVariables(libraryItemUris: uris),
-            replay: .unsafe,
-        )
-
-        if response.failure != nil {
-            throw PartnerAPIError.mutationRejected(operation.name)
         }
     }
 

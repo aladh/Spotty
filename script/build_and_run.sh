@@ -7,7 +7,7 @@ fi
 
 mode="${1:-run}"
 app_name="Spotty"
-previous_app_name="$(printf '\101\165\162\141\154')"
+previous_app_name="Aural"
 bundle_id="dev.spotty.app"
 root_dir="${0:A:h:h}"
 app_bundle="$root_dir/Spotty.app"

@@ -532,8 +532,8 @@ struct PlaybackCommandFailureTests {
             )
             var completions: [Bool] = []
             player.performCommand(action, expecting: false, operation: .pause) { completions.append($0) }
-            _ = await waitUntil { !completions.isEmpty || player.state.pendingCommands[.transport] == nil }
-            _ = await waitUntil { !completions.isEmpty }
+            await expectEventually { !completions.isEmpty || player.state.pendingCommands[.transport] == nil }
+            await expectEventually { !completions.isEmpty }
             return (completions, player.transientCommandError, account.authorizeCount, player)
         }
 
@@ -553,7 +553,7 @@ struct PlaybackCommandFailureTests {
         let reconnect = await runLocal(PlaybackEngineResult(rawValue: -2), account: reconnectAccount)
         #expect((reconnect.completions) == ([false]), "reconnect-required completion")
         #expect((reconnect.notice) == (action), "reconnect-required uses the action notice")
-        _ = await waitUntil { reconnectAccount.authorizeCount == 1 }
+        await expectEventually { reconnectAccount.authorizeCount == 1 }
         #expect(
             (reconnectAccount.authorizeCount) == (1), "reconnect-required starts connect after an accepted finish")
         await reconnect.player.shutdownForTermination()
@@ -574,12 +574,12 @@ struct PlaybackCommandFailureTests {
         #expect((ready.phase) == (.ready), "a granted account restores to ready")
         var readyCompletions: [Bool] = []
         ready.performCommand(action, expecting: false, operation: .pause) { readyCompletions.append($0) }
-        _ = await waitUntil { !readyCompletions.isEmpty }
+        await expectEventually { !readyCompletions.isEmpty }
         #expect((readyCompletions) == ([false]), "reconnect-required on a ready session completes as failure")
         #expect(
             (ready.transientCommandError) == (action),
             "reconnect-required on a ready session shows the action notice")
-        _ = await waitUntil { readyEngine.forceReconnectCount == 1 }
+        await expectEventually { readyEngine.forceReconnectCount == 1 }
         #expect(
             (readyEngine.forceReconnectCount) == (1), "reconnect-required on a ready session rebuilds the engine")
         #expect((readyAccount.authorizeCount) == (0), "reconnect-required on a ready session does not re-authorize")
@@ -646,7 +646,7 @@ struct PlaybackCommandFailureTests {
             (reconciled.state.pendingCommands[.transport]) == nil,
             "a matching snapshot reconciles the pending pause before the finish")
         reconciledGate.finish(with: PlaybackEngineResult(rawValue: -2))
-        _ = await waitUntil { !reconciledCompletions.isEmpty }
+        await expectEventually { !reconciledCompletions.isEmpty }
         #expect(
             (reconciledCompletions) == ([true]), "already-reconciled reconnect-required finish completes as success"
         )
@@ -655,7 +655,7 @@ struct PlaybackCommandFailureTests {
             "already-reconciled reconnect-required finish shows no command notice")
         #expect(
             (reconciled.state.transport) == (.paused), "already-reconciled transport keeps the reconciled state")
-        _ = await waitUntil { reconciledEngine.forceReconnectCount == 1 }
+        await expectEventually { reconciledEngine.forceReconnectCount == 1 }
         #expect(
             (reconciledEngine.forceReconnectCount) == (1),
             "already-reconciled reconnect-required finish still rebuilds the engine")
@@ -701,7 +701,7 @@ struct PlaybackCommandFailureTests {
             local: .pause,
             remote: .pause
         ) { rejectionCompletions.append($0) }
-        _ = await waitUntil { !rejectionCompletions.isEmpty }
+        await expectEventually { !rejectionCompletions.isEmpty }
         #expect((rejectionCompletions) == ([false]), "remote rejection completion")
         #expect((rejectionStore.transientCommandError) == (action), "remote rejection uses the action notice")
         await rejectionStore.shutdownForTermination()
@@ -802,7 +802,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (pauseFailStore.state.timing) == (frozenPauseTiming),
             "remote pause freezes displayed timing before completion")
-        _ = await waitUntil { pauseFailStore.state.pendingCommands[.transport] == nil }
+        await expectEventually { pauseFailStore.state.pendingCommands[.transport] == nil }
         #expect((pauseFailStore.state.transport) == (.playing), "remote pause rejection restores playing")
         #expect(
             (pauseFailStore.state.timing) == (priorPlayingTiming),
@@ -822,7 +822,7 @@ struct PlaybackCommandFailureTests {
         #expect((resumeFailStore.state.transport) == (.playing), "remote resume applies playing before completion")
         #expect(
             (resumeFailStore.state.timing) == (resumeTiming), "remote resume re-anchors from the injected clock")
-        _ = await waitUntil { resumeFailStore.state.pendingCommands[.transport] == nil }
+        await expectEventually { resumeFailStore.state.pendingCommands[.transport] == nil }
         #expect((resumeFailStore.state.transport) == (.paused), "remote resume rejection restores paused")
         #expect(
             (resumeFailStore.state.timing) == (pausedTiming), "remote resume rejection restores exact prior timing")
@@ -835,7 +835,7 @@ struct PlaybackCommandFailureTests {
         )
         seedRemotePlayback(pauseOkStore, transport: .playing, timing: priorPlayingTiming)
         pauseOkStore.togglePlayback()
-        _ = await waitUntil { pauseOkStore.state.pendingCommands[.transport] == nil }
+        await expectEventually { pauseOkStore.state.pendingCommands[.transport] == nil }
         #expect((pauseOkStore.state.transport) == (.paused), "accepted remote pause keeps paused transport")
         #expect((pauseOkStore.state.timing) == (frozenPauseTiming), "accepted remote pause keeps frozen timing")
         #expect((pauseOkStore.transientCommandError) == nil, "accepted remote pause has no command notice")
@@ -850,7 +850,7 @@ struct PlaybackCommandFailureTests {
         seekFailStore.seek(to: 0.4)
         #expect((seekFailStore.state.timing.position) == (80), "seek applies optimistic timing before completion")
         #expect((seekFailStore.state.transport) == (.playing), "seek leaves transport playing")
-        _ = await waitUntil { seekFailStore.state.pendingCommands[.seek] == nil }
+        await expectEventually { seekFailStore.state.pendingCommands[.seek] == nil }
         #expect((seekFailStore.state.timing) == (priorPlayingTiming), "rejected seek restores exact prior timing")
         #expect(
             (seekFailStore.transientCommandError) == ("Seek was rejected"), "rejected seek uses the action notice")
@@ -863,7 +863,7 @@ struct PlaybackCommandFailureTests {
         )
         seedRemotePlayback(seekOkStore, transport: .paused, timing: pausedTiming)
         seekOkStore.seek(to: 0.4)
-        _ = await waitUntil { seekOkStore.state.pendingCommands[.seek] == nil }
+        await expectEventually { seekOkStore.state.pendingCommands[.seek] == nil }
         #expect((seekOkStore.state.timing.position) == (80), "accepted seek keeps optimistic timing")
         #expect((seekOkStore.state.transport) == (.paused), "accepted seek does not change transport")
         await seekOkStore.shutdownForTermination()
@@ -901,7 +901,7 @@ struct PlaybackCommandFailureTests {
         )
         localSeekFail.seek(to: 0.4)
         #expect((localSeekFail.state.timing.position) == (80), "local seek applies optimistic timing")
-        _ = await waitUntil { localSeekFail.state.pendingCommands[.seek] == nil }
+        await expectEventually { localSeekFail.state.pendingCommands[.seek] == nil }
         #expect(
             (localSeekFail.state.timing) == (priorPlayingTiming), "local seek rejection restores exact prior timing"
         )
@@ -1153,7 +1153,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (localRejected.state.timing) == (optimisticTiming), "local play applies target timing before completion"
         )
-        _ = await waitUntil { localRejected.state.pendingCommands[.transport] == nil }
+        await expectEventually { localRejected.state.pendingCommands[.transport] == nil }
         #expect((localRejected.state.currentTrack?.uri) == (trackA.uri), "local play rejection restores A")
         #expect(
             (localRejected.state.timing) == (priorPlayingTiming), "local play rejection restores exact prior timing"
@@ -1173,7 +1173,7 @@ struct PlaybackCommandFailureTests {
         )
         seedPlayingA(localAccepted, local: true)
         localAccepted.play(track: trackB)
-        _ = await waitUntil { localAccepted.state.pendingCommands[.transport] == nil }
+        await expectEventually { localAccepted.state.pendingCommands[.transport] == nil }
         #expect((localAccepted.state.currentTrack?.uri) == (trackB.uri), "accepted local play keeps B")
         #expect((localAccepted.state.transport) == (.playing), "accepted local play keeps playing")
         #expect(
@@ -1194,7 +1194,7 @@ struct PlaybackCommandFailureTests {
         remoteRejected.play(track: trackB)
         #expect(
             (remoteRejected.state.currentTrack?.uri) == (trackB.uri), "remote play presents B before completion")
-        _ = await waitUntil { remoteRejected.state.pendingCommands[.transport] == nil }
+        await expectEventually { remoteRejected.state.pendingCommands[.transport] == nil }
         #expect((remoteRejected.state.currentTrack?.uri) == (trackA.uri), "remote play rejection restores A")
         #expect(
             (remoteRejected.state.timing) == (priorPlayingTiming),
@@ -1211,7 +1211,7 @@ struct PlaybackCommandFailureTests {
         )
         seedPlayingA(remoteAccepted, local: false)
         remoteAccepted.play(track: trackB)
-        _ = await waitUntil { remoteAccepted.state.pendingCommands[.transport] == nil }
+        await expectEventually { remoteAccepted.state.pendingCommands[.transport] == nil }
         #expect((remoteAccepted.state.currentTrack?.uri) == (trackB.uri), "accepted remote play keeps B")
         #expect(
             (remoteAccepted.history.entries.contains { $0.uri == trackB.uri }) == false,
@@ -1231,7 +1231,7 @@ struct PlaybackCommandFailureTests {
         laggingStore.play(track: trackB)
         let laggingPending = await waitUntil { laggingStore.state.pendingCommands[.transport] != nil }
         #expect((laggingPending) == true, "remote play is pending before a lagging A snapshot")
-        _ = await waitUntil { laggingRemote.sendCount == 1 }
+        await expectEventually { laggingRemote.sendCount == 1 }
         sendEnginePlayback(
             laggingStore,
             uri: trackA.uri,
@@ -1245,7 +1245,7 @@ struct PlaybackCommandFailureTests {
             (laggingStore.state.pendingCommands[.transport]) != nil, "a lagging A snapshot keeps rollback ownership"
         )
         laggingRemote.completePark(success: false)
-        _ = await waitUntil { laggingStore.state.pendingCommands[.transport] == nil }
+        await expectEventually { laggingStore.state.pendingCommands[.transport] == nil }
         #expect((laggingStore.state.currentTrack?.uri) == (trackA.uri), "lagging A then rejection restores A")
         #expect(
             (laggingStore.state.timing) == (priorPlayingTiming), "lagging A then rejection restores exact timing")
@@ -1260,8 +1260,8 @@ struct PlaybackCommandFailureTests {
         )
         seedPlayingA(confirmStore, local: false)
         confirmStore.play(track: trackB)
-        _ = await waitUntil { confirmStore.state.pendingCommands[.transport] != nil }
-        _ = await waitUntil { confirmRemote.sendCount == 1 }
+        await expectEventually { confirmStore.state.pendingCommands[.transport] != nil }
+        await expectEventually { confirmRemote.sendCount == 1 }
         let confirmedCommandID = confirmStore.state.pendingCommands[.transport]?.id
         sendEnginePlayback(
             confirmStore,
@@ -1296,8 +1296,8 @@ struct PlaybackCommandFailureTests {
         )
         seedPlayingA(supersedeStore, local: false)
         supersedeStore.play(track: trackB)
-        _ = await waitUntil { supersedeStore.state.pendingCommands[.transport] != nil }
-        _ = await waitUntil { supersedeRemote.sendCount == 1 }
+        await expectEventually { supersedeStore.state.pendingCommands[.transport] != nil }
+        await expectEventually { supersedeRemote.sendCount == 1 }
         let trackCTiming = PlaybackTiming(position: 8, duration: 240, anchoredAt: clockNow)
         sendEnginePlayback(
             supersedeStore,
@@ -1329,8 +1329,8 @@ struct PlaybackCommandFailureTests {
         )
         seedPlayingA(nilStore, local: false)
         nilStore.play(track: trackB)
-        _ = await waitUntil { nilStore.state.pendingCommands[.transport] != nil }
-        _ = await waitUntil { nilRemote.sendCount == 1 }
+        await expectEventually { nilStore.state.pendingCommands[.transport] != nil }
+        await expectEventually { nilRemote.sendCount == 1 }
         sendEnginePlayback(
             nilStore,
             uri: nil,
@@ -1467,7 +1467,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (playlistStore.state.currentTrack?.uri) == (trackB.uri),
             "a loaded playlist presents the known first track")
-        _ = await waitUntil { playlistStore.state.pendingCommands[.transport] == nil }
+        await expectEventually { playlistStore.state.pendingCommands[.transport] == nil }
         #expect((playlistStore.state.currentTrack?.uri) == (trackA.uri), "a rejected loaded playlist restores A")
         #expect(
             (!playlistStore.history.entries.contains { $0.uri == trackB.uri }) == true,
@@ -1492,7 +1492,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (unknownPlaylist.state.currentTrack?.uri) == (trackA.uri),
             "an unknown playlist does not invent a first track")
-        _ = await waitUntil { unknownPlaylist.state.pendingCommands[.transport] == nil }
+        await expectEventually { unknownPlaylist.state.pendingCommands[.transport] == nil }
         #expect(
             (unknownPlaylist.state.currentTrack?.uri) == (trackA.uri),
             "an accepted unknown playlist keeps A until the engine speaks")
@@ -1508,7 +1508,7 @@ struct PlaybackCommandFailureTests {
         seedPlayingA(rawURI, local: true)
         rawURI.play(uri: trackB.uri)
         #expect((rawURI.state.currentTrack?.uri) == (trackA.uri), "raw play(uri:) does not invent track metadata")
-        _ = await waitUntil { rawURI.state.pendingCommands[.transport] == nil }
+        await expectEventually { rawURI.state.pendingCommands[.transport] == nil }
         #expect(
             (rawURI.state.currentTrack?.uri) == (trackA.uri),
             "accepted raw play(uri:) still keeps A until the engine speaks")
@@ -1544,7 +1544,7 @@ struct PlaybackCommandFailureTests {
         )
         #expect((localRace.state.currentTrack?.uri) == (trackB.uri), "local lagging A keeps optimistic B")
         localGate.finish(with: .error)
-        _ = await waitUntil { localRace.state.pendingCommands[.transport] == nil }
+        await expectEventually { localRace.state.pendingCommands[.transport] == nil }
         #expect((localRace.state.currentTrack?.uri) == (trackA.uri), "local lagging A then rejection restores A")
         #expect(
             (!localRace.history.entries.contains { $0.uri == trackB.uri }) == true,
@@ -1648,7 +1648,7 @@ struct PlaybackCommandFailureTests {
         #expect((localRejected.state.options.shuffle) == (false), "local shuffle presents off before completion")
         #expect(
             (localRejected.state.pendingCommands[.options]) != nil, "local shuffle is pending before completion")
-        _ = await waitUntil { localRejected.state.pendingCommands[.options] == nil }
+        await expectEventually { localRejected.state.pendingCommands[.options] == nil }
         #expect((localRejected.state.options.shuffle) == (true), "local shuffle rejection restores on")
         #expect(
             (localRejected.transientCommandError) == ("Could not update shuffle"),
@@ -1666,16 +1666,16 @@ struct PlaybackCommandFailureTests {
         )
         seedLiveShuffle(localAccepted, local: true, shuffle: true)
         localAccepted.toggleShuffle()
-        _ = await waitUntil { localAccepted.state.pendingCommands[.options] == nil }
+        await expectEventually { localAccepted.state.pendingCommands[.options] == nil }
         #expect((localAccepted.state.options.shuffle) == (false), "accepted local shuffle keeps off")
-        _ = await waitUntil { localAcceptedPrefs.shuffleWrites == [false] }
+        await expectEventually { localAcceptedPrefs.shuffleWrites == [false] }
         #expect((localAcceptedPrefs.shuffleWrites) == ([false]), "accepted local shuffle persists off")
         localAccepted.toggleShuffle()
         #expect(
             (localAccepted.state.options.shuffle) == (true), "a later local shuffle presents on before completion")
-        _ = await waitUntil { localAccepted.state.pendingCommands[.options] == nil }
+        await expectEventually { localAccepted.state.pendingCommands[.options] == nil }
         #expect((localAccepted.state.options.shuffle) == (true), "an accepted later local shuffle keeps on")
-        _ = await waitUntil { localAcceptedPrefs.shuffleWrites == [false, true] }
+        await expectEventually { localAcceptedPrefs.shuffleWrites == [false, true] }
         #expect(
             (localAcceptedPrefs.shuffleWrites) == ([false, true]),
             "an accepted later local shuffle persists on")
@@ -1690,7 +1690,7 @@ struct PlaybackCommandFailureTests {
         seedLiveShuffle(remoteRejected, local: false, shuffle: true)
         remoteRejected.toggleShuffle()
         #expect((remoteRejected.state.options.shuffle) == (false), "remote shuffle presents off before completion")
-        _ = await waitUntil { remoteRejected.state.pendingCommands[.options] == nil }
+        await expectEventually { remoteRejected.state.pendingCommands[.options] == nil }
         #expect((remoteRejected.state.options.shuffle) == (true), "remote shuffle rejection restores on")
         #expect(
             (remoteRejectedPrefs.shuffleWrites.isEmpty) == true,
@@ -1705,9 +1705,9 @@ struct PlaybackCommandFailureTests {
         )
         seedLiveShuffle(remoteAccepted, local: false, shuffle: true)
         remoteAccepted.toggleShuffle()
-        _ = await waitUntil { remoteAccepted.state.pendingCommands[.options] == nil }
+        await expectEventually { remoteAccepted.state.pendingCommands[.options] == nil }
         #expect((remoteAccepted.state.options.shuffle) == (false), "accepted remote shuffle keeps off")
-        _ = await waitUntil { remoteAcceptedPrefs.shuffleWrites == [false] }
+        await expectEventually { remoteAcceptedPrefs.shuffleWrites == [false] }
         #expect((remoteAcceptedPrefs.shuffleWrites) == ([false]), "accepted remote shuffle persists off")
         await remoteAccepted.shutdownForTermination()
 
@@ -1722,13 +1722,13 @@ struct PlaybackCommandFailureTests {
         laggingStore.toggleShuffle()
         let laggingPending = await waitUntil { laggingStore.state.pendingCommands[.options] != nil }
         #expect((laggingPending) == true, "remote shuffle is pending before a lagging on snapshot")
-        _ = await waitUntil { laggingRemote.sendCount == 1 }
+        await expectEventually { laggingRemote.sendCount == 1 }
         sendEngineShuffle(laggingStore, shuffle: true, revision: 1)
         #expect((laggingStore.state.options.shuffle) == (false), "a lagging on snapshot keeps optimistic off")
         #expect(
             (laggingStore.state.pendingCommands[.options]) != nil, "a lagging on snapshot keeps rollback ownership")
         laggingRemote.completePark(success: false)
-        _ = await waitUntil { laggingStore.state.pendingCommands[.options] == nil }
+        await expectEventually { laggingStore.state.pendingCommands[.options] == nil }
         #expect((laggingStore.state.options.shuffle) == (true), "lagging on then rejection restores on")
         #expect(
             (laggingPrefs.shuffleWrites.isEmpty) == true, "lagging on then rejection does not persist off")
@@ -1743,8 +1743,8 @@ struct PlaybackCommandFailureTests {
         )
         seedLiveShuffle(confirmStore, local: false, shuffle: true)
         confirmStore.toggleShuffle()
-        _ = await waitUntil { confirmStore.state.pendingCommands[.options] != nil }
-        _ = await waitUntil { confirmRemote.sendCount == 1 }
+        await expectEventually { confirmStore.state.pendingCommands[.options] != nil }
+        await expectEventually { confirmRemote.sendCount == 1 }
         let confirmedCommandID = confirmStore.state.pendingCommands[.options]?.id
         sendEngineShuffle(confirmStore, shuffle: false, revision: 1)
         #expect(
@@ -1754,7 +1754,7 @@ struct PlaybackCommandFailureTests {
                 == (Optional(PlaybackTransportCommandResolution.confirmed)),
             "an authoritative off snapshot records shuffle confirmation")
         confirmRemote.completePark(success: false)
-        _ = await waitUntil { confirmPrefs.shuffleWrites == [false] }
+        await expectEventually { confirmPrefs.shuffleWrites == [false] }
         #expect((confirmStore.state.options.shuffle) == (false), "confirmed off then failure keeps off")
         #expect((confirmStore.transientCommandError) == nil, "confirmed off then failure has no command notice")
         #expect((confirmPrefs.shuffleWrites) == ([false]), "confirmed off then failure persists off")
@@ -1779,7 +1779,7 @@ struct PlaybackCommandFailureTests {
         sendEngineShuffle(localRace, shuffle: true, revision: 1)
         #expect((localRace.state.options.shuffle) == (false), "local lagging on keeps optimistic off")
         localGate.finish(with: .error)
-        _ = await waitUntil { localRace.state.pendingCommands[.options] == nil }
+        await expectEventually { localRace.state.pendingCommands[.options] == nil }
         #expect((localRace.state.options.shuffle) == (true), "local lagging on then rejection restores on")
         #expect(
             (localRacePrefs.shuffleWrites.isEmpty) == true,
@@ -1907,14 +1907,14 @@ struct PlaybackCommandFailureTests {
         restoreStore.toggleShuffle()
         let restorePending = await waitUntil { restoreStore.state.pendingCommands[.options] != nil }
         #expect((restorePending) == true, "remote shuffle is pending before a restoring options event")
-        _ = await waitUntil { restoreRemote.sendCount == 1 }
+        await expectEventually { restoreRemote.sendCount == 1 }
         _ = restoreStore.send(.options(PlaybackOptions(shuffle: true)), source: .user)
         #expect((restoreStore.state.options.shuffle) == (false), "a restoring options event keeps optimistic off")
         #expect(
             (restoreStore.state.pendingCommands[.options]) != nil,
             "a restoring options event keeps rollback ownership")
         restoreRemote.completePark(success: false)
-        _ = await waitUntil { restoreStore.state.pendingCommands[.options] == nil }
+        await expectEventually { restoreStore.state.pendingCommands[.options] == nil }
         #expect((restoreStore.state.options.shuffle) == (true), "restore then rejection restores on")
         #expect((restorePrefs.shuffleWrites.isEmpty) == true, "restore then rejection does not persist off")
         await restoreStore.shutdownForTermination()
@@ -1930,7 +1930,7 @@ struct PlaybackCommandFailureTests {
         matchingStore.toggleShuffle()
         let matchingPending = await waitUntil { matchingStore.state.pendingCommands[.options] != nil }
         #expect((matchingPending) == true, "remote shuffle is pending before a matching user options event")
-        _ = await waitUntil { matchingRemote.sendCount == 1 }
+        await expectEventually { matchingRemote.sendCount == 1 }
         _ = matchingStore.send(.options(PlaybackOptions(shuffle: false, repeatMode: .track)), source: .user)
         #expect(
             (matchingStore.state.options.shuffle) == (false), "a matching user options event keeps optimistic off")
@@ -1944,7 +1944,7 @@ struct PlaybackCommandFailureTests {
             (matchingStore.state.transportCommandResolutions.isEmpty) == true,
             "a matching user options event does not record confirmation")
         matchingRemote.completePark(success: false)
-        _ = await waitUntil { matchingStore.state.pendingCommands[.options] == nil }
+        await expectEventually { matchingStore.state.pendingCommands[.options] == nil }
         #expect(
             (matchingStore.state.options.shuffle) == (true),
             "rejection after only a matching user options event restores on")
@@ -1967,7 +1967,7 @@ struct PlaybackCommandFailureTests {
         let persistPending = await waitUntil { persistStore.state.pendingCommands[.options] != nil }
         #expect((persistPending) == true, "local shuffle is pending before the admitted persist")
         persistGate.finish(with: .ok)
-        _ = await waitUntil { persistStore.state.pendingCommands[.options] == nil }
+        await expectEventually { persistStore.state.pendingCommands[.options] == nil }
         persistStore.toggleShuffle()
         let secondPending = await waitUntil { persistStore.state.pendingCommands[.options] != nil }
         #expect((secondPending) == true, "a later shuffle is pending before the first persist lands")
@@ -1975,12 +1975,12 @@ struct PlaybackCommandFailureTests {
             (persistStore.state.options.shuffle) == (true),
             "a later shuffle presents on before the first persist lands"
         )
-        _ = await waitUntil { persistPrefs.shuffleWrites == [false] }
+        await expectEventually { persistPrefs.shuffleWrites == [false] }
         #expect(
             (persistPrefs.shuffleWrites) == ([false]),
             "accepted shuffle persists the admitted off, not the later on")
         persistGate.finish(with: .error)
-        _ = await waitUntil { persistStore.state.pendingCommands[.options] == nil }
+        await expectEventually { persistStore.state.pendingCommands[.options] == nil }
         #expect((persistStore.state.options.shuffle) == (false), "rejected later shuffle restores the admitted off")
         #expect((persistPrefs.shuffleWrites) == ([false]), "rejected later shuffle does not persist on")
         await persistStore.shutdownForTermination()
@@ -1998,7 +1998,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (preferenceOnly.state.pendingCommands.isEmpty) == true,
             "preference-only shuffle does not start a command")
-        _ = await waitUntil { preferenceOnlyPrefs.shuffleWrites == [true] }
+        await expectEventually { preferenceOnlyPrefs.shuffleWrites == [true] }
         #expect((preferenceOnlyPrefs.shuffleWrites) == ([true]), "preference-only shuffle persists on")
         await preferenceOnly.shutdownForTermination()
     }
@@ -2091,7 +2091,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (localRejected.state.pendingCommands[.transfer]?.rollbackOwner) == (Optional(ownerA)),
             "local transfer captures owner A")
-        _ = await waitUntil { localRejected.state.pendingCommands[.transfer] == nil }
+        await expectEventually { localRejected.state.pendingCommands[.transfer] == nil }
         #expect((localRejected.state.owner) == (ownerA), "local transfer rejection restores A")
         #expect(
             (localRejected.transientCommandError) == ("Could not move playback to Speaker B"),
@@ -2107,7 +2107,7 @@ struct PlaybackCommandFailureTests {
         )
         seedRemoteOwner(localAccepted)
         localAccepted.transferPlayback(to: speakerB)
-        _ = await waitUntil { localAccepted.state.pendingCommands[.transfer] == nil }
+        await expectEventually { localAccepted.state.pendingCommands[.transfer] == nil }
         #expect((localAccepted.state.owner) == (expectedB), "accepted local transfer keeps admitted B")
         #expect(
             (localAccepted.feedback.message)
@@ -2130,7 +2130,7 @@ struct PlaybackCommandFailureTests {
             (localAccepted.state.owner)
                 == (PlaybackOwner.uncertain(PlaybackDevice(id: "speaker-d", name: "Speaker D", type: "speaker"))),
             "a later local transfer presents D before completion")
-        _ = await waitUntil { localAccepted.state.pendingCommands[.transfer] == nil }
+        await expectEventually { localAccepted.state.pendingCommands[.transfer] == nil }
         #expect(
             (localAccepted.state.owner)
                 == (PlaybackOwner.uncertain(PlaybackDevice(id: "speaker-d", name: "Speaker D", type: "speaker"))),
@@ -2152,7 +2152,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (laggingStore.state.pendingCommands[.transfer]) != nil, "a lagging A snapshot keeps rollback ownership")
         laggingGate.finish(with: .error)
-        _ = await waitUntil { laggingStore.state.pendingCommands[.transfer] == nil }
+        await expectEventually { laggingStore.state.pendingCommands[.transfer] == nil }
         #expect((laggingStore.state.owner) == (ownerA), "lagging A then rejection restores A")
         #expect(
             (laggingStore.transientCommandError) == ("Could not move playback to Speaker B"),
@@ -2167,7 +2167,7 @@ struct PlaybackCommandFailureTests {
         )
         seedRemoteOwner(confirmStore)
         confirmStore.transferPlayback(to: speakerB)
-        _ = await waitUntil { confirmStore.state.pendingCommands[.transfer] != nil }
+        await expectEventually { confirmStore.state.pendingCommands[.transfer] != nil }
         #expect(await waitUntil { confirmGate.enteredCount == 1 }, "transfer dispatch precedes confirmation")
         let confirmedCommandID = confirmStore.state.pendingCommands[.transfer]?.id
         sendConnectionOwner(confirmStore, owner: remoteB, revision: 1)
@@ -2178,7 +2178,7 @@ struct PlaybackCommandFailureTests {
                 == (Optional(PlaybackTransportCommandResolution.confirmed)),
             "an authoritative B snapshot records transfer confirmation")
         confirmGate.finish(with: .error)
-        _ = await waitUntil {
+        await expectEventually {
             confirmStore.state.transportCommandResolutions.isEmpty
                 && confirmStore.feedback.message?.text == "Playback request sent to Speaker B"
         }
@@ -2203,7 +2203,8 @@ struct PlaybackCommandFailureTests {
         )
         seedRemoteOwner(supersedeStore)
         supersedeStore.transferPlayback(to: speakerB)
-        _ = await waitUntil { supersedeStore.state.pendingCommands[.transfer] != nil }
+        await expectEventually { supersedeStore.state.pendingCommands[.transfer] != nil }
+        await expectEventually { supersedeGate.enteredCount == 1 }
         sendConnectionOwner(supersedeStore, owner: ownerC, revision: 1)
         #expect((supersedeStore.state.owner) == (ownerC), "an unrelated owner C supersedes B")
         #expect(
@@ -2211,7 +2212,7 @@ struct PlaybackCommandFailureTests {
             "an unrelated owner C clears the pending transfer"
         )
         supersedeGate.finish(with: .error)
-        _ = await waitUntil { supersedeStore.state.transportCommandResolutions.isEmpty }
+        await expectEventually { supersedeStore.state.transportCommandResolutions.isEmpty }
         #expect((supersedeStore.state.owner) == (ownerC), "unrelated C then late failure keeps C")
         #expect(
             (supersedeStore.transientCommandError) == nil, "unrelated C then late failure does not announce success"
@@ -2228,11 +2229,12 @@ struct PlaybackCommandFailureTests {
         )
         seedRemoteOwner(noneStore)
         noneStore.transferPlayback(to: speakerB)
-        _ = await waitUntil { noneStore.state.pendingCommands[.transfer] != nil }
+        await expectEventually { noneStore.state.pendingCommands[.transfer] != nil }
+        await expectEventually { noneGate.enteredCount == 1 }
         sendConnectionOwner(noneStore, owner: .none, revision: 1)
         #expect((noneStore.state.owner) == (.none), "an unrelated empty owner supersedes B")
         noneGate.finish(with: .ok)
-        _ = await waitUntil { noneStore.state.transportCommandResolutions.isEmpty }
+        await expectEventually { noneStore.state.transportCommandResolutions.isEmpty }
         #expect((noneStore.state.owner) == (.none), "accepted completion after empty supersession keeps none")
         #expect((noneStore.transientCommandError) == nil, "unrelated empty supersession does not announce success")
         #expect((noneStore.feedback.message) == nil, "unrelated empty supersession presents no success feedback")
@@ -2271,7 +2273,7 @@ struct PlaybackCommandFailureTests {
                 == (afterFirstTransfer.pendingCommands[.transfer]?.id),
             "a duplicate transfer keeps the original command")
         duplicateGate.finish(with: .error)
-        _ = await waitUntil { duplicateStore.state.pendingCommands[.transfer] == nil }
+        await expectEventually { duplicateStore.state.pendingCommands[.transfer] == nil }
         #expect((duplicateStore.state.owner) == (ownerA), "duplicate then rejection restores A")
         await duplicateStore.shutdownForTermination()
 
@@ -2343,7 +2345,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (localMacStore.state.pendingCommands[.transfer]?.rollbackOwner) == nil,
             "transfer-to-this-Mac does not capture owner rollback")
-        _ = await waitUntil { localMacStore.state.pendingCommands[.transfer] == nil }
+        await expectEventually { localMacStore.state.pendingCommands[.transfer] == nil }
         #expect((localMacStore.state.owner) == (ownerA), "a rejected transfer-to-this-Mac leaves owner A")
         #expect(
             (localMacStore.transientCommandError) == ("Could not move playback to this Mac"),
@@ -2359,7 +2361,7 @@ struct PlaybackCommandFailureTests {
         )
         seedRemoteOwner(acceptedLocalMacStore)
         acceptedLocalMacStore.transferPlayback(to: thisMac)
-        _ = await waitUntil { acceptedLocalMacStore.state.pendingCommands[.transfer] == nil }
+        await expectEventually { acceptedLocalMacStore.state.pendingCommands[.transfer] == nil }
         #expect(
             (acceptedLocalMacStore.feedback.message)
                 == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playback request sent to This Mac")),
@@ -2423,7 +2425,7 @@ struct PlaybackCommandFailureTests {
         )
         #expect((player.canTogglePlayback) == true, "paused local playback can resume")
         player.togglePlayback()
-        _ = await waitUntil { player.state.pendingCommands[.transport] == nil }
+        await expectEventually { player.state.pendingCommands[.transport] == nil }
 
         let plan: ResumeLoadPlan?
         switch engine.operations.first {

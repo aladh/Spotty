@@ -24,8 +24,9 @@ SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ./Backend/spotty-playback/build-xcframework.sh
 ```
 
-Rust checks own header generation and producer ABI validation. Swift CI consumes only published
-artifacts, rejecting noncanonical or unversioned release URLs before dependency resolution.
+Both verification scopes check header regeneration with the pinned cbindgen source parser; Rust
+checks also validate producer ABI compatibility. Swift CI consumes only published artifacts,
+rejecting noncanonical or unversioned release URLs before dependency resolution.
 [Verification](verification.md#normal-verification) defines when app-only PRs may skip the Rust steps.
 
 ## Publish a tested candidate

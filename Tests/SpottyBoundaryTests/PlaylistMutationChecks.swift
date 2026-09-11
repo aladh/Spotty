@@ -36,6 +36,10 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
         throw PlaylistMutationCheckFailure.unavailable
     }
     func home() async throws -> PathfinderHome { throw PlaylistMutationCheckFailure.unavailable }
+    func playlistLibrary() async throws -> [PlaylistLibraryNode] {
+        try await libraryPlaylists().compactMap(CatalogMapping.item(from:)).map(PlaylistLibraryNode.init(playlist:))
+    }
+
     func libraryPlaylists() async throws -> [PathfinderPlaylist] {
         libraryLoadCount += 1
         return library
@@ -307,7 +311,7 @@ struct PlaylistMutationTests {
                 ],
                 to: owned
             )
-            _ = await waitUntil { await services.isParked }
+            await expectEventually { await services.isParked }
             let addCall = await services.addCalls.first
             #expect((addCall?.playlistId) == ("owned"), "add uses the playlist id, not the URI")
             #expect((addCall?.uris) == ([duplicateURI, duplicateURI]), "one mutation carries every selected URI")
@@ -318,7 +322,7 @@ struct PlaylistMutationTests {
                 #expect((false) == true, "post-add playlist fixture decodes")
             }
             await services.completePark()
-            _ = await waitUntil {
+            await expectEventually {
                 catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]
                     && feedback.message?.kind == .success
                     && feedback.message?.text == "Added 2 songs to Owned Mix"
@@ -374,7 +378,7 @@ struct PlaylistMutationTests {
             #expect((await services.removeCalls.count) == (0), "read-only playlists do not start a removal")
 
             catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a", "uid-a"], from: owned)
-            _ = await waitUntil { await services.isParked }
+            await expectEventually { await services.isParked }
             let removal = await services.removeCalls.first
             #expect((await services.removeCalls.count) == (1), "removal is one batched request")
             #expect((removal?.uids) == (["uid-a"]), "removal uses the selected Pathfinder UID")
@@ -388,7 +392,7 @@ struct PlaylistMutationTests {
                 #expect((false) == true, "post-remove playlist fixture decodes")
             }
             await services.completePark()
-            _ = await waitUntil {
+            await expectEventually {
                 catalog.playlistStore.tracks.map(\.id) == ["uid-b"]
                     && feedback.message?.text == "Removed from Owned Mix"
             }
@@ -422,7 +426,7 @@ struct PlaylistMutationTests {
 
             await services.setAddError(PartnerAPIError.mutationRejected("addToPlaylist"))
             catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:new")], to: owned)
-            _ = await waitUntil { feedback.message?.kind == .failure }
+            await expectEventually { feedback.message?.kind == .failure }
             #expect(
                 (feedback.message?.text) == ("Spotify couldn’t change that playlist."),
                 "typed rejection is a privacy-safe failure")
@@ -434,7 +438,7 @@ struct PlaylistMutationTests {
 
             await services.setAddError(nil)
             catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:new")], to: owned)
-            _ = await waitUntil { await services.isParked }
+            await expectEventually { await services.isParked }
             catalog.playlistMutations.reset()
             await services.failPark()
             await yieldPasses()
@@ -445,7 +449,7 @@ struct PlaylistMutationTests {
                 (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "cancelled mutation leaves tracks unchanged")
 
             catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:stale")], to: owned)
-            _ = await waitUntil { await services.isParked }
+            await expectEventually { await services.isParked }
             session.update(accountEpoch: 2, isAvailable: true)
             await services.completePark()
             await yieldPasses()
@@ -485,12 +489,12 @@ struct PlaylistMutationTests {
                 [fixtureTrack(id: "row-1", uri: "spotify:track:first")],
                 to: owned
             )
-            _ = await waitUntil { await services.parkedCount == 1 }
+            await expectEventually { await services.parkedCount == 1 }
             catalog.playlistMutations.addTracks(
                 [fixtureTrack(id: "row-2", uri: "spotify:track:second")],
                 to: owned
             )
-            _ = await waitUntil { await services.hasParkedAdds(2) }
+            await expectEventually { await services.hasParkedAdds(2) }
             let sentAdds = await services.addCalls
             #expect((sentAdds.count) == (2), "both overlapping writes are sent")
             #expect(
@@ -503,9 +507,9 @@ struct PlaylistMutationTests {
                 #expect((false) == true, "overlapping post-add fixture decodes")
             }
             await services.completePark()
-            _ = await waitUntil { await services.playlistLoadCount == loadsBefore + 1 }
+            await expectEventually { await services.playlistLoadCount == loadsBefore + 1 }
             await services.completePark()
-            _ = await waitUntil {
+            await expectEventually {
                 await services.playlistLoadCount == loadsBefore + 2
                     && feedback.message?.kind == .success
                     && catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]
@@ -544,10 +548,10 @@ struct PlaylistMutationTests {
                 [fixtureTrack(id: "row", uri: "spotify:track:new")],
                 to: owned
             )
-            _ = await waitUntil { await services.isParked }
+            await expectEventually { await services.isParked }
             await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
             await services.completePark()
-            _ = await waitUntil {
+            await expectEventually {
                 catalog.playlistStore.error != nil
                     && feedback.message?.kind == .success
                     && feedback.message?.text == "Added to Owned Mix"
@@ -606,10 +610,10 @@ struct PlaylistMutationTests {
             let loadedIDs = catalog.playlistStore.tracks.map(\.id)
 
             catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a"], from: owned)
-            _ = await waitUntil { await services.isParked }
+            await expectEventually { await services.isParked }
             await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
             await services.completePark()
-            _ = await waitUntil {
+            await expectEventually {
                 catalog.playlistStore.error != nil
                     && feedback.message?.text == "Removed from Owned Mix"
             }
@@ -653,15 +657,15 @@ struct PlaylistMutationTests {
                 [fixtureTrack(id: "row", uri: "spotify:track:new")],
                 to: owned
             )
-            _ = await waitUntil { await services.isParked }
+            await expectEventually { await services.isParked }
             await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
             await services.completePark()
-            _ = await waitUntil { catalog.playlistStore.error != nil }
+            await expectEventually { catalog.playlistStore.error != nil }
             #expect((catalog.playlistStore.error) != nil, "reconciliation failure plants the stale-refresh error")
 
             await services.setParkPlaylistLoads(true)
             let cancelledRetry = Task { await catalog.playlistStore.load(owned, force: true) }
-            _ = await waitUntil { await services.isPlaylistLoadParked }
+            await expectEventually { await services.isPlaylistLoadParked }
             #expect((catalog.playlistStore.error) != nil, "force reload start keeps the stale-refresh error")
             cancelledRetry.cancel()
             await services.failPlaylistPark()
@@ -677,7 +681,7 @@ struct PlaylistMutationTests {
             }
             await services.setPlaylistError(nil)
             let staleRetry = Task { await catalog.playlistStore.load(owned, force: true) }
-            _ = await waitUntil { await services.isPlaylistLoadParked }
+            await expectEventually { await services.isPlaylistLoadParked }
             session.update(accountEpoch: 2, isAvailable: true)
             await services.completePlaylistPark()
             await staleRetry.value

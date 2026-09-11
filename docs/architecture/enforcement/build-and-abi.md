@@ -37,6 +37,7 @@ dependency change rather than a one-line import. `SpottyCore` re-exports the ada
 
 CI checks cover workflow presence, tool selection, cache integrity, and complete verification.
 Their executable owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
+[check-ci-workflow.rb](../../../Scripts/check-ci-workflow.rb), invoked by
 [check.sh](../../../Scripts/check.sh). The `Linux domain` job builds `SpottyDomain` and runs
 `SpottyDomainTests` in a Swift container; the macOS gate requires its result alongside source
 policies. [Source policies](source-checks.md) cover the syntax-only

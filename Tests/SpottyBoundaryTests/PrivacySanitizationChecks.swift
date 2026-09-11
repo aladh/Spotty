@@ -98,20 +98,6 @@ struct PrivacySanitizationTests {
                 }
             )
 
-            await expectFailure(
-                "Partner mutation",
-                PartnerAPIError.mutationRejected("addToLibrary"),
-                description: "Spotify rejected addToLibrary",
-                perform: {
-                    try await partnerAPI(
-                        status: 200,
-                        body: """
-                            {"data":{"addLibraryItems":{"__typename":"NotFound","message":"\(privacySentinel)"}}}
-                            """
-                    ).addToLibrary(uris: ["spotify:track:fixture"])
-                }
-            )
-
             #expect(
                 (PartnerAPIError.pagination(.pageLimitReached)) == (.pagination(.pageLimitReached)),
                 "pagination cap failures keep a stable category")

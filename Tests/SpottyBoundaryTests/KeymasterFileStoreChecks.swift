@@ -56,6 +56,23 @@ struct KeymasterFileStoreChecks {
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["session.json"])
     }
 
+    @Test func schemaVersionPreservesLegacyGrantsAndRejectsFutureFormats() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = KeymasterFileStore(directory: directory)
+        let grant = HarnessFixtures.tokens()
+        try store.save(grant)
+        let file = directory.appendingPathComponent("session.json")
+        var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        #expect(json["schemaVersion"] as? Int == 1)
+        json.removeValue(forKey: "schemaVersion")
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        #expect(store.loadResult() == .found(grant))
+        json["schemaVersion"] = 2
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        #expect(store.loadResult() == .failed)
+    }
+
     @Test func symlinkedAncestorCannotRedirectSessionWritesOrCleanup() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

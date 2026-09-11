@@ -1,6 +1,7 @@
 import Foundation
 import MediaPlayer
 import Observation
+import Synchronization
 
 /// The system boundary is injected so tests and the isolated demo never claim media keys.
 @MainActor
@@ -124,6 +125,7 @@ struct SystemMediaPublicationGate {
 final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
     private let commands = MPRemoteCommandCenter.shared()
     private let info = MPNowPlayingInfoCenter.default()
+    private let admission = SystemMediaAdmission()
     private var targets: [(MPRemoteCommand, Any)] = []
 
     func install(_ handler: @escaping @MainActor @Sendable (SystemMediaCommand) -> Bool) {
@@ -134,22 +136,22 @@ final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
             (commands.previousTrackCommand, .previous),
         ]
         for (command, action) in bindings {
-            let token = command.addTarget { _ in
-                // MediaPlayer callbacks are not actor-isolated. Return admission synchronously
-                // after checking the current store, rather than queueing stale playback actions.
-                let accepted: Bool
-                if Thread.isMainThread {
-                    accepted = MainActor.assumeIsolated { handler(action) }
-                } else {
-                    accepted = DispatchQueue.main.sync { handler(action) }
+            let token = command.addTarget { [admission] _ in
+                guard let generation = admission.admit(action) else { return .commandFailed }
+                // The cached projection admits without blocking MediaPlayer. The store handler
+                // revalidates current readiness on MainActor before dispatching any command.
+                Task { @MainActor in
+                    guard admission.isCurrent(generation) else { return }
+                    _ = handler(action)
                 }
-                return accepted ? .success : .commandFailed
+                return .success
             }
             targets.append((command, token))
         }
     }
 
     func update(_ snapshot: SystemMediaSnapshot?) {
+        admission.update(snapshot)
         commands.togglePlayPauseCommand.isEnabled = snapshot?.canToggle ?? false
         commands.playCommand.isEnabled = snapshot?.canToggle == true && snapshot?.playing == false
         commands.pauseCommand.isEnabled = snapshot?.canToggle == true && snapshot?.playing == true
@@ -174,5 +176,34 @@ final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
         for (command, token) in targets { command.removeTarget(token) }
         targets.removeAll()
         update(nil)
+    }
+}
+
+/// Only admission booleans cross the system callback boundary; metadata stays on MainActor.
+nonisolated final class SystemMediaAdmission: Sendable {
+    private struct State { var toggle = false; var skip = false; var generation: UInt64 = 0 }
+    private let state = Mutex(State())
+
+    @MainActor func update(_ snapshot: SystemMediaSnapshot?) {
+        state.withLock {
+            if snapshot == nil { $0.generation &+= 1 }
+            $0.toggle = snapshot?.canToggle ?? false
+            $0.skip = snapshot?.canSkip ?? false
+        }
+    }
+
+    func admit(_ command: SystemMediaCommand) -> UInt64? {
+        state.withLock { state in
+            let enabled =
+                switch command {
+                case .toggle, .play, .pause: state.toggle
+                case .next, .previous: state.skip
+                }
+            return enabled ? state.generation : nil
+        }
+    }
+
+    func isCurrent(_ generation: UInt64) -> Bool {
+        state.withLock { $0.generation == generation }
     }
 }

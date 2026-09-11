@@ -117,14 +117,8 @@ struct RootView: View {
             } else if catalog.homeLibrary.isLoading(.playlists) {
                 LoadingState(label: "Loading playlist")
             } else if let error = catalog.homeLibrary.error(for: .playlists) {
-                EmptyState(
-                    icon: "exclamationmark.triangle",
-                    title: "Couldn't restore this playlist",
-                    message: error,
-                    actionTitle: "Try Again",
-                    actionSystemImage: "arrow.clockwise"
-                ) {
-                    Task { await catalog.homeLibrary.loadPlaylists() }
+                CatalogFailureState(title: "Couldn't restore this playlist", message: error) {
+                    await catalog.homeLibrary.loadPlaylists()
                 }
                 .padding(30)
             } else {

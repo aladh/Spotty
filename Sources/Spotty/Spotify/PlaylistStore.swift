@@ -138,7 +138,7 @@ final class PlaylistStore {
             metadata.loadTrackAttributes(for: tracks)
         } catch {
             guard flight.shouldReport(error, for: handle), loadedURI == handle.key else { return }
-            self.error = error.localizedDescription
+            self.error = CatalogErrorPresentation.message(for: error)
         }
     }
 

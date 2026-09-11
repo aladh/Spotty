@@ -6,12 +6,12 @@ import SpottyDomain
 @MainActor
 @Observable
 final class CatalogNavigation {
-    private(set) var rawValue = MediaSelectionModel().rawValue
+    private(set) var model = MediaSelectionModel()
+    var rawValue: String { model.rawValue }
     var searchText = ""
     private(set) var backHistory: [String] = []
     private(set) var forwardHistory: [String] = []
 
-    var model: MediaSelectionModel { MediaSelectionModel(rawValue: rawValue) ?? MediaSelectionModel() }
     var selection: SidebarSelection { model.selection }
 
     @discardableResult
@@ -31,30 +31,30 @@ final class CatalogNavigation {
     func goBack() {
         guard let previous = backHistory.popLast() else { return }
         forwardHistory.append(rawValue)
-        rawValue = previous
+        model = MediaSelectionModel(rawValue: previous) ?? MediaSelectionModel()
     }
 
     func goForward() {
         guard let next = forwardHistory.popLast() else { return }
         backHistory.append(rawValue)
-        rawValue = next
+        model = MediaSelectionModel(rawValue: next) ?? MediaSelectionModel()
     }
 
     func reset() {
         backHistory.removeAll()
         forwardHistory.removeAll()
         searchText = ""
-        rawValue = MediaSelectionModel().rawValue
+        model = MediaSelectionModel()
     }
 
     private func navigate(to next: MediaSelectionModel) {
         guard next.selection != selection else {
-            rawValue = next.rawValue
+            model = next
             return
         }
         backHistory.append(rawValue)
         if backHistory.count > 100 { backHistory.removeFirst() }
         forwardHistory.removeAll()
-        rawValue = next.rawValue
+        model = next
     }
 }

@@ -112,7 +112,7 @@ extension PlaybackStore {
     ) async {
         await queueService.reset(accountEpoch: accountEpoch)
         var appliedIntent = await accountTeardown.value
-        await environment.preferences.setShuffleHistory([:])
+        await preferenceWriter.submit(epoch: accountEpoch) { await $0.setShuffleHistory([:]) }.value
 
         var clearedRemoteDevice = false
         while let desiredIntent = teardown.intent {
@@ -126,7 +126,7 @@ extension PlaybackStore {
 
             if desiredIntent.clearGrant, !clearedRemoteDevice {
                 lastRemoteDeviceID = nil
-                await environment.preferences.setLastRemoteDeviceID(nil)
+                await preferenceWriter.submit(epoch: accountEpoch) { await $0.setLastRemoteDeviceID(nil) }.value
                 clearedRemoteDevice = true
                 continue
             }

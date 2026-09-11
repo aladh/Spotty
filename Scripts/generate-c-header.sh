@@ -60,12 +60,12 @@ if ! spotty_abi_fixture_symbols "$abi_signature_fixture" > "$temporary_fixture_s
     exit 1
 fi
 
+# Source-file mode walks local modules without cargo metadata or a Rust compiler.
 "$cbindgen_bin" \
     --quiet \
     --config "$config_path" \
-    --lockfile "$crate_root/Cargo.lock" \
     --output "$temporary_header" \
-    "$crate_root"
+    "$crate_root/src/lib.rs"
 
 # Parse the generated fragment before it can replace the checked-in header. The full ABI fixture
 # is the scope contract, so an extra, missing, or duplicate Spotty export fails closed. Use the real

@@ -281,18 +281,6 @@ func testTransportRetry() async {
         }
         #expect((mutation.callCount) == (1), "a playlist mutation is one attempt")
 
-        let libraryWrite = ScriptedRetryTransport(steps: [
-            .http(status: 429, headers: ["Retry-After": "2"]),
-            .http(status: 200, body: Data()),
-        ])
-        await expectThrown(
-            "library mutations do not replay a 429",
-            PartnerAPIError.requestFailed(429)
-        ) {
-            try await partnerAPI(transport: libraryWrite.send).addToLibrary(uris: ["spotify:track:t"])
-        }
-        #expect((libraryWrite.callCount) == (1), "a library mutation is one attempt")
-
         let connect = ScriptedRetryTransport(steps: [
             .http(status: 503),
             .http(status: 200, body: Data()),
@@ -920,4 +908,75 @@ private final class StartedGate: @unchecked Sendable {
             }
         }
     }
+}
+
+@Test("Token endpoint transient retry and rotating-grant safety")
+@MainActor
+func tokenEndpointRetries() async throws {
+    let tokens = Data(#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}"#.utf8)
+    let retry = ScriptedRetryTransport(steps: [.http(status: 503), .http(status: 200, body: tokens)])
+    let result = try await KeymasterAuth.postToken(
+        body: Data(), fallbackRefreshToken: "old-refresh",
+        transport: retry.send, retryTiming: .immediate)
+    #expect(result.refreshToken == "new-refresh")
+    #expect(retry.callCount == 2)
+
+    let sleeper = RecordingSleeper()
+    let rateLimited = ScriptedRetryTransport(steps: [
+        .http(status: 429, headers: ["Retry-After": "7"]), .http(status: 200, body: tokens),
+    ])
+    _ = try await KeymasterAuth.postToken(
+        body: Data(), fallbackRefreshToken: "old-refresh",
+        transport: rateLimited.send, retryTiming: timing(sleeper: sleeper))
+    #expect(sleeper.delays == [7])
+
+    let revoked = ScriptedRetryTransport(steps: [
+        .http(status: 503, body: Data(#"{"error":"invalid_grant"}"#.utf8))
+    ])
+    await #expect(throws: KeymasterAuthError.grantRevoked) {
+        try await KeymasterAuth.postToken(
+            body: Data(), fallbackRefreshToken: "old-refresh",
+            transport: revoked.send, retryTiming: .immediate)
+    }
+    #expect(revoked.callCount == 1)
+
+    let lost = ScriptedRetryTransport(steps: [.urlError(.networkConnectionLost)])
+    await #expect(throws: URLError.self) {
+        try await KeymasterAuth.postToken(
+            body: Data(), fallbackRefreshToken: "old-refresh",
+            transport: lost.send, retryTiming: .immediate)
+    }
+    #expect(lost.callCount == 1, "A lost rotating-refresh response cannot safely be replayed")
+
+    let exhausted = ScriptedRetryTransport(steps: [.http(status: 503), .http(status: 503), .http(status: 503)])
+    await #expect(throws: KeymasterAuthError.tokenExchangeFailed(503)) {
+        try await KeymasterAuth.postToken(
+            body: Data(), fallbackRefreshToken: "old-refresh",
+            transport: exhausted.send, retryTiming: .immediate)
+    }
+    #expect(exhausted.callCount == SpotifyTransientRetry.maximumAttempts)
+
+    var grant = ProtobufWriter()
+    grant.varint(field: 1, 1)
+    grant.message(field: 2) { token in
+        token.string(field: 1, "synthetic-client")
+        token.varint(field: 2, 100)
+    }
+    let client = ScriptedRetryTransport(steps: [
+        .http(status: 503), .urlError(.timedOut), .http(status: 200, body: grant.data),
+    ])
+    #expect(
+        try await ClientTokenRequest.send(
+            deviceId: "synthetic", transport: client.send,
+            retryTiming: .immediate
+        ).token == "synthetic-client")
+    #expect(client.callCount == 3)
+
+    var challenge = ProtobufWriter()
+    challenge.varint(field: 1, 2)
+    let challenged = ScriptedRetryTransport(steps: [.http(status: 200, body: challenge.data)])
+    await #expect(throws: ClientTokenError.challenged) {
+        try await ClientTokenRequest.send(deviceId: "synthetic", transport: challenged.send, retryTiming: .immediate)
+    }
+    #expect(challenged.callCount == 1)
 }

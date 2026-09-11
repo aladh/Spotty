@@ -384,9 +384,9 @@ struct QueueManagementTests {
     @MainActor
     func anOrderedMultiTrackAddFinishesWithoutAPlaybackNotice() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         player.addToQueue(uris: ["spotify:track:one", "spotify:track:one", "spotify:track:two"])
@@ -405,9 +405,9 @@ struct QueueManagementTests {
     @MainActor
     func handoffSkipsQueuedAddToQueueItems() async {
         let parked = HarnessRemote(send: .park)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: parked, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         player.addToQueue(uris: ["spotify:track:first", "spotify:track:second", "spotify:track:third"])
@@ -427,9 +427,9 @@ struct QueueManagementTests {
     @MainActor
     func aReplacementIsAdmittedBeforeHandoffInvalidatesIt() async {
         let parked = HarnessRemote(send: .park)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: parked, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         player.addToQueue(uris: ["spotify:track:blocking"])
@@ -452,9 +452,9 @@ struct QueueManagementTests {
     @MainActor
     func aPartialAddReportsTheCommandsThatCompletedBeforeFailure() async {
         let remote = HarnessRemote(send: .failAfter(2))
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         let before = player.queueNextEntries
@@ -468,9 +468,9 @@ struct QueueManagementTests {
         await player.shutdownForTermination()
 
         let none = HarnessRemote(send: .fail)
-        let noneFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let noneFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let nonePlayer = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: none, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: none, clock: HarnessClock.parked()),
             feedback: noneFeedback)
         seedRemoteOwner(nonePlayer)
         nonePlayer.addToQueue(uris: ["spotify:track:one", "spotify:track:two"])
@@ -485,9 +485,9 @@ struct QueueManagementTests {
     @MainActor
     func theQueueProjectionKeepsTypedOccurrencesAndUIDs() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
@@ -515,9 +515,9 @@ struct QueueManagementTests {
     @MainActor
     func nowPlayingRefusalAndEmptyHistorySelectionSendNothing() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
@@ -545,9 +545,9 @@ struct QueueManagementTests {
     @MainActor
     func partialProvenanceLeavesPresentationIntactForALocalOwner() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
@@ -568,9 +568,9 @@ struct QueueManagementTests {
             (feedback.message?.text) == (QueueMutationRefusal.restricted.feedbackMessage),
             "restricted snapshots explain and do not mutate")
 
-        let localFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let localFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let local = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: localFeedback)
         seedLocalOwner(local)
         await seedAuthoritativeQueue(local)
@@ -590,9 +590,9 @@ struct QueueManagementTests {
     @MainActor
     func aRejectedSetQueueDoesNotRewritePresentation() async {
         let failing = HarnessRemote(send: .fail)
-        let failFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let failFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let rejected = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: failing, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: failing, clock: HarnessClock.parked()),
             feedback: failFeedback)
         seedRemoteOwner(rejected)
         await seedAuthoritativeQueue(rejected)
@@ -607,9 +607,9 @@ struct QueueManagementTests {
         await rejected.shutdownForTermination()
 
         let parked = HarnessRemote(send: .park)
-        let cancelFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let cancelFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let cancelled = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: parked, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: cancelFeedback)
         seedRemoteOwner(cancelled)
         await seedAuthoritativeQueue(cancelled)
@@ -625,9 +625,9 @@ struct QueueManagementTests {
         await cancelled.shutdownForTermination()
 
         let staleRemote = HarnessRemote(send: .park)
-        let staleFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let staleFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let stale = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: staleRemote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: staleRemote, clock: HarnessClock.parked()),
             feedback: staleFeedback)
         seedRemoteOwner(stale)
         await seedAuthoritativeQueue(stale)
@@ -640,10 +640,10 @@ struct QueueManagementTests {
         #expect((staleFeedback.message) == nil, "stale-account removal reports no mutation feedback")
         await stale.shutdownForTermination()
 
-        let missingFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let missingFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let missing = PlaybackStore(
             environment: HarnessEnvironment.make(
-                remote: HarnessRemote(send: .succeed), clock: SystemPlaybackClock()),
+                remote: HarnessRemote(send: .succeed), clock: HarnessClock.parked()),
             feedback: missingFeedback)
         seedRemoteOwner(missing)
         await seedAuthoritativeQueue(missing)
@@ -660,9 +660,9 @@ struct QueueManagementTests {
     @MainActor
     func aSecondInFlightRemovalDoesNotSendAnotherSetQueue() async {
         let parked = HarnessRemote(send: .park)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: parked, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
@@ -709,9 +709,9 @@ struct QueueManagementTests {
     @MainActor
     func anAppliedWebQueueSnapshotKeepsTheCallbackDedupeWatermark() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
@@ -763,11 +763,11 @@ struct QueueManagementTests {
     @MainActor
     func aParkedConnectAcceptStillRecordsTheCallbackDedupeWatermark() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let hook = QueueServiceTestHook()
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(
-                remote: remote, clock: SystemPlaybackClock(),
+                remote: remote, clock: HarnessClock.parked(),
                 queueServiceHook: hook),
             feedback: feedback
         )
@@ -845,9 +845,9 @@ struct QueueManagementTests {
     @MainActor
     func teardownQueueIntakeRecordsTheWatermarkWithoutInstallingMutation() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         await player.restore()
         seedRemoteOwner(player)
@@ -927,9 +927,9 @@ struct QueueManagementTests {
         )
         await player.shutdownForTermination()
 
-        let teardownFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let teardownFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let teardown = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: teardownFeedback)
         await teardown.restore()
         seedRemoteOwner(teardown)
@@ -958,11 +958,11 @@ struct QueueManagementTests {
     @MainActor
     func anInvalidatedAcceptDoesNotPopulatePresentation() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let hook = QueueServiceTestHook()
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(
-                remote: remote, clock: SystemPlaybackClock(),
+                remote: remote, clock: HarnessClock.parked(),
                 queueServiceHook: hook),
             feedback: feedback
         )
@@ -1010,9 +1010,9 @@ struct QueueManagementTests {
     @MainActor
     func closingTheInspectorDoesNotCancelSetQueue() async {
         let parked = HarnessRemote(send: .park)
-        let replacementFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let replacementFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let replacement = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: parked, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: replacementFeedback
         )
         seedRemoteOwner(replacement)
@@ -1033,11 +1033,11 @@ struct QueueManagementTests {
             "inspector close did not drop the committed mutation")
         await replacement.shutdownForTermination()
 
-        let acceptFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let acceptFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let acceptHook = QueueServiceTestHook()
         let accept = PlaybackStore(
             environment: HarnessEnvironment.make(
-                remote: HarnessRemote(send: .succeed), clock: SystemPlaybackClock(), queueServiceHook: acceptHook),
+                remote: HarnessRemote(send: .succeed), clock: HarnessClock.parked(), queueServiceHook: acceptHook),
             feedback: acceptFeedback
         )
         seedRemoteOwner(accept)
@@ -1065,11 +1065,11 @@ struct QueueManagementTests {
         await accept.shutdownForTermination()
 
         let teardownRemote = HarnessRemote(send: .park)
-        let teardownFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let teardownFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let teardownHook = QueueServiceTestHook()
         let teardown = PlaybackStore(
             environment: HarnessEnvironment.make(
-                remote: teardownRemote, clock: SystemPlaybackClock(),
+                remote: teardownRemote, clock: HarnessClock.parked(),
                 queueServiceHook: teardownHook),
             feedback: teardownFeedback
         )
@@ -1102,11 +1102,11 @@ struct QueueManagementTests {
     @MainActor
     func epochInvalidationAfterTheCommitHopDoesNotRestoreMutation() async {
         let remote = HarnessRemote(send: .succeed)
-        let epochFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let epochFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let epochHook = QueueServiceTestHook()
         let epochPlayer = PlaybackStore(
             environment: HarnessEnvironment.make(
-                remote: remote, clock: SystemPlaybackClock(),
+                remote: remote, clock: HarnessClock.parked(),
                 queueServiceHook: epochHook),
             feedback: epochFeedback
         )
@@ -1128,11 +1128,11 @@ struct QueueManagementTests {
         await epochPlayer.shutdownForTermination()
 
         let cancelRemote = HarnessRemote(send: .succeed)
-        let cancelFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let cancelFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let cancelHook = QueueServiceTestHook()
         let cancelPlayer = PlaybackStore(
             environment: HarnessEnvironment.make(
-                remote: cancelRemote, clock: SystemPlaybackClock(),
+                remote: cancelRemote, clock: HarnessClock.parked(),
                 queueServiceHook: cancelHook),
             feedback: cancelFeedback
         )
@@ -1158,9 +1158,9 @@ struct QueueManagementTests {
     @MainActor
     func restrictedKeyboardDeleteDoesNotSendSetQueue() async {
         let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
@@ -1179,9 +1179,9 @@ struct QueueManagementTests {
         #expect((feedback.message?.text) == (restrictedBefore), "restricted keyboard Delete does not toast")
         await player.shutdownForTermination()
 
-        let localFeedback = TransientFeedbackPresenter(clock: SystemPlaybackClock(), duration: 4)
+        let localFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let local = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: SystemPlaybackClock()),
+            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
             feedback: localFeedback)
         seedLocalOwner(local)
         await seedAuthoritativeQueue(local)

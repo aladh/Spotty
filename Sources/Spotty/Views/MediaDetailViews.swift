@@ -29,19 +29,13 @@ struct AlbumDetailView: View {
                 }
             }
             CatalogTableDivider()
-            if store.isLoading && store.tracks.isEmpty {
-                LoadingState(label: "Loading album")
-            } else if let error = store.error, store.tracks.isEmpty {
-                EmptyState(
-                    icon: "exclamationmark.triangle",
-                    title: "Couldn't load album",
-                    message: error,
-                    actionTitle: "Try Again",
-                    actionSystemImage: "arrow.clockwise"
-                ) { Task { await store.load(item) } }
-            } else if store.tracks.isEmpty {
+            CatalogContentState(
+                isLoading: store.isLoading, isEmpty: store.tracks.isEmpty, error: store.error,
+                loadingLabel: "Loading album", errorTitle: "Couldn't load album",
+                retry: { await store.load(item) }
+            ) {
                 EmptyState(icon: "square.stack", title: "No tracks", message: "Spotify returned an empty album.")
-            } else {
+            } content: {
                 TrackTable(
                     tracks: store.trackCollection,
                     metadata: metadata,
@@ -85,21 +79,15 @@ struct ArtistDetailView: View {
                 }
             }
             CatalogTableDivider()
-            if store.isLoading && store.releases.isEmpty {
-                LoadingState(label: "Loading artist")
-            } else if let error = store.error, store.releases.isEmpty {
-                EmptyState(
-                    icon: "exclamationmark.triangle",
-                    title: "Couldn't load artist",
-                    message: error,
-                    actionTitle: "Try Again",
-                    actionSystemImage: "arrow.clockwise"
-                ) { Task { await store.load(item) } }
-            } else if store.releases.isEmpty {
+            CatalogContentState(
+                isLoading: store.isLoading, isEmpty: store.releases.isEmpty, error: store.error,
+                loadingLabel: "Loading artist", errorTitle: "Couldn't load artist",
+                retry: { await store.load(item) }
+            ) {
                 EmptyState(
                     icon: "person.wave.2", title: "No releases",
                     message: "Spotify returned no releases for this artist.")
-            } else {
+            } content: {
                 ScrollView {
                     LazyVGrid(
                         columns: MediaGridLayout.columns,

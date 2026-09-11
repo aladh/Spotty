@@ -60,15 +60,15 @@ struct AuthFlowTests {
             }
             #expect((wrongType) == true, "numeric access token is malformed")
 
-            // An unreadable expiry falls back to the standard hour instead of expiring instantly.
+            // An unreadable expiry must not silently invent a token lifetime.
             let stringExpiry = try? KeymasterAuth.parseTokenResponse(
                 Data(#"{"access_token":"at","refresh_token":"rt","expires_in":"3600"}"#.utf8),
                 fallbackRefreshToken: nil,
                 now: now
             )
             #expect(
-                (stringExpiry?.expiresAt) == (now.addingTimeInterval(3_600)),
-                "string expires_in falls back to the default hour")
+                stringExpiry == nil,
+                "string expires_in is rejected rather than inventing a lifetime")
 
             // An omitted expiry behaves the same way.
             let missingExpiry = try? KeymasterAuth.parseTokenResponse(
@@ -77,7 +77,7 @@ struct AuthFlowTests {
                 now: now
             )
             #expect(
-                (missingExpiry?.expiresAt) == (now.addingTimeInterval(3_600)), "missing expires_in defaults to one hour"
+                missingExpiry == nil, "missing expires_in is rejected"
             )
         }
 

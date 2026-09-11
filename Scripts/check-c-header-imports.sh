@@ -49,18 +49,8 @@ swift_arguments=(
 
 "$swiftc_path" "${swift_arguments[@]}" "$positive_fixture"
 
-negative_flags=(
-    NEG_CSTRING
-    NEG_MUT_CSTRING
-    NEG_QUEUE_SNAPSHOT
-    NEG_STRING_PAIR
-    NEG_RESTRICTION
-    NEG_QUEUE_TRACK
-    NEG_DEVICE
-    NEG_STRING_ARRAY
-    NEG_FLOAT_SAMPLES
-    NEG_STRING_ARRAY_ELEMENT
-)
+negative_flags=("${(@f)$(sed -nE 's/^#if (NEG_[A-Z0-9_]+).*$/\1/p' "$negative_fixture" | sort -u)}")
+(( ${#negative_flags} > 0 )) || { print -u2 "No negative ABI probes found"; exit 1; }
 for negative_flag in "${negative_flags[@]}"; do
     negative_log="$module_cache/$negative_flag.err"
     if "$swiftc_path" "${swift_arguments[@]}" "-D$negative_flag" "$negative_fixture" > /dev/null 2> "$negative_log"; then
@@ -74,4 +64,4 @@ for negative_flag in "${negative_flags[@]}"; do
     fi
 done
 
-print "Swift C-header import contract passed: positive import and 10 nullability negatives"
+print "Swift C-header import contract passed: positive import and ${#negative_flags} nullability negatives"

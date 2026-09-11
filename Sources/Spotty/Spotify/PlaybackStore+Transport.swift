@@ -82,7 +82,8 @@ extension PlaybackStore {
         // Spotify Connect only exposes an on/off command. Keep other clients in sync when
         // there is a live context; playlist starts in Spotty use the local freshness ordering.
         if isActiveDevice || activeRemoteDevice != nil {
-            let preferences = environment.preferences
+            let preferenceWriter = self.preferenceWriter
+            let epoch = accountEpoch
             performRoutedCommand(
                 "Could not update shuffle",
                 kind: .options,
@@ -91,12 +92,12 @@ extension PlaybackStore {
                 remote: .shuffle(enabled)
             ) { accepted in
                 guard accepted else { return }
-                Task { await preferences.setShuffleEnabled(enabled) }
+                preferenceWriter.submit(epoch: epoch) { await $0.setShuffleEnabled(enabled) }
             }
             return
         }
         setShuffleEnabled(enabled)
-        Task { await environment.preferences.setShuffleEnabled(enabled) }
+        preferenceWriter.submit(epoch: accountEpoch) { await $0.setShuffleEnabled(enabled) }
     }
 
     func togglePlayback() {

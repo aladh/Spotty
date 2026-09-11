@@ -141,11 +141,14 @@ final class PlaybackStore {
     @ObservationIgnored private var playbackDispatchPermits:
         [(permit: PlaybackDispatchPermit, commandID: UUID?, intentID: UUID?)] = []
 
+    @ObservationIgnored let preferenceWriter: PlaybackPreferenceWriter
+
     init(
         environment: PlaybackEnvironment = .live,
         feedback: TransientFeedbackPresenter
     ) {
         self.environment = environment
+        preferenceWriter = PlaybackPreferenceWriter(preferences: environment.preferences)
         timeline = state.timing
         self.feedback = feedback
         let metadataService = TrackMetadataService(remote: environment.remote)

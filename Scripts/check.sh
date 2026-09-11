@@ -33,12 +33,14 @@ if [[ "$check_scope" != rust ]]; then
     "$project_root/Scripts/format-swift.sh" --check
 fi
 
+python3 -B -m unittest discover -s "$project_root/Scripts" -p 'test_playback_*.py'
+"$project_root/Scripts/generate-c-header.sh" --check
+
 # The Rust suite owns lifecycle, generation, queue conversion, typed C snapshots,
 # and compile-time C signature checks. Prefer the developer's normal toolchain;
 # the fallback is the project-local toolchain provisioned by the development
 # bootstrap on this workspace.
 if [[ "$check_scope" != swift ]]; then
-    python3 -B -m unittest discover -s "$project_root/Scripts" -p 'test_playback_*.py'
     cargo_bin="${SPOTTY_CARGO:-}"
     if [[ -z "$cargo_bin" ]]; then
         cargo_bin="$(command -v cargo || true)"
@@ -58,10 +60,6 @@ if [[ "$check_scope" != swift ]]; then
         export PATH="${cargo_bin:h}:$PATH"
     fi
 
-    # Regeneration is a Rust-lane development-tool check. The app and Swift lane continue to
-    # consume the checked-in header; cbindgen is never downloaded as part of an app build.
-    "$project_root/Scripts/generate-c-header.sh" --check
-
     "$cargo_bin" fmt --all --manifest-path "$project_root/Backend/spotty-playback/Cargo.toml" -- --check
     "$cargo_bin" clippy --locked --manifest-path "$project_root/Backend/spotty-playback/Cargo.toml" \
         --all-targets -- -D warnings
@@ -80,6 +78,9 @@ fi
 # engine must be selected explicitly with SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK.
 selected_xcframework="$(spotty_playback_resolve_xcframework)"
 spotty_playback_validate_xcframework "$selected_xcframework"
+if [[ -z "${SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK:-}" ]]; then
+    python3 "$project_root/Scripts/check-playback-freshness.py" "$selected_xcframework"
+fi
 playback_slice="$(spotty_playback_slice_path "$selected_xcframework")"
 playback_archive="$(spotty_playback_archive_path "$playback_slice")"
 playback_headers="$(spotty_playback_headers_path "$playback_slice")"
@@ -253,79 +254,7 @@ if git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 
-# The CI quality gates must keep using an existing runner rg, immutable playback inputs,
-# one shared Debug/Release SwiftPM cache, Rust-free Swift lanes, and credential-free checkouts.
-ci_workflow="$project_root/.github/workflows/ci.yml"
-if [[ ! -f "$ci_workflow" ]]; then
-    print -u2 "CI workflow is missing"
-    exit 1
-fi
-if ! rg -q 'command -v rg' "$ci_workflow"; then
-    print -u2 "CI must use an existing rg before Homebrew ripgrep"
-    exit 1
-fi
-if ! rg -q 'brew install ripgrep' "$ci_workflow"; then
-    print -u2 "CI must still install ripgrep when the runner has no rg"
-    exit 1
-fi
-if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
-    print -u2 "CI must use the selected toolchain swift-format, not a Homebrew Swift linter"
-    exit 1
-fi
-policy_job="$(sed -n '/^  policy:/,/^  macos:/p' "$ci_workflow")"
-domain_linux_job="$(sed -n '/^  domain_linux:/,/^  macos:/p' "$ci_workflow")"
-macos_job="$(sed -n '/^  macos:/,$p' "$ci_workflow")"
-gate_step="$(sed -n '/^      - name: Require every quality lane/,$p' "$ci_workflow")"
-blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
-if [[ "$(rg -c 'runs-on: macos-' "$ci_workflow")" != 1 ]]; then
-    print -u2 "CI must use exactly one macOS job"
-    exit 1
-fi
-if ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
-    || ! rg -q --fixed-strings 'paths: Sources Backend/spotty-playback/src Scripts .github/workflows' <<< "$policy_job" \
-    || ! rg -q --fixed-strings '"$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback/src Scripts .github/workflows' Scripts/check-source-policy.sh \
-    || ! rg -q --fixed-strings 'run: ./Scripts/check-source-policy.sh --test-only' <<< "$policy_job" \
-    || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'name: macOS checks' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'needs: [policy, domain_linux]' <<< "$macos_job" \
-    || ! rg -q --fixed-strings "if: needs.policy.outputs.rust_needed == 'true'" <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'git show "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py" > "$trusted_policy"' <<< "$policy_job" \
-    || ! rg -q --fixed-strings 'python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA"' <<< "$policy_job" \
-    || ! rg -q --fixed-strings -- "-p 'test_*policy.py'" Scripts/check-source-policy.sh \
-    || ! rg -q --fixed-strings 'candidate_needed' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'run: ./Scripts/playback-candidate-needed.sh' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}' <<< "$macos_job" \
-    || ! rg -q 'key: macos-rust-.*Cargo\.lock' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'source-input-digest.sh' Scripts/playback-candidate-needed.sh \
-    || ! rg -q --fixed-strings 'run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'xcode-select -s /Applications/Xcode_26.6.app' <<< "$macos_job" \
-    || ! rg -q --fixed-strings "grep -q 'Apple Swift version 6.3.3'" <<< "$macos_job" \
-    || ! rg -U -q --fixed-strings -- "$blocked_rust_tools" <<< "$macos_job" \
-    || ! rg -q "key: macos-swiftpm-mtimes-v1-.*hashFiles\\('Package\\.swift', 'Package\\.resolved'\\)" <<< "$macos_job" \
-    || ! rg -U -q --fixed-strings -- $'- name: Run checks\n        id: debug\n        run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh' <<< "$macos_job" \
-    || ! rg -U -q --fixed-strings -- $'- name: Compile release Spotty with SPOTTY_DISTRIBUTION\n        id: release\n        run: ./Scripts/compile-release-spotty.sh' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'report-size.sh' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'if: always()' <<< "$gate_step" \
-    || ! rg -q --fixed-strings 'RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}' <<< "$gate_step" \
-    || ! rg -q --fixed-strings 'RUST_RESULT: ${{ steps.rust.outcome }}' <<< "$gate_step" \
-    || ! rg -U -q --fixed-strings -- $'if [[ "$RUST_NEEDED" == true ]]; then\n            test "$RUST_RESULT" = success\n          else\n            test "$RUST_NEEDED" = false\n            test "$RUST_RESULT" = skipped\n          fi\n          test "$CHECKS_RESULT" = success' <<< "$gate_step" \
-    || ! rg -q --fixed-strings 'test "$POLICY_RESULT" = success' <<< "$gate_step" \
-    || ! rg -q --fixed-strings 'test "$RELEASE_RESULT" = success' <<< "$gate_step"; then
-    print -u2 "CI must cache immutable inputs, block Rust in Swift lanes, and aggregate all quality lanes"
-    exit 1
-fi
-
-# The Linux domain lane replaces the retired `domain-imports` source rule: it is the compiler
-# proof that SpottyDomain imports nothing from AppKit, SwiftUI, AVFoundation, or the playback
-# FFI. It must build and test the domain in a Swift container and be aggregated by the gate.
-if ! rg -q --fixed-strings 'container: swift:' <<< "$domain_linux_job" \
-    || ! rg -q --fixed-strings 'run: swift build --target SpottyDomain' <<< "$domain_linux_job" \
-    || ! rg -q --fixed-strings 'run: swift test --filter SpottyDomainTests' <<< "$domain_linux_job" \
-    || ! rg -q --fixed-strings 'DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}' <<< "$gate_step" \
-    || ! rg -q --fixed-strings 'test "$DOMAIN_LINUX_RESULT" = success' <<< "$gate_step"; then
-    print -u2 "CI must compile and test SpottyDomain on Linux and require that lane in the gate"
-    exit 1
-fi
+ruby "$project_root/Scripts/check-ci-workflow.rb" "$project_root/.github/workflows/ci.yml"
 
 plutil -lint "$project_root/Packaging/Info.plist"
 

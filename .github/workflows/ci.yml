@@ -136,14 +136,12 @@ jobs:
           echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
 
       - name: Cache pinned cbindgen
-        if: needs.policy.outputs.rust_needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/spotty-cbindgen
-          key: macos-26-cbindgen-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN_KEY }}-${{ env.CBINDGEN_VERSION }}
+          key: macos-26-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}
 
       - name: Install pinned cbindgen
-        if: needs.policy.outputs.rust_needed == 'true'
         run: |
           set -euo pipefail
           cbindgen_bin="$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
@@ -259,7 +257,7 @@ jobs:
           set -euo pipefail
           blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
           mkdir -p "$blocked_tools"
-          for tool in cargo rustc rustup cbindgen; do
+          for tool in cargo rustc rustup; do
             printf '#!/bin/sh\necho "%s is blocked in the Swift lane" >&2\nexit 127\n' "$tool" > "$blocked_tools/$tool"
             chmod 755 "$blocked_tools/$tool"
           done
@@ -283,6 +281,8 @@ jobs:
 
       - name: Run checks
         id: debug
+        env:
+          SPOTTY_CHECK_REPEATS: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
         run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 
       - name: Compile release Spotty with SPOTTY_DISTRIBUTION

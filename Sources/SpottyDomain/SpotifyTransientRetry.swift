@@ -46,12 +46,6 @@ public enum SpotifyTransientRetry {
             unitJitter: { Double.random(in: 0...1) }
         )
 
-        /// Completes backoff without waiting. Injected by deterministic checks.
-        public static let immediate = Timing(
-            now: { Date(timeIntervalSince1970: 0) },
-            sleep: { _ in try Task.checkCancellation() },
-            unitJitter: { 1 }
-        )
     }
 
     public static func isRetryableStatus(_ status: Int) -> Bool {

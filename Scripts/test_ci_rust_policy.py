@@ -202,8 +202,8 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
             name, body = block.split("\n", 1)
             self.assertNotIn(name, steps)
             steps[name] = body
-        for name in ("Install pinned cbindgen", "Show Rust toolchain", "Identify playback inputs",
-                     "Cache pinned cbindgen", "Cache Rust verification products", "Run Rust checks"):
+        for name in ("Show Rust toolchain", "Identify playback inputs",
+                     "Cache Rust verification products", "Run Rust checks"):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
@@ -234,7 +234,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error:", macos)
         cbindgen_cache = steps["Cache pinned cbindgen"]
         self.assertIn("${{ env.CBINDGEN_VERSION }}", cbindgen_cache)
-        self.assertIn("${{ env.RUST_TOOLCHAIN_KEY }}", cbindgen_cache)
+        self.assertNotIn("if:", cbindgen_cache)
         self.assertIn("${{ runner.arch }}", cbindgen_cache)
         self.assertNotIn("restore-keys:", cbindgen_cache)
         cache = steps["Cache SwiftPM build directory"]

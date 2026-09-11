@@ -1,6 +1,6 @@
 # Generated local state
 
-[Development setup](setup.md) · Run commands from the repository root.
+[Agent operations](../../CONTRIBUTING.md) · Run commands from the repository root.
 
 The following are ignored local outputs. Remove them only when cleanup is authorized; do not treat
 signing material as disposable build output:
@@ -11,7 +11,8 @@ signing material as disposable build output:
   Release builds persist a separate nonsecret `connectInstallationID` in standard preferences;
   logout retains it. Unbundled Debug tools/tests use an ephemeral identity.
 - `.build/` and `Backend/spotty-playback/target/` — Swift and Rust build products;
-- `Backend/lib/*.a` — intermediate static archives for explicit engine builds;
+- `Backend/lib/*.a` — produced only by running `Backend/spotty-playback/build.sh` directly without
+  `--output`; the XCFramework build always passes `--output` and stages elsewhere;
 - `Spotty.app/` and `dist/` — local packages and archives;
 - `diagnostics/` — local reports; review them before sharing;
 - `.DS_Store` and `.swiftpm/` — local tooling metadata.

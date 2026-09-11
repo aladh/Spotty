@@ -31,12 +31,14 @@ Updates require the user to choose installation.
   commit this directory. Existing Keychain grants are no longer read, imported, or modified;
   upgrading from Keychain storage requires one browser authorization. Retired plaintext preferences
   are removed without importing their grant.
-- Local preferences also retain a random installation/device identifier, UI preferences, shuffle
-  history, and playback preferences.
+- Local preferences (`UserDefaults`) also retain a random installation/device identifier and
+  playback preferences, including shuffle history. The playback inspector's open/closed state and
+  selected panel instead use SwiftUI `@SceneStorage`, not `UserDefaults`.
 - Artwork loads through SwiftUI `AsyncImage`. macOS frameworks manage any image and response
   caching; Spotty does not impose its own artwork cache limits or purge it on window close.
-- Spotify/librespot session credentials may be cached under the app's local cache directory so the
-  playback device can reconnect. Retired cache locations are deleted without being imported.
+- Spotify/librespot session credentials may be cached in
+  `~/Library/Application Support/Spotty/credentials` so the playback device can reconnect. Retired
+  cache locations are deleted without being imported.
 - Apple Unified Logging stores local operational events. The intended contract excludes tokens,
   OAuth redirects, raw API bodies, and raw user payloads; treat logs and diagnostic exports as
   potentially sensitive and review them before sharing.

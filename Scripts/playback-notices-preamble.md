@@ -31,7 +31,9 @@ SOFTWARE.
 
 The Rust bridge links upstream [librespot](https://github.com/librespot-org/librespot), pinned to
 commit `a1b66d3c8a14e55a9572a9e17467150dca618c9a`, including its unmodified `connect` crate.
-librespot is MIT licensed and carries the copyright below.
+`librespot-core` and `librespot-playback` are retained copies with narrow patches, described in
+`Backend/spotty-playback/vendor/librespot/README.md`. librespot is MIT licensed and carries the
+copyright below.
 
 Copyright (c) 2015 Paul Lietar
 

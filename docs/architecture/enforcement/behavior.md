@@ -20,5 +20,5 @@ lifetime or ordering behavior.
 | `TST-PLM-001`, `TST-FBK-001` | Occurrence-safe playlist writes and lifetime-safe transient feedback | [Playlists](../../product/playlists.md), [feedback](../../product/navigation.md#transient-mutation-feedback) |
 | `TST-DEP-001` | Injected production boundaries | [ADR 002](../adrs/ADR-002-playback-state-and-dependencies.md) |
 | `TST-FIX-001` | Synthetic, non-identifying fixtures | [Privacy](../../../PRIVACY.md) |
-| `TST-RUST-001` | Retained protocol, recovery, and ABI behavior | [Rust guidance](../../../Backend/spotty-playback/AGENTS.md) |
+| `TST-RUST-001` | Retained protocol, recovery, and ABI behavior | [Engine boundary](../../../Backend/spotty-playback/AGENTS.md) |
 | `TST-GATE-001` | Complete test discovery and bounded repeat execution | [Test guidance](../../../Tests/AGENTS.md), [verification](../../development/verification.md) |

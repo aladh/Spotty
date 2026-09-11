@@ -27,8 +27,8 @@ indication of affiliation.
   after Spotify confirms them.
 - **Browsing:** Home, Search, profile, Liked Songs, playlists, albums, and artists from the
   signed-in account.
-- **Track details:** sortable metadata, including Date Added in playlists and Popularity, BPM,
-  and Camelot Key in shared catalog tables where applicable.
+- **Track details:** sortable metadata, including Date added in playlists and Popularity, BPM,
+  and a Key column showing Camelot notation in shared catalog tables where applicable.
 - **Playlist editing:** add selected tracks to an owned library playlist or remove selected
   occurrences from an open owned playlist, with success and failure feedback.
 - **macOS integration:** native navigation, tables, menus, inspector, keyboard commands, and
@@ -54,7 +54,7 @@ this download, allow it through System Settings:
 3. Find the message about Spotty in the **Security** section and click **Open Anyway**.
 4. Authenticate if asked, then confirm that you want to open Spotty.
 
-After approval, open Spotty normally. Choose **Connect** and complete Spotify authorization in
+After approval, open Spotty normally. Choose **Connect Spotify** and complete Spotify authorization in
 your browser. See [Apple's first-open guidance](https://support.apple.com/en-us/102445) for details.
 
 ## Development

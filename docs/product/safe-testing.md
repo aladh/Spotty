@@ -9,7 +9,7 @@ create a manual PR acceptance gate.
 Spotify Connect controls a live account and can interrupt playback on another device. Playback and
 account mutations are therefore **opt-in**, not part of routine acceptance testing.
 
-### Spotty Demo: standing authorization
+## Spotty Demo: standing authorization
 
 Agents may build, launch, relaunch, browse, and interact with the isolated Spotty Demo whenever
 useful, without asking for permission. This includes synthetic control interactions and fixture
@@ -22,7 +22,7 @@ and network sandbox. Do not weaken that isolation or substitute the live app. De
 be deliberately disabled or unsupported; testing them cannot establish live playback correctness.
 The live-account permissions below apply only to real account actions.
 
-### Spotify read-only reference
+## Spotify read-only reference
 
 Agents may launch the official Spotify app, browse its existing signed-in Home/library/detail
 surfaces, inspect visible states, and capture visual references whenever useful without asking.
@@ -32,7 +32,7 @@ If sign-in is required, report the unavailable reference and use the established
 Keep reference captures local and follow [privacy guidance](../../PRIVACY.md); prefer synthetic
 Spotty screenshots for committed or published evidence.
 
-### Default: automated and read-only
+## Default: automated and read-only
 
 Without explicit playback permission, it is safe to:
 
@@ -49,7 +49,7 @@ Do not infer playback permission from a request to launch, inspect, accept-test,
 Do not transfer playback, alter the queue, seek, or change transport modes as a substitute for a
 read-only assertion.
 
-### Explicit playback test
+## Explicit playback test
 
 Only when the user has explicitly allowed playback for the current test:
 

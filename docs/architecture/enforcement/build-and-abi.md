@@ -17,7 +17,7 @@
 | IDs | Purpose | Owner |
 | --- | --- | --- |
 | `ABI-SYM-001`, `ABI-USE-001` | Agreement between selected headers, exports, and Swift consumption | [check.sh](../../../Scripts/check.sh) |
-| `ABI-SIG-001` | Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), Rust tests, and producer ABI checks |
+| `ABI-SIG-001` | Compile-time C/Rust signature compatibility | [Signature fixture](../../../Backend/spotty-playback/abi-signatures.txt), consumed by [generate-c-header.sh](../../../Scripts/generate-c-header.sh), [test_playback_header.py](../../../Scripts/test_playback_header.py), and [tests.rs](../../../Backend/spotty-playback/src/tests.rs) |
 | `ABI-GEN-001` | Reproducible generated declarations and layouts | [Header generator](../../../Scripts/generate-c-header.sh) |
 | `ABI-SWIFT-001` | Required callbacks, enums, and nullable pointer shapes survive Swift import | [Compiler probes](../../../Scripts/check-c-header-imports.sh) |
 | `ABI-ARC-001` | Immutable matched library/header artifacts; Rust-free app builds | [ADR 006](../adrs/ADR-006-prebuilt-playback-engine.md), [artifact workflow](../../development/playback-artifacts.md) |
@@ -32,7 +32,10 @@ workflow presence, tool selection, cache integrity, and complete verification. T
 owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
 [check.sh](../../../Scripts/check.sh). [Source policies](source-checks.md) cover the syntax-only
 facets of `CI-TOOL-001` and `ABI-ARC-001`; artifact validation and build execution remain here. The required aggregate includes source policies, Rust,
-Swift/architecture, and Release compilation. Rust runs on main and on PRs outside the
+Swift/architecture, and Release compilation. Source policies run unconditionally in the `policy`
+job; [ci_rust_policy.py](../../../Scripts/ci_rust_policy.py) sets `macos_needed=false` for
+docs-only PR changes, which skips the `macos` job and with it Rust, Swift/architecture, and Release
+compilation. Rust runs on main and on PRs outside the
 [app-only scope](../../development/verification.md#normal-verification); detection failures cannot
 authorize a skip. Swift CI uses only published engines. Candidate builds
 are selected by [input comparison](../../../Scripts/playback-candidate-needed.sh); producer validation

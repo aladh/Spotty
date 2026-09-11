@@ -9,5 +9,7 @@ otherwise suffice.
   remain useful for deciding whether that implementation is correct.
 - Describe observable outcomes and relevant constraints. Link to code for internal mechanics that
   do not define product behavior; omit task history and repeated rationale.
-- A documentation cleanup must not silently relax or change product requirements. Preserve the
-  existing contract unless a behavior change is explicitly requested.
+- A documentation cleanup must not silently relax or change product requirements. When the
+  contract and the verified shipped behavior disagree, the contract may be corrected to match the
+  implementation, but the PR must state the divergence and the chosen side so it is reviewed as a
+  product decision rather than a wording fix.

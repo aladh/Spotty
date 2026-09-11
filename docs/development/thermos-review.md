@@ -57,3 +57,5 @@ The contributor-free model provider may use submitted public source for Meta tra
 See the [workflow](../../.github/workflows/thermos-review.yml) for execution details and
 [agent configuration and rubrics](../../.github/thermos-review) for models, tools, prompts, the
 GitHub review task, and the original Thermos license.
+
+<!-- Thermos comment-trigger test; this PR is closed without merging. -->

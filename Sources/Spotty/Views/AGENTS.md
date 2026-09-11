@@ -7,6 +7,7 @@ and the affected [surface contract](../../../docs/product/README.md). Keep suppo
   native macOS APIs for menus, focus, keyboard behavior, accessibility, tracking, and window semantics;
   do not substitute system appearance as a side effect of an interaction repair. Follow the
   [visual fidelity procedure](../../../docs/product/scope.md#visual-fidelity-and-interaction).
+  Appearance is fixed dark (policies `dark-appearance-required`, `fixed-appearance`).
 - Keep one clear hierarchy. At a glance, the user should know where they are, what is playing, and the
   primary action. Remove persistent controls that do not earn their space.
 - Make state honest. Loading, empty, stale, disabled, error, reconnecting, and remote-owner states are

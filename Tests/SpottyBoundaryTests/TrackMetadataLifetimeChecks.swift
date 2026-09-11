@@ -2,17 +2,19 @@ import Foundation
 import Testing
 @testable import SpottyCore
 
-private actor LateMetadataRemote: RemotePlaybackClient {
+/// Gates `HarnessRemote.onMetadata` so a check can track multiple concurrent metadata requests
+/// for the same URI independently and complete or fail each by its own request id, mirroring the
+/// pre-harness `LateMetadataRemote` actor. `HarnessRemote`'s built-in `.park` behavior keeps only
+/// one continuation per URI, which cannot express "an old-account request outlives the request
+/// that replaced it" — the exact scenario this suite checks — so this gate keeps one continuation
+/// per request instead.
+private actor LateMetadataGate {
     private var continuations: [Int: CheckedContinuation<SpotifyConnectTrackMetadata, any Error>] = [:]
     private var nextRequestID = 0
-    private(set) var requestCount = 0
 
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {}
-
-    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
+    func request(for uri: String) async throws -> SpotifyConnectTrackMetadata {
         nextRequestID += 1
         let requestID = nextRequestID
-        requestCount += 1
         return try await withCheckedThrowingContinuation { continuation in
             continuations[requestID] = continuation
         }
@@ -20,13 +22,7 @@ private actor LateMetadataRemote: RemotePlaybackClient {
 
     func complete(_ requestID: Int, uri: String, title: String) {
         continuations.removeValue(forKey: requestID)?.resume(
-            returning: SpotifyConnectTrackMetadata(
-                uri: uri,
-                title: title,
-                artist: "Artist",
-                artworkURL: nil,
-                duration: 180
-            )
+            returning: HarnessFixtures.metadata(uri: uri, title: title)
         )
     }
 
@@ -35,24 +31,31 @@ private actor LateMetadataRemote: RemotePlaybackClient {
     }
 }
 
+private func makeLateMetadataRemote() -> (remote: HarnessRemote, gate: LateMetadataGate) {
+    let gate = LateMetadataGate()
+    let remote = HarnessRemote()
+    remote.onMetadata = { [gate] uri in try await gate.request(for: uri) }
+    return (remote, gate)
+}
+
 @Suite("Track metadata lifetime")
 struct TrackMetadataLifetimeTests {
     @Test
     @MainActor
     func lateSuccessCannotOverwriteReplacementAccountCacheOrFlight() async throws {
-        let remote = LateMetadataRemote()
+        let (remote, gate) = makeLateMetadataRemote()
         let service = TrackMetadataService(remote: remote)
         let uri = "spotify:track:replaced"
 
         let old = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { await remote.requestCount == 1 })
+        #expect(await waitUntil { remote.requestedURIs.count == 1 })
         await service.reset()
         let replacement = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { await remote.requestCount == 2 })
+        #expect(await waitUntil { remote.requestedURIs.count == 2 })
 
-        await remote.complete(2, uri: uri, title: "Replacement")
+        await gate.complete(2, uri: uri, title: "Replacement")
         #expect((await replacement.value)?.title == "Replacement")
-        await remote.complete(1, uri: uri, title: "Late old account")
+        await gate.complete(1, uri: uri, title: "Late old account")
         #expect((await old.value)?.title == "Late old account")
         #expect((try await service.metadata(for: uri)).title == "Replacement")
     }
@@ -60,19 +63,19 @@ struct TrackMetadataLifetimeTests {
     @Test
     @MainActor
     func lateErrorCannotClearReplacementAccountFlight() async throws {
-        let remote = LateMetadataRemote()
+        let (remote, gate) = makeLateMetadataRemote()
         let service = TrackMetadataService(remote: remote)
         let uri = "spotify:track:replaced-error"
 
         let old = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { await remote.requestCount == 1 })
+        #expect(await waitUntil { remote.requestedURIs.count == 1 })
         await service.reset()
         let replacement = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { await remote.requestCount == 2 })
+        #expect(await waitUntil { remote.requestedURIs.count == 2 })
 
-        await remote.fail(1)
+        await gate.fail(1)
         #expect((await old.value) == nil)
-        await remote.complete(2, uri: uri, title: "Replacement")
+        await gate.complete(2, uri: uri, title: "Replacement")
         #expect((await replacement.value)?.title == "Replacement")
         #expect((try await service.metadata(for: uri)).title == "Replacement")
     }

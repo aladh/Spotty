@@ -2,16 +2,16 @@ import Foundation
 import SystemConfiguration
 
 /// Swift-owned policy for the name advertised to Spotify Connect.
-nonisolated enum ConnectDeviceIdentity {
-    static let fallbackComputerName = "Mac"
+public nonisolated enum ConnectDeviceIdentity {
+    public static let fallbackComputerName = "Mac"
 
-    static func advertisedName(computerName: String?) -> String {
+    public static func advertisedName(computerName: String?) -> String {
         let trimmed = computerName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolved = trimmed.isEmpty ? fallbackComputerName : trimmed
         return "\(resolved) (Spotty)"
     }
 
-    static var current: String {
+    public static var current: String {
         advertisedName(computerName: systemComputerName())
     }
 

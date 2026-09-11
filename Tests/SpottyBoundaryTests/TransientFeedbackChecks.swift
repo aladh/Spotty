@@ -3,164 +3,6 @@ import SpottyDomain
 import Foundation
 @testable import SpottyCore
 
-private final class FeedbackLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
-    private let lock = NSLock()
-    private let result: PlaybackEngineResult
-    private var storedOperations: [LocalPlaybackOperation] = []
-
-    init(result: PlaybackEngineResult = .ok) {
-        self.result = result
-    }
-
-    var operations: [LocalPlaybackOperation] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedOperations
-    }
-
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
-        AsyncStream { $0.finish() }
-    }
-
-    func authorizeStreaming(with _: String) -> Int32 { 0 }
-    func initialize() -> PlaybackEngineResult { .ok }
-    func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
-        lock.lock()
-        storedOperations.append(operation)
-        lock.unlock()
-        return result
-    }
-    func positionMilliseconds() -> UInt32 { 0 }
-    func queueSnapshot() -> RustQueueState? { nil }
-    func shutdown() -> PlaybackEngineResult { .ok }
-    func cleanup() {}
-    func clearStreamingCredentials() {}
-    func disconnect() -> PlaybackEngineResult { .ok }
-    func forceReconnect() -> Int32 { 0 }
-}
-
-private enum FeedbackRemoteFailure: Error { case boom }
-
-private actor FeedbackRemoteClient: RemotePlaybackClient {
-    enum Behavior: Sendable {
-        case succeed
-        case fail
-        case park
-    }
-
-    private let behavior: Behavior
-    private var parked: CheckedContinuation<Void, Error>?
-    private(set) var sendCount = 0
-
-    init(_ behavior: Behavior) {
-        self.behavior = behavior
-    }
-
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {
-        sendCount += 1
-        switch behavior {
-        case .succeed:
-            return
-        case .fail:
-            throw FeedbackRemoteFailure.boom
-        case .park:
-            try await withCheckedThrowingContinuation { parked = $0 }
-        }
-    }
-
-    func completePark(success: Bool) {
-        if success {
-            parked?.resume()
-        } else {
-            parked?.resume(throwing: FeedbackRemoteFailure.boom)
-        }
-        parked = nil
-    }
-
-    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        SpotifyConnectTrackMetadata(
-            uri: uri,
-            title: "Metadata",
-            artist: "Artist",
-            artworkURL: nil,
-            duration: 180
-        )
-    }
-}
-
-private actor IdleFeedbackWebQueue: WebQueueClient {
-    func queue() async throws -> [CatalogTrack] {
-        throw URLError(.badServerResponse)
-    }
-}
-
-private actor IdleFeedbackPreferences: PlaybackPreferences {
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { nil }
-    func setLastRemoteDeviceID(_: String?) {}
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-/// Sleeps until `releaseNext()` or `releaseAll()`. Does not consult Task cancellation, so a
-/// replaced message can still prove token-guarded stale dismissal.
-private final class UncooperativeParkedClock: PlaybackClock, @unchecked Sendable {
-    private let lock = NSLock()
-    private var waiters: [CheckedContinuation<Void, Error>] = []
-
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
-
-    func sleep(seconds _: TimeInterval) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
-            waiters.append(continuation)
-            lock.unlock()
-        }
-    }
-
-    var waiterCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return waiters.count
-    }
-
-    func releaseNext() {
-        lock.lock()
-        let next = waiters.isEmpty ? nil : waiters.removeFirst()
-        lock.unlock()
-        next?.resume()
-    }
-
-    func releaseAll() {
-        lock.lock()
-        let pending = waiters
-        waiters.removeAll()
-        lock.unlock()
-        pending.forEach { $0.resume() }
-    }
-}
-
-private func feedbackEnvironment(
-    local: any LocalPlaybackEngine = FeedbackLocalEngine(),
-    remote: any RemotePlaybackClient = FeedbackRemoteClient(.succeed),
-    clock: any PlaybackClock
-) -> PlaybackEnvironment {
-    PlaybackEnvironment(
-        remote: remote,
-        local: local,
-        webQueue: IdleFeedbackWebQueue(),
-        account: BoundaryIdleAccount(),
-        audioOutput: BoundaryIdleAudio(),
-        preferences: IdleFeedbackPreferences(),
-        lifecycle: BoundaryIdleLifecycle(),
-        clock: clock,
-        catalog: BoundaryIdleCatalog(),
-        playlistMutations: UnavailablePlaylistMutations(),
-        trackAttributes: BoundaryIdleAttributes()
-    )
-}
-
 @MainActor
 private func yieldPasses(_ count: Int = 200) async {
     for _ in 0..<count {
@@ -215,7 +57,7 @@ struct TransientFeedbackTests {
         }
 
         do {
-            let clock = UncooperativeParkedClock()
+            let clock = HarnessClock(sleep: .uncooperativelyParked)
             let feedback = TransientFeedbackPresenter(clock: clock, duration: 4)
 
             feedback.success("Queue request sent")
@@ -261,7 +103,7 @@ struct TransientFeedbackTests {
             cancelling.dismiss()
             cooperative.releaseAll()
 
-            let uncooperative = UncooperativeParkedClock()
+            let uncooperative = HarnessClock(sleep: .uncooperativelyParked)
             let stale = TransientFeedbackPresenter(clock: uncooperative, duration: 4)
             stale.success("Keep me")
             _ = await waitUntil { uncooperative.waiterCount == 1 }
@@ -281,10 +123,10 @@ struct TransientFeedbackTests {
         }
 
         do {
-            let clock = UncooperativeParkedClock()
+            let clock = HarnessClock(sleep: .uncooperativelyParked)
             let feedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let player = PlaybackStore(
-                environment: feedbackEnvironment(clock: clock),
+                environment: HarnessEnvironment.make(clock: clock),
                 feedback: feedback
             )
             #expect((player.feedback === feedback) == true, "the store keeps the composed presenter")
@@ -302,11 +144,11 @@ struct TransientFeedbackTests {
         }
 
         do {
-            let clock = UncooperativeParkedClock()
+            let clock = HarnessClock(sleep: .uncooperativelyParked)
 
             let localSuccessFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let localSuccess = PlaybackStore(
-                environment: feedbackEnvironment(local: FeedbackLocalEngine(result: .ok), clock: clock),
+                environment: HarnessEnvironment.make(engine: HarnessEngine(executeResult: .ok), clock: clock),
                 feedback: localSuccessFeedback
             )
             seedReady(localSuccess)
@@ -318,7 +160,7 @@ struct TransientFeedbackTests {
 
             let localFailureFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let localFailure = PlaybackStore(
-                environment: feedbackEnvironment(local: FeedbackLocalEngine(result: .error), clock: clock),
+                environment: HarnessEnvironment.make(engine: HarnessEngine(executeResult: .error), clock: clock),
                 feedback: localFailureFeedback
             )
             seedReady(localFailure)
@@ -331,7 +173,7 @@ struct TransientFeedbackTests {
 
             let joiningFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let joining = PlaybackStore(
-                environment: feedbackEnvironment(clock: clock),
+                environment: HarnessEnvironment.make(clock: clock),
                 feedback: joiningFeedback
             )
             seedReady(joining)
@@ -346,24 +188,24 @@ struct TransientFeedbackTests {
             #expect((joining.transientCommandError) == nil, "joining add is not a playback notice")
             await joining.shutdownForTermination()
 
-            let remote = FeedbackRemoteClient(.succeed)
+            let remote = HarnessRemote()
             let remoteSuccessFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let remoteSuccess = PlaybackStore(
-                environment: feedbackEnvironment(remote: remote, clock: clock),
+                environment: HarnessEnvironment.make(remote: remote, clock: clock),
                 feedback: remoteSuccessFeedback
             )
             seedRemoteOwner(remoteSuccess)
             remoteSuccess.addToQueue(uris: ["spotify:track:remote-ok"])
             _ = await waitUntil { remoteSuccessFeedback.message?.kind == .success }
             #expect((remoteSuccessFeedback.message?.text) == ("Queue request sent"), "remote add success")
-            #expect((await remote.sendCount) == (1), "remote add still sends add_to_queue")
+            #expect((remote.sendCount) == (1), "remote add still sends add_to_queue")
             #expect((remoteSuccess.transientCommandError) == nil, "remote add success is not a playback notice")
             await remoteSuccess.shutdownForTermination()
 
-            let remoteFail = FeedbackRemoteClient(.fail)
+            let remoteFail = HarnessRemote(send: .fail)
             let remoteFailureFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let remoteFailure = PlaybackStore(
-                environment: feedbackEnvironment(remote: remoteFail, clock: clock),
+                environment: HarnessEnvironment.make(remote: remoteFail, clock: clock),
                 feedback: remoteFailureFeedback
             )
             seedRemoteOwner(remoteFailure)
@@ -374,36 +216,36 @@ struct TransientFeedbackTests {
                 "remote add failure")
             await remoteFailure.shutdownForTermination()
 
-            let parkedRemote = FeedbackRemoteClient(.park)
+            let parkedRemote = HarnessRemote(send: .park)
             let cancelledFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let cancelled = PlaybackStore(
-                environment: feedbackEnvironment(remote: parkedRemote, clock: clock),
+                environment: HarnessEnvironment.make(remote: parkedRemote, clock: clock),
                 feedback: cancelledFeedback
             )
             seedRemoteOwner(cancelled)
             cancelled.addToQueue(uris: ["spotify:track:cancel"])
             #expect(
-                (await waitUntil { await parkedRemote.sendCount == 1 }) == true,
+                (await waitUntil { parkedRemote.sendCount == 1 }) == true,
                 "cancelled add started the remote command")
             cancelled.effects.cancelAccountScoped()
-            await parkedRemote.completePark(success: false)
+            parkedRemote.completePark(success: false)
             await yieldPasses()
             #expect((cancelledFeedback.message) == nil, "cancelled add reports no mutation feedback")
             await cancelled.shutdownForTermination()
 
-            let staleRemote = FeedbackRemoteClient(.park)
+            let staleRemote = HarnessRemote(send: .park)
             let staleFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let staleAccount = PlaybackStore(
-                environment: feedbackEnvironment(remote: staleRemote, clock: clock),
+                environment: HarnessEnvironment.make(remote: staleRemote, clock: clock),
                 feedback: staleFeedback
             )
             seedRemoteOwner(staleAccount)
             staleAccount.addToQueue(uris: ["spotify:track:stale"])
             #expect(
-                (await waitUntil { await staleRemote.sendCount == 1 }) == true,
+                (await waitUntil { staleRemote.sendCount == 1 }) == true,
                 "stale-account add started the remote command")
             staleAccount.accountStore.advanceEpoch()
-            await staleRemote.completePark(success: true)
+            staleRemote.completePark(success: true)
             await yieldPasses()
             #expect((staleFeedback.message) == nil, "stale-account add reports no mutation feedback")
             await staleAccount.shutdownForTermination()
@@ -416,9 +258,9 @@ struct TransientFeedbackTests {
     @Test
     @MainActor
     func testSettledCommandErrorTimerCannotDismissNewerPlaybackNotice() async {
-        let clock = UncooperativeParkedClock()
+        let clock = HarnessClock(sleep: .uncooperativelyParked)
         let player = PlaybackStore(
-            environment: feedbackEnvironment(clock: clock),
+            environment: HarnessEnvironment.make(clock: clock),
             feedback: TransientFeedbackPresenter(clock: clock)
         )
         seedReady(player)

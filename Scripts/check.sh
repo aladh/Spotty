@@ -126,10 +126,12 @@ if ! diff -u "$header_symbols" "$library_symbols"; then
 fi
 
 # Dead C exports cannot regrow silently: every remaining header symbol must be
-# called from the sole SpottyPlaybackCore adapter. Reuses the header extractor's
-# call-site token pattern rather than a second parser or generated binding.
+# called from the sole SpottyPlaybackCore adapter. The SpottyEngineAdapter target is
+# the only one that depends on the binary, and PlaybackCore.swift is its only C
+# importer, so this file is still the complete consumption surface. Reuses the header
+# extractor's call-site token pattern rather than a second parser or generated binding.
 # Line comments and quoted strings are dropped first so a mention is not a call.
-playback_core="$project_root/Sources/Spotty/Spotify/PlaybackCore.swift"
+playback_core="$project_root/Sources/SpottyEngineAdapter/PlaybackCore.swift"
 sed -e 's://.*::' -e 's/"[^"]*"//g' "$playback_core" \
     | rg -o --pcre2 'spotty_playback_[a-z0-9_]+(?=\s*\()' \
     | sort -u > "$consumed_symbols"
@@ -271,6 +273,7 @@ if rg -q 'brew install swift-format|brew install swiftlint' "$ci_workflow"; then
     exit 1
 fi
 policy_job="$(sed -n '/^  policy:/,/^  macos:/p' "$ci_workflow")"
+domain_linux_job="$(sed -n '/^  domain_linux:/,/^  macos:/p' "$ci_workflow")"
 macos_job="$(sed -n '/^  macos:/,$p' "$ci_workflow")"
 gate_step="$(sed -n '/^      - name: Require every quality lane/,$p' "$ci_workflow")"
 blocked_rust_tools=$'for tool in cargo rustc rustup cbindgen; do\n'
@@ -284,7 +287,7 @@ if ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'run: ./Scripts/check-source-policy.sh --test-only' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'runs-on: macos-26' <<< "$macos_job" \
     || ! rg -q --fixed-strings 'name: macOS checks' <<< "$macos_job" \
-    || ! rg -q --fixed-strings 'needs: [policy]' <<< "$macos_job" \
+    || ! rg -q --fixed-strings 'needs: [policy, domain_linux]' <<< "$macos_job" \
     || ! rg -q --fixed-strings "if: needs.policy.outputs.rust_needed == 'true'" <<< "$macos_job" \
     || ! rg -q --fixed-strings 'git show "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py" > "$trusted_policy"' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA"' <<< "$policy_job" \
@@ -309,6 +312,18 @@ if ! rg -q 'uses: ast-grep/action@[0-9a-f]{40} # v' <<< "$policy_job" \
     || ! rg -q --fixed-strings 'test "$POLICY_RESULT" = success' <<< "$gate_step" \
     || ! rg -q --fixed-strings 'test "$RELEASE_RESULT" = success' <<< "$gate_step"; then
     print -u2 "CI must cache immutable inputs, block Rust in Swift lanes, and aggregate all quality lanes"
+    exit 1
+fi
+
+# The Linux domain lane replaces the retired `domain-imports` source rule: it is the compiler
+# proof that SpottyDomain imports nothing from AppKit, SwiftUI, AVFoundation, or the playback
+# FFI. It must build and test the domain in a Swift container and be aggregated by the gate.
+if ! rg -q --fixed-strings 'container: swift:' <<< "$domain_linux_job" \
+    || ! rg -q --fixed-strings 'run: swift build --target SpottyDomain' <<< "$domain_linux_job" \
+    || ! rg -q --fixed-strings 'run: swift test --filter SpottyDomainTests' <<< "$domain_linux_job" \
+    || ! rg -q --fixed-strings 'DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}' <<< "$gate_step" \
+    || ! rg -q --fixed-strings 'test "$DOMAIN_LINUX_RESULT" = success' <<< "$gate_step"; then
+    print -u2 "CI must compile and test SpottyDomain on Linux and require that lane in the gate"
     exit 1
 fi
 

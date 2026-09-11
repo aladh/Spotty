@@ -21,9 +21,9 @@ export SPOTTY_AST_GREP="$ast_grep"
 
 # Required policy owners must exist and contain content, even when compiler jobs are skipped.
 for owner in README.md SECURITY.md CONTRIBUTING.md Sources/Spotty/SpottyApp.swift \
-    Sources/Spotty/Spotify/PlaybackCore.swift \
+    Sources/SpottyEngineAdapter/PlaybackCore.swift \
     Sources/Spotty/Spotify/KeymasterFileStore.swift \
-    Sources/Spotty/Spotify/RustPlaybackEngine.swift \
+    Sources/SpottyEngineAdapter/RustPlaybackEngine.swift \
     Backend/spotty-playback/src/player_event_pump.rs; do
     [[ -f "$owner" && -s "$owner" ]] || { echo "Missing or empty policy owner: $owner" >&2; exit 1; }
 done

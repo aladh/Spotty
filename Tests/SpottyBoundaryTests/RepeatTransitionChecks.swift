@@ -10,6 +10,8 @@ private struct RepeatSend: Equatable, Sendable {
     let enabled: Bool?
 }
 
+// Kept bespoke: applies `RepeatTransitionPlan` mutation-by-mutation and records the resulting
+// `RepeatFlagMutation`s alongside per-mutation fail counts, which `HarnessEngine` has no concept of.
 private final class RepeatLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
     private let lock = NSLock()
     private let failAtCount: Int?
@@ -80,6 +82,9 @@ private final class RepeatMutationCounter: @unchecked Sendable {
     var value = 0
 }
 
+// Kept bespoke: fails only at specific send counts and holds after a specific send count (rather
+// than after every send), and records sends as `RepeatSend` (endpoint + boolean) — none of which
+// `HarnessRemote`'s `SendBehavior` expresses.
 private actor ScriptedRepeatRemote: RemotePlaybackClient {
     private let failAtCounts: Set<Int>
     private let sleepUntilCancelled: Bool
@@ -136,55 +141,6 @@ private actor ScriptedRepeatRemote: RemotePlaybackClient {
         default: nil
         }
     }
-}
-
-private actor IdleRepeatWebQueue: WebQueueClient {
-    func queue() async throws -> [CatalogTrack] {
-        throw URLError(.badServerResponse)
-    }
-}
-
-private actor IdleRepeatPreferences: PlaybackPreferences {
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { nil }
-    func setLastRemoteDeviceID(_: String?) {}
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-private struct StickyRepeatClock: PlaybackClock {
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
-    func sleep(seconds _: TimeInterval) async throws {
-        try await Task.sleep(nanoseconds: 60_000_000_000)
-    }
-}
-
-private func repeatEnvironment(
-    local: any LocalPlaybackEngine,
-    remote: any RemotePlaybackClient
-) -> PlaybackEnvironment {
-    PlaybackEnvironment(
-        remote: remote,
-        local: local,
-        webQueue: IdleRepeatWebQueue(),
-        account: BoundaryIdleAccount(),
-        audioOutput: BoundaryIdleAudio(),
-        preferences: IdleRepeatPreferences(),
-        lifecycle: BoundaryIdleLifecycle(),
-        clock: StickyRepeatClock(),
-        catalog: BoundaryIdleCatalog(),
-        playlistMutations: UnavailablePlaylistMutations(),
-        trackAttributes: BoundaryIdleAttributes()
-    )
-}
-
-@MainActor
-private func playbackStore(_ environment: PlaybackEnvironment) -> PlaybackStore {
-    PlaybackStore(
-        environment: environment,
-        feedback: TransientFeedbackPresenter(clock: environment.clock)
-    )
 }
 
 @MainActor
@@ -345,8 +301,8 @@ struct RepeatTransitionTests {
             ]
             for item in cases {
                 let remote = ScriptedRepeatRemote()
-                let player = playbackStore(
-                    repeatEnvironment(local: RepeatLocalEngine(), remote: remote)
+                let player = HarnessEnvironment.makePlaybackStore(
+                    HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: remote)
                 )
                 seedReadyRemote(player)
                 player.setRepeatMode(item.from)
@@ -366,8 +322,8 @@ struct RepeatTransitionTests {
 
         do {
             let remote = ScriptedRepeatRemote(failAtCounts: [1])
-            let player = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: remote)
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: remote)
             )
             seedReadyRemote(player)
             player.cycleRepeat()
@@ -385,8 +341,8 @@ struct RepeatTransitionTests {
 
         do {
             let remote = ScriptedRepeatRemote(failAtCounts: [2])
-            let player = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: remote)
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: remote)
             )
             seedReadyRemote(player)
             player.setRepeatMode(.context)
@@ -411,8 +367,8 @@ struct RepeatTransitionTests {
 
         do {
             let remote = ScriptedRepeatRemote(failAtCounts: [2, 3])
-            let player = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: remote)
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: remote)
             )
             seedReadyRemote(player)
             player.setRepeatMode(.context)
@@ -435,8 +391,8 @@ struct RepeatTransitionTests {
 
         do {
             let local = RepeatLocalEngine(failAtCount: 2)
-            let player = playbackStore(
-                repeatEnvironment(local: local, remote: ScriptedRepeatRemote())
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: local, remote: ScriptedRepeatRemote())
             )
             seedReadyLocal(player)
             player.setRepeatMode(.context)
@@ -460,8 +416,8 @@ struct RepeatTransitionTests {
 
         do {
             let remote = ScriptedRepeatRemote(failAtCounts: [1], holdAfterCount: 1)
-            let player = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: remote)
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: remote)
             )
             seedReadyRemote(player)
             player.cycleRepeat()
@@ -482,8 +438,8 @@ struct RepeatTransitionTests {
 
         do {
             let bothTrueRemote = ScriptedRepeatRemote()
-            let bothTruePlayer = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: bothTrueRemote)
+            let bothTruePlayer = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: bothTrueRemote)
             )
             seedReadyRemote(bothTruePlayer)
             bothTruePlayer.setRepeat(mode: .track, flags: RepeatFlags(context: true, track: true))
@@ -504,8 +460,8 @@ struct RepeatTransitionTests {
             await bothTruePlayer.shutdownForTermination()
 
             let ordinaryRemote = ScriptedRepeatRemote()
-            let ordinaryPlayer = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: ordinaryRemote)
+            let ordinaryPlayer = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: ordinaryRemote)
             )
             seedReadyRemote(ordinaryPlayer)
             ordinaryPlayer.setRepeatMode(.track)
@@ -520,8 +476,8 @@ struct RepeatTransitionTests {
 
         do {
             let remote = ScriptedRepeatRemote(failAtCounts: [2], holdAfterCount: 2)
-            let player = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: remote)
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: remote)
             )
             seedReadyRemote(player)
             player.setRepeatMode(.context)
@@ -559,8 +515,8 @@ struct RepeatTransitionTests {
 
         do {
             let remote = ScriptedRepeatRemote(failAtCounts: [2], holdAfterCount: 1)
-            let player = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: remote)
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: remote)
             )
             seedReadyRemote(player)
             let priorBothTrue = RepeatFlags(context: true, track: true)
@@ -602,8 +558,8 @@ struct RepeatTransitionTests {
 
         do {
             let targetRemote = ScriptedRepeatRemote(failAtCounts: [2], holdAfterCount: 2)
-            let targetPlayer = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: targetRemote)
+            let targetPlayer = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: targetRemote)
             )
             seedReadyRemote(targetPlayer)
             targetPlayer.setRepeatMode(.context)
@@ -621,8 +577,8 @@ struct RepeatTransitionTests {
             await targetPlayer.shutdownForTermination()
 
             let unrelatedRemote = ScriptedRepeatRemote(failAtCounts: [1], holdAfterCount: 1)
-            let unrelatedPlayer = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: unrelatedRemote)
+            let unrelatedPlayer = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: unrelatedRemote)
             )
             seedReadyRemote(unrelatedPlayer)
             unrelatedPlayer.cycleRepeat()
@@ -641,8 +597,8 @@ struct RepeatTransitionTests {
 
         do {
             let sleeping = ScriptedRepeatRemote(sleepUntilCancelled: true)
-            let cancelStore = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: sleeping)
+            let cancelStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: sleeping)
             )
             seedReadyRemote(cancelStore)
             cancelStore.cycleRepeat()
@@ -662,8 +618,8 @@ struct RepeatTransitionTests {
             await cancelStore.shutdownForTermination()
 
             let teardownRemote = ScriptedRepeatRemote(sleepUntilCancelled: true)
-            let teardownStore = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: teardownRemote)
+            let teardownStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: teardownRemote)
             )
             seedReadyRemote(teardownStore)
             teardownStore.cycleRepeat()
@@ -680,8 +636,8 @@ struct RepeatTransitionTests {
 
         do {
             let failing = RepeatLocalEngine(failAtCount: 1)
-            let failed = playbackStore(
-                repeatEnvironment(local: failing, remote: ScriptedRepeatRemote())
+            let failed = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: failing, remote: ScriptedRepeatRemote())
             )
             seedReadyLocal(failed)
             failed.cycleRepeat()
@@ -699,8 +655,8 @@ struct RepeatTransitionTests {
             await failed.shutdownForTermination()
 
             let succeeding = RepeatLocalEngine()
-            let accepted = playbackStore(
-                repeatEnvironment(local: succeeding, remote: ScriptedRepeatRemote())
+            let accepted = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: succeeding, remote: ScriptedRepeatRemote())
             )
             seedReadyLocal(accepted)
             accepted.cycleRepeat()
@@ -716,8 +672,8 @@ struct RepeatTransitionTests {
 
         do {
             let laggingRemote = ScriptedRepeatRemote(failAtCounts: [1], holdAfterCount: 1)
-            let lagging = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: laggingRemote)
+            let lagging = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: laggingRemote)
             )
             seedReadyRemote(lagging)
             lagging.cycleRepeat()
@@ -736,8 +692,8 @@ struct RepeatTransitionTests {
             await lagging.shutdownForTermination()
 
             let userRemote = ScriptedRepeatRemote(failAtCounts: [1], holdAfterCount: 1)
-            let userStore = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: userRemote)
+            let userStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: userRemote)
             )
             seedReadyRemote(userStore)
             userStore.cycleRepeat()
@@ -766,8 +722,8 @@ struct RepeatTransitionTests {
             await userStore.shutdownForTermination()
 
             let staleRemote = ScriptedRepeatRemote(sleepUntilCancelled: true)
-            let staleStore = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: staleRemote)
+            let staleStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: staleRemote)
             )
             seedReadyRemote(staleStore)
             staleStore.cycleRepeat()
@@ -789,8 +745,8 @@ struct RepeatTransitionTests {
             await staleStore.shutdownForTermination()
 
             let accountRemote = ScriptedRepeatRemote(sleepUntilCancelled: true)
-            let accountStore = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: accountRemote)
+            let accountStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: accountRemote)
             )
             seedReadyRemote(accountStore)
             accountStore.cycleRepeat()
@@ -805,8 +761,8 @@ struct RepeatTransitionTests {
                 (accountStore.repeatMode) == (RepeatMode.off), "an account-epoch bump does not keep signed-in repeat")
             await accountStore.shutdownForTermination()
 
-            let joining = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: ScriptedRepeatRemote())
+            let joining = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: ScriptedRepeatRemote())
             )
             _ = joining.send(.session(.ready), source: .account)
             _ = joining.send(
@@ -822,8 +778,8 @@ struct RepeatTransitionTests {
             await joining.shutdownForTermination()
 
             let duplicateRemote = ScriptedRepeatRemote(sleepUntilCancelled: true)
-            let duplicateStore = playbackStore(
-                repeatEnvironment(local: RepeatLocalEngine(), remote: duplicateRemote)
+            let duplicateStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: RepeatLocalEngine(), remote: duplicateRemote)
             )
             seedReadyRemote(duplicateStore)
             duplicateStore.cycleRepeat()

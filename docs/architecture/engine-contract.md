@@ -84,5 +84,5 @@ or session-identity state. New protocol or ownership boundaries require an expli
 decision, not another engine or state machine alongside the existing one.
 
 The app supplies this identity through
-[ConnectInstallationIDStore](../../Sources/Spotty/Spotify/ConnectInstallationIDStore.swift).
+[ConnectInstallationIDStore](../../Sources/SpottyEngineAdapter/ConnectInstallationIDStore.swift).
 Debug checkout and unbundled-test isolation are documented in [local state](../development/local-state.md).

@@ -8,6 +8,7 @@ import subprocess
 
 APP_ONLY_DIRECTORIES = (
     "Sources/Spotty/", "Sources/SpottyApp/", "Sources/SpottyDomain/",
+    "Sources/SpottyEngineAdapter/",
     "Tests/SpottyBoundaryTests/", "Tests/SpottyDomainTests/",
     "Assets/", "Packaging/", "docs/",
 )

@@ -4,192 +4,6 @@ import Foundation
 import Observation
 @testable import SpottyCore
 
-private final class GatedPositionEngine: LocalPlaybackEngine, @unchecked Sendable {
-    private let lock = NSLock()
-    private let gate = DispatchSemaphore(value: 0)
-    private var didStart = false
-    var milliseconds: UInt32 = 42_000
-
-    var hasStarted: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return didStart
-    }
-
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
-        AsyncStream { $0.finish() }
-    }
-
-    func authorizeStreaming(with _: String) -> Int32 { 0 }
-    func initialize() -> PlaybackEngineResult { .ok }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { .ok }
-    func positionMilliseconds() -> UInt32 {
-        lock.lock()
-        didStart = true
-        lock.unlock()
-        gate.wait()
-        return milliseconds
-    }
-    func queueSnapshot() -> RustQueueState? { nil }
-    func shutdown() -> PlaybackEngineResult { .ok }
-    func cleanup() {}
-    func clearStreamingCredentials() {}
-    func disconnect() -> PlaybackEngineResult { .ok }
-    func forceReconnect() -> Int32 { 0 }
-
-    func release() {
-        gate.signal()
-    }
-}
-
-private final class GatedQueueSnapshotEngine: LocalPlaybackEngine, @unchecked Sendable {
-    private let lock = NSLock()
-    private let gate = DispatchSemaphore(value: 0)
-    private var didStart = false
-    private var snapshot: RustQueueState?
-
-    var hasStarted: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return didStart
-    }
-
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
-        AsyncStream { $0.finish() }
-    }
-
-    func authorizeStreaming(with _: String) -> Int32 { 0 }
-    func initialize() -> PlaybackEngineResult { .ok }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { .ok }
-    func positionMilliseconds() -> UInt32 { 0 }
-    func queueSnapshot() -> RustQueueState? {
-        lock.lock()
-        didStart = true
-        lock.unlock()
-        gate.wait()
-        lock.lock()
-        defer { lock.unlock() }
-        return snapshot
-    }
-    func shutdown() -> PlaybackEngineResult { .ok }
-    func cleanup() {}
-    func clearStreamingCredentials() {}
-    func disconnect() -> PlaybackEngineResult { .ok }
-    func forceReconnect() -> Int32 { 0 }
-
-    func release(_ snapshot: RustQueueState) {
-        lock.lock()
-        self.snapshot = snapshot
-        lock.unlock()
-        gate.signal()
-    }
-}
-
-private final class IdleLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
-        AsyncStream { $0.finish() }
-    }
-    func authorizeStreaming(with _: String) -> Int32 { 0 }
-    func initialize() -> PlaybackEngineResult { .ok }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { .ok }
-    func positionMilliseconds() -> UInt32 { 0 }
-    func queueSnapshot() -> RustQueueState? { nil }
-    func shutdown() -> PlaybackEngineResult { .ok }
-    func cleanup() {}
-    func clearStreamingCredentials() {}
-    func disconnect() -> PlaybackEngineResult { .ok }
-    func forceReconnect() -> Int32 { 0 }
-}
-
-private actor GatedMetadataRemote: RemotePlaybackClient {
-    private var continuation: CheckedContinuation<SpotifyConnectTrackMetadata, Never>?
-    private(set) var requestedURI: String?
-
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {}
-
-    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        requestedURI = uri
-        return await withCheckedContinuation { continuation = $0 }
-    }
-
-    func complete(title: String = "Resolved") {
-        guard let uri = requestedURI else { return }
-        continuation?.resume(
-            returning: SpotifyConnectTrackMetadata(
-                uri: uri,
-                title: title,
-                artist: "Artist",
-                artworkURL: nil,
-                duration: 180
-            )
-        )
-        continuation = nil
-    }
-}
-
-private actor ImmediateMetadataRemote: RemotePlaybackClient {
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {}
-
-    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        SpotifyConnectTrackMetadata(
-            uri: uri,
-            title: "Resolved",
-            artist: "Artist",
-            artworkURL: nil,
-            duration: 180
-        )
-    }
-}
-
-private actor IdleWebQueue: WebQueueClient {
-    func queue() async throws -> [CatalogTrack] {
-        throw URLError(.badServerResponse)
-    }
-}
-
-private actor SuspendedWebQueue: WebQueueClient {
-    private var continuation: CheckedContinuation<[CatalogTrack], any Error>?
-    private(set) var requestCount = 0
-
-    func queue() async throws -> [CatalogTrack] {
-        requestCount += 1
-        return try await withCheckedThrowingContinuation { continuation = $0 }
-    }
-
-    func complete(with tracks: [CatalogTrack]) {
-        continuation?.resume(returning: tracks)
-        continuation = nil
-    }
-}
-
-private actor IdlePreferences: PlaybackPreferences {
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { nil }
-    func setLastRemoteDeviceID(_: String?) {}
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-private actor RecordingOwnerPreferences: PlaybackPreferences {
-    private var remoteID: String?
-
-    func seed(_ id: String?) { remoteID = id }
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { remoteID }
-    func setLastRemoteDeviceID(_ id: String?) { remoteID = id }
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-private struct StickyClock: PlaybackClock {
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
-    func sleep(seconds _: TimeInterval) async throws {
-        try await Task.sleep(nanoseconds: 60_000_000_000)
-    }
-}
-
 private final class ObservationCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var countStorage = 0
@@ -205,35 +19,6 @@ private final class ObservationCounter: @unchecked Sendable {
         countStorage += 1
         lock.unlock()
     }
-}
-
-private func outcomeEnvironment(
-    local: any LocalPlaybackEngine = IdleLocalEngine(),
-    remote: any RemotePlaybackClient,
-    webQueue: any WebQueueClient = IdleWebQueue(),
-    preferences: any PlaybackPreferences = IdlePreferences()
-) -> PlaybackEnvironment {
-    PlaybackEnvironment(
-        remote: remote,
-        local: local,
-        webQueue: webQueue,
-        account: BoundaryIdleAccount(),
-        audioOutput: BoundaryIdleAudio(),
-        preferences: preferences,
-        lifecycle: BoundaryIdleLifecycle(),
-        clock: StickyClock(),
-        catalog: BoundaryIdleCatalog(),
-        playlistMutations: UnavailablePlaylistMutations(),
-        trackAttributes: BoundaryIdleAttributes()
-    )
-}
-
-@MainActor
-private func playbackStore(_ environment: PlaybackEnvironment) -> PlaybackStore {
-    PlaybackStore(
-        environment: environment,
-        feedback: TransientFeedbackPresenter(clock: environment.clock)
-    )
 }
 
 private func fixtureTrack(_ uri: String, title: String) -> CatalogTrack {
@@ -383,6 +168,8 @@ private final class RecordingSystemMediaOutput: SystemMediaControlsOutput {
     func remove() { removals += 1; snapshot = nil }
 }
 
+/// Kept as a bespoke fake: it maps commands to simplified strings and tracks `to` destinations
+/// separately, which `HarnessRemote`'s `commands`/`endpoints` observation does not expose.
 private actor MediaKeyRemote: RemotePlaybackClient {
     private(set) var destinations: [String] = []
     private(set) var commands: [String] = []
@@ -407,7 +194,7 @@ struct PlaybackEventOutcomeTests {
     @MainActor
     func systemMediaKeysFollowRemoteOwnerAndStopWithLifetime() async {
         let remote = MediaKeyRemote()
-        let player = playbackStore(outcomeEnvironment(remote: remote))
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: remote))
         let output = RecordingSystemMediaOutput()
         let controls = SystemMediaControls(player: player, output: output)
         controls.start()
@@ -451,7 +238,9 @@ struct PlaybackEventOutcomeTests {
     @Test
     @MainActor
     func testSidebarPlaylistFollowsLocalAndRemoteContext() async {
-        let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         seedReadyLocalPlayback(player, uri: "spotify:track:indicator")
         player.hasReceivedPlaybackSnapshot = true
         let access = CatalogPlaybackAccess(player: player)
@@ -498,7 +287,9 @@ struct PlaybackEventOutcomeTests {
     @Test
     @MainActor
     func timingTicksLeaveSemanticDeviceAndQueueObserversAsleep() async {
-        let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         seedReadyLocalPlayback(player, uri: "spotify:track:projection")
         let semanticChanges = ObservationCounter()
         let timingChanges = ObservationCounter()
@@ -573,7 +364,9 @@ struct PlaybackEventOutcomeTests {
     @Test
     @MainActor
     func testCatalogPlaybackObservationSkipsTimingTicks() async {
-        let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         seedReadyLocalPlayback(player, uri: "spotify:track:indicator")
 
         let initialIndicator = player.currentTrackIndicator
@@ -619,14 +412,14 @@ struct PlaybackEventOutcomeTests {
     @MainActor
     func testPlaybackEventOutcome() async {
         do {
-            let successRemote = GatedMetadataRemote()
-            let success = playbackStore(outcomeEnvironment(remote: successRemote))
+            let successRemote = HarnessRemote(metadata: .park)
+            let success = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: successRemote))
             startTrackResolution(success, uri: "spotify:track:success")
             #expect(
-                (await waitUntil { await successRemote.requestedURI == "spotify:track:success" }) == true,
+                (await waitUntil { successRemote.requestedURI == "spotify:track:success" }) == true,
                 "metadata lookup starts")
             success.recordPlayed("spotify:track:success")
-            await successRemote.complete()
+            successRemote.completeMetadata(title: "Resolved")
             #expect(
                 (await waitUntil { success.state.currentTrack?.title == "Resolved" }) == true,
                 "accepted metadata updates the current track")
@@ -637,15 +430,15 @@ struct PlaybackEventOutcomeTests {
                 "history enrichment waits for reducer acceptance")
             await success.shutdownForTermination()
 
-            let staleEngineRemote = GatedMetadataRemote()
-            let staleEngine = playbackStore(outcomeEnvironment(remote: staleEngineRemote))
+            let staleEngineRemote = HarnessRemote(metadata: .park)
+            let staleEngine = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: staleEngineRemote))
             startTrackResolution(staleEngine, uri: "spotify:track:stale-engine")
             #expect(
-                (await waitUntil { await staleEngineRemote.requestedURI != nil }) == true,
+                (await waitUntil { staleEngineRemote.requestedURI != nil }) == true,
                 "stale-engine metadata lookup starts")
             let staleEngineMetadata = staleEngine.effects.settlement(of: .trackMetadata)
             bumpEngine(staleEngine)
-            await staleEngineRemote.complete(title: "Late engine")
+            staleEngineRemote.completeMetadata(title: "Late engine")
             await awaitCapturedEffect(
                 staleEngineMetadata,
                 registered: "stale-engine metadata effect is registered before invalidation"
@@ -656,11 +449,11 @@ struct PlaybackEventOutcomeTests {
             #expect((staleEngine.history.entries.isEmpty) == true, "stale-engine metadata does not create history")
             await staleEngine.shutdownForTermination()
 
-            let staleAccountRemote = GatedMetadataRemote()
-            let staleAccount = playbackStore(outcomeEnvironment(remote: staleAccountRemote))
+            let staleAccountRemote = HarnessRemote(metadata: .park)
+            let staleAccount = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: staleAccountRemote))
             startTrackResolution(staleAccount, uri: "spotify:track:stale-account")
             #expect(
-                (await waitUntil { await staleAccountRemote.requestedURI != nil }) == true,
+                (await waitUntil { staleAccountRemote.requestedURI != nil }) == true,
                 "stale-account metadata lookup starts")
             staleAccount.recordPlayed("spotify:track:stale-account")
             let staleAccountMetadata = staleAccount.effects.settlement(of: .trackMetadata)
@@ -670,7 +463,7 @@ struct PlaybackEventOutcomeTests {
                 source: .account,
                 accountEpoch: staleAccount.accountEpoch
             )
-            await staleAccountRemote.complete(title: "Late account")
+            staleAccountRemote.completeMetadata(title: "Late account")
             await awaitCapturedEffect(
                 staleAccountMetadata,
                 registered: "stale-account metadata effect is registered before invalidation"
@@ -681,16 +474,16 @@ struct PlaybackEventOutcomeTests {
                 "stale-account metadata does not enrich history after reset")
             await staleAccount.shutdownForTermination()
 
-            let cancelRemote = GatedMetadataRemote()
-            let cancelled = playbackStore(outcomeEnvironment(remote: cancelRemote))
+            let cancelRemote = HarnessRemote(metadata: .park)
+            let cancelled = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: cancelRemote))
             startTrackResolution(cancelled, uri: "spotify:track:cancelled")
             #expect(
-                (await waitUntil { await cancelRemote.requestedURI != nil }) == true, "cancelled metadata lookup starts"
+                (await waitUntil { cancelRemote.requestedURI != nil }) == true, "cancelled metadata lookup starts"
             )
             cancelled.recordPlayed("spotify:track:cancelled")
             let cancelledMetadata = cancelled.effects.settlement(of: .trackMetadata)
             cancelled.effects.cancel(.trackMetadata)
-            await cancelRemote.complete(title: "Cancelled")
+            cancelRemote.completeMetadata(title: "Cancelled")
             await awaitCapturedEffect(
                 cancelledMetadata,
                 registered: "cancelled metadata effect is registered before cancellation"
@@ -701,11 +494,11 @@ struct PlaybackEventOutcomeTests {
                 "cancelled metadata does not enrich history")
             await cancelled.shutdownForTermination()
 
-            let rejectedRemote = GatedMetadataRemote()
-            let rejected = playbackStore(outcomeEnvironment(remote: rejectedRemote))
+            let rejectedRemote = HarnessRemote(metadata: .park)
+            let rejected = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: rejectedRemote))
             startTrackResolution(rejected, uri: "spotify:track:original")
             #expect(
-                (await waitUntil { await rejectedRemote.requestedURI == "spotify:track:original" }) == true,
+                (await waitUntil { rejectedRemote.requestedURI == "spotify:track:original" }) == true,
                 "reducer-rejection metadata lookup starts")
             rejected.recordPlayed("spotify:track:original")
             _ = rejected.send(
@@ -719,7 +512,7 @@ struct PlaybackEventOutcomeTests {
                 source: .user
             )
             let rejectedMetadata = rejected.effects.settlement(of: .trackMetadata)
-            await rejectedRemote.complete(title: "From original")
+            rejectedRemote.completeMetadata(title: "From original")
             await awaitCapturedEffect(
                 rejectedMetadata,
                 registered: "reducer-rejection metadata effect is registered before completion"
@@ -734,27 +527,31 @@ struct PlaybackEventOutcomeTests {
         }
 
         do {
-            let successEngine = GatedPositionEngine()
-            let success = playbackStore(
-                outcomeEnvironment(local: successEngine, remote: ImmediateMetadataRemote())
+            let successEngine = HarnessEngine()
+            let successGate = HarnessEngineGate()
+            successEngine.onPositionMilliseconds = { [successGate] in successGate.wait(); return 42_000 }
+            let success = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: successEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             seedReadyLocalPlayback(success, uri: "spotify:track:playing")
             success.refreshPosition()
-            #expect((await waitUntil { successEngine.hasStarted }) == true, "position refresh starts")
-            successEngine.release()
+            #expect((await waitUntil { successGate.hasStarted }) == true, "position refresh starts")
+            successGate.release()
             #expect(
                 (await waitUntil { success.state.timing.position == 42 }) == true,
                 "accepted timing replaces the anchored position")
             await success.shutdownForTermination()
 
-            let staleAccountEngine = GatedPositionEngine()
-            let staleAccount = playbackStore(
-                outcomeEnvironment(local: staleAccountEngine, remote: ImmediateMetadataRemote())
+            let staleAccountEngine = HarnessEngine()
+            let staleAccountGate = HarnessEngineGate()
+            staleAccountEngine.onPositionMilliseconds = { [staleAccountGate] in staleAccountGate.wait(); return 42_000 }
+            let staleAccount = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: staleAccountEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             seedReadyLocalPlayback(staleAccount, uri: "spotify:track:playing")
             staleAccount.refreshPosition()
             #expect(
-                (await waitUntil { staleAccountEngine.hasStarted }) == true, "stale-account position refresh starts")
+                (await waitUntil { staleAccountGate.hasStarted }) == true, "stale-account position refresh starts")
             let staleAccountPosition = staleAccount.effects.settlement(of: .positionRefresh)
             staleAccount.accountStore.advanceEpoch()
             _ = staleAccount.send(
@@ -762,7 +559,7 @@ struct PlaybackEventOutcomeTests {
                 source: .account,
                 accountEpoch: staleAccount.accountEpoch
             )
-            staleAccountEngine.release()
+            staleAccountGate.release()
             await awaitCapturedEffect(
                 staleAccountPosition,
                 registered: "stale-account position refresh is registered before invalidation"
@@ -773,16 +570,18 @@ struct PlaybackEventOutcomeTests {
             )
             await staleAccount.shutdownForTermination()
 
-            let staleEngineEngine = GatedPositionEngine()
-            let staleEngine = playbackStore(
-                outcomeEnvironment(local: staleEngineEngine, remote: ImmediateMetadataRemote())
+            let staleEngineEngine = HarnessEngine()
+            let staleEngineGate = HarnessEngineGate()
+            staleEngineEngine.onPositionMilliseconds = { [staleEngineGate] in staleEngineGate.wait(); return 42_000 }
+            let staleEngine = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: staleEngineEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             seedReadyLocalPlayback(staleEngine, uri: "spotify:track:playing")
             staleEngine.refreshPosition()
-            #expect((await waitUntil { staleEngineEngine.hasStarted }) == true, "stale-engine position refresh starts")
+            #expect((await waitUntil { staleEngineGate.hasStarted }) == true, "stale-engine position refresh starts")
             let staleEnginePosition = staleEngine.effects.settlement(of: .positionRefresh)
             bumpEngine(staleEngine)
-            staleEngineEngine.release()
+            staleEngineGate.release()
             await awaitCapturedEffect(
                 staleEnginePosition,
                 registered: "stale-engine position refresh is registered before invalidation"
@@ -790,16 +589,18 @@ struct PlaybackEventOutcomeTests {
             #expect((staleEngine.state.timing.position) == (5), "stale-engine position refresh is inert")
             await staleEngine.shutdownForTermination()
 
-            let cancelEngine = GatedPositionEngine()
-            let cancelled = playbackStore(
-                outcomeEnvironment(local: cancelEngine, remote: ImmediateMetadataRemote())
+            let cancelEngine = HarnessEngine()
+            let cancelGate = HarnessEngineGate()
+            cancelEngine.onPositionMilliseconds = { [cancelGate] in cancelGate.wait(); return 42_000 }
+            let cancelled = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: cancelEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             seedReadyLocalPlayback(cancelled, uri: "spotify:track:playing")
             cancelled.refreshPosition()
-            #expect((await waitUntil { cancelEngine.hasStarted }) == true, "cancelled position refresh starts")
+            #expect((await waitUntil { cancelGate.hasStarted }) == true, "cancelled position refresh starts")
             let cancelledPosition = cancelled.effects.settlement(of: .positionRefresh)
             cancelled.effects.cancel(.positionRefresh)
-            cancelEngine.release()
+            cancelGate.release()
             await awaitCapturedEffect(
                 cancelledPosition,
                 registered: "cancelled position refresh is registered before cancellation"
@@ -809,7 +610,9 @@ struct PlaybackEventOutcomeTests {
         }
 
         do {
-            let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+            let player = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+            )
             _ = player.send(.session(.ready), source: .account)
             player.catalogSession.update(accountEpoch: player.accountEpoch, isAvailable: true)
 
@@ -867,18 +670,18 @@ struct PlaybackEventOutcomeTests {
                 "stale-account queue does not retain catalog metadata")
             await player.shutdownForTermination()
 
-            let webQueue = SuspendedWebQueue()
-            let cancelled = playbackStore(
-                outcomeEnvironment(remote: ImmediateMetadataRemote(), webQueue: webQueue)
+            let webQueue = HarnessWebQueue(.park)
+            let cancelled = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), webQueue: webQueue)
             )
             await cancelled.restore()
             _ = cancelled.send(.session(.ready), source: .account)
             cancelled.catalogSession.update(accountEpoch: cancelled.accountEpoch, isAvailable: true)
             cancelled.refreshQueue()
-            #expect((await waitUntil { await webQueue.requestCount == 1 }) == true, "queue refresh starts")
+            #expect((await waitUntil { webQueue.requestCount == 1 }) == true, "queue refresh starts")
             let cancelledQueueRefresh = cancelled.effects.settlement(of: .queueRefresh)
             cancelled.cancelQueueRefresh()
-            await webQueue.complete(with: [fixtureTrack("spotify:track:cancelled-queue", title: "Cancelled")])
+            webQueue.complete(with: [fixtureTrack("spotify:track:cancelled-queue", title: "Cancelled")])
             await awaitCapturedEffect(
                 cancelledQueueRefresh,
                 registered: "cancelled queue refresh is registered before cancellation"
@@ -891,20 +694,23 @@ struct PlaybackEventOutcomeTests {
         }
 
         do {
-            let namedEngine = GatedQueueSnapshotEngine()
-            let namedRemote = GatedMetadataRemote()
-            let named = playbackStore(
-                outcomeEnvironment(local: namedEngine, remote: namedRemote)
+            let namedEngine = HarnessEngine()
+            let namedGate = HarnessEngineGate()
+            namedEngine.onQueueSnapshot = { [namedGate, namedEngine] in namedGate.wait(); return namedEngine.snapshot }
+            let namedRemote = HarnessRemote(metadata: .park)
+            let named = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: namedEngine, remote: namedRemote)
             )
             let uri = "spotify:track:same"
             seedReadyLocalPlayback(named, uri: uri)
             named.recordPlayed(uri)
             named.refreshQueueSnapshot()
-            #expect((await waitUntil { namedEngine.hasStarted }) == true, "named queue snapshot fetch starts")
+            #expect((await waitUntil { namedGate.hasStarted }) == true, "named queue snapshot fetch starts")
             let namedSnapshot = named.effects.settlement(of: .queueSnapshot)
             let staleNamedGeneration = named.engineGeneration
             bumpEngine(named)
-            namedEngine.release(queueSnapshot(uri: uri, sessionGeneration: staleNamedGeneration))
+            namedEngine.snapshot = queueSnapshot(uri: uri, sessionGeneration: staleNamedGeneration)
+            namedGate.release()
             await awaitCapturedEffect(
                 namedSnapshot,
                 registered: "stale named snapshot effect is registered before invalidation"
@@ -917,22 +723,28 @@ struct PlaybackEventOutcomeTests {
             #expect(
                 (named.history.entries.first?.title) == ("Unknown track"),
                 "stale named snapshot does not enrich history")
-            #expect((await namedRemote.requestedURI) == nil, "stale named snapshot does not start metadata resolution")
+            #expect((namedRemote.requestedURI) == nil, "stale named snapshot does not start metadata resolution")
             await named.shutdownForTermination()
 
-            let missingEngine = GatedQueueSnapshotEngine()
-            let missingRemote = GatedMetadataRemote()
-            let missing = playbackStore(
-                outcomeEnvironment(local: missingEngine, remote: missingRemote)
+            let missingEngine = HarnessEngine()
+            let missingGate = HarnessEngineGate()
+            missingEngine.onQueueSnapshot = { [missingGate, missingEngine] in
+                missingGate.wait()
+                return missingEngine.snapshot
+            }
+            let missingRemote = HarnessRemote(metadata: .park)
+            let missing = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: missingEngine, remote: missingRemote)
             )
             seedReadyLocalPlayback(missing, uri: uri, title: nil, metadataSource: .none)
             missing.recordPlayed(uri)
             missing.refreshQueueSnapshot()
-            #expect((await waitUntil { missingEngine.hasStarted }) == true, "nameless queue snapshot fetch starts")
+            #expect((await waitUntil { missingGate.hasStarted }) == true, "nameless queue snapshot fetch starts")
             let missingSnapshot = missing.effects.settlement(of: .queueSnapshot)
             let staleMissingGeneration = missing.engineGeneration
             bumpEngine(missing)
-            missingEngine.release(queueSnapshot(uri: uri, sessionGeneration: staleMissingGeneration))
+            missingEngine.snapshot = queueSnapshot(uri: uri, sessionGeneration: staleMissingGeneration)
+            missingGate.release()
             await awaitCapturedEffect(
                 missingSnapshot,
                 registered: "stale nameless snapshot effect is registered before invalidation"
@@ -943,24 +755,28 @@ struct PlaybackEventOutcomeTests {
                 (missing.history.entries.first?.title) == ("Unknown track"),
                 "stale nameless snapshot does not enrich history")
             #expect(
-                (await missingRemote.requestedURI) == nil, "stale nameless snapshot does not launch a metadata resolver"
+                (missingRemote.requestedURI) == nil, "stale nameless snapshot does not launch a metadata resolver"
             )
             await missing.shutdownForTermination()
 
-            let watermarkEngine = GatedQueueSnapshotEngine()
-            let watermarkStore = playbackStore(
-                outcomeEnvironment(local: watermarkEngine, remote: ImmediateMetadataRemote())
+            let watermarkEngine = HarnessEngine()
+            let watermarkGate = HarnessEngineGate()
+            watermarkEngine.onQueueSnapshot = { [watermarkGate, watermarkEngine] in
+                watermarkGate.wait()
+                return watermarkEngine.snapshot
+            }
+            let watermarkStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: watermarkEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             seedReadyLocalPlayback(watermarkStore, uri: uri)
             let before = watermarkStore.connectQueueCallback
             watermarkStore.refreshQueueSnapshot()
-            #expect((await waitUntil { watermarkEngine.hasStarted }) == true, "watermark snapshot fetch starts")
+            #expect((await waitUntil { watermarkGate.hasStarted }) == true, "watermark snapshot fetch starts")
             let watermarkSnapshot = watermarkStore.effects.settlement(of: .queueSnapshot)
             let staleWatermarkGeneration = watermarkStore.engineGeneration
             bumpEngine(watermarkStore)
-            watermarkEngine.release(
-                queueSnapshot(uri: uri, revision: 9, sessionGeneration: staleWatermarkGeneration)
-            )
+            watermarkEngine.snapshot = queueSnapshot(uri: uri, revision: 9, sessionGeneration: staleWatermarkGeneration)
+            watermarkGate.release()
             await awaitCapturedEffect(
                 watermarkSnapshot,
                 registered: "stale watermark snapshot effect is registered before invalidation"
@@ -978,23 +794,27 @@ struct PlaybackEventOutcomeTests {
                 )) == true, "a later live callback can still start a fresh revision namespace")
             await watermarkStore.shutdownForTermination()
 
-            let payloadEngine = GatedQueueSnapshotEngine()
-            let payloadStore = playbackStore(
-                outcomeEnvironment(local: payloadEngine, remote: ImmediateMetadataRemote())
+            let payloadEngine = HarnessEngine()
+            let payloadGate = HarnessEngineGate()
+            payloadEngine.onQueueSnapshot = { [payloadGate, payloadEngine] in
+                payloadGate.wait()
+                return payloadEngine.snapshot
+            }
+            let payloadStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: payloadEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             await payloadStore.restore()
             seedReadyLocalPlayback(payloadStore, uri: uri)
             let mirroredGeneration = payloadStore.engineGeneration
             let payloadGeneration = mirroredGeneration + 1
             payloadStore.refreshQueueSnapshot()
-            #expect((await waitUntil { payloadEngine.hasStarted }) == true, "payload-generation snapshot fetch starts")
-            payloadEngine.release(
-                queueSnapshot(
-                    uri: uri,
-                    revision: 3,
-                    sessionGeneration: payloadGeneration
-                )
+            #expect((await waitUntil { payloadGate.hasStarted }) == true, "payload-generation snapshot fetch starts")
+            payloadEngine.snapshot = queueSnapshot(
+                uri: uri,
+                revision: 3,
+                sessionGeneration: payloadGeneration
             )
+            payloadGate.release()
             #expect(
                 (await waitUntil { payloadStore.state.engineEpoch == payloadGeneration }) == true,
                 "decoded payload generation stamps reducer state before playback catches up")
@@ -1012,27 +832,31 @@ struct PlaybackEventOutcomeTests {
                 "decoded payload generation does not stamp the pre-await mirror")
             await payloadStore.shutdownForTermination()
 
-            let bumpedEngine = GatedQueueSnapshotEngine()
-            let bumpedStore = playbackStore(
-                outcomeEnvironment(local: bumpedEngine, remote: ImmediateMetadataRemote())
+            let bumpedEngine = HarnessEngine()
+            let bumpedGate = HarnessEngineGate()
+            bumpedEngine.onQueueSnapshot = { [bumpedGate, bumpedEngine] in
+                bumpedGate.wait()
+                return bumpedEngine.snapshot
+            }
+            let bumpedStore = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: bumpedEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             await bumpedStore.restore()
             seedReadyLocalPlayback(bumpedStore, uri: uri)
             let beforeBump = bumpedStore.engineGeneration
             bumpedStore.refreshQueueSnapshot()
-            #expect((await waitUntil { bumpedEngine.hasStarted }) == true, "bumped-engine snapshot fetch starts")
+            #expect((await waitUntil { bumpedGate.hasStarted }) == true, "bumped-engine snapshot fetch starts")
             bumpEngine(bumpedStore)
             let liveGeneration = bumpedStore.engineGeneration
             #expect(
                 (liveGeneration > beforeBump) == true, "playback adopted a newer engine epoch during the snapshot await"
             )
-            bumpedEngine.release(
-                queueSnapshot(
-                    uri: uri,
-                    revision: 4,
-                    sessionGeneration: liveGeneration
-                )
+            bumpedEngine.snapshot = queueSnapshot(
+                uri: uri,
+                revision: 4,
+                sessionGeneration: liveGeneration
             )
+            bumpedGate.release()
             #expect(
                 (await waitUntil { bumpedStore.state.engineEpoch == liveGeneration }) == true,
                 "a snapshot decoded after a live engine bump still stamps the payload generation")
@@ -1044,23 +868,27 @@ struct PlaybackEventOutcomeTests {
                 "a live-generation snapshot stamps mutation with the payload, not the pre-await mirror")
             await bumpedStore.shutdownForTermination()
 
-            let stalePayloadEngine = GatedQueueSnapshotEngine()
-            let stalePayload = playbackStore(
-                outcomeEnvironment(local: stalePayloadEngine, remote: ImmediateMetadataRemote())
+            let stalePayloadEngine = HarnessEngine()
+            let stalePayloadGate = HarnessEngineGate()
+            stalePayloadEngine.onQueueSnapshot = { [stalePayloadGate, stalePayloadEngine] in
+                stalePayloadGate.wait()
+                return stalePayloadEngine.snapshot
+            }
+            let stalePayload = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(engine: stalePayloadEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             seedReadyLocalPlayback(stalePayload, uri: uri)
             let staleBefore = stalePayload.engineGeneration
             stalePayload.refreshQueueSnapshot()
-            #expect((await waitUntil { stalePayloadEngine.hasStarted }) == true, "stale-payload snapshot fetch starts")
+            #expect((await waitUntil { stalePayloadGate.hasStarted }) == true, "stale-payload snapshot fetch starts")
             let stalePayloadSnapshot = stalePayload.effects.settlement(of: .queueSnapshot)
             bumpEngine(stalePayload)
-            stalePayloadEngine.release(
-                queueSnapshot(
-                    uri: uri,
-                    revision: 5,
-                    sessionGeneration: staleBefore
-                )
+            stalePayloadEngine.snapshot = queueSnapshot(
+                uri: uri,
+                revision: 5,
+                sessionGeneration: staleBefore
             )
+            stalePayloadGate.release()
             await awaitCapturedEffect(
                 stalePayloadSnapshot,
                 registered: "stale payload snapshot effect is registered before invalidation"
@@ -1095,10 +923,13 @@ struct PlaybackEventOutcomeTests {
                 )
             }
 
-            let launchPreferences = RecordingOwnerPreferences()
-            await launchPreferences.seed("phone")
-            let launch = playbackStore(
-                outcomeEnvironment(remote: ImmediateMetadataRemote(), preferences: launchPreferences)
+            let launchPreferences = HarnessPreferences()
+            launchPreferences.seed(lastRemoteDeviceID: "phone")
+            let launch = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(
+                    remote: HarnessRemote(metadataTitle: "Resolved"),
+                    preferences: launchPreferences
+                )
             )
             seedIdentity(launch)
             launch.lastRemoteDeviceID = "phone"
@@ -1126,9 +957,12 @@ struct PlaybackEventOutcomeTests {
             )
             await launch.shutdownForTermination()
 
-            let remotePreferences = RecordingOwnerPreferences()
-            let remoteActive = playbackStore(
-                outcomeEnvironment(remote: ImmediateMetadataRemote(), preferences: remotePreferences)
+            let remotePreferences = HarnessPreferences()
+            let remoteActive = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(
+                    remote: HarnessRemote(metadataTitle: "Resolved"),
+                    preferences: remotePreferences
+                )
             )
             seedIdentity(remoteActive)
             remoteActive.receive([mac, activePhone], revision: 1, engineEpoch: remoteActive.engineGeneration)
@@ -1141,14 +975,16 @@ struct PlaybackEventOutcomeTests {
                 "the store records last-remote after an accepted active remote")
             let preferenceWritten: Bool
             if remoteActive.lastRemoteDeviceID == "phone" {
-                preferenceWritten = await waitUntil { await remotePreferences.lastRemoteDeviceID() == "phone" }
+                preferenceWritten = await waitUntil { remotePreferences.storedRemoteDeviceID == "phone" }
             } else {
                 preferenceWritten = false
             }
             #expect((preferenceWritten) == true, "an accepted active remote writes the last-remote preference")
             await remoteActive.shutdownForTermination()
 
-            let stale = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+            let stale = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+            )
             seedIdentity(stale)
             stale.lastRemoteDeviceID = "phone"
             stale.receive([mac, phone], revision: 4, engineEpoch: stale.engineGeneration)
@@ -1177,7 +1013,9 @@ struct PlaybackEventOutcomeTests {
             #expect((stale.state) == (afterDevices), "a stale account epoch does not replace owner")
             await stale.shutdownForTermination()
 
-            let teardown = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+            let teardown = HarnessEnvironment.makePlaybackStore(
+                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+            )
             seedIdentity(teardown)
             teardown.lastRemoteDeviceID = nil
             let beforeTeardown = teardown.state
@@ -1192,7 +1030,9 @@ struct PlaybackEventOutcomeTests {
         do {
             let clockNow = Date(timeIntervalSince1970: 1_800_000_000)
             let receipt = Date(timeIntervalSince1970: 1_800_000_050)
-            let player = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+            let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
             seedReadyLocalPlayback(player, uri: "spotify:track:clocked")
 
             _ = player.setTiming(position: 12)
@@ -1273,11 +1113,15 @@ struct PlaybackEventOutcomeTests {
             isActiveDevice: true
         )
 
-        let connectionFirst = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let connectionFirst = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         connectionFirst.receive(connection, revision: 1, receivedAt: receivedAt)
         connectionFirst.receive(playback, revision: 2, receivedAt: receivedAt)
 
-        let playbackFirst = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let playbackFirst = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         playbackFirst.receive(playback, revision: 2, receivedAt: receivedAt)
         playbackFirst.receive(connection, revision: 1, receivedAt: receivedAt)
 
@@ -1301,14 +1145,16 @@ struct PlaybackEventOutcomeTests {
     @Test
     @MainActor
     func testPositionRefreshCannotCrossTrackTransition() async {
-        let engine = GatedPositionEngine()
-        let player = playbackStore(
-            outcomeEnvironment(local: engine, remote: ImmediateMetadataRemote())
+        let engine = HarnessEngine()
+        let gate = HarnessEngineGate()
+        engine.onPositionMilliseconds = { [gate] in gate.wait(); return 42_000 }
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: engine, remote: HarnessRemote(metadataTitle: "Resolved"))
         )
         seedReadyLocalPlayback(player, uri: "spotify:track:old")
 
         player.refreshPosition()
-        #expect((await waitUntil { engine.hasStarted }) == true, "position refresh starts")
+        #expect((await waitUntil { gate.hasStarted }) == true, "position refresh starts")
         let positionRefresh = player.effects.settlement(of: .positionRefresh)
 
         #expect(
@@ -1326,7 +1172,7 @@ struct PlaybackEventOutcomeTests {
         #expect((player.state.currentTrack?.uri) == ("spotify:track:new"), "the new track is current")
         #expect((player.state.timing.position) == (5), "the track transition keeps its existing timing")
 
-        engine.release()
+        gate.release()
         await awaitCapturedEffect(
             positionRefresh,
             registered: "track-scoped position refresh is registered before completion"
@@ -1343,7 +1189,9 @@ struct PlaybackEventOutcomeTests {
     func testPlaybackUnavailableIntakeSurfacesOnlyAcceptedLocalFailures(audioKeyRefused: Bool) async {
         let receivedAt = Date(timeIntervalSince1970: 1_800_000_100)
         let localURI = "spotify:track:boundary-unavailable"
-        let local = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let local = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         seedReadyLocalPlayback(local, uri: localURI)
 
         local.receive(
@@ -1379,7 +1227,9 @@ struct PlaybackEventOutcomeTests {
         }
         #expect((local.playbackNotice) == nil, "the matching notice identity can be dismissed")
 
-        let remote = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let remote = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         seedReadyLocalPlayback(remote, uri: "spotify:track:remote-unavailable")
         _ = remote.send(
             .owner(.remote(PlaybackDevice(id: "speaker", name: "Speaker", type: "speaker"))),
@@ -1407,7 +1257,9 @@ struct PlaybackEventOutcomeTests {
         )
         #expect((remote.playbackNotice) == nil, "a remote engine sample cannot create a notice")
 
-        let empty = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let empty = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         seedReadyLocalPlayback(empty, uri: "spotify:track:empty-unavailable")
         empty.receive(
             RustPlaybackState(
@@ -1442,7 +1294,9 @@ struct CoherentConnectIntakeTests {
     @Test
     @MainActor
     func settledIntentRevokesOnlyItsUnclaimedPermit() async {
-        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         store.receive(cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a"), receivedAt: Date())
         let transportID = UUID()
         let optionsID = UUID()
@@ -1476,7 +1330,9 @@ struct CoherentConnectIntakeTests {
     @Test
     @MainActor
     func initializationReturnDoesNotPublishCommandReadiness() async {
-        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         store.accountStore.onPhaseChange?(.connecting)
         store.accountStore.onPhaseChange?(.ready)
         #expect(store.phase == .connecting)
@@ -1502,7 +1358,9 @@ struct CoherentConnectIntakeTests {
     @Test
     @MainActor
     func aggregateOwnerAndQueueIdentityStayCoherent() async {
-        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         let observation = cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:new")
         store.receive(observation, receivedAt: Date())
         #expect(store.trackURI == "spotify:track:new")
@@ -1517,12 +1375,12 @@ struct CoherentConnectIntakeTests {
     @Test
     @MainActor
     func staleAggregateDevicesDoNotPersistRemoteIdentity() async {
-        let preferences = RecordingOwnerPreferences()
-        let store = playbackStore(
-            outcomeEnvironment(remote: ImmediateMetadataRemote(), preferences: preferences)
+        let preferences = HarnessPreferences()
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), preferences: preferences)
         )
         store.receive(cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a"), receivedAt: Date())
-        #expect(await waitUntil { await preferences.lastRemoteDeviceID() == "phone" })
+        #expect(await waitUntil { preferences.storedRemoteDeviceID == "phone" })
 
         let acceptedDevices = store.state.devices
         store.receive(
@@ -1541,7 +1399,7 @@ struct CoherentConnectIntakeTests {
         )
         #expect(store.lastRemoteDeviceID == "phone", "the rejected component cannot change the saved route")
         #expect(
-            await preferences.lastRemoteDeviceID() == "phone",
+            preferences.storedRemoteDeviceID == "phone",
             "a stale aggregate devices component does not persist its remote identity"
         )
         await store.shutdownForTermination()
@@ -1550,7 +1408,9 @@ struct CoherentConnectIntakeTests {
     @Test
     @MainActor
     func pressureGapReconstructsTruthWithoutRestartingEngine() async {
-        let store = playbackStore(outcomeEnvironment(remote: ImmediateMetadataRemote()))
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
         let authoritative = cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a")
         store.receive(authoritative, receivedAt: Date())
         store.send(

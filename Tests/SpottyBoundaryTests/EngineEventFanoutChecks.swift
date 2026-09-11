@@ -464,7 +464,7 @@ private func runEmitAfterLastSubscriber() {
 @MainActor
 private func runFixedClockReceiptTimestamps() {
     let origin = Date(timeIntervalSince1970: 2_000_000)
-    let frozen = EngineEventFanout(clock: FrozenFanoutClock(date: origin))
+    let frozen = EngineEventFanout(clock: HarnessClock(now: origin, sleep: .immediate))
     let events = [
         playbackEvent(),
         queueEvent(),
@@ -596,12 +596,6 @@ private func runCoalescingBarriers() {
 
 private func wait(_ semaphore: DispatchSemaphore) -> Bool {
     semaphore.wait(timeout: .now() + .seconds(5)) == .success
-}
-
-private struct FrozenFanoutClock: PlaybackClock {
-    let date: Date
-    func now() -> Date { date }
-    func sleep(seconds _: TimeInterval) async throws {}
 }
 
 private final class FanoutRecorder<Value>: @unchecked Sendable {

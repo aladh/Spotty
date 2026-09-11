@@ -33,16 +33,16 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1 if findings else 0, result.stderr)
             return {finding["ruleId"] for finding in findings}
 
-    def test_import_and_adapter_owner_exceptions(self):
+    def test_engine_boundary_is_owned_by_the_package_graph(self):
+        # SRC-FFI-001/-002 and SRC-DOM-001 are retired: only SpottyEngineAdapter depends on the
+        # SpottyPlaybackCore binary target, PlaybackCore is internal to it, and SpottyDomain is
+        # compiled for Linux. Nothing here may re-assert those boundaries lexically.
         cases = [
-            ("Sources/Spotty/Spotify/PlaybackCore.swift", "import SpottyPlaybackCore", set()),
-            ("Sources/Spotty/Spotify/Other.swift", "import SpottyPlaybackCore", {"ffi-import-owner"}),
-            ("Sources/Spotty/Spotify/RustPlaybackEngine.swift", "PlaybackCore.start()", set()),
-            ("Sources/Spotty/Spotify/Other.swift", "PlaybackCore.start()", {"playback-core-owner"}),
-            ("Sources/Spotty/Spotify/Other.swift", "func f(_ r: PlaybackCore.Result) {}", {"playback-core-owner"}),
-            ("Sources/Spotty/Spotify/RustPlaybackEngine.swift", "typealias R = PlaybackCore.Result", set()),
-            ("Sources/Spotty/Spotify/SearchStore.swift", "Module.PlaybackCore.start()", {"playback-core-owner", "injected-dependencies"}),
-            ("Tests/Example.swift", "import SpottyPlaybackCore\nPlaybackCore.start()", set()),
+            ("Sources/SpottyEngineAdapter/PlaybackCore.swift", "import SpottyPlaybackCore", set()),
+            ("Sources/Spotty/Spotify/Other.swift", "import SpottyPlaybackCore", set()),
+            ("Sources/Spotty/Spotify/Other.swift", "PlaybackCore.start()", set()),
+            ("Sources/SpottyDomain/Example.swift", "import AppKit", set()),
+            ("Sources/Spotty/Spotify/SearchStore.swift", "Module.PlaybackCore.start()", set()),
         ]
         for path, source, expected in cases:
             with self.subTest(path=path, source=source):
@@ -50,8 +50,6 @@ class SourcePolicyRoutingTests(unittest.TestCase):
 
     def test_presence_policies_cannot_be_satisfied_by_comments(self):
         cases = [
-            ("Sources/Spotty/Spotify/PlaybackCore.swift", "// import SpottyPlaybackCore", "ffi-import-required"),
-            ("Sources/Spotty/Spotify/RustPlaybackEngine.swift", "// PlaybackCore.start()", "playback-core-required"),
             ("Sources/Spotty/SpottyApp.swift", "// NSApplication.shared.appearance = NSAppearance(named: .darkAqua)", "dark-appearance-required"),
         ]
         for path, source, expected in cases:
@@ -60,10 +58,12 @@ class SourcePolicyRoutingTests(unittest.TestCase):
 
     def test_scoped_policies_do_not_leak_to_other_owners(self):
         cases = [
-            ("Sources/SpottyDomain/Example.swift", "import AppKit", {"domain-imports"}),
             ("Sources/Spotty/Views/Example.swift", "import AppKit", set()),
             ("Sources/Spotty/Spotify/SearchStore.swift", "PartnerAPI()", {"injected-dependencies"}),
             ("Sources/Spotty/Spotify/PlaybackStore+Queue.swift", "PartnerAPI()", {"injected-dependencies"}),
+            # A store added after this rule was written is in scope without editing the rule.
+            ("Sources/Spotty/Spotify/BrandNewStore.swift", "PartnerAPI()", {"injected-dependencies"}),
+            ("Sources/Spotty/Spotify/PlaylistMutationController.swift", "PartnerAPI()", {"injected-dependencies"}),
             ("Sources/Spotty/Views/Nested/Example.swift", "PartnerAPI()", {"injected-dependencies"}),
             ("Sources/Spotty/Spotify/PlaybackEnvironment.swift", "PartnerAPI()", set()),
             ("Sources/Spotty/Views/Example.swift", "view.draggable(item)", {"unsupported-drag-ui"}),
@@ -113,8 +113,8 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             "README.md", "SECURITY.md", "CONTRIBUTING.md",
             "Sources/Spotty/SpottyApp.swift",
             "Sources/Spotty/Spotify/KeymasterFileStore.swift",
-            "Sources/Spotty/Spotify/PlaybackCore.swift",
-            "Sources/Spotty/Spotify/RustPlaybackEngine.swift",
+            "Sources/SpottyEngineAdapter/PlaybackCore.swift",
+            "Sources/SpottyEngineAdapter/RustPlaybackEngine.swift",
             "Backend/spotty-playback/src/player_event_pump.rs",
         ]
         for absent in owners:

@@ -16,7 +16,6 @@ a Swift parse guarantee. Review owner scope when introducing files or new syntax
 
 | IDs | Boundary |
 | --- | --- |
-| `SRC-DOM-001`, `SRC-FFI-001`–`002` | Domain imports and the narrow C-adapter entry points |
 | `SRC-DEP-001` | Live dependency construction stays out of views and feature stores |
 | `SRC-ISO-001`, `SRC-INOUT-001` | Unsafe isolation escapes and split revision ownership |
 | `SRC-UI-001`, `SRC-DUP-004` | Appearance ownership and unsupported drag APIs |
@@ -32,8 +31,13 @@ Additional owners:
   [signing contract](../../development/signing.md). Spelling checks do not establish signature validity.
 
 Retired IDs `SRC-KEY-001`, `SRC-OBS-001`–`003`, `SRC-WRITER-001`, `SRC-DUP-003`, `SRC-RUST-PLAY-001`,
-`CI-OBS-001`, `CI-SWIFT-001`, and `ABI-JSON-001` remain historical references. Do not recreate
-duplicate snapshots of behavior now covered by the package graph, deterministic suites, or semantic
-review. `SRC-RUST-PLAY-001` matched the literal `IS_PLAYING.store(true, ...)` spelling; the flag is
-now a private field of `EngineGeneration` whose only write-true path is `note_playing_event`, so the
-compiler owns that boundary.
+`SRC-FFI-001`–`002`, `SRC-DOM-001`, `CI-OBS-001`, `CI-SWIFT-001`, and `ABI-JSON-001` remain
+historical references. Do not recreate duplicate snapshots of behavior now covered by the package
+graph, deterministic suites, or semantic review. `SRC-RUST-PLAY-001` matched the literal
+`IS_PLAYING.store(true, ...)` spelling; the flag is now a private field of `EngineGeneration` whose
+only write-true path is `note_playing_event`, so the compiler owns that boundary.
+`SRC-FFI-001`–`002` named the only Swift importer of `SpottyPlaybackCore` and the only caller of its
+`PlaybackCore` adapter; the package graph owns both now that `SpottyEngineAdapter` is the sole target
+depending on the binary and `PlaybackCore` is internal to it. `SRC-DOM-001` listed the modules
+`SpottyDomain` must not import; the [Linux domain lane](build-and-abi.md) compiles and tests that
+target where none of them exist.

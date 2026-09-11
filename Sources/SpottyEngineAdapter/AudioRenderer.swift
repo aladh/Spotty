@@ -11,10 +11,10 @@ import SpottyDomain
 import CoreMedia
 import OSLog
 
-nonisolated enum AudioRendererError: LocalizedError, Sendable {
+public nonisolated enum AudioRendererError: LocalizedError, Sendable {
     case formatDescription(OSStatus)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case let .formatDescription(status):
             "Spotty could not configure the system audio output (\(status))."
@@ -33,7 +33,7 @@ nonisolated enum AudioRendererError: LocalizedError, Sendable {
 /// that only `stop` / `flush` / route recreation can create. Those controls also run on
 /// the player thread, so a full buffer uses one 500 ms backpressure wait and then drops.
 ///
-final nonisolated class AudioRenderer: @unchecked Sendable {
+public final nonisolated class AudioRenderer: @unchecked Sendable {
     // MARK: - Constants
 
     private static let sampleRate: Float64 = 44100
@@ -100,7 +100,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
 
     // MARK: - Init
 
-    init() throws(AudioRendererError) {
+    public init() throws(AudioRendererError) {
         var asbd = AudioStreamBasicDescription(
             mSampleRate: Self.sampleRate,
             mFormatID: kAudioFormatLinearPCM,
@@ -153,7 +153,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
     /// — it scales audio as it is played out, not the already-buffered PCM — so
     /// volume changes are not delayed by the render buffer. The caller is expected
     /// to have applied any perceptual curve already (see SpotifyPlayer).
-    func setVolume(_ volume: Float) {
+    public func setVolume(_ volume: Float) {
         let clamped = max(0, min(1, volume))
         renderQueue.async { [weak self] in
             guard let self else { return }
@@ -179,7 +179,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
     /// Write PCM samples into the ring buffer.
     /// Applies bounded backpressure when the buffer is full; drops rather than parking
     /// the player thread on space that only control operations can create.
-    func writeAudioData(_ samples: UnsafePointer<Float>, count: Int) {
+    public func writeAudioData(_ samples: UnsafePointer<Float>, count: Int) {
         var remaining = count
         var offset = 0
 
@@ -371,7 +371,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
     /// Called from Rust player thread via FFI callback. Synchronous dispatch
     /// ensures the caller can rely on state being fully updated on return
     /// (e.g. playback teardown expects flush to complete before proceeding).
-    func start() {
+    public func start() {
         renderQueue.sync { [self] in
             bufferLock.lock()
             guard !outputControl.isRendering else {
@@ -406,7 +406,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
         }
     }
 
-    func stop() {
+    public func stop() {
         // Wake a parked writer before joining `renderQueue`. Clear rendering on this thread so
         // the writer can drop, but only tear down AVFoundation if a later start has not already
         // won the queue.
@@ -431,7 +431,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
         }
     }
 
-    func flush() {
+    public func flush() {
         // Reset the ring and wake a waiting writer without first joining `renderQueue`,
         // then serialize AVFoundation flush on that queue.
         resetRingCursorAndWakeWriter()
@@ -554,3 +554,14 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
         resetRingBuffer()
     }
 }
+
+/// The one process-wide renderer. PCM reaches it directly from the retained engine adapter's
+/// decoder callback; it is never routed through observable UI state.
+public nonisolated let spottyAudioRendererResult: Result<AudioRenderer, AudioRendererError> = {
+    do {
+        return .success(try AudioRenderer())
+    } catch {
+        SpottyLog.audio.error("Audio renderer initialization failed")
+        return .failure(error as? AudioRendererError ?? .formatDescription(-1))
+    }
+}()

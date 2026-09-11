@@ -54,7 +54,8 @@ class RustSelectionTests(unittest.TestCase):
 
     def test_app_pin_tests_assets_and_docs_skip_rust(self):
         for name in ("Sources/Spotty/View.swift", "Sources/SpottyApp/main.swift",
-                     "Sources/SpottyDomain/Model.swift", "Tests/SpottyBoundaryTests/Example.swift",
+                     "Sources/SpottyDomain/Model.swift", "Sources/SpottyEngineAdapter/Adapter.swift",
+                     "Tests/SpottyBoundaryTests/Example.swift",
                      "Tests/SpottyDomainTests/Example.swift", "Package.swift", "Package.resolved",
                      "Assets/icon.png", "Packaging/Info.plist", "docs/development/guide.md", "README.md",
                      ".swift-format", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md"):

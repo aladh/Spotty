@@ -30,179 +30,79 @@ private enum LifecycleRoute: String, CaseIterable {
     case remote
 }
 
-private enum LifecycleRemoteFailure: Error {
-    case boom
-}
+/// A remote client whose `send` blocks until the check releases it, mirroring the boundary
+/// suite's original gated fixture exactly: unlike `HarnessRemote`'s `.park`, cancelling the
+/// command's task does not unblock this on its own, so a check must call `finish(success:)`
+/// explicitly even after cancelling the command it is waiting on.
+private final class GatedRemoteClient: RemotePlaybackClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, any Error>?
+    private var pendingResult: Result<Void, any Error>?
+    private var storedSendCount = 0
+    private var storedCompletedCount = 0
 
-private final class LifecycleLocalEngine: LocalPlaybackEngine, @unchecked Sendable {
-    private let condition = NSCondition()
-    private var allowed = false
-    private var result: PlaybackEngineResult
-    private var storedEnteredCount = 0
-    private var storedExecuteCount = 0
-    private var storedForceReconnectCount = 0
-    private var storedPlayURI: String?
-    private let rejectsEmptyResume: Bool
-    private let resumeContext: String?
-
-    init(
-        result: PlaybackEngineResult, gated: Bool, rejectsEmptyResume: Bool = false,
-        resumeContext: String? = nil
-    ) {
-        self.result = result
-        self.rejectsEmptyResume = rejectsEmptyResume
-        self.resumeContext = resumeContext
-        allowed = !gated
+    var sendCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSendCount
     }
 
-    var playedURI: String? {
-        condition.lock()
-        defer { condition.unlock() }
-        return storedPlayURI
-    }
-
-    var enteredCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
-        return storedEnteredCount
-    }
-
-    var executeCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
-        return storedExecuteCount
-    }
-
-    var forceReconnectCount: Int {
-        condition.lock()
-        defer { condition.unlock() }
-        return storedForceReconnectCount
-    }
-
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
-        AsyncStream { $0.finish() }
-    }
-
-    func authorizeStreaming(with _: String) -> Int32 { 0 }
-    func initialize() -> PlaybackEngineResult { .ok }
-    func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
-        condition.lock()
-        storedEnteredCount += 1
-        while !allowed {
-            condition.wait()
-        }
-        storedExecuteCount += 1
-        var result = self.result
-        if case let .playURI(uri) = operation { storedPlayURI = uri }
-        if rejectsEmptyResume, case let .resume(plan) = operation, plan.targets().isEmpty {
-            result = .error
-        }
-        allowed = false
-        condition.unlock()
-        return result
-    }
-    func positionMilliseconds() -> UInt32 { 0 }
-    func resumeContextURI() -> String? { resumeContext }
-    func queueSnapshot() -> RustQueueState? { nil }
-    func shutdown() -> PlaybackEngineResult { .ok }
-    func cleanup() {}
-    func clearStreamingCredentials() {}
-    func disconnect() -> PlaybackEngineResult { .ok }
-    func forceReconnect() -> Int32 {
-        condition.lock()
-        storedForceReconnectCount += 1
-        condition.unlock()
-        return 0
-    }
-
-    func finish(with result: PlaybackEngineResult) {
-        condition.lock()
-        self.result = result
-        allowed = true
-        condition.broadcast()
-        condition.unlock()
-    }
-}
-
-private actor LifecycleRemoteClient: RemotePlaybackClient {
-    enum Behavior: Sendable {
-        case succeed
-        case fail
-        case gated
-    }
-
-    private let behavior: Behavior
-    private var continuation: CheckedContinuation<Void, Error>?
-    private var pendingResult: Result<Void, Error>?
-    private(set) var sendCount = 0
-    private(set) var completedCount = 0
-
-    init(_ behavior: Behavior) {
-        self.behavior = behavior
-    }
-
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {
-        sendCount += 1
-        defer { completedCount += 1 }
-        switch behavior {
-        case .succeed:
-            return
-        case .fail:
-            throw LifecycleRemoteFailure.boom
-        case .gated:
-            if let pendingResult {
-                self.pendingResult = nil
-                try pendingResult.get()
-                return
-            }
-            try await withCheckedThrowingContinuation { continuation = $0 }
-        }
+    var completedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedCompletedCount
     }
 
     func finish(success: Bool) {
-        let result: Result<Void, Error> =
-            success
-            ? .success(())
-            : .failure(LifecycleRemoteFailure.boom)
-        if let waiting = continuation {
+        let result: Result<Void, any Error> = success ? .success(()) : .failure(HarnessFailure.unavailable)
+        let waiting: CheckedContinuation<Void, any Error>? = {
+            lock.lock()
+            defer { lock.unlock() }
+            let waiting = continuation
             continuation = nil
-            waiting.resume(with: result)
-        } else {
-            pendingResult = result
+            if waiting == nil { pendingResult = result }
+            return waiting
+        }()
+        waiting?.resume(with: result)
+    }
+
+    private func markCompleted() {
+        lock.lock()
+        storedCompletedCount += 1
+        lock.unlock()
+    }
+
+    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {
+        lock.lock()
+        storedSendCount += 1
+        if let pending = pendingResult {
+            pendingResult = nil
+            lock.unlock()
+            defer { markCompleted() }
+            try pending.get()
+            return
+        }
+        lock.unlock()
+        defer { markCompleted() }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            lock.lock()
+            self.continuation = continuation
+            lock.unlock()
         }
     }
 
     func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        SpotifyConnectTrackMetadata(
-            uri: uri,
-            title: "Metadata",
-            artist: "Artist",
-            artworkURL: nil,
-            duration: 180
-        )
+        HarnessFixtures.metadata(uri: uri)
     }
 }
 
-private actor IdleWebQueue: WebQueueClient {
-    func queue() async throws -> [CatalogTrack] {
-        throw URLError(.badServerResponse)
-    }
-}
-
-private actor IdlePreferences: PlaybackPreferences {
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { nil }
-    func setLastRemoteDeviceID(_: String?) {}
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-private struct StickyClock: PlaybackClock {
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
-    func sleep(seconds _: TimeInterval) async throws {
-        try await Task.sleep(nanoseconds: 60_000_000_000)
-    }
+/// The URI of the last `.playURI` operation an engine executed, for checks that used to read the
+/// old fixture's dedicated `playedURI` property.
+private func playedURI(_ engine: HarnessEngine) -> String? {
+    engine.operations.compactMap { operation -> String? in
+        if case let .playURI(uri) = operation { return uri }
+        return nil
+    }.last
 }
 
 private let lifecycleTrackA = CurrentTrack(
@@ -247,35 +147,6 @@ private let lifecycleRepeatPlan = RepeatTransitionPlan.planning(
     from: RepeatMode.off.flags,
     to: RepeatMode.context.flags
 )
-
-private func lifecycleEnvironment(
-    local: any LocalPlaybackEngine,
-    remote: any RemotePlaybackClient,
-    account: BoundaryIdleAccount = BoundaryIdleAccount(),
-    clock: any PlaybackClock = StickyClock()
-) -> PlaybackEnvironment {
-    PlaybackEnvironment(
-        remote: remote,
-        local: local,
-        webQueue: IdleWebQueue(),
-        account: account,
-        audioOutput: BoundaryIdleAudio(),
-        preferences: IdlePreferences(),
-        lifecycle: BoundaryIdleLifecycle(),
-        clock: clock,
-        catalog: BoundaryIdleCatalog(),
-        playlistMutations: UnavailablePlaylistMutations(),
-        trackAttributes: BoundaryIdleAttributes()
-    )
-}
-
-@MainActor
-private func lifecycleStore(_ environment: PlaybackEnvironment) -> PlaybackStore {
-    PlaybackStore(
-        environment: environment,
-        feedback: TransientFeedbackPresenter(clock: environment.clock)
-    )
-}
 
 @MainActor
 private func seedRoute(_ player: PlaybackStore, _ route: LifecycleRoute) {
@@ -371,12 +242,12 @@ private func startLifecycleCommand(
 @MainActor
 private func waitForLifecycleDispatch(
     route: LifecycleRoute,
-    local: LifecycleLocalEngine,
-    remote: LifecycleRemoteClient
+    local: HarnessEngineGate,
+    remote: GatedRemoteClient
 ) async -> Bool {
     await waitUntil {
         if route == .local { return local.enteredCount == 1 }
-        return await remote.sendCount >= 1
+        return remote.sendCount >= 1
     }
 }
 
@@ -469,14 +340,14 @@ struct PlaybackCommandLifecycleParityTests {
     @Test @MainActor
     func lostObservationDeadlineDoesNotLetLateReturnSettleAgain() async {
         let clock = CooperativeParkedClock()
-        let remote = LifecycleRemoteClient(.gated)
-        let player = lifecycleStore(
-            lifecycleEnvironment(
-                local: LifecycleLocalEngine(result: .ok, gated: false), remote: remote, clock: clock))
+        let remote = GatedRemoteClient()
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(
+                engine: HarnessEngine(executeResult: .ok), remote: remote, clock: clock))
         seedRoute(player, .remote)
         var completions: [Bool] = []
         startLifecycleCommand(player, kind: .transport) { completions.append($0) }
-        #expect(await waitUntil { await remote.sendCount == 1 })
+        #expect(await waitUntil { remote.sendCount == 1 })
         #expect(await waitUntil { clock.requestedSleeps.contains(8) })
         #expect(!player.send(.commandFinished(id: UUID(), accepted: true, notice: nil), source: .command))
         #expect(player.state.intents.last?.outcome == .dispatched)
@@ -485,7 +356,7 @@ struct PlaybackCommandLifecycleParityTests {
         clock.releaseAll()
         #expect(await waitUntil { player.state.intents.last?.outcome == .timedOut })
         #expect(player.state.pendingCommands.isEmpty)
-        await remote.finish(success: true)
+        remote.finish(success: true)
         await settlement?.wait()
         #expect(player.state.intents.last?.outcome == .timedOut)
         #expect(completions == [false])
@@ -495,11 +366,14 @@ struct PlaybackCommandLifecycleParityTests {
     @Test(arguments: [false, true], [false, true])
     @MainActor
     func idleStartupPlayUsesLocalEngineWithoutSelection(resume: Bool, hasResumeContext: Bool) async {
-        let local = LifecycleLocalEngine(
-            result: .ok, gated: false, rejectsEmptyResume: true,
-            resumeContext: hasResumeContext ? "spotify:playlist:retained" : nil)
-        let remote = LifecycleRemoteClient(.succeed)
-        let player = lifecycleStore(lifecycleEnvironment(local: local, remote: remote))
+        let local = HarnessEngine(resumeContextURI: hasResumeContext ? "spotify:playlist:retained" : nil)
+        local.onExecute = { operation in
+            if case let .resume(plan) = operation, plan.targets().isEmpty { return .error }
+            return .ok
+        }
+        let remote = HarnessRemote()
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: local, remote: remote))
         _ = player.send(.session(.ready), source: .account)
         _ = player.send(
             .devices(
@@ -544,8 +418,8 @@ struct PlaybackCommandLifecycleParityTests {
         #expect(player.transientCommandError == nil)
         let expectedURI: String? =
             resume && hasResumeContext ? nil : (resume ? lifecycleTrackA.uri : "spotify:track:new")
-        #expect(local.playedURI == expectedURI)
-        #expect(await remote.sendCount == 0)
+        #expect(playedURI(local) == expectedURI)
+        #expect(remote.sendCount == 0)
         await player.shutdownForTermination()
         #expect(player.defaultLocalPlaybackDevice == nil)
     }
@@ -555,10 +429,10 @@ struct PlaybackCommandLifecycleParityTests {
     func testPlaybackCommandLifecycleParity() async {
         do {
             for kind in LifecycleKind.allCases {
-                let player = lifecycleStore(
-                    lifecycleEnvironment(
-                        local: LifecycleLocalEngine(result: .ok, gated: false),
-                        remote: LifecycleRemoteClient(.succeed)
+                let player = HarnessEnvironment.makePlaybackStore(
+                    HarnessEnvironment.make(
+                        engine: HarnessEngine(executeResult: .ok),
+                        remote: HarnessRemote()
                     )
                 )
                 _ = player.send(.session(.ready), source: .account)
@@ -578,11 +452,11 @@ struct PlaybackCommandLifecycleParityTests {
                 for kind in LifecycleKind.allCases {
                     let label = "\(route.rawValue) \(kind.rawValue)"
 
-                    let successAccount = BoundaryIdleAccount()
-                    let success = lifecycleStore(
-                        lifecycleEnvironment(
-                            local: LifecycleLocalEngine(result: .ok, gated: false),
-                            remote: LifecycleRemoteClient(.succeed),
+                    let successAccount = HarnessAccount()
+                    let success = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(
+                            engine: HarnessEngine(executeResult: .ok),
+                            remote: HarnessRemote(),
                             account: successAccount
                         )
                     )
@@ -599,10 +473,10 @@ struct PlaybackCommandLifecycleParityTests {
                         "\(label) success leaves no pending command")
                     await success.shutdownForTermination()
 
-                    let rejected = lifecycleStore(
-                        lifecycleEnvironment(
-                            local: LifecycleLocalEngine(result: .error, gated: false),
-                            remote: LifecycleRemoteClient(.fail)
+                    let rejected = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(
+                            engine: HarnessEngine(executeResult: .error),
+                            remote: HarnessRemote(send: .fail)
                         )
                     )
                     seedRoute(rejected, route)
@@ -619,15 +493,12 @@ struct PlaybackCommandLifecycleParityTests {
                     await rejected.shutdownForTermination()
 
                     if route == .local {
-                        let reconnectAccount = BoundaryIdleAccount()
-                        let reconnectEngine = LifecycleLocalEngine(
-                            result: PlaybackEngineResult(rawValue: -2),
-                            gated: false
-                        )
-                        let reconnect = lifecycleStore(
-                            lifecycleEnvironment(
-                                local: reconnectEngine,
-                                remote: LifecycleRemoteClient(.succeed),
+                        let reconnectAccount = HarnessAccount()
+                        let reconnectEngine = HarnessEngine(executeResult: PlaybackEngineResult(rawValue: -2))
+                        let reconnect = HarnessEnvironment.makePlaybackStore(
+                            HarnessEnvironment.make(
+                                engine: reconnectEngine,
+                                remote: HarnessRemote(),
                                 account: reconnectAccount
                             )
                         )
@@ -651,10 +522,12 @@ struct PlaybackCommandLifecycleParityTests {
                         await reconnect.shutdownForTermination()
                     }
 
-                    let duplicateLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let duplicateRemote = LifecycleRemoteClient(.gated)
-                    let duplicate = lifecycleStore(
-                        lifecycleEnvironment(local: duplicateLocal, remote: duplicateRemote)
+                    let duplicateGate = HarnessEngineGate(result: .ok)
+                    let duplicateEngine = HarnessEngine()
+                    duplicateEngine.onExecute = { [duplicateGate] _ in duplicateGate.enter() }
+                    let duplicateRemote = GatedRemoteClient()
+                    let duplicate = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: duplicateEngine, remote: duplicateRemote)
                     )
                     seedRoute(duplicate, route)
                     var firstCompletions: [Bool] = []
@@ -669,18 +542,20 @@ struct PlaybackCommandLifecycleParityTests {
                         (duplicate.state.pendingCommands[kind.commandKind]?.id) == (firstID),
                         "\(label) duplicate keeps the original command")
                     if route == .local {
-                        duplicateLocal.finish(with: .ok)
+                        duplicateGate.finish(with: .ok)
                     } else {
-                        await duplicateRemote.finish(success: true)
+                        duplicateRemote.finish(success: true)
                     }
                     let duplicateFinished = await waitUntil { !firstCompletions.isEmpty }
                     #expect((duplicateFinished) == true, "\(label) first command finishes after the duplicate refusal")
                     await duplicate.shutdownForTermination()
 
-                    let confirmLocal = LifecycleLocalEngine(result: .error, gated: true)
-                    let confirmRemote = LifecycleRemoteClient(.gated)
-                    let confirmed = lifecycleStore(
-                        lifecycleEnvironment(local: confirmLocal, remote: confirmRemote)
+                    let confirmGate = HarnessEngineGate(result: .error)
+                    let confirmLocal = HarnessEngine()
+                    confirmLocal.onExecute = { [confirmGate] _ in confirmGate.enter() }
+                    let confirmRemote = GatedRemoteClient()
+                    let confirmed = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: confirmLocal, remote: confirmRemote)
                     )
                     seedRoute(confirmed, route)
                     var confirmedCompletions: [Bool] = []
@@ -688,7 +563,7 @@ struct PlaybackCommandLifecycleParityTests {
                     let confirmPending = await waitUntil { confirmed.state.pendingCommands[kind.commandKind] != nil }
                     #expect((confirmPending) == true, "\(label) command is pending before confirmation")
                     let confirmReached = await waitForLifecycleDispatch(
-                        route: route, local: confirmLocal, remote: confirmRemote)
+                        route: route, local: confirmGate, remote: confirmRemote)
                     #expect((confirmReached) == true, "\(label) command reaches the fixture before confirmation")
                     let confirmedID = confirmed.state.pendingCommands[kind.commandKind]?.id
                     confirm(confirmed, kind: kind, revision: 1)
@@ -700,9 +575,9 @@ struct PlaybackCommandLifecycleParityTests {
                             == (Optional(PlaybackTransportCommandResolution.confirmed)),
                         "\(label) authoritative snapshot records confirmation")
                     if route == .local {
-                        confirmLocal.finish(with: .error)
+                        confirmGate.finish(with: .error)
                     } else {
-                        await confirmRemote.finish(success: false)
+                        confirmRemote.finish(success: false)
                     }
                     let confirmFinished = await waitUntil { !confirmedCompletions.isEmpty }
                     #expect((confirmFinished) == true, "\(label) confirmed command still finishes")
@@ -711,10 +586,12 @@ struct PlaybackCommandLifecycleParityTests {
                         "\(label) confirmed then coordinator failure reports success")
                     await confirmed.shutdownForTermination()
 
-                    let supersedeLocal = LifecycleLocalEngine(result: .error, gated: true)
-                    let supersedeRemote = LifecycleRemoteClient(.gated)
-                    let superseded = lifecycleStore(
-                        lifecycleEnvironment(local: supersedeLocal, remote: supersedeRemote)
+                    let supersedeGate = HarnessEngineGate(result: .error)
+                    let supersedeLocal = HarnessEngine()
+                    supersedeLocal.onExecute = { [supersedeGate] _ in supersedeGate.enter() }
+                    let supersedeRemote = GatedRemoteClient()
+                    let superseded = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: supersedeLocal, remote: supersedeRemote)
                     )
                     seedRoute(superseded, route)
                     var supersededCompletions: [Bool] = []
@@ -722,20 +599,20 @@ struct PlaybackCommandLifecycleParityTests {
                     let supersedePending = await waitUntil { superseded.state.pendingCommands[kind.commandKind] != nil }
                     #expect((supersedePending) == true, "\(label) command is pending before supersession")
                     let supersedeReached = await waitForLifecycleDispatch(
-                        route: route, local: supersedeLocal, remote: supersedeRemote)
+                        route: route, local: supersedeGate, remote: supersedeRemote)
                     #expect((supersedeReached) == true, "\(label) command reaches the fixture before supersession")
                     supersede(superseded, kind: kind, revision: 1)
                     #expect(
                         (superseded.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) unrelated snapshot clears the pending command")
                     if route == .local {
-                        supersedeLocal.finish(with: .error)
+                        supersedeGate.finish(with: .error)
                         let supersedeFinished = await waitUntil { supersedeLocal.executeCount == 1 }
                         #expect(
                             (supersedeFinished) == true, "\(label) superseded command finishes at the local fixture")
                     } else {
-                        await supersedeRemote.finish(success: false)
-                        let supersedeFinished = await waitUntil { await supersedeRemote.completedCount == 1 }
+                        supersedeRemote.finish(success: false)
+                        let supersedeFinished = await waitUntil { supersedeRemote.completedCount == 1 }
                         #expect(
                             (supersedeFinished) == true, "\(label) superseded command finishes at the remote fixture")
                     }
@@ -747,10 +624,12 @@ struct PlaybackCommandLifecycleParityTests {
                         "\(label) superseded then coordinator failure has no notice")
                     await superseded.shutdownForTermination()
 
-                    let staleLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let staleRemote = LifecycleRemoteClient(.gated)
-                    let stale = lifecycleStore(
-                        lifecycleEnvironment(local: staleLocal, remote: staleRemote)
+                    let staleGate = HarnessEngineGate(result: .ok)
+                    let staleLocal = HarnessEngine()
+                    staleLocal.onExecute = { [staleGate] _ in staleGate.enter() }
+                    let staleRemote = GatedRemoteClient()
+                    let stale = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: staleLocal, remote: staleRemote)
                     )
                     seedRoute(stale, route)
                     var staleCompletions: [Bool] = []
@@ -773,20 +652,22 @@ struct PlaybackCommandLifecycleParityTests {
                         (stale.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) engine-epoch bump drops the pending command")
                     if route == .local {
-                        #expect((staleLocal.enteredCount) == 0, "\(label) stale command never enters the local fixture")
+                        #expect((staleGate.enteredCount) == 0, "\(label) stale command never enters the local fixture")
                     } else {
                         #expect(
-                            (await staleRemote.sendCount) == 0,
+                            (staleRemote.sendCount) == 0,
                             "\(label) stale command never reaches the remote fixture")
                     }
                     await staleSettlement?.wait()
                     #expect((staleCompletions.isEmpty) == true, "\(label) stale finish reports no completion")
                     await stale.shutdownForTermination()
 
-                    let lateLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let lateRemote = LifecycleRemoteClient(.gated)
-                    let lateStale = lifecycleStore(
-                        lifecycleEnvironment(local: lateLocal, remote: lateRemote)
+                    let lateGate = HarnessEngineGate(result: .ok)
+                    let lateLocal = HarnessEngine()
+                    lateLocal.onExecute = { [lateGate] _ in lateGate.enter() }
+                    let lateRemote = GatedRemoteClient()
+                    let lateStale = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: lateLocal, remote: lateRemote)
                     )
                     seedRoute(lateStale, route)
                     var lateCompletions: [Bool] = []
@@ -796,7 +677,7 @@ struct PlaybackCommandLifecycleParityTests {
                     }
                     #expect((latePending) == true, "\(label) late stale command is pending before dispatch")
                     let lateReached = await waitForLifecycleDispatch(
-                        route: route, local: lateLocal, remote: lateRemote)
+                        route: route, local: lateGate, remote: lateRemote)
                     #expect((lateReached) == true, "\(label) late stale command reaches the fixture")
                     let lateID = lateStale.state.pendingCommands[kind.commandKind]?.id
                     let lateSettlement = lateID.flatMap { lateStale.effects.settlement(of: .command($0)) }
@@ -811,22 +692,24 @@ struct PlaybackCommandLifecycleParityTests {
                         (lateStale.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) late stale epoch bump drops the pending command")
                     if route == .local {
-                        lateLocal.finish(with: .ok)
+                        lateGate.finish(with: .ok)
                         let lateFinished = await waitUntil { lateLocal.executeCount == 1 }
                         #expect((lateFinished) == true, "\(label) late stale local fixture finishes")
                     } else {
-                        await lateRemote.finish(success: true)
-                        let lateFinished = await waitUntil { await lateRemote.completedCount == 1 }
+                        lateRemote.finish(success: true)
+                        let lateFinished = await waitUntil { lateRemote.completedCount == 1 }
                         #expect((lateFinished) == true, "\(label) late stale remote fixture finishes")
                     }
                     await lateSettlement?.wait()
                     #expect((lateCompletions.isEmpty) == true, "\(label) late stale finish reports no completion")
                     await lateStale.shutdownForTermination()
 
-                    let cancelLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let cancelRemote = LifecycleRemoteClient(.gated)
-                    let cancelled = lifecycleStore(
-                        lifecycleEnvironment(local: cancelLocal, remote: cancelRemote)
+                    let cancelGate = HarnessEngineGate(result: .ok)
+                    let cancelLocal = HarnessEngine()
+                    cancelLocal.onExecute = { [cancelGate] _ in cancelGate.enter() }
+                    let cancelRemote = GatedRemoteClient()
+                    let cancelled = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: cancelLocal, remote: cancelRemote)
                     )
                     seedRoute(cancelled, route)
                     let prior = cancelled.state
@@ -835,8 +718,8 @@ struct PlaybackCommandLifecycleParityTests {
                     let cancelPending = await waitUntil { cancelled.state.pendingCommands[kind.commandKind] != nil }
                     #expect((cancelPending) == true, "\(label) command is pending before cancellation")
                     let cancelReached = await waitUntil {
-                        if route == .local { return cancelLocal.enteredCount == 1 }
-                        return await cancelRemote.sendCount >= 1
+                        if route == .local { return cancelGate.enteredCount == 1 }
+                        return cancelRemote.sendCount >= 1
                     }
                     #expect((cancelReached) == true, "\(label) cancelled command still reaches the fixture")
                     let cancelledID = cancelled.state.pendingCommands[kind.commandKind]?.id
@@ -871,13 +754,13 @@ struct PlaybackCommandLifecycleParityTests {
                         (cancelled.state.owner) == (prior.owner),
                         "\(label) ordinary cancellation restores captured owner")
                     if route == .local {
-                        cancelLocal.finish(with: .ok)
+                        cancelGate.finish(with: .ok)
                     } else {
-                        await cancelRemote.finish(success: true)
+                        cancelRemote.finish(success: true)
                     }
                     let cancelledFixtureReleased = await waitUntil {
                         if route == .local { return cancelLocal.executeCount == 1 }
-                        return await cancelRemote.completedCount == 1
+                        return cancelRemote.completedCount == 1
                     }
                     #expect((cancelledFixtureReleased) == true, "\(label) cancelled fixture releases before reuse")
 
@@ -889,24 +772,26 @@ struct PlaybackCommandLifecycleParityTests {
                         (cancelled.state.pendingCommands[kind.commandKind]?.id != cancelledID) == true,
                         "\(label) the later command is a new id")
                     let nextReached = await waitUntil {
-                        if route == .local { return cancelLocal.enteredCount == 2 }
-                        return await cancelRemote.sendCount >= 2
+                        if route == .local { return cancelGate.enteredCount == 2 }
+                        return cancelRemote.sendCount >= 2
                     }
                     #expect((nextReached) == true, "\(label) later command reaches the fixture before completion")
                     if route == .local {
-                        cancelLocal.finish(with: .ok)
+                        cancelGate.finish(with: .ok)
                     } else {
-                        await cancelRemote.finish(success: true)
+                        cancelRemote.finish(success: true)
                     }
                     let nextFinished = await waitUntil { !nextCompletions.isEmpty }
                     #expect((nextFinished) == true, "\(label) later command after cancellation finishes")
                     #expect((nextCompletions) == ([true]), "\(label) later command after cancellation succeeds")
                     await cancelled.shutdownForTermination()
 
-                    let confirmCancelLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let confirmCancelRemote = LifecycleRemoteClient(.gated)
-                    let confirmCancelled = lifecycleStore(
-                        lifecycleEnvironment(local: confirmCancelLocal, remote: confirmCancelRemote)
+                    let confirmCancelGate = HarnessEngineGate(result: .ok)
+                    let confirmCancelLocal = HarnessEngine()
+                    confirmCancelLocal.onExecute = { [confirmCancelGate] _ in confirmCancelGate.enter() }
+                    let confirmCancelRemote = GatedRemoteClient()
+                    let confirmCancelled = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: confirmCancelLocal, remote: confirmCancelRemote)
                     )
                     seedRoute(confirmCancelled, route)
                     var confirmCancelCompletions: [Bool] = []
@@ -916,7 +801,7 @@ struct PlaybackCommandLifecycleParityTests {
                     }
                     #expect((confirmCancelPending) == true, "\(label) command is pending before confirmed cancellation")
                     let confirmCancelReached = await waitForLifecycleDispatch(
-                        route: route, local: confirmCancelLocal, remote: confirmCancelRemote)
+                        route: route, local: confirmCancelGate, remote: confirmCancelRemote)
                     #expect(
                         (confirmCancelReached) == true,
                         "\(label) command reaches the fixture before confirmed cancellation")
@@ -950,16 +835,18 @@ struct PlaybackCommandLifecycleParityTests {
                             "\(label) confirmed cancellation keeps the target owner")
                     }
                     if route == .local {
-                        confirmCancelLocal.finish(with: .ok)
+                        confirmCancelGate.finish(with: .ok)
                     } else {
-                        await confirmCancelRemote.finish(success: true)
+                        confirmCancelRemote.finish(success: true)
                     }
                     await confirmCancelled.shutdownForTermination()
 
-                    let supersedeCancelLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let supersedeCancelRemote = LifecycleRemoteClient(.gated)
-                    let supersedeCancelled = lifecycleStore(
-                        lifecycleEnvironment(local: supersedeCancelLocal, remote: supersedeCancelRemote)
+                    let supersedeCancelGate = HarnessEngineGate(result: .ok)
+                    let supersedeCancelLocal = HarnessEngine()
+                    supersedeCancelLocal.onExecute = { [supersedeCancelGate] _ in supersedeCancelGate.enter() }
+                    let supersedeCancelRemote = GatedRemoteClient()
+                    let supersedeCancelled = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: supersedeCancelLocal, remote: supersedeCancelRemote)
                     )
                     seedRoute(supersedeCancelled, route)
                     var supersedeCancelCompletions: [Bool] = []
@@ -970,7 +857,7 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect(
                         (supersedeCancelPending) == true, "\(label) command is pending before superseded cancellation")
                     let supersedeCancelReached = await waitForLifecycleDispatch(
-                        route: route, local: supersedeCancelLocal, remote: supersedeCancelRemote)
+                        route: route, local: supersedeCancelGate, remote: supersedeCancelRemote)
                     #expect(
                         (supersedeCancelReached) == true,
                         "\(label) command reaches the fixture before superseded cancellation")
@@ -1004,16 +891,18 @@ struct PlaybackCommandLifecycleParityTests {
                             "\(label) superseded cancellation keeps the unrelated owner")
                     }
                     if route == .local {
-                        supersedeCancelLocal.finish(with: .ok)
+                        supersedeCancelGate.finish(with: .ok)
                     } else {
-                        await supersedeCancelRemote.finish(success: true)
+                        supersedeCancelRemote.finish(success: true)
                     }
                     await supersedeCancelled.shutdownForTermination()
 
-                    let staleCancelLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let staleCancelRemote = LifecycleRemoteClient(.gated)
-                    let staleCancelled = lifecycleStore(
-                        lifecycleEnvironment(local: staleCancelLocal, remote: staleCancelRemote)
+                    let staleCancelGate = HarnessEngineGate(result: .ok)
+                    let staleCancelLocal = HarnessEngine()
+                    staleCancelLocal.onExecute = { [staleCancelGate] _ in staleCancelGate.enter() }
+                    let staleCancelRemote = GatedRemoteClient()
+                    let staleCancelled = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: staleCancelLocal, remote: staleCancelRemote)
                     )
                     seedRoute(staleCancelled, route)
                     var staleCancelCompletions: [Bool] = []
@@ -1036,11 +925,11 @@ struct PlaybackCommandLifecycleParityTests {
                         "\(label) engine-epoch bump drops the pending command before cancel")
                     if route == .local {
                         #expect(
-                            (staleCancelLocal.enteredCount) == 0,
+                            (staleCancelGate.enteredCount) == 0,
                             "\(label) stale cancellation never enters the local fixture")
                     } else {
                         #expect(
-                            (await staleCancelRemote.sendCount) == 0,
+                            (staleCancelRemote.sendCount) == 0,
                             "\(label) stale cancellation never reaches the remote fixture")
                     }
                     if let commandID = staleCancelID {
@@ -1049,17 +938,19 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect(
                         (staleCancelCompletions.isEmpty) == true, "\(label) stale cancellation reports no completion")
                     if route == .local {
-                        staleCancelLocal.finish(with: .ok)
+                        staleCancelGate.finish(with: .ok)
                     } else {
-                        await staleCancelRemote.finish(success: true)
+                        staleCancelRemote.finish(success: true)
                     }
                     await staleCancelSettlement?.wait()
                     await staleCancelled.shutdownForTermination()
 
-                    let teardownLocal = LifecycleLocalEngine(result: .ok, gated: true)
-                    let teardownRemote = LifecycleRemoteClient(.gated)
-                    let teardown = lifecycleStore(
-                        lifecycleEnvironment(local: teardownLocal, remote: teardownRemote)
+                    let teardownGate = HarnessEngineGate(result: .ok)
+                    let teardownLocal = HarnessEngine()
+                    teardownLocal.onExecute = { [teardownGate] _ in teardownGate.enter() }
+                    let teardownRemote = GatedRemoteClient()
+                    let teardown = HarnessEnvironment.makePlaybackStore(
+                        HarnessEnvironment.make(engine: teardownLocal, remote: teardownRemote)
                     )
                     seedRoute(teardown, route)
                     var teardownCompletions: [Bool] = []
@@ -1067,16 +958,16 @@ struct PlaybackCommandLifecycleParityTests {
                     let teardownPending = await waitUntil { teardown.state.pendingCommands[kind.commandKind] != nil }
                     #expect((teardownPending) == true, "\(label) command is pending before teardown")
                     let teardownReached = await waitUntil {
-                        if route == .local { return teardownLocal.enteredCount == 1 }
-                        return await teardownRemote.sendCount >= 1
+                        if route == .local { return teardownGate.enteredCount == 1 }
+                        return teardownRemote.sendCount >= 1
                     }
                     #expect((teardownReached) == true, "\(label) teardown command still reaches the fixture")
                     // Local execute is a blocking coordinator call. Shutdown awaits
                     // shutdownEngine on that same actor, so the fixture must be released first.
                     if route == .local {
-                        teardownLocal.finish(with: .ok)
+                        teardownGate.finish(with: .ok)
                     } else {
-                        await teardownRemote.finish(success: true)
+                        teardownRemote.finish(success: true)
                     }
                     await teardown.shutdownForTermination()
                     for _ in 0..<50 { await Task.yield() }

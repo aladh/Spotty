@@ -15,7 +15,8 @@ PCM output. This page describes boundaries, not a module inventory.
 | Queue precedence, playback context, and mutation authority | [QueueService](../../Sources/Spotty/Spotify/QueueService.swift) |
 | Pure queue/device/connection/playback projections and resume target order | [SpottyDomain](../../Sources/SpottyDomain) |
 | Catalog, authorization, HTTP retry, and user-facing errors | [Spotify adapters](../../Sources/Spotty/Spotify) |
-| Output buffering, backpressure, routes, and audio teardown | [AudioRenderer](../../Sources/Spotty/Spotify/AudioRenderer.swift) |
+| Output buffering, backpressure, routes, and audio teardown | [AudioRenderer](../../Sources/SpottyEngineAdapter/AudioRenderer.swift) |
+| The C boundary, typed engine observations, and their fan-out | [SpottyEngineAdapter](../../Sources/SpottyEngineAdapter), the only target depending on the playback binary |
 
 Account epoch projections are not independent counters. Connect callback identity must also remain
 separate from merged queue presentation: adopting an engine epoch must not erase the callback

@@ -22,8 +22,9 @@ writes can mix lifetimes and make stale work appear current.
   injected ports; they do not construct authentication, network, or C playback dependencies.
 - Keep PCM delivery outside observable presentation state. Transient mutation feedback also has a
   separate owner; it is not playback state or a general event bus.
-- Keep portable policy in `SpottyDomain`, concrete app adapters in `SpottyCore`, and the executable
-  launcher thin. Test targets do not ship.
+- Keep portable policy in `SpottyDomain`, the playback binary's Swift boundary in
+  `SpottyEngineAdapter`, concrete app adapters in `SpottyCore`, and the executable launcher thin.
+  Dependencies run one way; test targets do not ship.
 
 ## Tradeoffs
 

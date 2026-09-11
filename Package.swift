@@ -87,90 +87,135 @@ private func playbackTarget() -> Target {
     return .binaryTarget(name: "SpottyPlaybackCore", path: pathRelativeToPackageRoot(url))
 }
 
-private let playbackSelection = playbackTarget()
+// The domain is portable, Foundation-only policy. On Linux the package declares only that target
+// and its tests: the playback XCFramework, Sparkle, AppKit/SwiftUI/AVFoundation adapters, and the
+// macOS app have no Linux slice. Building SpottyDomain there is what makes an accidental UI, audio,
+// or FFI import a compiler error rather than a source-policy snapshot. `playbackTarget()` above is
+// only ever *called* from this branch, so its environment override and artifact file checks never
+// run off macOS; keep any new macOS-only evaluation inside here too.
+#if os(macOS)
+    private let playbackSelection = playbackTarget()
 
-let package = Package(
-    name: "Spotty",
-    platforms: [.macOS(.v15)],
-    products: [
-        .executable(name: "Spotty", targets: ["SpottyApp"]),
-        .library(name: "SpottyCore", targets: ["SpottyCore"]),
-        .library(name: "SpottyDomain", targets: ["SpottyDomain"]),
-    ],
-    dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
-    ],
-    targets: [
-        playbackSelection,
-        .target(
-            name: "SpottyCore",
-            dependencies: [
-                "SpottyDomain", "SpottyPlaybackCore",
-                .product(name: "Sparkle", package: "Sparkle"),
-            ],
-            path: "Sources/Spotty",
-            exclude: [
-                "AGENTS.md",
-                "Spotify/AGENTS.md",
-                "Views/AGENTS.md",
-            ],
-            linkerSettings: [
-                .linkedFramework("SystemConfiguration"),
-                .linkedFramework("Security"),
-                .linkedFramework("CoreFoundation"),
-                .linkedFramework("AVFoundation"),
-            ]
-        ),
-        .executableTarget(
-            name: "SpottyApp",
-            dependencies: ["SpottyCore"],
-            path: "Sources/SpottyApp",
-            linkerSettings: [
-                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
-            ]
-        ),
-        .target(
-            name: "SpottyDomain",
-            path: "Sources/SpottyDomain",
-            exclude: ["AGENTS.md"]
-        ),
-        .testTarget(
-            name: "SpottyDomainTests",
-            dependencies: ["SpottyDomain"],
-            path: "Tests/SpottyDomainTests"
-        ),
-        .testTarget(
-            name: "SpottyBoundaryTests",
-            dependencies: ["SpottyCore"],
-            path: "Tests/SpottyBoundaryTests",
-            resources: [.copy("Fixtures")]
-        ),
-    ]
-)
+    let package = Package(
+        name: "Spotty",
+        platforms: [.macOS(.v15)],
+        products: [
+            .executable(name: "Spotty", targets: ["SpottyApp"]),
+            .library(name: "SpottyCore", targets: ["SpottyCore"]),
+            .library(name: "SpottyDomain", targets: ["SpottyDomain"]),
+        ],
+        dependencies: [
+            .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+        ],
+        targets: [
+            playbackSelection,
+            // The only target that may depend on the playback binary. Everything that names a C
+            // symbol, a Rust snapshot, or the audio renderer lives here; SpottyCore reaches it
+            // through `Sources/Spotty/EngineAdapterExports.swift` and cannot reach past it.
+            .target(
+                name: "SpottyEngineAdapter",
+                dependencies: ["SpottyDomain", "SpottyPlaybackCore"],
+                path: "Sources/SpottyEngineAdapter",
+                exclude: ["AGENTS.md"],
+                linkerSettings: [
+                    .linkedFramework("SystemConfiguration"),
+                    .linkedFramework("Security"),
+                    .linkedFramework("CoreFoundation"),
+                    .linkedFramework("AVFoundation"),
+                ]
+            ),
+            .target(
+                name: "SpottyCore",
+                dependencies: [
+                    "SpottyDomain", "SpottyEngineAdapter",
+                    .product(name: "Sparkle", package: "Sparkle"),
+                ],
+                path: "Sources/Spotty",
+                exclude: [
+                    "AGENTS.md",
+                    "Spotify/AGENTS.md",
+                    "Views/AGENTS.md",
+                ],
+                linkerSettings: [
+                    .linkedFramework("SystemConfiguration"),
+                    .linkedFramework("Security"),
+                    .linkedFramework("CoreFoundation"),
+                    .linkedFramework("AVFoundation"),
+                ]
+            ),
+            .executableTarget(
+                name: "SpottyApp",
+                dependencies: ["SpottyCore"],
+                path: "Sources/SpottyApp",
+                linkerSettings: [
+                    .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+                ]
+            ),
+            .target(
+                name: "SpottyDomain",
+                path: "Sources/SpottyDomain",
+                exclude: ["AGENTS.md"]
+            ),
+            .testTarget(
+                name: "SpottyDomainTests",
+                dependencies: ["SpottyDomain"],
+                path: "Tests/SpottyDomainTests"
+            ),
+            // Non-shipping. It keeps the direct adapter and binary dependencies SpottyCore used to
+            // pass through transitively, so `@testable import SpottyEngineAdapter` reaches the C
+            // snapshot conversions. Production dependency direction is unaffected.
+            .testTarget(
+                name: "SpottyBoundaryTests",
+                dependencies: ["SpottyCore", "SpottyEngineAdapter", "SpottyPlaybackCore"],
+                path: "Tests/SpottyBoundaryTests",
+                resources: [.copy("Fixtures")]
+            ),
+        ]
+    )
 
-// An opt-in, non-shipping app can inspect internal production views through Debug testability.
-// The ordinary package graph (including distribution builds) contains no harness or fixtures.
-if ProcessInfo.processInfo.environment["SPOTTY_BUILD_BROWSING_HARNESS"] == "1" {
-    package.products.append(.executable(name: "SpottyBrowsingHarness", targets: ["SpottyBrowsingHarness"]))
-    package.targets += [
-        .target(
-            name: "SpottyBrowsingSupport",
-            dependencies: ["SpottyCore"],
-            path: "Tests/BrowsingHarness/Support",
-            resources: [.copy("Artwork")]
-        ),
-        .executableTarget(
-            name: "SpottyBrowsingHarness",
-            dependencies: ["SpottyBrowsingSupport"],
-            path: "Tests/BrowsingHarness/App",
-            linkerSettings: [
-                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
-            ]
-        ),
-        .testTarget(
-            name: "SpottyBrowsingHarnessTests",
-            dependencies: ["SpottyBrowsingSupport", "SpottyCore"],
-            path: "Tests/BrowsingHarness/Checks"
-        ),
-    ]
-}
+    // An opt-in, non-shipping app can inspect internal production views through Debug testability.
+    // The ordinary package graph (including distribution builds) contains no harness or fixtures.
+    if ProcessInfo.processInfo.environment["SPOTTY_BUILD_BROWSING_HARNESS"] == "1" {
+        package.products.append(.executable(name: "SpottyBrowsingHarness", targets: ["SpottyBrowsingHarness"]))
+        package.targets += [
+            .target(
+                name: "SpottyBrowsingSupport",
+                dependencies: ["SpottyCore"],
+                path: "Tests/BrowsingHarness/Support",
+                resources: [.copy("Artwork")]
+            ),
+            .executableTarget(
+                name: "SpottyBrowsingHarness",
+                dependencies: ["SpottyBrowsingSupport"],
+                path: "Tests/BrowsingHarness/App",
+                linkerSettings: [
+                    .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+                ]
+            ),
+            .testTarget(
+                name: "SpottyBrowsingHarnessTests",
+                dependencies: ["SpottyBrowsingSupport", "SpottyCore"],
+                path: "Tests/BrowsingHarness/Checks"
+            ),
+        ]
+    }
+#else
+    let package = Package(
+        name: "Spotty",
+        products: [
+            .library(name: "SpottyDomain", targets: ["SpottyDomain"])
+        ],
+        targets: [
+            .target(
+                name: "SpottyDomain",
+                path: "Sources/SpottyDomain",
+                exclude: ["AGENTS.md"]
+            ),
+            .testTarget(
+                name: "SpottyDomainTests",
+                dependencies: ["SpottyDomain"],
+                path: "Tests/SpottyDomainTests"
+            ),
+        ]
+    )
+#endif

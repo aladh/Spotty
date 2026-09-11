@@ -85,9 +85,32 @@ jobs:
       - name: Check rule fixtures and policy owners
         run: ./Scripts/check-source-policy.sh --test-only
 
+  # SpottyDomain is portable, Foundation-only policy. Compiling and testing it on Linux is what
+  # makes an AppKit, SwiftUI, AVFoundation, or playback-FFI import a compiler error instead of a
+  # source-policy snapshot. The Linux package graph declares only this target and its tests.
+  domain_linux:
+    name: Linux domain
+    runs-on: ubuntu-latest
+    container: swift:6.3-noble
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the portable domain
+        id: domain_build
+        run: swift build --target SpottyDomain
+
+      - name: Run domain tests
+        id: domain_tests
+        run: swift test --filter SpottyDomainTests
+
   macos:
     name: macOS checks
-    needs: [policy]
+    needs: [policy, domain_linux]
     if: needs.policy.outputs.macos_needed == 'true'
     runs-on: macos-26
     timeout-minutes: 120
@@ -282,12 +305,14 @@ jobs:
         if: always()
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
+          DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}
           RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
           RUST_RESULT: ${{ steps.rust.outcome }}
           CHECKS_RESULT: ${{ steps.debug.outcome }}
           RELEASE_RESULT: ${{ steps.release.outcome }}
         run: |
           test "$POLICY_RESULT" = success
+          test "$DOMAIN_LINUX_RESULT" = success
           if [[ "$RUST_NEEDED" == true ]]; then
             test "$RUST_RESULT" = success
           else

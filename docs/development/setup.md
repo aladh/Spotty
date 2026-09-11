@@ -12,7 +12,8 @@ Development requires:
 - An Apple Silicon Mac running macOS 26.2 or newer; the app's runtime target is macOS 15+.
 - Xcode 26.6 with Swift 6.3.3.
 - [ripgrep](https://github.com/BurntSushi/ripgrep) for repository verification.
-- Ruby and cbindgen 0.29.4 for the verification gate (not app compilation or packaging).
+- Ruby and pinned cbindgen for the verification gate, which `package-app.sh` also runs.
+  Bare `swift build` and `compile-release-spotty.sh` do not need these tools.
 - Python 3, used by `check.sh`, `check-source-policy.sh`, `package-app.sh`, and
   `browse-synthetic.sh`.
 - Spotify Premium only for live integration testing authorized under the
@@ -43,9 +44,9 @@ SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 Run [source policies](verification.md#normal-verification) separately for the complete app/source
 verification coverage; that portable check requires the pinned ast-grep CLI.
 
-App builds, Swift tests, and packaging need the Apple SDK and Clang but no Rust tools.
+App builds and Swift tests need the Apple SDK and Clang but no Rust tools.
 The Swift verification gate additionally uses cbindgen as a source parser, without Cargo or rustc.
-Install the pinned parser as described below before running the gate.
+Install the pinned parser as described below before running the gate or `package-app.sh`.
 Verification does not sign in or start playback.
 
 For authenticated launches, follow [development signing](signing.md), including identity selection

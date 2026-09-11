@@ -48,7 +48,8 @@ not replace Swift compilation or behavior tests.
 The full and Rust scopes require the [engine toolchain](setup.md#engine-development).
 The Swift scope and packaging use the pinned binary without the Rust compiler. Verification also
 requires Ruby (for parsed workflow invariants) and pinned cbindgen (for source header reproducibility);
-packaging does not. A differing source input digest produces a pin-freshness warning without
+`package-app.sh` runs this gate and therefore needs both tools. Standalone
+`compile-release-spotty.sh` does not. A differing source input digest produces a pin-freshness warning without
 implicitly rebuilding or replacing the independently released engine. Checks do not sign in or
 initiate playback. See the [enforcement inventory](../architecture/enforcement.md) for coverage.
 

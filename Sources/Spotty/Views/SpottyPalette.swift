@@ -5,6 +5,8 @@ import SwiftUI
 /// Media surfaces follow Spotify colors; native APIs retain interaction and window semantics.
 /// Fixed media green is reserved for actions and playback; selection stays neutral gray.
 enum SpottyPalette {
+    // The black window chrome behind the rounded panels, toolbar, and player shelf.
+    static let windowChrome = Color.black
     static let textPrimary = Color.white
     static let textSecondary = Color(white: 0.7)
     static let navigationControl = Color(white: 0.122)
@@ -23,7 +25,7 @@ enum SpottyPalette {
     static let quickAccessSurface = Color(red: 0.16, green: 0.16, blue: 0.16)
     static let quickAccessSurfaceHover = Color(red: 0.22, green: 0.22, blue: 0.22)
     // The player is a distinct, near-black anchor rather than another raised media card.
-    static let playerShelf = Color.black
+    static let playerShelf = windowChrome
     static let playerDivider = Color.primary.opacity(0.10)
     static let playerPrimary = textPrimary
     static let playerSecondary = textSecondary

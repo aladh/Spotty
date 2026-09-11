@@ -213,7 +213,11 @@ struct MediaCard: View {
         // than nested inside it; the insets place it 8pt inside the artwork's bottom-trailing corner.
         .overlay(alignment: .topTrailing) {
             Button {
-                playback.playURI(item.uri)
+                if item.kind == .playlist {
+                    playback.playPlaylist(item)
+                } else {
+                    playback.playURI(item.uri)
+                }
             } label: {
                 Circle()
                     .fill(SpottyPalette.mediaGreen)
@@ -227,7 +231,9 @@ struct MediaCard: View {
             .buttonStyle(.plain)
             .disabled(!playback.canStartPlayback)
             .pointingHandCursor(enabled: playback.canStartPlayback)
-            .accessibilityLabel("Play")
+            .accessibilityLabel("Play \(item.title)")
+            .accessibilityHidden(!isHovering)
+            .allowsHitTesting(isHovering && playback.canStartPlayback)
             .opacity(isHovering ? 1 : 0)
             .offset(y: isHovering ? 0 : 8)
             .animationIfAllowed(.easeOut(duration: 0.15), value: isHovering, reduceMotion: reduceMotion)

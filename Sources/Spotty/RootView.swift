@@ -44,7 +44,7 @@ struct RootView: View {
                     .padding(.trailing, 8)
             }
             .padding(.bottom, 8)
-            .background { Color.black.ignoresSafeArea() }
+            .background { SpottyPalette.windowChrome.ignoresSafeArea() }
             .inspector(isPresented: $showsSidePanel) {
                 SidePanelView(
                     metadata: catalog.metadata,
@@ -57,7 +57,7 @@ struct RootView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .padding(.trailing, 8)
                 .padding(.bottom, 8)
-                .background(.black)
+                .background(SpottyPalette.windowChrome)
                 .inspectorColumnWidth(min: 260, ideal: 280, max: 360)
             }
             .overlay(alignment: .bottom) {
@@ -85,7 +85,7 @@ struct RootView: View {
                 )
             }
         }
-        .toolbarBackground(.black, for: .windowToolbar)
+        .toolbarBackground(SpottyPalette.windowChrome, for: .windowToolbar)
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .onChange(of: player.accountEpoch) {
             navigation.reset()

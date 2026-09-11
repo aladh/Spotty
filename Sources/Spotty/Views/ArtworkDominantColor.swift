@@ -12,9 +12,20 @@ enum ArtworkDominantColor {
     private static let context = CIContext(options: [.workingColorSpace: NSNull()])
 
     /// Loads the image at `url` and computes its clamped dominant color, or `nil` if unavailable.
-    static func load(from url: URL?) async -> Color? {
+    /// Cancellation propagates as an error so a superseded request never publishes a stale result.
+    static func load(from url: URL?) async throws -> Color? {
         guard let url else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        let data: Data
+        do {
+            data = try await URLSession.shared.data(from: url).0
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+        try Task.checkCancellation()
         guard let image = NSImage(data: data) else { return nil }
         return dominantColor(in: image)
     }

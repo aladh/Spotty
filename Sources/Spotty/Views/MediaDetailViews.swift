@@ -22,7 +22,7 @@ struct AlbumDetailView: View {
                     DetailActionRow(
                         canPlay: playback.canStartPlayback,
                         playAccessibilityLabel: "Play",
-                        playAccessibilityHint: "Starts this \(item.kind.rawValue.lowercased())"
+                        playAccessibilityHint: "Starts this album"
                     ) {
                         playback.playURI(item.uri)
                     }
@@ -78,7 +78,7 @@ struct ArtistDetailView: View {
                     DetailActionRow(
                         canPlay: playback.canStartPlayback,
                         playAccessibilityLabel: "Play",
-                        playAccessibilityHint: "Starts this \(item.kind.rawValue.lowercased())"
+                        playAccessibilityHint: "Starts playback for this artist"
                     ) {
                         playback.playURI(item.uri)
                     }

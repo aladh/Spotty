@@ -25,7 +25,10 @@ struct DetailHeroBackground<Content: View>: View {
                 .animationIfAllowed(.easeInOut(duration: 0.35), value: tint, reduceMotion: reduceMotion)
             }
             .task(id: artworkURL) {
-                tint = await ArtworkDominantColor.load(from: artworkURL)
+                tint = nil
+                guard let loaded = try? await ArtworkDominantColor.load(from: artworkURL) else { return }
+                guard !Task.isCancelled else { return }
+                tint = loaded
             }
     }
 }

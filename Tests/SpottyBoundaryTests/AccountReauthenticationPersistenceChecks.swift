@@ -59,12 +59,12 @@ struct AccountReauthenticationPersistenceTests {
         let clock = CooperativeParkedClock()
         let environment = HarnessEnvironment.make(
             engine: engine, remote: remote, account: account, clock: clock)
-        let store = AccountStore(
-            environment: environment, coordinator: PlaybackCoordinator(local: engine, remote: remote))
-        let restoration = Task { await store.restore() }
+        let player = HarnessEnvironment.makePlaybackStore(environment)
+        let store = player.accountStore
+        let restoration = Task { await player.restore() }
         #expect(await waitUntil { clock.waiterCount == 1 })
 
-        await store.logout()
+        await player.logout()
         await restoration.value
 
         #expect(store.phase == .signedOut)
@@ -197,10 +197,10 @@ struct AccountReauthenticationPersistenceTests {
         let environment = HarnessEnvironment.make(
             engine: engine, remote: remote, account: account, clock: HarnessClock(sleep: .immediate)
         )
-        let firstCoordinator = PlaybackCoordinator(local: engine, remote: remote)
-        let firstStore = AccountStore(environment: environment, coordinator: firstCoordinator)
+        let firstPlayer = HarnessEnvironment.makePlaybackStore(environment)
+        let firstStore = firstPlayer.accountStore
 
-        await firstStore.restore()
+        await firstPlayer.restore()
         #expect(
             (firstStore.phase) == (.failed(ConnectionSnapshotProjection.credentialsRejectedMessage)),
             "typed initialization rejection has stable actionable presentation"
@@ -211,9 +211,9 @@ struct AccountReauthenticationPersistenceTests {
         #expect((account.authorizeCount) == (0), "restore never opens a browser for a retained grant")
         #expect((engine.initializeCount) == (1), "restore performs one typed failing initialization")
 
-        let secondCoordinator = PlaybackCoordinator(local: engine, remote: remote)
-        let secondStore = AccountStore(environment: environment, coordinator: secondCoordinator)
-        await secondStore.restore()
+        let secondPlayer = HarnessEnvironment.makePlaybackStore(environment)
+        let secondStore = secondPlayer.accountStore
+        await secondPlayer.restore()
         #expect((secondStore.requiresReauthentication) == true, "restart restores the durable marker")
         #expect(
             (secondStore.phase) == (.failed(ConnectionSnapshotProjection.credentialsRejectedMessage)),
@@ -222,7 +222,7 @@ struct AccountReauthenticationPersistenceTests {
         #expect((engine.initializeCount) == (1), "restart does not initialize a known-rejected session")
         #expect((account.authorizeCount) == (0), "restart does not authorize implicitly")
 
-        secondStore.connect()
+        secondPlayer.connect()
         #expect(
             (await waitUntil { secondStore.phase == .ready }) == true,
             "explicit connect completes a fresh authorization"
@@ -232,7 +232,7 @@ struct AccountReauthenticationPersistenceTests {
         #expect((secondStore.requiresReauthentication) == false, "successful adoption clears the local marker")
         #expect((engine.initializeCount) == (2), "the replacement initializes once")
 
-        await secondStore.logout()
+        await secondPlayer.logout()
         #expect((account.clearCount) == (1), "explicit logout clears the retained grant")
         #expect((account.marker) == false, "explicit logout leaves no reauthentication marker")
     }

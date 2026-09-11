@@ -374,8 +374,7 @@ struct QueueManagementTests {
 
             } catch {
                 Issue.record(
-                    "\("set_queue encodes remaining next_tracks and required prev_tracks"): "
-                        + "unexpected error \(error)"
+                    "set_queue encodes remaining next_tracks and required prev_tracks: unexpected error \(error)"
                 )
             }
         }
@@ -497,7 +496,11 @@ struct QueueManagementTests {
         #expect((before.map(\.occurrence)) == ([0, 1, 2]), "projection keeps typed upcoming occurrences")
         #expect((before.map(\.uid)) == (["q0", "q1", "q2"]), "projection keeps occurrence uids")
         player.removeUpcomingQueueOccurrences(selectedIDs: [secondDuplicate])
-        #expect((await waitUntil { remote.sendCount == 1 }) == true, "set_queue was sent")
+        #expect(
+            (await waitUntil { feedback.message?.text == "Queue removal request sent" }) == true,
+            "set_queue completed and reported feedback"
+        )
+        #expect((remote.sendCount) == (1), "set_queue was sent")
         let command = remote.commands.first
         #expect((command?.endpoint) == (.setQueue), "removal uses set_queue")
         #expect(
@@ -505,9 +508,6 @@ struct QueueManagementTests {
             "removal keeps the first duplicate occurrence")
         #expect((command?.prevTracks?.map(\.uid)) == (["p0"]), "removal preserves prev_tracks")
         #expect((player.queueNextEntries) == (before), "success does not locally rewrite presentation")
-        #expect(
-            (feedback.message?.text) == ("Queue removal request sent"), "removal reports through transient feedback"
-        )
         await player.shutdownForTermination()
     }
 

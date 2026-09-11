@@ -42,52 +42,43 @@ private final class GatedRemoteClient: RemotePlaybackClient, @unchecked Sendable
     private var storedCompletedCount = 0
 
     var sendCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedSendCount
+        lock.withLock { storedSendCount }
     }
 
     var completedCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedCompletedCount
+        lock.withLock { storedCompletedCount }
     }
 
     func finish(success: Bool) {
         let result: Result<Void, any Error> = success ? .success(()) : .failure(HarnessFailure.unavailable)
-        let waiting: CheckedContinuation<Void, any Error>? = {
-            lock.lock()
-            defer { lock.unlock() }
+        let waiting: CheckedContinuation<Void, any Error>? = lock.withLock {
             let waiting = continuation
             continuation = nil
             if waiting == nil { pendingResult = result }
             return waiting
-        }()
+        }
         waiting?.resume(with: result)
     }
 
     private func markCompleted() {
-        lock.lock()
-        storedCompletedCount += 1
-        lock.unlock()
+        lock.withLock { storedCompletedCount += 1 }
     }
 
     func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {
-        lock.lock()
-        storedSendCount += 1
-        if let pending = pendingResult {
-            pendingResult = nil
-            lock.unlock()
-            defer { markCompleted() }
-            try pending.get()
-            return
-        }
-        lock.unlock()
         defer { markCompleted() }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            lock.lock()
-            self.continuation = continuation
-            lock.unlock()
+            let pending: Result<Void, any Error>? = lock.withLock {
+                storedSendCount += 1
+                if let pendingResult {
+                    self.pendingResult = nil
+                    return pendingResult
+                }
+                self.continuation = continuation
+                return nil
+            }
+            if let pending {
+                continuation.resume(with: pending)
+            }
         }
     }
 

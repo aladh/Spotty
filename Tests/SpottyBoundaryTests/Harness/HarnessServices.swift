@@ -266,6 +266,15 @@ final class HarnessWebQueue: WebQueueClient, @unchecked Sendable {
         parked?.resume(throwing: error ?? SpotifyWebPlayerAPIError.requestFailed(429))
     }
 
+    private func cancelPark() {
+        let parked = withStorage { storage -> CheckedContinuation<[CatalogTrack], any Error>? in
+            let parked = storage.continuation
+            storage.continuation = nil
+            return parked
+        }
+        parked?.resume(throwing: CancellationError())
+    }
+
     func queue() async throws -> [CatalogTrack] {
         let behavior = withStorage { storage -> Behavior in
             storage.requestCount += 1
@@ -280,9 +289,20 @@ final class HarnessWebQueue: WebQueueClient, @unchecked Sendable {
         case .rateLimited:
             throw SpotifyWebPlayerAPIError.requestFailed(429)
         case .park:
-            return try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<[CatalogTrack], any Error>) in
-                withStorage { $0.continuation = continuation }
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<[CatalogTrack], any Error>) in
+                    let cancelled = withStorage { storage -> Bool in
+                        if Task.isCancelled { return true }
+                        storage.continuation = continuation
+                        return false
+                    }
+                    if cancelled {
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            } onCancel: {
+                self.cancelPark()
             }
         }
     }

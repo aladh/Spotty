@@ -2,7 +2,8 @@
 //  PlaybackStore+Session.swift
 //  Spotty
 //
-//  Compatibility actions that delegate account lifecycle to AccountStore.
+//  The one session-teardown orchestration. AccountStore supplies narrow account primitives;
+//  coalescing, ordering, and presentation cleanup live here.
 //
 
 import SpottyDomain
@@ -46,32 +47,43 @@ extension PlaybackStore {
         )
     }
 
+    /// The single account-teardown orchestration.
+    ///
+    /// Ordering guarantees, in this exact order: the account epoch advances before any reducer
+    /// send, catalog update, queue reset, or effect invalidation, so every observer sees the
+    /// already-advanced identity; and there is no suspension between the final intent comparison
+    /// and releasing the teardown gate, so a later request either coalesces into this teardown or
+    /// starts a genuinely new session boundary.
     func endSession(clearGrant: Bool, finalPhase: Phase) async {
         guard terminationGate.allowsCommands else { return }
         feedback.dismiss()
-        let requested = SessionTeardownIntent(clearGrant: clearGrant, finalPhase: finalPhase)
-        let shouldStart = teardown.request(requested)
-        let cumulative = teardown.intent ?? requested
+        let (shouldStart, cumulative) = teardown.request(
+            SessionTeardownIntent(clearGrant: clearGrant, finalPhase: finalPhase)
+        )
 
         if !shouldStart {
             // Upgrade the visible result immediately, but keep the existing epoch and teardown.
             send(.reset(session: cumulative.finalPhase), source: .account)
-            accountStore.upgradeActiveEndSession(
-                clearGrant: cumulative.clearGrant,
-                finalPhase: cumulative.finalPhase
-            )
-            if let teardownTask { await teardownTask.value }
+            accountStore.publishPhase(cumulative.finalPhase)
+            await teardown.awaitActive()
             return
         }
 
         isTearingDown = true
+        accountStore.isTearingDown = true
         invalidatePlaybackDispatchPermits()
         // Advance AccountStore.epoch before any reducer send, catalog update, queue reset,
         // or effect invalidation so every observer uses that already-advanced identity.
-        let accountTask = accountStore.beginEndSession(
-            clearGrant: cumulative.clearGrant,
-            finalPhase: cumulative.finalPhase
-        )
+        let staleConnectionTask = accountStore.invalidateAccountIdentity()
+        accountStore.publishPhase(cumulative.finalPhase)
+        // The account-side shutdown runs concurrently with presentation cleanup, the effect
+        // drain, and the queue reset, exactly as the previous two-owner split did.
+        let accountTeardown = Task { [accountStore] in
+            await accountStore.performAccountTeardown(
+                staleConnectionTask: staleConnectionTask,
+                intent: cumulative
+            )
+        }
         engineGeneration &+= 1
         connectQueueCallback.reset()
         queueInspectorOrderingVersion = 0
@@ -89,23 +101,23 @@ extension PlaybackStore {
             guard let self else { return }
             let drain = await self.effects.drain(cancelledEffects)
             self.report(effectDrain: drain, during: "account teardown")
-            await self.performEndSession(accountTask: accountTask)
+            await self.completeEndSession(accountTeardown: accountTeardown)
         }
-        teardownTask = task
+        teardown.setActiveTask(task)
         await task.value
     }
 
-    private func performEndSession(
-        accountTask: Task<SessionTeardownIntent, Never>
+    private func completeEndSession(
+        accountTeardown: Task<SessionTeardownIntent, Never>
     ) async {
         await queueService.reset(accountEpoch: accountEpoch)
-        var appliedIntent = await accountTask.value
+        var appliedIntent = await accountTeardown.value
         await environment.preferences.setShuffleHistory([:])
 
         var clearedRemoteDevice = false
         while let desiredIntent = teardown.intent {
             if desiredIntent != appliedIntent {
-                appliedIntent = await accountStore.reconcileCompletedEndSession(
+                appliedIntent = await accountStore.applyStrongerIntent(
                     applied: appliedIntent,
                     desired: desiredIntent
                 )
@@ -123,14 +135,18 @@ extension PlaybackStore {
             // request either coalesces above or starts a genuinely new session boundary afterward.
             let completed = teardown.complete() ?? desiredIntent
             send(.session(completed.finalPhase), source: .account)
-            teardownTask = nil
-            isTearingDown = false
+            releaseTeardownGate()
             return
         }
 
         // Defensive recovery for an impossible externally-cleared coalescer.
-        teardownTask = nil
+        teardown.setActiveTask(nil)
+        releaseTeardownGate()
+    }
+
+    private func releaseTeardownGate() {
         isTearingDown = false
+        accountStore.isTearingDown = false
     }
 
     private func report(effectDrain: PlaybackEffectDrainReport, during operation: String) {
@@ -141,14 +157,17 @@ extension PlaybackStore {
     }
 
     /// Performs the one process-termination shutdown. Streaming credentials remain intact for the
-    /// next launch; account logout is a separate operation.
+    /// next launch; account logout is a separate operation. It uses the same account primitives
+    /// as `endSession` so there is still only one teardown owner.
     func shutdownForTermination() async {
         guard terminationGate.begin() else { return }
         guard !isTearingDown else { return }
         feedback.dismiss()
         isTearingDown = true
+        accountStore.isTearingDown = true
         invalidatePlaybackDispatchPermits()
-        let staleConnectionTask = accountStore.prepareShutdownForTermination()
+        let staleConnectionTask = accountStore.invalidateAccountIdentity()
+        accountStore.publishPhase(.signedOut)
         engineGeneration &+= 1
         connectQueueCallback.reset()
         queueInspectorOrderingVersion = 0

@@ -4,6 +4,8 @@ valid:
   - '// PartnerAPI()'
   - 'let text = "KeymasterSession.shared"'
   - 'FakePartnerAPI()'
+  # PlaybackCore is unreachable from this target; the package graph, not this rule, owns it.
+  - 'PlaybackCore.start()'
 invalid:
   - 'PartnerAPI()'
   - 'Module.PartnerAPI()'
@@ -15,7 +17,3 @@ invalid:
   - 'KeymasterAuth.authorize()'
   - 'KeymasterSession.shared'
   - 'RustPlaybackEngine.shared'
-  - 'PlaybackCore.start()'
-  - 'Module.PlaybackCore.start()'
-  - 'func f(_ r: PlaybackCore.Result) {}'
-  - 'typealias R = Module.PlaybackCore.Result'

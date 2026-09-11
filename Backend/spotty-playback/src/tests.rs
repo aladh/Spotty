@@ -173,7 +173,7 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
     let previous_generation = SESSION_GENERATION.load(Ordering::SeqCst);
     let previous_pending = with_connection(|c| std::mem::replace(&mut c.resume_pending, false));
 
-    SESSION_GENERATION.store(11, Ordering::SeqCst);
+    set_session_generation_for_test(11);
     let _ = open_rehydration_window(11);
     assert!(
         !rehydration_load_is_current(11),
@@ -187,7 +187,7 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
         "a load for an older session is stale"
     );
 
-    SESSION_GENERATION.store(12, Ordering::SeqCst);
+    set_session_generation_for_test(12);
     assert!(
         !rehydration_load_is_current(11),
         "a newer session supersedes the window even while the flag is set"
@@ -200,7 +200,7 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
     );
 
     with_connection(|c| c.resume_pending = previous_pending);
-    SESSION_GENERATION.store(previous_generation, Ordering::SeqCst);
+    set_session_generation_for_test(previous_generation);
 }
 
 fn take_owned_c_string(ptr: *mut std::os::raw::c_char) -> Option<String> {
@@ -498,7 +498,7 @@ fn a_run_is_superseded_when_the_generation_moves() {
 #[test]
 fn generation_mutation_gate_serializes_event_state_and_invalidation() {
     let _guard = lock_global_state();
-    let previous_generation = SESSION_GENERATION.swap(41, Ordering::SeqCst);
+    let previous_generation = set_session_generation_for_test(41);
     let (entered_tx, entered_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let event = std::thread::spawn(move || {
@@ -540,24 +540,24 @@ fn generation_mutation_gate_serializes_event_state_and_invalidation() {
         "invalidation must wait for the event's synchronous mutation to finish"
     );
     assert_eq!(invalidated, 42);
-    SESSION_GENERATION.store(previous_generation, Ordering::SeqCst);
+    set_session_generation_for_test(previous_generation);
 }
 
 #[test]
 fn generation_owned_snapshot_keeps_its_callback_owner() {
     let _guard = lock_global_state();
-    let previous_generation = SESSION_GENERATION.swap(8, Ordering::SeqCst);
+    let previous_generation = set_session_generation_for_test(8);
     let stamp = stamped_snapshot_for_generation(7, |stamp| stamp);
-    SESSION_GENERATION.store(9, Ordering::SeqCst);
+    set_session_generation_for_test(9);
 
     assert_eq!(stamp.session_generation, 7);
-    SESSION_GENERATION.store(previous_generation, Ordering::SeqCst);
+    set_session_generation_for_test(previous_generation);
 }
 
 #[test]
 fn stale_recovery_cannot_claim_the_reconnect_owner() {
     let _guard = lock_global_state();
-    let previous_generation = SESSION_GENERATION.swap(8, Ordering::SeqCst);
+    let previous_generation = set_session_generation_for_test(8);
     cancel_recovery();
     let intent = RecoveryIntent {
         was_playing: true,
@@ -569,7 +569,7 @@ fn stale_recovery_cannot_claim_the_reconnect_owner() {
     assert!(start.is_none(), "a stale event must not claim recovery");
     assert!(!recovery_is_active());
     cancel_recovery();
-    SESSION_GENERATION.store(previous_generation, Ordering::SeqCst);
+    set_session_generation_for_test(previous_generation);
 }
 
 fn lock_global_state() -> std::sync::MutexGuard<'static, ()> {

@@ -56,11 +56,14 @@ only when tracked compiler input contents match the manifest saved with that bui
 new inputs keep checkout timestamps. Rust verification disables incremental products and keeps line-table
 debug information to reduce cache transfer without changing assertions or test coverage. Release
 caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust tools are blocked
-before Swift runs. Main requires `Source policies` and `macOS checks`. The final macOS step validates each phase
+before Swift runs. A separate `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
+in a Swift container; `Package.swift` declares only those two targets off macOS, so an AppKit,
+SwiftUI, AVFoundation, or playback-FFI import in the domain fails to compile there. Main requires
+`Source policies`, `Linux domain`, and `macOS checks`. The final macOS step validates each phase
 outcome, including the explicit decision required to skip Rust.
 
-CI skips macOS for PRs limited to documentation, including nested `AGENTS.md` files. Linux source
-policies still run. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or
+CI skips macOS for PRs limited to documentation, including nested `AGENTS.md` files. The Linux
+source-policy and domain jobs still run; neither is conditional. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or
 documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
 runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
 requires Rust; a base without macOS classification keeps macOS enabled. Detection errors fail CI. Skipped Rust steps are accepted only after an

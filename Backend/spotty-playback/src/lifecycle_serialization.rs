@@ -1,12 +1,12 @@
 use crate::*;
 use std::future::Future;
 
-/// Serializes player-session lifecycle operations that write the engine globals.
+/// Serializes player-session lifecycle operations that write [`EngineGeneration`].
 ///
 /// One async mutex, not a cross-language actor. Held across the awaits inside a build or
-/// a reconnect cleanup+build so those writes cannot interleave. Never hold a per-global
-/// `std::sync::Mutex` guard across `await`; this lock is the one exception, and inner
-/// helpers must not acquire it again.
+/// a reconnect cleanup+build so those writes cannot interleave. Never hold the synchronous
+/// engine-state guard across `await`; this lock is the one exception, and inner helpers must
+/// not acquire it again.
 pub(crate) static LIFECYCLE: Lazy<tokio::sync::Mutex<()>> =
     Lazy::new(|| tokio::sync::Mutex::new(()));
 
@@ -43,7 +43,7 @@ pub(crate) fn start_reconnect_loop(
 }
 
 pub(crate) fn session_is_present() -> bool {
-    SESSION.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    with_engine(|engine| engine.session.is_some())
 }
 
 pub(crate) async fn acquire_lifecycle() -> tokio::sync::MutexGuard<'static, ()> {
@@ -128,7 +128,7 @@ where
     ReconnectUnitOutcome::Ran(build.await)
 }
 
-/// Marks the store/commit critical section that writes the engine globals.
+/// Marks the store/commit critical section that writes [`EngineGeneration`].
 ///
 /// Nested on one thread is allowed (reconnect cleanup then build). Two threads at once is
 /// the interleaving this lock exists to prevent.

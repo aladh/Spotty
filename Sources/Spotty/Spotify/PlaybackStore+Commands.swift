@@ -342,85 +342,24 @@ extension PlaybackStore {
             return
         }
         let deadlineID = PlaybackEffectID.commandDeadline(commandID)
-        effects.replace(
-            deadlineID,
-            with: Task { [weak self] in
-                guard let self else { return }
-                defer { self.effects.complete(deadlineID) }
-                do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
-                guard !Task.isCancelled, self.playbackLifetime == lifetime, !self.isTearingDown else { return }
-                let wasSent = self.state.intents.first { $0.command.id == commandID }?.outcome == .sent
-                if self.send(.commandTimedOut(id: commandID), source: .command, playbackLifetime: lifetime) {
-                    self.effects.cancel(.command(commandID))
-                    if !wasSent { completion(false) }
-                    let dispatched = self.state.intents.first { $0.command.id == commandID }?.dispatchedAt != nil
-                    self.showTransientCommandError(
-                        dispatched
-                            ? "Spotify has not confirmed this request. Its result is unknown."
-                            : "The playback request expired before it was sent.")
-                }
-            })
+        effects.run(deadlineID) { [weak self] in
+            guard let self else { return }
+            do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
+            guard self.stillCurrent(lifetime) else { return }
+            let wasSent = self.state.intents.first { $0.command.id == commandID }?.outcome == .sent
+            if self.send(.commandTimedOut(id: commandID), source: .command, playbackLifetime: lifetime) {
+                self.effects.cancel(.command(commandID))
+                if !wasSent { completion(false) }
+                let dispatched = self.state.intents.first { $0.command.id == commandID }?.dispatchedAt != nil
+                self.showTransientCommandError(
+                    dispatched
+                        ? "Spotify has not confirmed this request. Its result is unknown."
+                        : "The playback request expired before it was sent.")
+            }
+        }
         let effectID = PlaybackEffectID.command(commandID)
-        let registration = PlaybackEffectRegistration()
-        effects.replace(
+        effects.run(
             effectID,
-            with: Task { [weak self] in
-                defer { self?.effects.complete(effectID, registration: registration) }
-                guard let self else { return }
-                do {
-                    // Admission publishes optimistic state before this effect gets a turn. A
-                    // session/engine publication may invalidate that state while the task is
-                    // queued. Re-check both lifetime and command identity before creating a
-                    // dispatch permit; otherwise stale work could acquire a fresh permit in the
-                    // replacement lifetime and reach local C or the remote client after its
-                    // pending intent was already dropped.
-                    guard
-                        self.playbackLifetime == lifetime,
-                        self.state.pendingCommands[kind]?.id == commandID,
-                        !self.isTearingDown,
-                        !Task.isCancelled
-                    else {
-                        self.settleUndispatchedPlaybackCommand(
-                            commandID: commandID,
-                            kind: kind,
-                            capturedLifetime: lifetime,
-                            completion: completion
-                        )
-                        return
-                    }
-                    guard let outcome = try await operation(commandID) else {
-                        self.settleUndispatchedPlaybackCommand(
-                            commandID: commandID,
-                            kind: kind,
-                            capturedLifetime: lifetime,
-                            completion: completion
-                        )
-                        return
-                    }
-                    // Account replacement and teardown make every outcome inert here. Engine
-                    // replacement is intentionally resolved by the lifetime-stamped reducer
-                    // finish and shared follow-up: an authoritative engine sample may confirm
-                    // or supersede a command while its coordinator operation is suspended.
-                    guard
-                        !Task.isCancelled,
-                        lifetime.accountEpoch == self.accountEpoch,
-                        !self.isTearingDown
-                    else { return }
-                    self.applyCommandOutcome(
-                        commandID: commandID,
-                        kind: kind,
-                        capturedLifetime: lifetime,
-                        outcome: outcome,
-                        action: action,
-                        completion: completion
-                    )
-                } catch is CancellationError {
-                    return
-                } catch {
-                    return
-                }
-            },
-            registration: registration,
             onCancel: { [weak self] in
                 self?.settleCancelledPlaybackCommand(
                     commandID: commandID,
@@ -429,7 +368,56 @@ extension PlaybackStore {
                     completion: completion
                 )
             }
-        )
+        ) { [weak self] in
+            guard let self else { return }
+            do {
+                // Admission publishes optimistic state before this effect gets a turn. A
+                // session/engine publication may invalidate that state while the task is
+                // queued. Re-check both lifetime and command identity before creating a
+                // dispatch permit; otherwise stale work could acquire a fresh permit in the
+                // replacement lifetime and reach local C or the remote client after its
+                // pending intent was already dropped.
+                guard
+                    self.stillCurrent(lifetime),
+                    self.state.pendingCommands[kind]?.id == commandID
+                else {
+                    self.settleUndispatchedPlaybackCommand(
+                        commandID: commandID,
+                        kind: kind,
+                        capturedLifetime: lifetime,
+                        completion: completion
+                    )
+                    return
+                }
+                guard let outcome = try await operation(commandID) else {
+                    self.settleUndispatchedPlaybackCommand(
+                        commandID: commandID,
+                        kind: kind,
+                        capturedLifetime: lifetime,
+                        completion: completion
+                    )
+                    return
+                }
+                // Account replacement and teardown make every outcome inert here. Engine
+                // replacement is intentionally resolved by the lifetime-stamped reducer
+                // finish and shared follow-up: an authoritative engine sample may confirm
+                // or supersede a command while its coordinator operation is suspended, so this
+                // gate is deliberately account-scoped.
+                guard self.stillCurrent(lifetime, scope: .account) else { return }
+                self.applyCommandOutcome(
+                    commandID: commandID,
+                    kind: kind,
+                    capturedLifetime: lifetime,
+                    outcome: outcome,
+                    action: action,
+                    completion: completion
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
     }
 
     /// Resolves the route policy again at the coordinator's dispatch boundary. An idle play may
@@ -575,23 +563,21 @@ extension PlaybackStore {
             connect()
             return
         }
-        effects.replace(
-            .engineRecovery,
-            with: Task { [weak self] in
-                guard let self, !Task.isCancelled else { return }
-                _ = await self.coordinator.forceReconnect()
-            })
+        effects.run(.engineRecovery) { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            _ = await self.coordinator.forceReconnect()
+        }
     }
 
     func showTransientCommandError(_ message: String) {
         guard let noticeID = setNotice(message) else { return }
-        effects.replace(
-            .commandError,
-            with: Task { [weak self] in
-                try? await self?.environment.clock.sleep(seconds: 4)
-                guard !Task.isCancelled else { return }
-                self?.dismissPlaybackNotice(id: noticeID)
-            })
+        // Dismissal is identified by the notice it published, so it deliberately does not
+        // revalidate a lifetime: a reset already replaced the notice this would clear.
+        effects.run(.commandError) { [weak self] in
+            try? await self?.environment.clock.sleep(seconds: 4)
+            guard !Task.isCancelled else { return }
+            self?.dismissPlaybackNotice(id: noticeID)
+        }
     }
 
 }

@@ -11,6 +11,8 @@ import Foundation
 @MainActor
 @Observable
 final class SearchStore {
+    private typealias Flight = AccountScopedSingleFlight<String>
+
     enum Section: String, CaseIterable, Sendable {
         case tracks, albums, artists, playlists
     }
@@ -40,9 +42,8 @@ final class SearchStore {
     @ObservationIgnored private let metadata: CatalogMetadataRepository
     @ObservationIgnored private let session: CatalogSessionAvailability
     @ObservationIgnored private let clock: any PlaybackClock
-    @ObservationIgnored private var requestScope: UInt64 = 0
+    @ObservationIgnored private let flight: Flight
     @ObservationIgnored private var debounceGeneration: UInt64 = 0
-    @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
 
     init(
@@ -55,13 +56,13 @@ final class SearchStore {
         self.metadata = metadata
         self.session = session
         self.clock = clock
+        // A newer query always replaces the one in flight; there is nothing to join.
+        flight = Flight(session: session, join: .alwaysSupersede, scope: .singleSelection, publish: .strict)
     }
 
     func reset() {
         invalidatePendingAdmission()
-        requestScope &+= 1
-        searchTask?.cancel()
-        searchTask = nil
+        flight.reset()
         clearResults()
         isSearching = false
     }
@@ -109,9 +110,7 @@ final class SearchStore {
     }
 
     private func performSearch(_ query: String) async {
-        requestScope &+= 1
-        let requestID = requestScope
-        searchTask?.cancel()
+        let handle = flight.begin(query)
         guard session.isAvailable, !query.isEmpty else {
             clearResults()
             isSearching = false
@@ -120,60 +119,52 @@ final class SearchStore {
 
         clearResults()
         isSearching = true
-        let identity = session.requestIdentity(requestID: requestID)
-        let task = Task { [weak self] in
+        await flight.run(handle) { [weak self] in
             guard let self else { return }
             await withTaskGroup(of: Void.self) { group in
-                group.addTask { await self.loadTracks(query, identity: identity) }
-                group.addTask { await self.loadAlbums(query, identity: identity) }
-                group.addTask { await self.loadArtists(query, identity: identity) }
-                group.addTask { await self.loadPlaylists(query, identity: identity) }
+                group.addTask { await self.loadTracks(query, handle: handle) }
+                group.addTask { await self.loadAlbums(query, handle: handle) }
+                group.addTask { await self.loadArtists(query, handle: handle) }
+                group.addTask { await self.loadPlaylists(query, handle: handle) }
             }
         }
-        searchTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        if requestID == requestScope {
+        if flight.owns(handle) {
             isSearching = false
-            searchTask = nil
         }
     }
 
-    private func loadTracks(_ query: String, identity: AccountScopedRequestIdentity) async {
-        await load(.tracks, identity: identity) {
+    private func loadTracks(_ query: String, handle: Flight.Handle) async {
+        await load(.tracks, handle: handle) {
             let values = try await provider.searchTracks(query, limit: 50).compactMap(CatalogMapping.searchTrack(from:))
-            guard isCurrent(identity) else { return }
+            guard flight.isCurrent(handle) else { return }
             trackCollection.replace(values)
             metadata.replaceTracks(values, from: .search)
             metadata.loadTrackAttributes(for: values)
         }
     }
 
-    private func loadAlbums(_ query: String, identity: AccountScopedRequestIdentity) async {
-        await load(.albums, identity: identity) {
+    private func loadAlbums(_ query: String, handle: Flight.Handle) async {
+        await load(.albums, handle: handle) {
             let values = try await provider.searchAlbums(query, limit: 30).compactMap(CatalogMapping.item(from:))
-            guard isCurrent(identity) else { return }
+            guard flight.isCurrent(handle) else { return }
             albums = values
             metadata.cacheItems(values, from: .search)
         }
     }
 
-    private func loadArtists(_ query: String, identity: AccountScopedRequestIdentity) async {
-        await load(.artists, identity: identity) {
+    private func loadArtists(_ query: String, handle: Flight.Handle) async {
+        await load(.artists, handle: handle) {
             let values = try await provider.searchArtists(query, limit: 30).compactMap(CatalogMapping.item(from:))
-            guard isCurrent(identity) else { return }
+            guard flight.isCurrent(handle) else { return }
             artists = values
             metadata.cacheItems(values, from: .search)
         }
     }
 
-    private func loadPlaylists(_ query: String, identity: AccountScopedRequestIdentity) async {
-        await load(.playlists, identity: identity) {
+    private func loadPlaylists(_ query: String, handle: Flight.Handle) async {
+        await load(.playlists, handle: handle) {
             let values = try await provider.searchPlaylists(query, limit: 30).compactMap(CatalogMapping.item(from:))
-            guard isCurrent(identity) else { return }
+            guard flight.isCurrent(handle) else { return }
             playlists = values
             metadata.cacheItems(values, from: .search)
         }
@@ -181,14 +172,14 @@ final class SearchStore {
 
     private func load(
         _ section: Section,
-        identity: AccountScopedRequestIdentity,
+        handle: Flight.Handle,
         operation: () async throws -> Void
     ) async {
         do {
             try await operation()
         } catch CatalogProviderCapabilityError.unsupported {
         } catch {
-            guard !isCancellation(error), isCurrent(identity) else { return }
+            guard flight.shouldReport(error, for: handle) else { return }
             errors[section] = error.localizedDescription
         }
     }
@@ -201,15 +192,5 @@ final class SearchStore {
         errors = [:]
         metadata.replaceTracks([], from: .search)
         metadata.replaceItems([], from: .search)
-    }
-
-    private func isCurrent(_ identity: AccountScopedRequestIdentity) -> Bool {
-        identity.isCurrent(
-            requestID: requestScope,
-            accountEpoch: session.accountEpoch,
-            sessionRevision: session.snapshot.revision,
-            isAvailable: session.isAvailable,
-            isCancelled: Task.isCancelled
-        )
     }
 }

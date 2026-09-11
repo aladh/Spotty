@@ -491,9 +491,9 @@ pub(crate) fn send_devices_snapshot(
 ///
 /// Handed out as a clone rather than behind the guard: several callers go on to publish a
 /// connection snapshot, which re-enters Swift, and Swift may call straight back into Rust.
-/// No FFI entry point may hold the `SPIRC` lock across that.
+/// No FFI entry point may hold the engine lock across that.
 pub(crate) fn current_spirc(what: &str) -> Option<Arc<Spirc>> {
-    let spirc = SPIRC.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let spirc = current_spirc_handle();
     if spirc.is_none() {
         debug!("{} error: Spirc not initialized", what);
     }

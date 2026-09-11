@@ -3,7 +3,7 @@ import Foundation
 
 /// A typed control event emitted by the embedded engine. PCM deliberately bypasses this stream
 /// and continues directly to `AudioRenderer` on the decoder callback thread.
-nonisolated enum RustPlaybackEvent: Sendable {
+public nonisolated enum RustPlaybackEvent: Sendable {
     case playback(RustPlaybackState)
     case queue(RustQueueState)
     case connection(RustConnectionState)
@@ -17,25 +17,51 @@ nonisolated enum RustPlaybackEvent: Sendable {
 
 /// Related facts copied from one engine cluster callback. Component revisions remain intact:
 /// player-local observations can be newer than the corresponding cluster playback sample.
-nonisolated struct RustConnectClusterState: Sendable {
-    let revision: UInt64
-    let sessionGeneration: UInt64
+public nonisolated struct RustConnectClusterState: Sendable {
+    public let revision: UInt64
+    public let sessionGeneration: UInt64
     /// Engine provenance: 1 is bootstrap, 2 is dealer push; unknown values remain opaque.
-    let source: UInt8
-    let localDeviceID: String?
-    let devices: RustDevicesState
-    let connection: RustConnectionState?
-    let playback: RustPlaybackState?
-    let queue: RustQueueState?
+    public let source: UInt8
+    public let localDeviceID: String?
+    public let devices: RustDevicesState
+    public let connection: RustConnectionState?
+    public let playback: RustPlaybackState?
+    public let queue: RustQueueState?
+
+    public init(
+        revision: UInt64,
+        sessionGeneration: UInt64,
+        source: UInt8,
+        localDeviceID: String?,
+        devices: RustDevicesState,
+        connection: RustConnectionState?,
+        playback: RustPlaybackState?,
+        queue: RustQueueState?
+    ) {
+        self.revision = revision
+        self.sessionGeneration = sessionGeneration
+        self.source = source
+        self.localDeviceID = localDeviceID
+        self.devices = devices
+        self.connection = connection
+        self.playback = playback
+        self.queue = queue
+    }
 }
 
 /// Process-local ordering assigned at callback intake and delivered in that order.
 /// Backend revisions remain authoritative within a source; this sequence makes
 /// cross-callback delivery deterministic in Swift.
-nonisolated struct RustPlaybackEventEnvelope: Sendable {
-    let sequence: UInt64
-    let receivedAt: Date
-    let event: RustPlaybackEvent
+public nonisolated struct RustPlaybackEventEnvelope: Sendable {
+    public let sequence: UInt64
+    public let receivedAt: Date
+    public let event: RustPlaybackEvent
+
+    public init(sequence: UInt64, receivedAt: Date, event: RustPlaybackEvent) {
+        self.sequence = sequence
+        self.receivedAt = receivedAt
+        self.event = event
+    }
 }
 
 /// The one embedded playback engine owned by this process.
@@ -43,8 +69,8 @@ nonisolated struct RustPlaybackEventEnvelope: Sendable {
 /// The C ABI exposes process-global callbacks, so an instance-per-view abstraction would be
 /// dishonest. This adapter makes the process lifetime explicit, registers once, and fans typed
 /// events into AsyncStreams without retaining a controller or using unsafe mutable globals.
-nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Sendable {
-    static let shared = RustPlaybackEngine()
+public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Sendable {
+    public static let shared = RustPlaybackEngine()
 
     private let lock = NSLock()
     private let fanout = EngineEventFanout(clock: SystemPlaybackClock())
@@ -52,19 +78,19 @@ nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Send
 
     private init() {}
 
-    func authorizeStreaming(with accessToken: String) -> Int32 {
+    public func authorizeStreaming(with accessToken: String) -> Int32 {
         guard PlaybackCore.configureDeviceID(ConnectInstallationIDStore.liveDeviceID) == 0 else { return -1 }
         return PlaybackCore.authorizeStreaming(with: accessToken)
     }
 
-    func initialize() -> PlaybackEngineResult {
+    public func initialize() -> PlaybackEngineResult {
         guard PlaybackCore.configureDeviceID(ConnectInstallationIDStore.liveDeviceID) == 0 else {
             return PlaybackEngineResult(rawValue: -1)
         }
         return engineResult(PlaybackCore.initialize())
     }
 
-    func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
+    public func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
         switch operation {
         case let .playURI(uri): engineResult(PlaybackCore.play(uri: uri))
         case let .playTracks(tracks): engineResult(PlaybackCore.play(tracks: tracks))
@@ -85,20 +111,20 @@ nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Send
         }
     }
 
-    func positionMilliseconds() -> UInt32 { PlaybackCore.positionMilliseconds() }
-    func resumePositionMilliseconds() -> UInt32 { PlaybackCore.resumePositionMilliseconds() }
-    func resumeContextURI() -> String? { PlaybackCore.resumeContextURI() }
-    func resumeTrackURI() -> String? { PlaybackCore.resumeTrackURI() }
-    func queueSnapshot() -> RustQueueState? { PlaybackCore.queueSnapshot() }
-    func shutdown() -> PlaybackEngineResult {
+    public func positionMilliseconds() -> UInt32 { PlaybackCore.positionMilliseconds() }
+    public func resumePositionMilliseconds() -> UInt32 { PlaybackCore.resumePositionMilliseconds() }
+    public func resumeContextURI() -> String? { PlaybackCore.resumeContextURI() }
+    public func resumeTrackURI() -> String? { PlaybackCore.resumeTrackURI() }
+    public func queueSnapshot() -> RustQueueState? { PlaybackCore.queueSnapshot() }
+    public func shutdown() -> PlaybackEngineResult {
         engineResult(PlaybackCore.shutdown())
     }
-    func cleanup() { PlaybackCore.cleanup() }
-    func clearStreamingCredentials() { PlaybackCore.clearStreamingCredentials() }
-    func disconnect() -> PlaybackEngineResult {
+    public func cleanup() { PlaybackCore.cleanup() }
+    public func clearStreamingCredentials() { PlaybackCore.clearStreamingCredentials() }
+    public func disconnect() -> PlaybackEngineResult {
         engineResult(PlaybackCore.disconnect())
     }
-    func forceReconnect() -> Int32 { PlaybackCore.forceReconnect() }
+    public func forceReconnect() -> Int32 { PlaybackCore.forceReconnect() }
 
     /// Activate/`play()` first. On a non-reconnect failure, iterate load targets.
     /// `PlaybackCoordinator` serializes this whole operation.
@@ -125,7 +151,7 @@ nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Send
         }
     }
 
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
+    public func events() -> AsyncStream<RustPlaybackEventEnvelope> {
         // Install the continuation before registration. This closes the initial-event loss
         // window if callback registration ever publishes a snapshot synchronously.
         fanout.events { [self] in

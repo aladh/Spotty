@@ -5,9 +5,18 @@ and [ADR 005](../../docs/architecture/adrs/ADR-005-retain-librespot.md). ABI cha
 [engine contract](../../docs/architecture/engine-contract.md). The app consumes this crate only as a
 published artifact under [ADR 006](../../docs/architecture/adrs/ADR-006-prebuilt-playback-engine.md).
 
-- Lifecycle operations that write `SESSION`, `SPIRC`, `PLAYER`, `MIXER`, or `PLAYER_EVENT_TX`
-  serialize through one async lifecycle mutex. Do not hold a per-global guard across `await`, and do
-  not re-enter the lifecycle mutex from an inner helper.
+- `EngineGeneration` in `state.rs` owns everything scoped to one engine generation — session,
+  Spirc, player, mixer, player-event sender, task registry, playing flag and its event stamp,
+  resume claim, playback options, cluster caches, and the connection fields — behind one
+  `ENGINE` mutex tagged with its `session_generation`. Reach it only through the `state.rs`
+  accessors; use `with_engine_owned` / `with_connection_owned` whenever the caller names a
+  generation, so a stale owner is refused with `StaleGeneration` instead of overwriting its
+  replacement. Lifecycle operations that write it still serialize through one async lifecycle
+  mutex. The engine guard must never escape an accessor, cross an `await`, or be held while a
+  Swift callback runs, and no helper may re-enter the lifecycle mutex.
+- Only `EngineGeneration::note_playing_event` can report local playback: the flag is private, so
+  a play or load command cannot claim success the player never reported. This replaces the
+  retired `rust-playing-store-owner` / `rust-playing-store-required` ast-grep rules.
 - Reconnect captures `SESSION_GENERATION` at trigger time and revalidates it after acquiring the
   lifecycle mutex. A stale cleanup/reconnect must not tear down or rebuild a newer generation.
   Exported init rechecks its already-initialized no-op inside the mutex.

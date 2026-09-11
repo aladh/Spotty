@@ -12,6 +12,14 @@ import OSLog
 @MainActor
 @Observable
 final class HomeLibraryStore {
+    private typealias Flight = AccountScopedSingleFlight<Request>
+
+    /// Independent request lifetimes: the launch-critical aggregate load and each section.
+    private enum Request: Hashable, Sendable {
+        case initialLoad
+        case section(Section)
+    }
+
     enum Section: String, CaseIterable, Hashable, Sendable {
         case home = "Home"
         case profile = "Profile"
@@ -46,14 +54,7 @@ final class HomeLibraryStore {
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let metadata: CatalogMetadataRepository
     @ObservationIgnored private let session: CatalogSessionAvailability
-    @ObservationIgnored private var nextRequestID: UInt64 = 0
-    @ObservationIgnored private var requestIDs: [Section: UInt64] = [:]
-    @ObservationIgnored private var initialLoadTask: Task<Void, Never>?
-    @ObservationIgnored private var initialLoadToken: UUID?
-    @ObservationIgnored private var sectionTasks: [Section: Task<Void, Never>] = [:]
-    @ObservationIgnored private var sectionSessionSnapshots: [Section: CatalogSessionSnapshot] = [:]
-    @ObservationIgnored private var loadedSessionSnapshots: [Section: CatalogSessionSnapshot] = [:]
-    @ObservationIgnored private var loadSessionSnapshot: CatalogSessionSnapshot?
+    @ObservationIgnored private let flight: Flight
 
     init(
         provider: any CatalogProviding,
@@ -63,19 +64,12 @@ final class HomeLibraryStore {
         self.provider = provider
         self.metadata = metadata
         self.session = session
+        // Sections publish independently, so each request key owns its own lifetime.
+        flight = Flight(session: session, join: .joinMatchingKey, scope: .perKey, publish: .strict)
     }
 
     func reset() {
-        nextRequestID &+= 1
-        initialLoadTask?.cancel()
-        sectionTasks.values.forEach { $0.cancel() }
-        initialLoadTask = nil
-        initialLoadToken = nil
-        sectionTasks.removeAll(keepingCapacity: false)
-        sectionSessionSnapshots.removeAll(keepingCapacity: false)
-        loadedSessionSnapshots.removeAll(keepingCapacity: false)
-        requestIDs.removeAll(keepingCapacity: false)
-        loadSessionSnapshot = nil
+        flight.reset()
         greeting = "Home"
         profileName = "Spotify Premium"
         profileURI = nil
@@ -95,34 +89,19 @@ final class HomeLibraryStore {
     func load() async {
         let interval = SpottyLog.catalogSignposter.beginInterval("Initial catalog load")
         defer { SpottyLog.catalogSignposter.endInterval("Initial catalog load", interval) }
-        let currentSession = session.snapshot
-        guard currentSession.isAvailable else { return }
-        if let initialLoadTask, loadSessionSnapshot == currentSession {
-            await initialLoadTask.value
+        switch flight.admit(.initialLoad) {
+        case .skip:
             return
-        }
-
-        initialLoadTask?.cancel()
-        let token = UUID()
-        initialLoadToken = token
-        loadSessionSnapshot = currentSession
-        let task = Task { [weak self] in
-            guard let self else { return }
-            async let home: Void = self.loadHome()
-            async let profile: Void = self.loadProfile()
-            async let playlists: Void = self.loadPlaylists()
-            _ = await (home, profile, playlists)
-        }
-        initialLoadTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        if initialLoadToken == token {
-            initialLoadTask = nil
-            initialLoadToken = nil
-            loadSessionSnapshot = nil
+        case let .join(claim):
+            await flight.awaitFlight(claim)
+        case let .start(handle):
+            await flight.run(handle) { [weak self] in
+                guard let self else { return }
+                async let home: Void = self.loadHome()
+                async let profile: Void = self.loadProfile()
+                async let playlists: Void = self.loadPlaylists()
+                _ = await (home, profile, playlists)
+            }
         }
     }
 
@@ -186,35 +165,24 @@ final class HomeLibraryStore {
         force: Bool,
         operation: @escaping @Sendable () async throws -> SectionPayload
     ) async {
-        let currentSession = session.snapshot
-        guard currentSession.isAvailable else { return }
-        if let task = sectionTasks[section],
-            !force,
-            sectionSessionSnapshots[section] == currentSession
-        {
-            await task.value
+        let handle: Flight.Handle
+        switch flight.admit(.section(section), force: force) {
+        case .skip:
             return
-        }
-        if !force,
-            loadedSections.contains(section),
-            loadedSessionSnapshots[section] == currentSession
-        {
+        case let .join(claim):
+            await flight.awaitFlight(claim)
             return
+        case let .start(started):
+            handle = started
         }
 
-        nextRequestID &+= 1
-        let requestID = nextRequestID
-        requestIDs[section] = requestID
-        let identity = session.requestIdentity(requestID: requestID)
-        sectionTasks[section]?.cancel()
-        sectionSessionSnapshots[section] = currentSession
         begin(section)
-        let task = Task { [weak self] in
+        await flight.run(handle) { [weak self] in
             guard let self else { return }
-            defer { self.finish(section, identity: identity) }
+            defer { self.finish(section, handle: handle) }
             do {
                 let payload = try await operation()
-                guard self.isCurrent(identity, for: section) else { return }
+                guard self.flight.isCurrent(handle) else { return }
                 switch payload {
                 case let .home(greeting, sections):
                     self.greeting = greeting
@@ -236,16 +204,10 @@ final class HomeLibraryStore {
                     self.metadata.replaceTracks(tracks, from: .library)
                     self.metadata.loadTrackAttributes(for: tracks)
                 }
-                self.succeed(section)
+                self.succeed(section, handle: handle)
             } catch {
-                self.record(error, for: section, identity: identity)
+                self.record(error, for: section, handle: handle)
             }
-        }
-        sectionTasks[section] = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
         }
     }
 
@@ -255,26 +217,24 @@ final class HomeLibraryStore {
         errors[section] = nil
     }
 
-    private func succeed(_ section: Section) {
+    private func succeed(_ section: Section, handle: Flight.Handle) {
         SpottyLog.catalog.info("Catalog section finished: \(section.rawValue, privacy: .public)")
         loadedSections.insert(section)
-        loadedSessionSnapshots[section] = session.snapshot
+        flight.markLoaded(handle)
         errors[section] = nil
     }
 
-    private func finish(_ section: Section, identity: AccountScopedRequestIdentity) {
-        guard requestIDs[section] == identity.requestID else { return }
+    private func finish(_ section: Section, handle: Flight.Handle) {
+        guard flight.owns(handle) else { return }
         loadingSections.remove(section)
-        sectionTasks[section] = nil
-        sectionSessionSnapshots[section] = nil
     }
 
     private func record(
         _ error: Error,
         for section: Section,
-        identity: AccountScopedRequestIdentity
+        handle: Flight.Handle
     ) {
-        guard !isCancellation(error), isCurrent(identity, for: section) else { return }
+        guard flight.shouldReport(error, for: handle) else { return }
         SpottyLog.catalog.error(
             "Catalog section failed: \(section.rawValue, privacy: .public); error=\(String(describing: type(of: error)), privacy: .public)"
         )
@@ -283,19 +243,5 @@ final class HomeLibraryStore {
 
     private func updateLibraryItemCache() {
         metadata.replaceItems(playlists + albums + artists, from: .library)
-    }
-
-    private func isCurrent(
-        _ identity: AccountScopedRequestIdentity,
-        for section: Section
-    ) -> Bool {
-        guard let requestID = requestIDs[section] else { return false }
-        return identity.isCurrent(
-            requestID: requestID,
-            accountEpoch: session.accountEpoch,
-            sessionRevision: session.snapshot.revision,
-            isAvailable: session.isAvailable,
-            isCancelled: Task.isCancelled
-        )
     }
 }

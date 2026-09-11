@@ -5,7 +5,8 @@ portable, deterministic policy layer.
 
 - This target has no UI, audio, network, storage, or FFI dependency. Do not import AppKit, SwiftUI,
   AVFoundation, or `SpottyPlaybackCore`, and do not smuggle environment access through closures or
-  globals.
+  globals. CI's `Linux domain` job compiles this target and runs its tests where none of those
+  modules exist, so a forbidden import is a build failure rather than a review finding.
 - Reducer acceptance and lifetime values are behavior, not implementation trivia. Preserve stale,
   superseded, teardown, cancellation, epoch, and revision semantics when adding events or effects.
   Settled intent outcomes are immutable;

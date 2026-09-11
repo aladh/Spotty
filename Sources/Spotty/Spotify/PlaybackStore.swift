@@ -4,126 +4,6 @@ import Foundation
 import Observation
 import OSLog
 
-/// Engine playback observation. Transport, empty-URI identity, and option values
-/// are projected at intake (`PlaybackSnapshotProjection`).
-nonisolated struct RustPlaybackState: Sendable {
-    let revision: UInt64
-    let sessionGeneration: UInt64
-    let isPlaying: Bool
-    let isPaused: Bool
-    let trackURI: String
-    let contextURI: String?
-    let positionMS: Int64
-    let durationMS: Int64
-    let timestampMS: Int64
-    let shuffle: Bool
-    let repeatTrack: Bool
-    let repeatContext: Bool
-    /// One-shot local current-request failure from the retained engine. Synthetic callers that
-    /// predate the wire field receive the safe default.
-    let trackUnavailable: Bool
-    let audioKeyRefused: Bool
-    /// Active-member fact captured with the same Connect player observation.
-    /// The initializer defaults this for synthetic callers that predate the wire field.
-    let isActiveDevice: Bool
-
-    init(
-        revision: UInt64,
-        sessionGeneration: UInt64,
-        isPlaying: Bool,
-        isPaused: Bool,
-        trackURI: String,
-        positionMS: Int64,
-        durationMS: Int64,
-        timestampMS: Int64,
-        shuffle: Bool,
-        repeatTrack: Bool,
-        repeatContext: Bool,
-        trackUnavailable: Bool = false,
-        audioKeyRefused: Bool = false,
-        isActiveDevice: Bool = false,
-        contextURI: String? = nil
-    ) {
-        self.revision = revision
-        self.sessionGeneration = sessionGeneration
-        self.isPlaying = isPlaying
-        self.isPaused = isPaused
-        self.trackURI = trackURI
-        self.contextURI = contextURI
-        self.positionMS = positionMS
-        self.durationMS = durationMS
-        self.timestampMS = timestampMS
-        self.shuffle = shuffle
-        self.repeatTrack = repeatTrack
-        self.repeatContext = repeatContext
-        self.trackUnavailable = trackUnavailable
-        self.audioKeyRefused = audioKeyRefused
-        self.isActiveDevice = isActiveDevice
-    }
-}
-
-nonisolated struct RustQueueState: Sendable {
-    /// Current-track identity from the engine. Catalog enrichment supplies names.
-    struct Item: Sendable {
-        let uri: String
-        let provider: String
-        let uid: String
-    }
-
-    let revision: UInt64
-    let sessionGeneration: UInt64
-    let track: Item?
-    let protocolNextTracks: [QueueProtocolTrack]
-    let protocolPrevTracks: [QueueProtocolTrack]
-    let queueRevision: String
-    let disallowSetQueue: Bool
-    let disallowRemovingFromNextTracks: Bool
-}
-
-nonisolated struct RustConnectionState: Sendable {
-    let revision: UInt64
-    let sessionGeneration: UInt64
-    let sessionConnected: Bool
-    let spircReady: Bool
-    let isActiveDevice: Bool
-    /// Engine reconnect is holding readiness open for Swift's resume-load targets.
-    let resumePending: Bool
-    let lastError: String?
-    let deviceID: String?
-    /// Definitive streaming-credential rejection, distinct from generic reconnect failure.
-    /// The initializer defaults this for synthetic callers that predate the wire field.
-    let credentialsRejected: Bool
-
-    init(
-        revision: UInt64,
-        sessionGeneration: UInt64,
-        sessionConnected: Bool,
-        spircReady: Bool,
-        isActiveDevice: Bool,
-        resumePending: Bool,
-        lastError: String?,
-        deviceID: String?,
-        credentialsRejected: Bool = false
-    ) {
-        self.revision = revision
-        self.sessionGeneration = sessionGeneration
-        self.sessionConnected = sessionConnected
-        self.spircReady = spircReady
-        self.isActiveDevice = isActiveDevice
-        self.resumePending = resumePending
-        self.lastError = lastError
-        self.deviceID = deviceID
-        self.credentialsRejected = credentialsRejected
-    }
-}
-
-nonisolated struct RustDevicesState: Sendable {
-    let revision: UInt64
-    let sessionGeneration: UInt64
-    let activeDeviceID: String
-    let devices: [ConnectProtocolDevice]
-}
-
 /// The small playback projection catalog rows need. It deliberately excludes timing so position
 /// samples do not invalidate the rows that only draw current-track and transport state.
 struct CurrentTrackIndicator: Equatable, Sendable {
@@ -153,15 +33,6 @@ struct CatalogPlaybackAvailability: Equatable, Sendable {
         hasPendingPlaybackCommand = state.pendingCommands.keys.contains { $0 != .queue }
     }
 }
-
-nonisolated let spottyAudioRendererResult: Result<AudioRenderer, AudioRendererError> = {
-    do {
-        return .success(try AudioRenderer())
-    } catch {
-        SpottyLog.audio.error("Audio renderer initialization failed")
-        return .failure(error as? AudioRendererError ?? .formatDescription(-1))
-    }
-}()
 
 /// State that can make a queued transport command target a different lifetime or destination.
 /// High-frequency timing and metadata publications intentionally do not participate.
@@ -227,8 +98,8 @@ final class PlaybackStore {
     /// Observable while session teardown is active so native commands update their availability.
     /// The same gate rejects queued engine events while the old session is being cleared.
     var isTearingDown = false
-    @ObservationIgnored var teardown = SessionTeardownCoalescer()
-    @ObservationIgnored var teardownTask: Task<Void, Never>?
+    /// The single teardown owner. `AccountStore` contributes primitives; it does not coalesce.
+    @ObservationIgnored let teardown = SessionTeardownController()
     @ObservationIgnored var terminationGate = PlaybackTerminationGate()
     /// Process-lifetime subscriptions start only after SwiftUI reaches the durable restore
     /// boundary. `SpottyApp` values may be initialized speculatively, so `init` must not subscribe.
@@ -321,13 +192,13 @@ final class PlaybackStore {
         }
         accountStore.onReady = { [weak self] in
             guard let self else { return }
-            let epoch = self.accountEpoch
-            self.effects.replace(
-                .catalogLoad,
-                with: Task { [weak self] in
-                    guard let self, self.accountEpoch == epoch else { return }
-                    await self.catalog.homeLibrary.load()
-                })
+            // Catalog work belongs to the account lifetime only; an engine rebuild must not
+            // cancel or skip a library load for the same signed-in account.
+            let lifetime = self.playbackLifetime
+            self.effects.run(.catalogLoad) { [weak self] in
+                guard let self, self.stillCurrent(lifetime, scope: .account) else { return }
+                await self.catalog.homeLibrary.load()
+            }
         }
     }
 
@@ -339,63 +210,44 @@ final class PlaybackStore {
         let engineEvents = environment.local.events()
         let grantRevocations = environment.account.revocations()
         let lifecycleEvents = environment.lifecycle.events()
-        effects.replace(
-            .engineEvents,
-            with: Task { [weak self] in
-                for await envelope in engineEvents {
-                    guard !Task.isCancelled, let self else { return }
-                    self.receive(envelope)
-                }
-            })
-        effects.replace(
-            .grantRevocations,
-            with: Task { [weak self] in
-                for await _ in grantRevocations {
-                    guard !Task.isCancelled else { return }
-                    await self?.handleGrantRevocation()
-                }
-            })
-        effects.replace(
-            .lifecycle,
-            with: Task { [weak self] in
-                for await event in lifecycleEvents {
-                    guard !Task.isCancelled, let self else { return }
-                    await self.receive(event)
-                }
-            })
-        effects.replace(
-            .queueServiceBootstrap,
-            with: Task { [weak self] in
-                guard let self else { return }
-                await self.queueService.reset(accountEpoch: self.accountEpoch)
-            })
-        effects.replace(
-            .preferencesRestore,
-            with: Task { [weak self, environment] in
-                guard let self else { return }
-                let epoch = self.accountEpoch
-                let shuffleEnabled = await environment.preferences.shuffleEnabled()
-                guard
-                    !Task.isCancelled,
-                    self.terminationGate.allowsCommands,
-                    self.accountEpoch == epoch
-                else { return }
-                self.setShuffleEnabled(shuffleEnabled)
-                let lastRemoteDeviceID = await environment.preferences.lastRemoteDeviceID()
-                guard
-                    !Task.isCancelled,
-                    self.terminationGate.allowsCommands,
-                    self.accountEpoch == epoch
-                else { return }
-                self.lastRemoteDeviceID = lastRemoteDeviceID
-                let shuffleHistory = await environment.preferences.shuffleHistory()
-                guard
-                    !Task.isCancelled,
-                    self.terminationGate.allowsCommands,
-                    self.accountEpoch == epoch
-                else { return }
-                self.shuffleHistoryCache = shuffleHistory
-            })
+        // These three are process-lifetime subscriptions, not account-scoped work: they must keep
+        // delivering across account replacement, so they deliberately do not use `stillCurrent`.
+        effects.run(.engineEvents) { [weak self] in
+            for await envelope in engineEvents {
+                guard !Task.isCancelled, let self else { return }
+                self.receive(envelope)
+            }
+        }
+        effects.run(.grantRevocations) { [weak self] in
+            for await _ in grantRevocations {
+                guard !Task.isCancelled else { return }
+                await self?.handleGrantRevocation()
+            }
+        }
+        effects.run(.lifecycle) { [weak self] in
+            for await event in lifecycleEvents {
+                guard !Task.isCancelled, let self else { return }
+                await self.receive(event)
+            }
+        }
+        effects.run(.queueServiceBootstrap) { [weak self] in
+            guard let self else { return }
+            await self.queueService.reset(accountEpoch: self.accountEpoch)
+        }
+        effects.run(.preferencesRestore) { [weak self, environment] in
+            guard let self else { return }
+            // Preferences belong to the account lifetime; an engine rebuild is irrelevant here.
+            let lifetime = self.playbackLifetime
+            let shuffleEnabled = await environment.preferences.shuffleEnabled()
+            guard self.stillCurrent(lifetime, scope: .account) else { return }
+            self.setShuffleEnabled(shuffleEnabled)
+            let lastRemoteDeviceID = await environment.preferences.lastRemoteDeviceID()
+            guard self.stillCurrent(lifetime, scope: .account) else { return }
+            self.lastRemoteDeviceID = lastRemoteDeviceID
+            let shuffleHistory = await environment.preferences.shuffleHistory()
+            guard self.stillCurrent(lifetime, scope: .account) else { return }
+            self.shuffleHistoryCache = shuffleHistory
+        }
     }
 
     /// macOS suspends the process on sleep and sockets die underneath it; without this the
@@ -440,6 +292,27 @@ final class PlaybackStore {
         accountEpoch: UInt64? = nil,
         receivedAt: Date? = nil
     ) -> Bool {
+        reduce(
+            event,
+            source: source,
+            revision: revision,
+            engineEpoch: engineEpoch,
+            accountEpoch: accountEpoch,
+            receivedAt: receivedAt
+        ).accepted
+    }
+
+    /// Same mutation entrance as `send`, but returns what the reducer accepted and changed so
+    /// post-acceptance side effects are driven by the reduction instead of a state diff.
+    @discardableResult
+    func reduce(
+        _ event: PlaybackEvent,
+        source: PlaybackEventSource,
+        revision: UInt64? = nil,
+        engineEpoch: UInt64? = nil,
+        accountEpoch: UInt64? = nil,
+        receivedAt: Date? = nil
+    ) -> PlaybackReduction {
         let stampedAccountEpoch = accountEpoch ?? self.accountEpoch
         let stampedEngineEpoch = engineEpoch ?? engineGeneration
         let previousDispatchContext = playbackDispatchContext(
@@ -465,7 +338,7 @@ final class PlaybackStore {
         }
         playbackDispatchPermits.removeAll { $0.permit.canDiscard }
         let receiptState = next
-        let accepted = PlaybackReducer.reduce(
+        let reduction = PlaybackReducer.apply(
             &next,
             envelope: PlaybackEventEnvelope(
                 accountEpoch: stampedAccountEpoch,
@@ -476,7 +349,7 @@ final class PlaybackStore {
                 event: event
             )
         )
-        if accepted {
+        if reduction.accepted {
             let nextDispatchContext = playbackDispatchContext(
                 state: next,
                 accountEpoch: stampedAccountEpoch,
@@ -497,18 +370,12 @@ final class PlaybackStore {
                     }
                 }
             }
-            let settledIntentIDs = next.intents.filter { intent in
-                intent.outcome.isTerminal && intent.outcome != .timedOut
-                    && state.intents.first(where: { $0.command.id == intent.command.id })?.outcome.isTerminal != true
-            }.map(\.command.id)
-            let confirmedTracks = next.intents.compactMap { intent -> String? in
-                guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,
-                    state.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed
-                else { return nil }
-                return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
-            }
-            let queueEntriesChanged = next.queue.entries != state.queue.entries
-            let devicesChanged = next.devices.devices != state.devices.devices
+            // A timed-out intent keeps its own deadline bookkeeping; every other terminal
+            // outcome releases the deadline effect it no longer needs.
+            let settledIntentIDs = reduction.settledIntents.filter { $0.outcome != .timedOut }.map(\.id)
+            let confirmedTracks = reduction.confirmedPlayTrackURIs
+            let queueEntriesChanged = reduction.queueEntriesChanged
+            let devicesChanged = reduction.devicesChanged
             state = next
             let nextSemantic = PlaybackSemanticProjection(state: next)
             if semantic != nextSemantic { semantic = nextSemantic }
@@ -547,14 +414,14 @@ final class PlaybackStore {
             if playingContextURI != nextPlayingContext {
                 playingContextURI = nextPlayingContext
             }
-            return true
+            return reduction
         }
         // A rejected incoming event cannot discard a separately accepted dispatch receipt.
         if state != receiptState { state = receiptState }
         SpottyLog.playback.debug(
             "Rejected event; source=\(String(describing: source), privacy: .public); account=\(stampedAccountEpoch, privacy: .public); engine=\(stampedEngineEpoch, privacy: .public); revision=\(String(describing: revision), privacy: .public)"
         )
-        return false
+        return .rejected
     }
 
     /// Stamps playback-scoped work with the exact lifetime captured before suspension.

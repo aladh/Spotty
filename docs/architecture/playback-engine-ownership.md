@@ -8,13 +8,15 @@ PCM output. This page describes boundaries, not a module inventory.
 
 | Responsibility | Owner |
 | --- | --- |
-| Account lifecycle and its single writable epoch | [AccountStore](../../Sources/Spotty/Spotify/AccountStore.swift) |
+| Account connection lifecycle and its single writable epoch | [AccountStore](../../Sources/Spotty/Spotify/AccountStore.swift) |
+| Session teardown coalescing, ordering, and gate release | [SessionTeardownController](../../Sources/Spotty/Spotify/SessionTeardownController.swift), owned by `PlaybackStore` |
 | Atomic playback presentation and stale-observation rejection | [PlaybackState](../../Sources/SpottyDomain/PlaybackState.swift) and its reducer |
 | Command serialization, cancellation, and follow-ups | [ADR 003](adrs/ADR-003-playback-command-effects.md) |
 | Queue precedence, playback context, and mutation authority | [QueueService](../../Sources/Spotty/Spotify/QueueService.swift) |
 | Pure queue/device/connection/playback projections and resume target order | [SpottyDomain](../../Sources/SpottyDomain) |
 | Catalog, authorization, HTTP retry, and user-facing errors | [Spotify adapters](../../Sources/Spotty/Spotify) |
-| Output buffering, backpressure, routes, and audio teardown | [AudioRenderer](../../Sources/Spotty/Spotify/AudioRenderer.swift) |
+| Output buffering, backpressure, routes, and audio teardown | [AudioRenderer](../../Sources/SpottyEngineAdapter/AudioRenderer.swift) |
+| The C boundary, typed engine observations, and their fan-out | [SpottyEngineAdapter](../../Sources/SpottyEngineAdapter), the only target depending on the playback binary |
 
 Account epoch projections are not independent counters. Connect callback identity must also remain
 separate from merged queue presentation: adopting an engine epoch must not erase the callback

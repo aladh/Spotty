@@ -16,13 +16,12 @@ a Swift parse guarantee. Review owner scope when introducing files or new syntax
 
 | Boundary | Rule files |
 | --- | --- |
-| Domain imports and the narrow C-adapter entry points | `domain-imports.yml`, `ffi-import-owner.yml`, `ffi-import-required.yml`, `playback-core-owner.yml`, `playback-core-required.yml` |
 | Live dependency construction stays out of views and feature stores | `injected-dependencies.yml` |
 | Unsafe isolation escapes and split revision ownership | `unsafe-isolation.yml`, `revision-inout.yml` |
 | Appearance ownership and unsupported drag APIs | `dark-appearance-required.yml`, `fixed-appearance.yml`, `unsupported-drag-ui.yml` |
 | Retired Swift symbols | `retired-mock-symbols.yml` |
 | Rust-free app scripts, workflow action pins and checkout credentials, and published-engine use in CI (syntax-only facets; see [build and CI](build-and-abi.md#ci-and-release-workflow)) | `app-script-rust-free.yml`, `workflow-action-pins.yml`, `workflow-checkout-credentials.yml`, `ci-published-engine.yml` |
-| Panic-barrier/runtime entry and playing-event write ownership | `rust-ffi-panic-barrier.yml`, `rust-runtime-owner.yml`, `rust-playing-store-owner.yml`, `rust-playing-store-required.yml` |
+| Panic-barrier and runtime entry ownership | `rust-ffi-panic-barrier.yml`, `rust-runtime-owner.yml` |
 
 Additional owners:
 
@@ -34,4 +33,8 @@ Additional owners:
   [signing contract](../../development/signing.md). Spelling checks do not establish signature validity.
 
 Do not recreate duplicate snapshots of behavior now covered by the package graph, deterministic
-suites, or semantic review.
+suites, or semantic review. The compiler owns three former lexical boundaries: the playing flag is
+private to `EngineGeneration` and becomes true only through `note_playing_event`;
+`SpottyEngineAdapter` is the sole target depending on the playback binary and keeps `PlaybackCore`
+internal; and the [Linux domain lane](build-and-abi.md) compiles `SpottyDomain` where app and playback
+modules do not exist.

@@ -3,14 +3,32 @@ import SpottyDomain
 
 /// A bounded snapshot of fan-out pressure. Counters saturate instead of wrapping, so a long
 /// lived engine cannot turn diagnostics into a false negative after `UInt64` overflow.
-nonisolated struct EngineEventFanoutDiagnostics: Sendable, Equatable {
-    let coalescedCount: UInt64
-    let overflowCount: UInt64
-    let resynchronizationCount: UInt64
-    let pendingCount: Int
-    let maximumPendingCount: Int
-    let subscriberCount: Int
-    let queuedEnvelopeCount: Int
+public nonisolated struct EngineEventFanoutDiagnostics: Sendable, Equatable {
+    public let coalescedCount: UInt64
+    public let overflowCount: UInt64
+    public let resynchronizationCount: UInt64
+    public let pendingCount: Int
+    public let maximumPendingCount: Int
+    public let subscriberCount: Int
+    public let queuedEnvelopeCount: Int
+
+    public init(
+        coalescedCount: UInt64,
+        overflowCount: UInt64,
+        resynchronizationCount: UInt64,
+        pendingCount: Int,
+        maximumPendingCount: Int,
+        subscriberCount: Int,
+        queuedEnvelopeCount: Int
+    ) {
+        self.coalescedCount = coalescedCount
+        self.overflowCount = overflowCount
+        self.resynchronizationCount = resynchronizationCount
+        self.pendingCount = pendingCount
+        self.maximumPendingCount = maximumPendingCount
+        self.subscriberCount = subscriberCount
+        self.queuedEnvelopeCount = queuedEnvelopeCount
+    }
 }
 
 /// Process-local fan-out for typed engine control events.
@@ -21,7 +39,7 @@ nonisolated struct EngineEventFanoutDiagnostics: Sendable, Equatable {
 /// while a playback consumer is stalled. Replaceable timing samples coalesce only when their
 /// identity and semantic state match. A full mailbox or claimant queue is recovered with an
 /// explicit resynchronization envelope, so pressure cannot silently turn into stale state.
-nonisolated final class EngineEventFanout: @unchecked Sendable {
+public nonisolated final class EngineEventFanout: @unchecked Sendable {
     private static let pendingLimit = 64
     private static let subscriberMailboxLimit = 64
 
@@ -39,14 +57,14 @@ nonisolated final class EngineEventFanout: @unchecked Sendable {
     private var maximumPendingCount = 0
     private var previousConnectionLifecycle: ConnectionLifecycleIdentity?
 
-    init(clock: any PlaybackClock) {
+    public init(clock: any PlaybackClock) {
         self.clock = clock
     }
 
     /// `onStart` runs after the mailbox is installed and the lock is released, matching the
     /// engine's "subscribe before synchronous registration" rule. `onTermination` is also
     /// invoked without the fan-out lock held.
-    func events(
+    public func events(
         onStart: (@Sendable () -> Void)? = nil,
         onTermination: (@Sendable () -> Void)? = nil
     ) -> AsyncStream<RustPlaybackEventEnvelope> {
@@ -69,7 +87,7 @@ nonisolated final class EngineEventFanout: @unchecked Sendable {
     /// Assigns an envelope and queues it before invoking `afterPrepare`. The callback is useful
     /// to force concurrent assignment order in tests. It must not wait for this drain to finish if
     /// it also calls `emit`.
-    func emit(_ event: RustPlaybackEvent, afterPrepare: (@Sendable () -> Void)? = nil) {
+    public func emit(_ event: RustPlaybackEvent, afterPrepare: (@Sendable () -> Void)? = nil) {
         lock.lock()
         let envelope = nextEnvelopeLocked(event)
         let classification = classificationLocked(event)
@@ -87,7 +105,7 @@ nonisolated final class EngineEventFanout: @unchecked Sendable {
         deliverPending()
     }
 
-    func diagnostics() -> EngineEventFanoutDiagnostics {
+    public func diagnostics() -> EngineEventFanoutDiagnostics {
         lock.lock()
         let mailboxes = Array(subscribers.values)
         let snapshot = EngineEventFanoutDiagnostics(
@@ -528,7 +546,7 @@ extension RustPlaybackEvent {
         }
     }
 
-    var sessionGeneration: UInt64 {
+    public var sessionGeneration: UInt64 {
         switch self {
         case let .playback(state): return state.sessionGeneration
         case let .queue(state): return state.sessionGeneration

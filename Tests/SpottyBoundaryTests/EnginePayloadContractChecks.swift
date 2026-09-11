@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import SpottyPlaybackCore
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
 
 @Suite("Engine Payload Contract")
 struct EnginePayloadContractTests {

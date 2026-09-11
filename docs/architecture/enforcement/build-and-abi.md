@@ -8,6 +8,7 @@
 | --- | --- |
 | Consistent formatting and warning-clean builds | [Verification](../../development/verification.md), [check.sh](../../../Scripts/check.sh) |
 | Platform, dependency direction, and non-shipping test targets | [Package.swift](../../../Package.swift), [source policies](source-checks.md) |
+| The portable domain builds and its tests pass on Linux, where app and playback modules do not exist | [Package.swift](../../../Package.swift) `#if os(macOS)` graph, [CI](../../../.github/workflows/ci.yml) `Linux domain` job |
 | Keep the domain free of a second effect framework | [ADR 003](../adrs/ADR-003-playback-command-effects.md) |
 | Production uses live integrations; fixtures remain in tests | [Dependency ownership](../adrs/ADR-002-playback-state-and-dependencies.md), [test guidance](../../../Tests/AGENTS.md) |
 | Valid bundle metadata | [check.sh](../../../Scripts/check.sh), [packaging](../../development/releases.md) |
@@ -25,11 +26,20 @@
 Generated headers do not replace signature/layout probes or memory-ownership review. Published
 consumers validate their selected artifact; the Rust lane validates the evolving producer ABI.
 
+The narrow C adapter boundary is a package-graph fact, not a source convention: `SpottyEngineAdapter` is the only
+target that depends on the `SpottyPlaybackCore` binary, and `PlaybackCore` is internal to it, so no
+other target can name a C symbol or reach the adapter's C surface even by adding an import. Widening
+that boundary requires editing [Package.swift](../../../Package.swift), which is a reviewable
+dependency change rather than a one-line import. `SpottyCore` re-exports the adapter once, in
+`Sources/Spotty/EngineAdapterExports.swift`.
+
 ## CI and release workflow
 
 CI checks cover workflow presence, tool selection, cache integrity, and complete verification.
 Their executable owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
-[check.sh](../../../Scripts/check.sh). [Source policies](source-checks.md) cover the syntax-only
+[check.sh](../../../Scripts/check.sh). The `Linux domain` job builds `SpottyDomain` and runs
+`SpottyDomainTests` in a Swift container; the macOS gate requires its result alongside source
+policies. [Source policies](source-checks.md) cover the syntax-only
 facets of Rust-free app scripts, workflow trust, and published-engine use; artifact validation and
 build execution remain here. The required aggregate includes source policies, Rust,
 Swift/architecture, and Release compilation. Source policies run unconditionally in the `policy`

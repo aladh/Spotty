@@ -11,6 +11,10 @@ Contain that work behind one C module and one Swift adapter. Swift owns applicat
 policy; decoded PCM goes directly to the native AVFoundation renderer. The boundary must allow an
 engine replacement without making the application depend on librespot internals.
 
+The adapter is its own SwiftPM target, `SpottyEngineAdapter`: it alone depends on the
+`SpottyPlaybackCore` binary, and `PlaybackCore` is internal to it. Containment is therefore a
+package-graph fact the compiler enforces, not a convention a new import could quietly break.
+
 [ADR 005](ADR-005-retain-librespot.md) owns engine choice and revisit conditions;
 [ADR 006](ADR-006-prebuilt-playback-engine.md) owns binary distribution. Replaceability does not
 imply a migration roadmap.

@@ -3,18 +3,12 @@ import SpottyDomain
 import Foundation
 @testable import SpottyCore
 
-private enum HomeLibraryCheckFailure: Error, Sendable {
-    case unavailable
-}
-
-private struct HomeLibraryCheckAttributes: TrackAttributesProviding {
-    func attributes(for _: [String]) async throws -> [String: TrackAttributes] { [:] }
-}
-
-private actor GatedPlaylistCatalog: CatalogProviding {
+/// Gates `HarnessCatalog.libraryPlaylists` so a check can park and release admitted requests one
+/// at a time, mirroring the pre-harness `GatedPlaylistCatalog` actor.
+private actor PlaylistGate {
     enum Outcome: Sendable {
         case playlists([PathfinderPlaylist])
-        case failure(HomeLibraryCheckFailure)
+        case failure
         case cancelled
         case urlCancelled
     }
@@ -31,7 +25,7 @@ private actor GatedPlaylistCatalog: CatalogProviding {
         case let .playlists(items):
             return items
         case .failure:
-            throw HomeLibraryCheckFailure.unavailable
+            throw HarnessFailure.unavailable
         case .cancelled:
             throw CancellationError()
         case .urlCancelled:
@@ -43,20 +37,13 @@ private actor GatedPlaylistCatalog: CatalogProviding {
         guard !waiters.isEmpty else { return }
         waiters.removeFirst().resume(returning: outcome)
     }
+}
 
-    func searchTracks(_: String, limit _: Int) async throws -> [PathfinderTrack] {
-        throw HomeLibraryCheckFailure.unavailable
-    }
-    func home() async throws -> PathfinderHome { throw HomeLibraryCheckFailure.unavailable }
-    func libraryAlbums() async throws -> [PathfinderAlbum] { throw HomeLibraryCheckFailure.unavailable }
-    func libraryArtists() async throws -> [PathfinderArtist] { throw HomeLibraryCheckFailure.unavailable }
-    func libraryTracks() async throws -> [PathfinderLibraryTrackItem] {
-        throw HomeLibraryCheckFailure.unavailable
-    }
-    func profile() async throws -> PathfinderProfile { throw HomeLibraryCheckFailure.unavailable }
-    func playlist(id _: String) async throws -> PathfinderPlaylistUnion {
-        throw HomeLibraryCheckFailure.unavailable
-    }
+private func makeGatedPlaylistCatalog() -> (catalog: HarnessCatalog, gate: PlaylistGate) {
+    let gate = PlaylistGate()
+    let catalog = HarnessCatalog()
+    catalog.onLibraryPlaylists = { [gate] in try await gate.libraryPlaylists() }
+    return (catalog, gate)
 }
 
 private func decodePlaylist(_ json: String) throws -> PathfinderPlaylist {
@@ -75,11 +62,11 @@ private func secondPlaylist() throws -> PathfinderPlaylist { try decodePlaylist(
 
 @MainActor
 private func makeStore(
-    provider: GatedPlaylistCatalog,
+    provider: HarnessCatalog,
     session: CatalogSessionAvailability
 ) -> HomeLibraryStore {
     let metadata = CatalogMetadataRepository(
-        attributesProvider: HomeLibraryCheckAttributes(),
+        attributesProvider: HarnessTrackAttributes(),
         session: session
     )
     return HomeLibraryStore(provider: provider, metadata: metadata, session: session)
@@ -127,20 +114,20 @@ struct HomeLibraryStoreTests {
         }
 
         do {
-            let provider = GatedPlaylistCatalog()
+            let (provider, gate) = makeGatedPlaylistCatalog()
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
             let store = makeStore(provider: provider, session: session)
 
             let firstLoad = Task { await store.loadPlaylists() }
-            #expect((await waitUntil { await provider.requestCount == 1 }) == true, "the first playlist request parks")
+            #expect((await waitUntil { await gate.requestCount == 1 }) == true, "the first playlist request parks")
             let follower = startJoiningPlaylistLoad(store)
             #expect((await waitUntil { follower.hasEntered() }) == true, "the duplicate caller entered loadPlaylists")
             #expect(
-                (await provider.requestCount) == (1), "a duplicate current-section request joins the in-flight work")
+                (await gate.requestCount) == (1), "a duplicate current-section request joins the in-flight work")
             #expect((store.isLoading(.playlists)) == true, "the joined section stays loading")
             #expect((!follower.hasFinished()) == true, "the duplicate caller is still waiting on the in-flight request")
 
-            await provider.completeNext(.playlists([first]))
+            await gate.completeNext(.playlists([first]))
             await firstLoad.value
             await follower.task.value
             #expect((follower.hasFinished()) == true, "the duplicate caller finishes after the in-flight request")
@@ -152,21 +139,21 @@ struct HomeLibraryStoreTests {
         }
 
         do {
-            let provider = GatedPlaylistCatalog()
+            let (provider, gate) = makeGatedPlaylistCatalog()
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
             let store = makeStore(provider: provider, session: session)
 
             let stale = Task { await store.loadPlaylists() }
-            #expect((await waitUntil { await provider.requestCount == 1 }) == true, "the superseded request parks")
+            #expect((await waitUntil { await gate.requestCount == 1 }) == true, "the superseded request parks")
 
             let forced = Task { await store.loadPlaylists(force: true) }
             #expect(
-                (await waitUntil { await provider.requestCount == 2 }) == true,
+                (await waitUntil { await gate.requestCount == 2 }) == true,
                 "force starts a new section request instead of joining")
             #expect((store.isLoading(.playlists)) == true, "the newest flight owns loading")
             #expect((store.error(for: .playlists)) == nil, "force clears the previous section error slot")
 
-            await provider.completeNext(.playlists([first]))
+            await gate.completeNext(.playlists([first]))
             await stale.value
             #expect((store.isLoading(.playlists)) == true, "a stale success leaves the new request loading")
             #expect(
@@ -179,10 +166,10 @@ struct HomeLibraryStoreTests {
             #expect(
                 (await waitUntil { joiner.hasEntered() }) == true, "the later non-forced caller entered loadPlaylists")
             #expect(
-                (await provider.requestCount) == (2), "the old request cannot clear the new request's in-flight task")
+                (await gate.requestCount) == (2), "the old request cannot clear the new request's in-flight task")
             #expect((!joiner.hasFinished()) == true, "a later non-forced caller is still waiting on the newest flight")
 
-            await provider.completeNext(.playlists([second]))
+            await gate.completeNext(.playlists([second]))
             await forced.value
             await joiner.task.value
             #expect((joiner.hasFinished()) == true, "the later non-forced caller finishes with the newest flight")
@@ -195,14 +182,14 @@ struct HomeLibraryStoreTests {
         }
 
         do {
-            let provider = GatedPlaylistCatalog()
+            let (provider, gate) = makeGatedPlaylistCatalog()
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
             let store = makeStore(provider: provider, session: session)
 
             let initial = Task { await store.loadPlaylists() }
             #expect(
-                (await waitUntil { await provider.requestCount == 1 }) == true, "the initial playlist request parks")
-            await provider.completeNext(.playlists([first]))
+                (await waitUntil { await gate.requestCount == 1 }) == true, "the initial playlist request parks")
+            await gate.completeNext(.playlists([first]))
             await initial.value
             #expect(
                 (store.playlists.map(\.uri)) == (["spotify:playlist:first"]),
@@ -210,15 +197,15 @@ struct HomeLibraryStoreTests {
 
             let forced = Task { await store.loadPlaylists(force: true) }
             #expect(
-                (await waitUntil { await provider.requestCount == 2 }) == true,
+                (await waitUntil { await gate.requestCount == 2 }) == true,
                 "force refreshes an already-loaded section")
             let follower = startJoiningPlaylistLoad(store)
             #expect((await waitUntil { follower.hasEntered() }) == true, "the non-forced caller entered loadPlaylists")
-            #expect((await provider.requestCount) == (2), "a non-forced caller joins the in-flight forced refresh")
+            #expect((await gate.requestCount) == (2), "a non-forced caller joins the in-flight forced refresh")
             #expect((store.isLoading(.playlists)) == true, "the forced refresh keeps loading while the follower waits")
             #expect((!follower.hasFinished()) == true, "the non-forced caller is still waiting on the forced refresh")
 
-            await provider.completeNext(.playlists([second]))
+            await gate.completeNext(.playlists([second]))
             await forced.value
             await follower.task.value
             #expect((follower.hasFinished()) == true, "the non-forced caller finishes after the forced refresh")
@@ -229,22 +216,22 @@ struct HomeLibraryStoreTests {
         }
 
         do {
-            let provider = GatedPlaylistCatalog()
+            let (provider, gate) = makeGatedPlaylistCatalog()
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
             let store = makeStore(provider: provider, session: session)
 
             let stale = Task { await store.loadPlaylists() }
-            #expect((await waitUntil { await provider.requestCount == 1 }) == true, "the failing request parks")
+            #expect((await waitUntil { await gate.requestCount == 1 }) == true, "the failing request parks")
             let forced = Task { await store.loadPlaylists(force: true) }
             #expect(
-                (await waitUntil { await provider.requestCount == 2 }) == true, "force supersedes the failing request")
+                (await waitUntil { await gate.requestCount == 2 }) == true, "force supersedes the failing request")
 
-            await provider.completeNext(.failure(.unavailable))
+            await gate.completeNext(.failure)
             await stale.value
             #expect((store.isLoading(.playlists)) == true, "a stale failure leaves the new request loading")
             #expect((store.error(for: .playlists)) == nil, "a stale failure does not surface an error")
 
-            await provider.completeNext(.urlCancelled)
+            await gate.completeNext(.urlCancelled)
             await forced.value
             #expect(
                 (!store.loadedSections.contains(.playlists)) == true, "cancellation does not mark the section loaded")
@@ -254,14 +241,14 @@ struct HomeLibraryStoreTests {
         }
 
         do {
-            let provider = GatedPlaylistCatalog()
+            let (provider, gate) = makeGatedPlaylistCatalog()
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
             let store = makeStore(provider: provider, session: session)
 
             let staleEpoch = Task { await store.loadPlaylists() }
-            #expect((await waitUntil { await provider.requestCount == 1 }) == true, "the pre-epoch request parks")
+            #expect((await waitUntil { await gate.requestCount == 1 }) == true, "the pre-epoch request parks")
             session.update(accountEpoch: 2, isAvailable: true)
-            await provider.completeNext(.playlists([first]))
+            await gate.completeNext(.playlists([first]))
             await staleEpoch.value
             #expect((store.playlists.map(\.uri)) == ([]), "an older account epoch cannot publish")
             #expect(
@@ -269,18 +256,18 @@ struct HomeLibraryStoreTests {
                 "an older account epoch cannot mark the section loaded")
 
             let staleRevision = Task { await store.loadPlaylists() }
-            #expect((await waitUntil { await provider.requestCount == 2 }) == true, "the pre-reconnect request parks")
+            #expect((await waitUntil { await gate.requestCount == 2 }) == true, "the pre-reconnect request parks")
             session.update(accountEpoch: 2, isAvailable: false)
             session.update(accountEpoch: 2, isAvailable: true)
-            await provider.completeNext(.playlists([first]))
+            await gate.completeNext(.playlists([first]))
             await staleRevision.value
             #expect((store.playlists.map(\.uri)) == ([]), "a pre-reconnect result cannot publish")
 
             let current = Task { await store.loadPlaylists() }
             #expect(
-                (await waitUntil { await provider.requestCount == 3 }) == true,
+                (await waitUntil { await gate.requestCount == 3 }) == true,
                 "a new session starts a distinct request")
-            await provider.completeNext(.playlists([second]))
+            await gate.completeNext(.playlists([second]))
             await current.value
             #expect((store.playlists.map(\.uri)) == (["spotify:playlist:second"]), "the current session publishes")
             #expect((store.loadedSections.contains(.playlists)) == true, "the current session marks the section loaded")
@@ -288,9 +275,9 @@ struct HomeLibraryStoreTests {
             session.update(accountEpoch: 3, isAvailable: true)
             let afterEpoch = Task { await store.loadPlaylists() }
             #expect(
-                (await waitUntil { await provider.requestCount == 4 }) == true,
+                (await waitUntil { await gate.requestCount == 4 }) == true,
                 "a later account epoch reloads a previously loaded section")
-            await provider.completeNext(.playlists([first]))
+            await gate.completeNext(.playlists([first]))
             await afterEpoch.value
             #expect((store.playlists.map(\.uri)) == (["spotify:playlist:first"]), "the later account epoch publishes")
 
@@ -298,20 +285,20 @@ struct HomeLibraryStoreTests {
             session.update(accountEpoch: 3, isAvailable: true)
             let afterRevision = Task { await store.loadPlaylists() }
             #expect(
-                (await waitUntil { await provider.requestCount == 5 }) == true,
+                (await waitUntil { await gate.requestCount == 5 }) == true,
                 "a new session revision reloads a previously loaded section")
-            await provider.completeNext(.playlists([second]))
+            await gate.completeNext(.playlists([second]))
             await afterRevision.value
             #expect((store.playlists.map(\.uri)) == (["spotify:playlist:second"]), "the new session revision publishes")
         }
 
         do {
-            let provider = GatedPlaylistCatalog()
+            let (provider, gate) = makeGatedPlaylistCatalog()
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
             let store = makeStore(provider: provider, session: session)
 
             let inflight = Task { await store.loadPlaylists() }
-            #expect((await waitUntil { await provider.requestCount == 1 }) == true, "the torn-down request parks")
+            #expect((await waitUntil { await gate.requestCount == 1 }) == true, "the torn-down request parks")
             #expect((store.isLoading(.playlists)) == true, "teardown starts from a loading section")
 
             store.reset()
@@ -320,7 +307,7 @@ struct HomeLibraryStoreTests {
             #expect((store.playlists.map(\.uri)) == ([]), "reset clears playlists")
             #expect((store.error(for: .playlists)) == nil, "reset clears section errors")
 
-            await provider.completeNext(.playlists([first]))
+            await gate.completeNext(.playlists([first]))
             await inflight.value
             #expect((store.playlists.map(\.uri)) == ([]), "a torn-down success cannot publish")
             #expect((!store.isLoading) == true, "a torn-down success cannot restore loading")

@@ -8,9 +8,13 @@ struct AccountReauthenticationPersistenceTests {
     @Test @MainActor
     func testRestoreRecoversFromTransientStartupFailuresWithoutBrowserAuthorization() async {
         let account = ReauthenticationAccount(marker: false)
-        let engine = ReauthenticationEngine(results: [.error, .error, .ok])
-        let remote = ReauthenticationRemote()
-        let environment = ReauthenticationEnvironment.make(account: account, engine: engine, remote: remote)
+        let engine = HarnessEngine()
+        let results = ReauthenticationResultQueue([.error, .error, .ok])
+        engine.onInitialize = { [results] in results.next() }
+        let remote = HarnessRemote()
+        let environment = HarnessEnvironment.make(
+            engine: engine, remote: remote, account: account, clock: HarnessClock(sleep: .immediate)
+        )
         let store = AccountStore(
             environment: environment, coordinator: PlaybackCoordinator(local: engine, remote: remote))
 
@@ -26,9 +30,13 @@ struct AccountReauthenticationPersistenceTests {
     @Test @MainActor
     func testRestoreRetryBudgetExhaustsWithoutDiscardingSavedGrant() async {
         let account = ReauthenticationAccount(marker: false)
-        let engine = ReauthenticationEngine(results: Array(repeating: .error, count: 6))
-        let remote = ReauthenticationRemote()
-        let environment = ReauthenticationEnvironment.make(account: account, engine: engine, remote: remote)
+        let engine = HarnessEngine()
+        let results = ReauthenticationResultQueue(Array(repeating: .error, count: 6))
+        engine.onInitialize = { [results] in results.next() }
+        let remote = HarnessRemote()
+        let environment = HarnessEnvironment.make(
+            engine: engine, remote: remote, account: account, clock: HarnessClock(sleep: .immediate)
+        )
         let store = AccountStore(
             environment: environment, coordinator: PlaybackCoordinator(local: engine, remote: remote))
 
@@ -44,17 +52,19 @@ struct AccountReauthenticationPersistenceTests {
     @Test @MainActor
     func testLogoutCancelsPendingRestoreRetry() async {
         let account = ReauthenticationAccount(marker: false)
-        let engine = ReauthenticationEngine(results: [.error, .ok])
-        let remote = ReauthenticationRemote()
+        let engine = HarnessEngine()
+        let results = ReauthenticationResultQueue([.error, .ok])
+        engine.onInitialize = { [results] in results.next() }
+        let remote = HarnessRemote()
         let clock = CooperativeParkedClock()
-        let environment = ReauthenticationEnvironment.make(
-            account: account, engine: engine, remote: remote, clock: clock)
-        let store = AccountStore(
-            environment: environment, coordinator: PlaybackCoordinator(local: engine, remote: remote))
-        let restoration = Task { await store.restore() }
+        let environment = HarnessEnvironment.make(
+            engine: engine, remote: remote, account: account, clock: clock)
+        let player = HarnessEnvironment.makePlaybackStore(environment)
+        let store = player.accountStore
+        let restoration = Task { await player.restore() }
         #expect(await waitUntil { clock.waiterCount == 1 })
 
-        await store.logout()
+        await player.logout()
         await restoration.value
 
         #expect(store.phase == .signedOut)
@@ -180,13 +190,17 @@ struct AccountReauthenticationPersistenceTests {
     @Test @MainActor
     func testRestoreStopsOnTypedInitializationRejectionAndRestartHonorsMarker() async {
         let account = ReauthenticationAccount(marker: false)
-        let engine = ReauthenticationEngine(results: [.credentialsRejected, .ok])
-        let remote = ReauthenticationRemote()
-        let environment = ReauthenticationEnvironment.make(account: account, engine: engine, remote: remote)
-        let firstCoordinator = PlaybackCoordinator(local: engine, remote: remote)
-        let firstStore = AccountStore(environment: environment, coordinator: firstCoordinator)
+        let engine = HarnessEngine()
+        let results = ReauthenticationResultQueue([.credentialsRejected, .ok])
+        engine.onInitialize = { [results] in results.next() }
+        let remote = HarnessRemote()
+        let environment = HarnessEnvironment.make(
+            engine: engine, remote: remote, account: account, clock: HarnessClock(sleep: .immediate)
+        )
+        let firstPlayer = HarnessEnvironment.makePlaybackStore(environment)
+        let firstStore = firstPlayer.accountStore
 
-        await firstStore.restore()
+        await firstPlayer.restore()
         #expect(
             (firstStore.phase) == (.failed(ConnectionSnapshotProjection.credentialsRejectedMessage)),
             "typed initialization rejection has stable actionable presentation"
@@ -197,9 +211,9 @@ struct AccountReauthenticationPersistenceTests {
         #expect((account.authorizeCount) == (0), "restore never opens a browser for a retained grant")
         #expect((engine.initializeCount) == (1), "restore performs one typed failing initialization")
 
-        let secondCoordinator = PlaybackCoordinator(local: engine, remote: remote)
-        let secondStore = AccountStore(environment: environment, coordinator: secondCoordinator)
-        await secondStore.restore()
+        let secondPlayer = HarnessEnvironment.makePlaybackStore(environment)
+        let secondStore = secondPlayer.accountStore
+        await secondPlayer.restore()
         #expect((secondStore.requiresReauthentication) == true, "restart restores the durable marker")
         #expect(
             (secondStore.phase) == (.failed(ConnectionSnapshotProjection.credentialsRejectedMessage)),
@@ -208,7 +222,7 @@ struct AccountReauthenticationPersistenceTests {
         #expect((engine.initializeCount) == (1), "restart does not initialize a known-rejected session")
         #expect((account.authorizeCount) == (0), "restart does not authorize implicitly")
 
-        secondStore.connect()
+        secondPlayer.connect()
         #expect(
             (await waitUntil { secondStore.phase == .ready }) == true,
             "explicit connect completes a fresh authorization"
@@ -218,7 +232,7 @@ struct AccountReauthenticationPersistenceTests {
         #expect((secondStore.requiresReauthentication) == false, "successful adoption clears the local marker")
         #expect((engine.initializeCount) == (2), "the replacement initializes once")
 
-        await secondStore.logout()
+        await secondPlayer.logout()
         #expect((account.clearCount) == (1), "explicit logout clears the retained grant")
         #expect((account.marker) == false, "explicit logout leaves no reauthentication marker")
     }
@@ -317,6 +331,9 @@ private final class GatedReauthenticationGrantStore: KeymasterTokenStoring, @unc
     func clear() { lock.withLock { value = nil } }
 }
 
+/// `HarnessAccount.adopt`/`clear` never touch `reauthenticationRequired` (the harness has no hook
+/// for it), but these checks need adopting or clearing a grant to drop a prior rejection marker
+/// the way the live Keymaster session does, so this fake stays.
 private final class ReauthenticationAccount: AccountSession, @unchecked Sendable {
     private let lock = NSLock()
     private var markerStorage: Bool
@@ -358,112 +375,26 @@ private final class ReauthenticationAccount: AccountSession, @unchecked Sendable
     func revocations() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
 }
 
-private final class ReauthenticationEngine: LocalPlaybackEngine, @unchecked Sendable {
+/// Feeds `HarnessEngine.onInitialize` a scripted sequence of results, one per call, holding the
+/// last value once exhausted. `HarnessEngine.initializeResult` is a single fixed value, so a check
+/// that must fail a set number of times before succeeding needs this queue instead.
+private final class ReauthenticationResultQueue: @unchecked Sendable {
     private let lock = NSLock()
-    private var results: [PlaybackEngineResult]
-    private var initializeStorage = 0
+    private var remaining: [PlaybackEngineResult]
 
-    init(results: [PlaybackEngineResult]) {
-        self.results = results
+    init(_ results: [PlaybackEngineResult]) {
+        remaining = results
     }
 
-    var initializeCount: Int { lock.withLock { initializeStorage } }
-
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> { AsyncStream { $0.finish() } }
-    func authorizeStreaming(with _: String) -> Int32 { 0 }
-    func initialize() -> PlaybackEngineResult {
+    func next() -> PlaybackEngineResult {
         lock.withLock {
-            initializeStorage += 1
-            return results.isEmpty ? .ok : results.removeFirst()
+            remaining.isEmpty ? .ok : remaining.removeFirst()
         }
     }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { .ok }
-    func positionMilliseconds() -> UInt32 { 0 }
-    func queueSnapshot() -> RustQueueState? { nil }
-    func shutdown() -> PlaybackEngineResult { .ok }
-    func cleanup() {}
-    func clearStreamingCredentials() {}
-    func disconnect() -> PlaybackEngineResult { .ok }
-    func forceReconnect() -> Int32 { 0 }
-}
-
-private struct ReauthenticationRemote: RemotePlaybackClient {
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {}
-    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        SpotifyConnectTrackMetadata(uri: uri, title: "Track", artist: "Artist", artworkURL: nil, duration: 180)
-    }
-}
-
-private struct ReauthenticationWebQueue: WebQueueClient {
-    func queue() async throws -> [CatalogTrack] { [] }
-}
-
-private struct ReauthenticationAudio: AudioOutputPreparing {
-    func prepareForPlayback() throws {}
-}
-
-private actor ReauthenticationPreferences: PlaybackPreferences {
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { nil }
-    func setLastRemoteDeviceID(_: String?) {}
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-private struct ReauthenticationLifecycle: SystemLifecycleEvents {
-    func events() -> AsyncStream<SystemLifecycleEvent> { AsyncStream { $0.finish() } }
-}
-
-private struct ReauthenticationClock: PlaybackClock {
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
-    func sleep(seconds _: TimeInterval) async throws {}
-}
-
-private struct ReauthenticationCatalog: CatalogProviding {
-    func searchTracks(_: String, limit _: Int) async throws -> [PathfinderTrack] { throw TestUnavailable.error }
-    func home() async throws -> PathfinderHome { throw TestUnavailable.error }
-    func libraryPlaylists() async throws -> [PathfinderPlaylist] { throw TestUnavailable.error }
-    func libraryAlbums() async throws -> [PathfinderAlbum] { throw TestUnavailable.error }
-    func libraryArtists() async throws -> [PathfinderArtist] { throw TestUnavailable.error }
-    func libraryTracks() async throws -> [PathfinderLibraryTrackItem] { throw TestUnavailable.error }
-    func profile() async throws -> PathfinderProfile { throw TestUnavailable.error }
-    func playlist(id _: String) async throws -> PathfinderPlaylistUnion { throw TestUnavailable.error }
-}
-
-private struct ReauthenticationAttributes: TrackAttributesProviding {
-    func attributes(for _: [String]) async throws -> [String: TrackAttributes] { [:] }
-}
-
-private enum TestUnavailable: Error {
-    case error
 }
 
 private enum ReauthenticationPersistenceFailure: Error {
     case saveRejected
-}
-
-private enum ReauthenticationEnvironment {
-    static func make(
-        account: any AccountSession,
-        engine: any LocalPlaybackEngine,
-        remote: any RemotePlaybackClient,
-        clock: any PlaybackClock = ReauthenticationClock()
-    ) -> PlaybackEnvironment {
-        PlaybackEnvironment(
-            remote: remote,
-            local: engine,
-            webQueue: ReauthenticationWebQueue(),
-            account: account,
-            audioOutput: ReauthenticationAudio(),
-            preferences: ReauthenticationPreferences(),
-            lifecycle: ReauthenticationLifecycle(),
-            clock: clock,
-            catalog: ReauthenticationCatalog(),
-            playlistMutations: UnavailablePlaylistMutations(),
-            trackAttributes: ReauthenticationAttributes()
-        )
-    }
 }
 
 private extension NSLock {

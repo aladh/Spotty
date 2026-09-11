@@ -7,9 +7,13 @@ import SpottyDomain
 struct CredentialRejectionTests {
     @Test @MainActor
     func testAcceptedRejectionPreservesGrantAndOffersExplicitReauthorization() async {
-        let engine = CredentialRejectionEngine()
-        let account = CredentialRejectionAccount()
-        let environment = CredentialRejectionEnvironment.make(account: account, engine: engine)
+        let engine = HarnessEngine()
+        let account = HarnessAccount(hasGrant: true, authorization: .succeed)
+        let environment = HarnessEnvironment.make(
+            engine: engine,
+            account: account,
+            clock: HarnessClock(sleep: .immediate)
+        )
         let player = PlaybackStore(
             environment: environment,
             feedback: TransientFeedbackPresenter(clock: environment.clock)
@@ -110,9 +114,10 @@ struct AccountConnectionCancellationTests {
     @Test @MainActor
     func testOAuthAcceptanceCommitsBeforeAdoptAndLogoutDrains() async {
         let cancelledAccount = GatedConnectAccount(parkAuthorization: true)
-        let cancelledEnvironment = CredentialRejectionEnvironment.make(
+        let cancelledEnvironment = HarnessEnvironment.make(
+            engine: HarnessEngine(),
             account: cancelledAccount,
-            engine: CredentialRejectionEngine()
+            clock: HarnessClock(sleep: .immediate)
         )
         let cancelledPlayer = PlaybackStore(
             environment: cancelledEnvironment,
@@ -140,9 +145,10 @@ struct AccountConnectionCancellationTests {
         )
 
         let acceptedAccount = GatedConnectAccount(parkAuthorization: false)
-        let acceptedEnvironment = CredentialRejectionEnvironment.make(
+        let acceptedEnvironment = HarnessEnvironment.make(
+            engine: HarnessEngine(),
             account: acceptedAccount,
-            engine: CredentialRejectionEngine()
+            clock: HarnessClock(sleep: .immediate)
         )
         let acceptedPlayer = PlaybackStore(
             environment: acceptedEnvironment,
@@ -181,10 +187,10 @@ struct AccountConnectionCancellationTests {
     }
 }
 
-private enum CredentialRejectionTestFailure: Error {
-    case unavailable
-}
-
+/// Gates `authorizeInteractively` and `adopt` independently, each with its own entered/returned
+/// flags and a continuation the check releases by hand. `HarnessAccount` only parks `clear()`, so
+/// it cannot express the ordering this check asserts between a cancellable OAuth round trip and a
+/// separately-gated persistence step.
 private final class GatedConnectAccount: AccountSession, @unchecked Sendable {
     private let parkAuthorization: Bool
     private let lock = NSLock()
@@ -272,142 +278,4 @@ private final class GatedConnectAccount: AccountSession, @unchecked Sendable {
         expiresAt: .distantFuture,
         username: "gated-user"
     )
-}
-
-private final class CredentialRejectionEngine: LocalPlaybackEngine, @unchecked Sendable {
-    private let lock = NSLock()
-    private var clearStreamingCredentialsStorage = 0
-    private var executeStorage = 0
-    private var initializeStorage = 0
-
-    var clearStreamingCredentialsCount: Int { lock.withLock { clearStreamingCredentialsStorage } }
-    var executeCount: Int { lock.withLock { executeStorage } }
-    var initializeCount: Int { lock.withLock { initializeStorage } }
-
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
-        AsyncStream { $0.finish() }
-    }
-
-    func authorizeStreaming(with _: String) -> Int32 { 0 }
-    func initialize() -> PlaybackEngineResult {
-        lock.withLock { initializeStorage += 1 }
-        return .ok
-    }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult {
-        lock.withLock { executeStorage += 1 }
-        return .ok
-    }
-    func positionMilliseconds() -> UInt32 { 0 }
-    func queueSnapshot() -> RustQueueState? { nil }
-    func shutdown() -> PlaybackEngineResult { .ok }
-    func cleanup() {}
-    func clearStreamingCredentials() { lock.withLock { clearStreamingCredentialsStorage += 1 } }
-    func disconnect() -> PlaybackEngineResult { .ok }
-    func forceReconnect() -> Int32 { 0 }
-}
-
-private final class CredentialRejectionAccount: AccountSession, @unchecked Sendable {
-    private let lock = NSLock()
-    private var clearStorage = 0
-    private var authorizeStorage = 0
-
-    var clearCount: Int { lock.withLock { clearStorage } }
-    var authorizeCount: Int { lock.withLock { authorizeStorage } }
-
-    func authorizeInteractively() async throws -> KeymasterTokens {
-        lock.withLock { authorizeStorage += 1 }
-        return KeymasterTokens(
-            accessToken: "reauthorized-access",
-            refreshToken: "reauthorized-refresh",
-            expiresAt: .distantFuture,
-            username: "listener"
-        )
-    }
-    func hasGrant() async -> Bool { true }
-    func grantState() async -> KeymasterGrantState { .available }
-    func accessToken() async throws -> String { "existing-access" }
-    func adopt(_: KeymasterTokens) async throws {}
-    func clear() async { lock.withLock { clearStorage += 1 } }
-    func revocations() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
-}
-
-private struct CredentialRejectionRemote: RemotePlaybackClient {
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {}
-    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        SpotifyConnectTrackMetadata(uri: uri, title: "Track", artist: "Artist", artworkURL: nil, duration: 180)
-    }
-}
-
-private struct CredentialRejectionWebQueue: WebQueueClient {
-    func queue() async throws -> [CatalogTrack] { [] }
-}
-
-private struct CredentialRejectionAudio: AudioOutputPreparing {
-    func prepareForPlayback() throws {}
-}
-
-private actor CredentialRejectionPreferences: PlaybackPreferences {
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { nil }
-    func setLastRemoteDeviceID(_: String?) {}
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-private struct CredentialRejectionLifecycle: SystemLifecycleEvents {
-    func events() -> AsyncStream<SystemLifecycleEvent> { AsyncStream { $0.finish() } }
-}
-
-private struct CredentialRejectionClock: PlaybackClock {
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
-    func sleep(seconds _: TimeInterval) async throws {}
-}
-
-private struct CredentialRejectionCatalog: CatalogProviding {
-    func searchTracks(_: String, limit _: Int) async throws -> [PathfinderTrack] {
-        throw CredentialRejectionTestFailure.unavailable
-    }
-    func home() async throws -> PathfinderHome { throw CredentialRejectionTestFailure.unavailable }
-    func libraryPlaylists() async throws -> [PathfinderPlaylist] {
-        throw CredentialRejectionTestFailure.unavailable
-    }
-    func libraryAlbums() async throws -> [PathfinderAlbum] {
-        throw CredentialRejectionTestFailure.unavailable
-    }
-    func libraryArtists() async throws -> [PathfinderArtist] {
-        throw CredentialRejectionTestFailure.unavailable
-    }
-    func libraryTracks() async throws -> [PathfinderLibraryTrackItem] {
-        throw CredentialRejectionTestFailure.unavailable
-    }
-    func profile() async throws -> PathfinderProfile { throw CredentialRejectionTestFailure.unavailable }
-    func playlist(id _: String) async throws -> PathfinderPlaylistUnion {
-        throw CredentialRejectionTestFailure.unavailable
-    }
-}
-
-private struct CredentialRejectionAttributes: TrackAttributesProviding {
-    func attributes(for _: [String]) async throws -> [String: TrackAttributes] { [:] }
-}
-
-private enum CredentialRejectionEnvironment {
-    static func make(
-        account: any AccountSession,
-        engine: any LocalPlaybackEngine
-    ) -> PlaybackEnvironment {
-        PlaybackEnvironment(
-            remote: CredentialRejectionRemote(),
-            local: engine,
-            webQueue: CredentialRejectionWebQueue(),
-            account: account,
-            audioOutput: CredentialRejectionAudio(),
-            preferences: CredentialRejectionPreferences(),
-            lifecycle: CredentialRejectionLifecycle(),
-            clock: CredentialRejectionClock(),
-            catalog: CredentialRejectionCatalog(),
-            playlistMutations: UnavailablePlaylistMutations(),
-            trackAttributes: CredentialRejectionAttributes()
-        )
-    }
 }

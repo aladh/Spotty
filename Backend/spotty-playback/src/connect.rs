@@ -118,8 +118,9 @@ fn wait_for_cluster_mapping_idle_locked(
 /// cleanup) does not wait for itself.
 pub(crate) fn invalidate_cluster_generation() -> u64 {
     let mut gate = wait_for_cluster_mapping_idle_locked(lock_cluster_apply());
-    let invalidated =
-        with_generation_mutation(|| SESSION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1);
+    // Retags the engine state with the new generation under the same gate, so every later write
+    // naming the outgoing generation is refused rather than applied.
+    let invalidated = advance_session_generation();
     gate.pending.clear();
     gate.pushed_generation = None;
     invalidated
@@ -462,14 +463,10 @@ pub(crate) fn notify_devices(
         active_device_id: active_device_id.to_string(),
         devices: list.clone(),
     };
-    let mut last = LAST_DEVICES_FINGERPRINT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if last.as_ref() == Some(&fingerprint) {
+    // Compare-and-set inside the engine lock; the guard is released before the callback.
+    if !record_devices_fingerprint(fingerprint) {
         return;
     }
-    *last = Some(fingerprint);
-    drop(last);
 
     if let Some(callback) = registered_callback(&CONTROL_CALLBACKS.devices) {
         let stamp = stamped_snapshot(|stamp| stamp);
@@ -731,7 +728,7 @@ pub(crate) fn apply_cluster(generation: u64, origin: ClusterOrigin, cluster: Clu
         // Make the same queue facts available to a re-entrant getter before the callback runs.
         // The callback may synchronously ask for the queue or replace the session.
         if let Some(queue) = queue.as_ref() {
-            *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = Some(queue.clone());
+            store_last_queue(Some(queue.clone()));
         }
         let source = match origin {
             ClusterOrigin::BootstrapFetch => 1,
@@ -827,18 +824,45 @@ pub(crate) fn spawn_cluster_listener(
 
         debug!("Cluster listener ended (generation={})", generation);
 
-        let current_gen = SESSION_GENERATION.load(Ordering::SeqCst);
-        if !should_recover_after_cluster_end(generation, current_gen, teardown_in_progress()) {
+        // The end-of-stream decision belongs to this listener generation. Keep its state capture
+        // and disconnected write on the same side of invalidation; delivery and task spawning
+        // remain outside the short synchronous gate.
+        let transition = with_current_generation_mutation(generation, || {
+            if !should_recover_after_cluster_end(
+                generation,
+                SESSION_GENERATION.load(Ordering::SeqCst),
+                teardown_in_progress(),
+            ) {
+                return None;
+            }
+            let intent = with_engine_owned(generation, |engine| {
+                let intent = RecoveryIntent {
+                    was_playing: engine.is_playing(),
+                    was_active: engine.connection.is_active_device,
+                };
+                engine.connection.session_connected = false;
+                engine.connection.last_error =
+                    Some("Cluster listener ended unexpectedly".to_string());
+                intent
+            })
+            .ok()?;
+            Some((intent, capture_connection_state_notification(generation)))
+        })
+        .flatten();
+
+        let Some((intent, notification)) = transition else {
+            let current_gen = SESSION_GENERATION.load(Ordering::SeqCst);
             debug!(
                 "Cluster listener ended without recovery (generation={}, current={})",
                 generation, current_gen
             );
             return;
-        }
+        };
 
-        let intent = RecoveryIntent::capture();
-        mark_disconnected("Cluster listener ended unexpectedly");
-        spawn_reconnection_loop(intent);
+        if let Some(notification) = notification {
+            deliver_connection_state_notification(notification);
+        }
+        spawn_reconnection_loop_for_generation(intent, generation);
     });
 
     Ok(task)

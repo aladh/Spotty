@@ -3,9 +3,14 @@ import Foundation
 import Observation
 import OSLog
 
-/// Owns the complete account lifecycle. Every suspended operation is tied to both a generation
-/// and account epoch, so logout/revocation wins even when authorization or engine startup returns
-/// late.
+/// Owns the account connection lifecycle: phase, epoch, reauthentication, and connection work.
+/// Every suspended operation is tied to both a generation and account epoch, so logout/revocation
+/// wins even when authorization or engine startup returns late.
+///
+/// Session teardown is *not* owned here. `SessionTeardownController` on `PlaybackStore` coalesces
+/// requests and drives the narrow primitives below (`invalidateAccountIdentity`, `publishPhase`,
+/// `performAccountTeardown`, `applyStrongerIntent`) in order, and sets `isTearingDown` at the
+/// boundaries so connection work refuses to start against a session being torn down.
 @MainActor
 @Observable
 final class AccountStore {
@@ -33,8 +38,9 @@ final class AccountStore {
     @ObservationIgnored private let coordinator: PlaybackCoordinator
     @ObservationIgnored private var connectionTask: Task<Void, Never>?
     @ObservationIgnored private var connectionGeneration: UInt64 = 0
-    @ObservationIgnored private var teardown = SessionTeardownCoalescer()
-    @ObservationIgnored private var teardownTask: Task<SessionTeardownIntent, Never>?
+    /// Set by the teardown owner at the boundaries of one session teardown. Connection work
+    /// refuses to start while it is true.
+    @ObservationIgnored var isTearingDown = false
     @ObservationIgnored var onPhaseChange: ((PlaybackSessionPhase) -> Void)?
     @ObservationIgnored var onReauthenticationChange: ((Bool) -> Void)?
     @ObservationIgnored var onReady: (() -> Void)?
@@ -45,7 +51,7 @@ final class AccountStore {
     }
 
     func restore() async {
-        guard !teardown.isActive, phase != .ready, connectionTask == nil else { return }
+        guard !isTearingDown, phase != .ready, connectionTask == nil else { return }
         let interval = SpottyLog.accountSignposter.beginInterval("Restore")
         defer { SpottyLog.accountSignposter.endInterval("Restore", interval) }
         guard let task = startConnection(interactive: false) else { return }
@@ -53,14 +59,14 @@ final class AccountStore {
     }
 
     func connect() {
-        guard !teardown.isActive, phase != .ready, connectionTask == nil else { return }
+        guard !isTearingDown, phase != .ready, connectionTask == nil else { return }
         _ = startConnection(interactive: true)
     }
 
     /// Starts a browser authorization explicitly. The existing grant stays in place until the
     /// new exchange and its persistence have completed successfully.
     func reauthorize() {
-        guard !teardown.isActive, phase != .ready, connectionTask == nil else { return }
+        guard !isTearingDown, phase != .ready, connectionTask == nil else { return }
         setRequiresReauthentication(true)
         _ = startConnection(interactive: true)
     }
@@ -73,20 +79,8 @@ final class AccountStore {
         phase = .signedOut
     }
 
-    func logout() async {
-        await endSession(clearGrant: true, finalPhase: .signedOut)
-    }
-
-    func handleGrantRevocation() async {
-        setRequiresReauthentication(true)
-        await endSession(
-            clearGrant: false,
-            finalPhase: .failed(ConnectionSnapshotProjection.credentialsRejectedMessage)
-        )
-    }
-
     func receiveEngineConnection(_ session: PlaybackSessionPhase?) {
-        guard !teardown.isActive, connectionTask == nil else { return }
+        guard !isTearingDown, connectionTask == nil else { return }
         if let session {
             phase = session
         }
@@ -96,60 +90,53 @@ final class AccountStore {
     /// asynchronous engine teardown; this synchronous marker makes a subsequent explicit Connect
     /// action choose the interactive path even if the old grant remains valid for Web APIs.
     func markCredentialRejection() {
-        guard !teardown.isActive else { return }
+        guard !isTearingDown else { return }
         setRequiresReauthentication(true)
     }
 
-    func endSession(clearGrant: Bool, finalPhase: PlaybackSessionPhase) async {
-        _ = await beginEndSession(clearGrant: clearGrant, finalPhase: finalPhase).value
+    /// Publishes a session phase decided by the teardown owner. Ordinary connection work assigns
+    /// `phase` directly; this is the narrow entrance `PlaybackStore` uses while it drives teardown.
+    func publishPhase(_ phase: PlaybackSessionPhase) {
+        self.phase = phase
     }
 
-    /// Starts one account teardown or merges into the teardown already in flight. Returning the
-    /// shared task lets PlaybackStore keep its wider presentation cleanup in the same lifetime.
-    @discardableResult
-    func beginEndSession(
-        clearGrant: Bool,
-        finalPhase: PlaybackSessionPhase
-    ) -> Task<SessionTeardownIntent, Never> {
-        let requested = SessionTeardownIntent(clearGrant: clearGrant, finalPhase: finalPhase)
-        let shouldStart = teardown.request(requested)
-        let cumulative = teardown.intent ?? requested
+    /// The account-side body of one teardown: drain the cancelled connection work, persist the
+    /// reauthentication marker when the grant survives, shut the engine down, and clear the
+    /// streaming credential — plus the persisted grant when the intent says so.
+    ///
+    /// Coalescing, phase publication, and presentation cleanup belong to the teardown owner. This
+    /// performs exactly the intent it is handed and reports what it applied, so a request that
+    /// became stronger while this was suspended is reconciled by `applyStrongerIntent` rather than
+    /// by a second engine shutdown or a second account epoch.
+    func performAccountTeardown(
+        staleConnectionTask: Task<Void, Never>?,
+        intent: SessionTeardownIntent
+    ) async -> SessionTeardownIntent {
+        let interval = SpottyLog.accountSignposter.beginInterval("Teardown")
+        defer { SpottyLog.accountSignposter.endInterval("Teardown", interval) }
+        if let staleConnectionTask { await staleConnectionTask.value }
 
-        if !shouldStart, let teardownTask {
-            phase = cumulative.finalPhase
-            return teardownTask
+        if requiresReauthentication, !intent.clearGrant {
+            await environment.account.markReauthenticationRequired()
         }
 
-        let staleTask = invalidateAccountIdentity()
-        phase = cumulative.finalPhase
-
-        let task = Task { [weak self] in
-            guard let self else { return cumulative }
-            return await self.performEndSession(staleConnectionTask: staleTask, initialIntent: cumulative)
+        _ = await coordinator.shutdownEngine()
+        await coordinator.cleanupEngine()
+        await coordinator.clearStreamingCredentials()
+        if intent.clearGrant {
+            await environment.account.clear()
+            setRequiresReauthentication(false)
         }
-        teardownTask = task
-        return task
+        // The phase is not republished here: the owner already published the cumulative intent,
+        // and an upgrade that arrived while this was suspended must not be reverted to the
+        // weaker phase this call started with.
+        return intent
     }
 
-    /// Propagates a stronger request from PlaybackStore while the account operation is suspended.
-    /// False means the account-level teardown already completed; PlaybackStore will reconcile the
-    /// upgrade without starting a second engine shutdown or account epoch.
-    @discardableResult
-    func upgradeActiveEndSession(
-        clearGrant: Bool,
-        finalPhase: PlaybackSessionPhase
-    ) -> Bool {
-        guard teardown.isActive, teardownTask != nil else { return false }
-        let requested = SessionTeardownIntent(clearGrant: clearGrant, finalPhase: finalPhase)
-        _ = teardown.request(requested)
-        phase = (teardown.intent ?? requested).finalPhase
-        return true
-    }
-
-    /// Applies an intent that became stronger after the account-level task completed but while
-    /// PlaybackStore was still clearing presentation state. This deliberately does not advance the
+    /// Applies an intent that became stronger after the account-side teardown completed but while
+    /// the owner was still clearing presentation state. This deliberately does not advance the
     /// epoch or shut the engine down again.
-    func reconcileCompletedEndSession(
+    func applyStrongerIntent(
         applied: SessionTeardownIntent,
         desired: SessionTeardownIntent
     ) async -> SessionTeardownIntent {
@@ -160,34 +147,6 @@ final class AccountStore {
         }
         phase = resolved.finalPhase
         return resolved
-    }
-
-    private func performEndSession(
-        staleConnectionTask: Task<Void, Never>?,
-        initialIntent: SessionTeardownIntent
-    ) async -> SessionTeardownIntent {
-        let interval = SpottyLog.accountSignposter.beginInterval("Teardown")
-        defer { SpottyLog.accountSignposter.endInterval("Teardown", interval) }
-        if let staleConnectionTask { await staleConnectionTask.value }
-
-        if requiresReauthentication, !initialIntent.clearGrant {
-            await environment.account.markReauthenticationRequired()
-        }
-
-        _ = await coordinator.shutdownEngine()
-        await coordinator.cleanupEngine()
-        await coordinator.clearStreamingCredentials()
-        var resolved = teardown.intent ?? initialIntent
-        if resolved.clearGrant {
-            await environment.account.clear()
-            setRequiresReauthentication(false)
-            resolved = teardown.intent ?? resolved
-        }
-
-        let completed = teardown.complete() ?? resolved
-        phase = completed.finalPhase
-        teardownTask = nil
-        return completed
     }
 
     /// The only mutation of `epoch`. A new account lifetime starts here so in-flight work
@@ -208,15 +167,8 @@ final class AccountStore {
         return staleTask
     }
 
-    /// Invalidates account identity without waiting for engine shutdown so presentation
-    /// teardown can observe the new epoch first. Streaming credentials stay intact.
-    @discardableResult
-    func prepareShutdownForTermination() -> Task<Void, Never>? {
-        let staleTask = invalidateAccountIdentity()
-        phase = .signedOut
-        return staleTask
-    }
-
+    /// Finishes process termination after the owner invalidated identity and drained effects.
+    /// Streaming credentials stay intact for the next launch.
     func completeShutdownForTermination(staleConnectionTask: Task<Void, Never>?) async {
         if let staleConnectionTask { await staleConnectionTask.value }
         _ = await coordinator.shutdownEngine()

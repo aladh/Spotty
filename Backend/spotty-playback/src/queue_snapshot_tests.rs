@@ -196,7 +196,7 @@ fn queue_snapshot_callback_copies_nullable_fields() {
 fn queue_snapshot_getter_copies_then_frees() {
     let _guard = lock_lifecycle_test_globals();
     {
-        *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = Some(fixture_queue_state());
+        store_last_queue(Some(fixture_queue_state()));
     }
     let pointer = spotty_playback_get_queue_snapshot();
     assert!(!pointer.is_null());
@@ -212,7 +212,7 @@ fn queue_snapshot_getter_copies_then_frees() {
     spotty_playback_free_queue_snapshot(pointer);
     spotty_playback_free_queue_snapshot(std::ptr::null_mut());
     {
-        *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        store_last_queue(None);
     }
     assert!(spotty_playback_get_queue_snapshot().is_null());
 }
@@ -224,7 +224,7 @@ fn process_and_send_queue_caches_snapshot_without_a_callback() {
         .queue
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    store_last_queue(None);
 
     let mut player = PlayerState::new();
     let track = player.track.mut_or_insert_default();
@@ -256,7 +256,7 @@ fn process_and_send_queue_caches_snapshot_without_a_callback() {
         );
     }
     spotty_playback_free_queue_snapshot(pointer);
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    store_last_queue(None);
 }
 
 #[test]
@@ -276,7 +276,7 @@ fn process_and_send_queue_caches_before_reentrant_legacy_callback() {
         .queue
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some(capture);
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    store_last_queue(None);
 
     let mut player = PlayerState::new();
     player.queue_revision = "reentrant-rev".to_string();
@@ -292,7 +292,7 @@ fn process_and_send_queue_caches_before_reentrant_legacy_callback() {
         .queue
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    store_last_queue(None);
 }
 
 #[test]
@@ -306,7 +306,7 @@ fn legacy_queue_cleanup_reentry_refuses_nested_cleanup_without_losing_cache() {
         .queue
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some(cleanup);
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    store_last_queue(None);
 
     let mut player = PlayerState::new();
     player.queue_revision = "cleanup-reentry-rev".to_string();
@@ -326,5 +326,5 @@ fn legacy_queue_cleanup_reentry_refuses_nested_cleanup_without_losing_cache() {
         .queue
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = None;
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    store_last_queue(None);
 }

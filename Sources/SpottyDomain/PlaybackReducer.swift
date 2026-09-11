@@ -1,5 +1,57 @@
 import Foundation
 
+/// One intent that became terminal in a single reduction.
+public struct SettledIntent: Equatable, Sendable {
+    public let id: UUID
+    public let outcome: PlaybackIntentOutcome
+
+    public init(id: UUID, outcome: PlaybackIntentOutcome) {
+        self.id = id
+        self.outcome = outcome
+    }
+}
+
+/// What one reduction accepted and what it changed.
+///
+/// The reducer already knows these facts while it holds both the pre-state and the candidate.
+/// Reporting them keeps stores from re-deriving acceptance by diffing published state or by
+/// asking `accepts` the same question a second time, outside the reducer.
+public struct PlaybackReduction: Equatable, Sendable {
+    public let accepted: Bool
+    /// Sources whose revision this reduction recorded, including cluster components.
+    public let acceptedSources: Set<PlaybackEventSource>
+    public let engineEpochAdvanced: Bool
+    public let currentTrackURIChanged: Bool
+    public let queueEntriesChanged: Bool
+    public let devicesChanged: Bool
+    /// Intents that became terminal in this reduction, with their outcome.
+    public let settledIntents: [SettledIntent]
+    /// Play targets whose intent became `.observedConfirmed` in this reduction.
+    public let confirmedPlayTrackURIs: [String]
+
+    public init(
+        accepted: Bool,
+        acceptedSources: Set<PlaybackEventSource> = [],
+        engineEpochAdvanced: Bool = false,
+        currentTrackURIChanged: Bool = false,
+        queueEntriesChanged: Bool = false,
+        devicesChanged: Bool = false,
+        settledIntents: [SettledIntent] = [],
+        confirmedPlayTrackURIs: [String] = []
+    ) {
+        self.accepted = accepted
+        self.acceptedSources = acceptedSources
+        self.engineEpochAdvanced = engineEpochAdvanced
+        self.currentTrackURIChanged = currentTrackURIChanged
+        self.queueEntriesChanged = queueEntriesChanged
+        self.devicesChanged = devicesChanged
+        self.settledIntents = settledIntents
+        self.confirmedPlayTrackURIs = confirmedPlayTrackURIs
+    }
+
+    public static let rejected = PlaybackReduction(accepted: false)
+}
+
 public enum PlaybackReducer {
     /// Query-only epoch and ordered-source revision gates. A `true` result does not record the
     /// revision; only a successful `reduce` may mutate `PlaybackState`.
@@ -19,11 +71,36 @@ public enum PlaybackReducer {
         ) != nil
     }
 
+    /// Acceptance only. Prefer `apply` when the caller also needs to know what changed.
     @discardableResult
     public static func reduce(
         _ state: inout PlaybackState,
         envelope: PlaybackEventEnvelope
     ) -> Bool {
+        apply(&state, envelope: envelope).accepted
+    }
+
+    /// The one reduction entrance. Reports acceptance and the facts the caller would otherwise
+    /// have to rediscover by diffing published state.
+    @discardableResult
+    public static func apply(
+        _ state: inout PlaybackState,
+        envelope: PlaybackEventEnvelope
+    ) -> PlaybackReduction {
+        let preState = state
+        var componentSources: Set<PlaybackEventSource> = []
+        var componentEngineEpochAdvanced = false
+        var componentTrackURIChanged = false
+        var componentQueueEntriesChanged = false
+        var componentDevicesChanged = false
+        func absorb(_ component: PlaybackReduction) {
+            componentSources.formUnion(component.acceptedSources)
+            componentEngineEpochAdvanced = componentEngineEpochAdvanced || component.engineEpochAdvanced
+            componentTrackURIChanged = componentTrackURIChanged || component.currentTrackURIChanged
+            componentQueueEntriesChanged = componentQueueEntriesChanged || component.queueEntriesChanged
+            componentDevicesChanged = componentDevicesChanged || component.devicesChanged
+        }
+
         // Reduce into a candidate so a rejected event is genuinely inert. In particular, an
         // unknown command acknowledgement must not consume its source revision and prevent the
         // matching acknowledgement from arriving later.
@@ -35,7 +112,7 @@ public enum PlaybackReducer {
                 source: envelope.source,
                 revision: envelope.revision
             )
-        else { return false }
+        else { return .rejected }
 
         switch envelope.event {
         case let .reset(session):
@@ -59,7 +136,7 @@ public enum PlaybackReducer {
                         ?? candidate.pendingCommands[.transport]?.expectedTrackURI),
                 incomingURI != expectedURI
             {
-                return false
+                return .rejected
             }
             if shouldHoldOptimisticPlayTarget(incomingURI: incomingURI, in: candidate) {
                 applyEnginePlaybackOptions(snapshot, in: &candidate)
@@ -109,40 +186,46 @@ public enum PlaybackReducer {
         case let .engineCluster(snapshot):
             // Preserve component source ordering while committing one externally observable
             // state. A newer local playback sample may already have overtaken this cluster.
-            _ = reduce(
-                &candidate,
-                envelope: PlaybackEventEnvelope(
-                    accountEpoch: envelope.accountEpoch,
-                    engineEpoch: envelope.engineEpoch,
-                    source: .engineDevices,
-                    revision: snapshot.devices.revision,
-                    receivedAt: envelope.receivedAt,
-                    event: .devices(snapshot.devices)
-                )
-            )
-            if let playback = snapshot.playback, let revision = snapshot.playbackRevision {
-                _ = reduce(
+            absorb(
+                apply(
                     &candidate,
                     envelope: PlaybackEventEnvelope(
                         accountEpoch: envelope.accountEpoch,
                         engineEpoch: envelope.engineEpoch,
-                        source: .enginePlayback,
-                        revision: revision,
+                        source: .engineDevices,
+                        revision: snapshot.devices.revision,
                         receivedAt: envelope.receivedAt,
-                        event: .enginePlayback(playback)
+                        event: .devices(snapshot.devices)
+                    )
+                )
+            )
+            if let playback = snapshot.playback, let revision = snapshot.playbackRevision {
+                absorb(
+                    apply(
+                        &candidate,
+                        envelope: PlaybackEventEnvelope(
+                            accountEpoch: envelope.accountEpoch,
+                            engineEpoch: envelope.engineEpoch,
+                            source: .enginePlayback,
+                            revision: revision,
+                            receivedAt: envelope.receivedAt,
+                            event: .enginePlayback(playback)
+                        )
                     )
                 )
             }
             if let connection = snapshot.connection, let revision = snapshot.connectionRevision {
-                _ = reduce(
-                    &candidate,
-                    envelope: PlaybackEventEnvelope(
-                        accountEpoch: envelope.accountEpoch,
-                        engineEpoch: envelope.engineEpoch,
-                        source: .engineConnection,
-                        revision: revision,
-                        receivedAt: envelope.receivedAt,
-                        event: .engineConnection(connection)
+                absorb(
+                    apply(
+                        &candidate,
+                        envelope: PlaybackEventEnvelope(
+                            accountEpoch: envelope.accountEpoch,
+                            engineEpoch: envelope.engineEpoch,
+                            source: .engineConnection,
+                            revision: revision,
+                            receivedAt: envelope.receivedAt,
+                            event: .engineConnection(connection)
+                        )
                     )
                 )
             }
@@ -163,7 +246,7 @@ public enum PlaybackReducer {
                 )
             }
         case let .trackMetadata(metadata):
-            guard var track = candidate.currentTrack, track.uri == metadata.uri else { return false }
+            guard var track = candidate.currentTrack, track.uri == metadata.uri else { return .rejected }
             track.title = metadata.title
             track.artist = metadata.artist
             track.artworkURL = metadata.artworkURL
@@ -197,7 +280,7 @@ public enum PlaybackReducer {
                 incoming: incoming
             )
         case let .devices(devices):
-            guard devices.revision >= candidate.devices.revision else { return false }
+            guard devices.revision >= candidate.devices.revision else { return .rejected }
             candidate.devices = devices
             applyConnectionPlaybackOwner(&candidate, source: envelope.source)
         case let .commandStarted(command):
@@ -273,7 +356,7 @@ public enum PlaybackReducer {
                 candidate.owner = expectedOwner
             }
         case let .queueIntentStarted(intent):
-            guard !candidate.intents.contains(where: { $0.command.id == intent.command.id }) else { return false }
+            guard !candidate.intents.contains(where: { $0.command.id == intent.command.id }) else { return .rejected }
             candidate.intents.append(intent)
             while candidate.intents.count > 128,
                 let oldest = candidate.intents.firstIndex(where: { $0.outcome.isTerminal })
@@ -283,18 +366,18 @@ public enum PlaybackReducer {
         case let .queueIntentFinished(id, accepted):
             guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 !candidate.intents[index].outcome.isTerminal
-            else { return false }
+            else { return .rejected }
             candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
         case let .commandDispatched(id, at):
             guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 candidate.intents[index].outcome == .admitted
-            else { return false }
+            else { return .rejected }
             candidate.intents[index].dispatchedAt = at
             candidate.intents[index].outcome = .dispatched
         case let .commandTimedOut(id):
             guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 !candidate.intents[index].outcome.isTerminal
-            else { return false }
+            else { return .rejected }
             candidate.intents[index].settle(.timedOut, at: envelope.receivedAt)
             if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
                 // Unsent optimism is reversible. A dispatched request remains irrevocable.
@@ -306,7 +389,7 @@ public enum PlaybackReducer {
             candidate.transportCommandResolutions[id] = nil
         case let .commandFinished(id, accepted, notice):
             if let index = candidate.intents.firstIndex(where: { $0.command.id == id }) {
-                if candidate.intents[index].outcome == .timedOut { return false }
+                if candidate.intents[index].outcome == .timedOut { return .rejected }
                 candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
             }
             if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
@@ -331,7 +414,7 @@ public enum PlaybackReducer {
                 // Consume a confirmed/superseded entry without touching presentation.
                 candidate.transportCommandResolutions[id] = nil
             } else {
-                return false
+                return .rejected
             }
         case let .notice(notice):
             candidate.notice = notice
@@ -371,7 +454,33 @@ public enum PlaybackReducer {
             candidate.sourceRevisions[envelope.source] = revision
         }
         state = candidate
-        return true
+
+        var acceptedSources = componentSources
+        // Only a recorded revision means this source's ordering advanced here.
+        if envelope.revision != nil { acceptedSources.insert(envelope.source) }
+        let settledIntents = candidate.intents.compactMap { intent -> SettledIntent? in
+            guard intent.outcome.isTerminal,
+                preState.intents.first(where: { $0.command.id == intent.command.id })?.outcome.isTerminal != true
+            else { return nil }
+            return SettledIntent(id: intent.command.id, outcome: intent.outcome)
+        }
+        let confirmedPlayTrackURIs = candidate.intents.compactMap { intent -> String? in
+            guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,
+                preState.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed
+            else { return nil }
+            return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
+        }
+        return PlaybackReduction(
+            accepted: true,
+            acceptedSources: acceptedSources,
+            engineEpochAdvanced: componentEngineEpochAdvanced || candidate.engineEpoch > preState.engineEpoch,
+            currentTrackURIChanged: componentTrackURIChanged
+                || candidate.currentTrack?.uri != preState.currentTrack?.uri,
+            queueEntriesChanged: componentQueueEntriesChanged || candidate.queue.entries != preState.queue.entries,
+            devicesChanged: componentDevicesChanged || candidate.devices.devices != preState.devices.devices,
+            settledIntents: settledIntents,
+            confirmedPlayTrackURIs: confirmedPlayTrackURIs
+        )
     }
 
     /// Account epoch, engine epoch, and per-source revision gates shared by `accepts` and `reduce`.

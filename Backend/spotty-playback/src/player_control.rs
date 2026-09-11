@@ -17,16 +17,19 @@ pub(crate) const ERROR_CREDENTIALS_REJECTED: i32 = -4;
 /// ever firing SessionDisconnected (because the Spirc task was idle).
 /// When detected, updates state and triggers reconnection proactively.
 pub(crate) fn require_session_connected() -> Result<(), i32> {
-    if !with_connection(|c| c.session_connected) {
+    // Both facts come out of one lock acquisition: reading "connected" from before a teardown
+    // and the Session from after it is exactly the mixture this consolidation removes.
+    let (session_connected, session_invalid) = with_engine(|engine| {
+        (
+            engine.connection.session_connected,
+            engine.session_missing_or_invalid(),
+        )
+    });
+
+    if !session_connected {
         debug!("Command rejected: session not connected");
         return Err(ERROR_NOT_CONNECTED);
     }
-
-    let session_invalid = SESSION
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .is_none_or(|s| s.is_invalid());
 
     if session_invalid {
         debug!("Detected zombie session (is_connected=true but Session is invalid)");
@@ -341,11 +344,9 @@ pub(crate) async fn cleanup_player_globals() {
     teardown_engine_resources("spotty_playback_cleanup").await;
 
     // Reset state flags
-    IS_PLAYING.store(false, Ordering::SeqCst);
+    clear_engine_playing();
     set_active_device(false);
-    SHUFFLE_STATE.store(false, Ordering::SeqCst);
-    REPEAT_TRACK_STATE.store(false, Ordering::SeqCst);
-    REPEAT_CONTEXT_STATE.store(false, Ordering::SeqCst);
+    update_playback_options(false, false, false);
     reset_position();
     // Belongs to the session being torn down. Surviving a logout would let a resume seek to
     // an offset from the previous lifecycle, or another account's playback.
@@ -378,10 +379,7 @@ pub(crate) async fn cleanup_player_globals() {
     // snapshot makes that read as "this is the queue", and a freshly logged-in account gets
     // the previous one's. The device list is a dedup cache, so a stale entry would suppress
     // the first update after a login as unchanged.
-    *LAST_QUEUE.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    *LAST_DEVICES_FINGERPRINT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
+    clear_cluster_caches();
     discard_retained_cluster_offers();
 
     // Reset the connection snapshot: not ready, not connected, no device ID, no open
@@ -436,7 +434,7 @@ pub(crate) fn displayed_position_ms() -> u32 {
         reported_ms,
         reported_at_ms,
         monotonic_ms() as u32,
-        IS_PLAYING.load(Ordering::SeqCst),
+        engine_is_playing(),
     )
 }
 
@@ -615,15 +613,15 @@ pub extern "C" fn spotty_playback_transfer_playback(
             return e;
         }
 
-        let session_guard = SESSION.lock().unwrap_or_else(|e| e.into_inner());
-        let session = match session_guard.as_ref() {
-            Some(s) => s.clone(),
+        // Cloned out of the engine lock: the transfer below awaits an upstream request and no
+        // engine guard may be held across it.
+        let session = match current_session() {
+            Some(s) => s,
             None => {
                 debug!("Transfer playback error: session not initialized");
                 return -1;
             }
         };
-        drop(session_guard);
 
         // Deliberately our own device ID, not the cluster's active device. The endpoint is
         // POST /connect-state/v1/connect/transfer/from/{from}/to/{to}, and the backend derives
@@ -663,7 +661,7 @@ pub extern "C" fn spotty_playback_transfer_playback(
                 if let Some(player) = current_player() {
                     player.pause();
                 }
-                IS_PLAYING.store(false, Ordering::SeqCst);
+                clear_engine_playing();
                 set_active_device(false);
                 0
             }

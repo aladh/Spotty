@@ -57,7 +57,6 @@ extension PlaybackStore {
     /// enrichment remains QueueService-owned and cannot become another current-track authority.
     func receive(_ cluster: RustConnectClusterState, receivedAt: Date) {
         guard !isTearingDown else { return }
-        let previousTrackURI = trackURI
         let isInitial = !hasReceivedPlaybackSnapshot
         let localID = ConnectionSnapshotProjection.resolvedDeviceID(
             wire: cluster.localDeviceID,
@@ -91,64 +90,35 @@ extension PlaybackStore {
                 localDeviceID: localID
             )
         }
-        let acceptsPlayback =
-            cluster.playback.map {
-                PlaybackReducer.accepts(
-                    state,
-                    accountEpoch: accountEpoch,
-                    engineEpoch: cluster.sessionGeneration,
-                    source: .enginePlayback,
-                    revision: $0.revision
+        // The reducer reports which cluster components it actually recorded. The aggregate
+        // revision can be newer even when a component is stale, so each follow-up follows the
+        // acceptance boundary of the component that would have established it — for example, a
+        // rejected devices component must not persist an active remote device.
+        let reduction = reduce(
+            .engineCluster(
+                EngineConnectSnapshot(
+                    devices: PlaybackDeviceSnapshot(
+                        devices: domainDevices,
+                        localDeviceID: localID,
+                        revision: cluster.devices.revision,
+                        lastRemoteDeviceID: lastRemoteDeviceID
+                    ),
+                    connection: connection,
+                    connectionRevision: cluster.connection?.revision,
+                    playback: playback,
+                    playbackRevision: cluster.playback?.revision
                 )
-            } ?? false
-        let acceptsConnection =
-            cluster.connection.map {
-                PlaybackReducer.accepts(
-                    state,
-                    accountEpoch: accountEpoch,
-                    engineEpoch: cluster.sessionGeneration,
-                    source: .engineConnection,
-                    revision: $0.revision
-                )
-            } ?? false
-        // The aggregate revision can be newer even when its devices component is stale. Do not
-        // persist an active remote from that rejected component; the preference must follow the
-        // same acceptance boundary as the devices snapshot that established it.
-        let acceptsDevices = PlaybackReducer.accepts(
-            state,
-            accountEpoch: accountEpoch,
+            ),
+            source: .engineCluster,
+            revision: cluster.revision,
             engineEpoch: cluster.sessionGeneration,
-            source: .engineDevices,
-            revision: cluster.devices.revision
+            receivedAt: receivedAt
         )
-        guard
-            send(
-                .engineCluster(
-                    EngineConnectSnapshot(
-                        devices: PlaybackDeviceSnapshot(
-                            devices: domainDevices,
-                            localDeviceID: localID,
-                            revision: cluster.devices.revision,
-                            lastRemoteDeviceID: lastRemoteDeviceID
-                        ),
-                        connection: connection,
-                        connectionRevision: cluster.connection?.revision,
-                        playback: playback,
-                        playbackRevision: cluster.playback?.revision
-                    )
-                ),
-                source: .engineCluster,
-                revision: cluster.revision,
-                engineEpoch: cluster.sessionGeneration,
-                receivedAt: receivedAt
-            )
-        else { return }
+        guard reduction.accepted else { return }
 
-        if acceptsPlayback, let rawPlayback = cluster.playback,
-            state.sourceRevisions[.enginePlayback] == rawPlayback.revision
-        {
+        if reduction.acceptedSources.contains(.enginePlayback), let rawPlayback = cluster.playback {
             hasReceivedPlaybackSnapshot = true
-            if let uri = state.currentTrack?.uri, uri != previousTrackURI {
+            if reduction.currentTrackURIChanged, let uri = state.currentTrack?.uri {
                 adoptTrackMetadata(for: uri, force: true)
                 if !isInitial, rawPlayback.isActiveDevice, state.transport == .playing {
                     recordPlayed(uri)
@@ -157,7 +127,9 @@ extension PlaybackStore {
                 effects.cancel(.trackMetadata)
             }
         }
-        if acceptsDevices, let remote = devices.first(where: { $0.isActive && $0.id != localID }) {
+        if reduction.acceptedSources.contains(.engineDevices),
+            let remote = devices.first(where: { $0.isActive && $0.id != localID })
+        {
             lastRemoteDeviceID = remote.id
             Task { await environment.preferences.setLastRemoteDeviceID(remote.id) }
         }
@@ -166,7 +138,7 @@ extension PlaybackStore {
         {
             receive(queue, revision: queue.revision, mayAdoptPlaybackIdentity: false)
         }
-        if acceptsConnection, let rawConnection = cluster.connection {
+        if reduction.acceptedSources.contains(.engineConnection), let rawConnection = cluster.connection {
             handleAcceptedConnection(rawConnection, session: session)
         }
     }
@@ -261,25 +233,27 @@ extension PlaybackStore {
     func receive(_ state: RustPlaybackState, revision: UInt64, receivedAt: Date) {
         guard !isTearingDown else { return }
         let isInitialSnapshot = !hasReceivedPlaybackSnapshot
-        let previousTrackURI = trackURI
         // This fact belongs to the same Connect player observation as the transport and
         // identity below. Reading the store's owner here would make projection depend on
         // callback arrival order.
         let snapshotIsActiveDevice = state.isActiveDevice
         let snapshot = playbackSnapshot(state, receivedAt: receivedAt, isInitial: isInitialSnapshot)
-        let accepted = send(
+        // Identity change is the reducer's answer, not a comparison against the published
+        // projection: a held optimistic play target means a lagging sample changes nothing.
+        let reduction = reduce(
             .enginePlayback(snapshot),
             source: .enginePlayback,
             revision: revision,
             engineEpoch: state.sessionGeneration,
             receivedAt: receivedAt
         )
-        guard accepted else { return }
+        guard reduction.accepted else { return }
         hasReceivedPlaybackSnapshot = true
 
-        if let trackURI = snapshot.trackURI, trackURI != previousTrackURI {
-            adoptTrackMetadata(for: trackURI, force: true)
-        } else if snapshot.trackURI == nil {
+        let acceptedTrackURI = reduction.currentTrackURIChanged ? self.state.currentTrack?.uri : nil
+        if let acceptedTrackURI {
+            adoptTrackMetadata(for: acceptedTrackURI, force: true)
+        } else if self.state.currentTrack == nil {
             effects.cancel(.trackMetadata)
         }
 
@@ -288,10 +262,9 @@ extension PlaybackStore {
         if !isInitialSnapshot,
             snapshotIsActiveDevice,
             snapshot.transport == .playing,
-            let trackURI = snapshot.trackURI,
-            trackURI != previousTrackURI
+            let acceptedTrackURI
         {
-            recordPlayed(trackURI)
+            recordPlayed(acceptedTrackURI)
         }
     }
 
@@ -310,33 +283,33 @@ extension PlaybackStore {
         // Stamp from the payload generation. `engineGeneration` is only a fallback when the
         // caller omitted a captured epoch; it must not override a newer decoded epoch.
         let engineEpoch = capturedEngineEpoch ?? state.sessionGeneration
-        effects.replace(
-            .connectQueueAccept,
-            with: Task { [weak self] in
-                guard let self else { return }
-                let accepted = await self.queueService.acceptConnect(
-                    entries,
-                    accountEpoch: epoch,
-                    sourceRevision: revision,
-                    contextURI: state.track?.uri ?? self.trackURI,
-                    provisional: state.track == nil && entries.isEmpty,
-                    engineEpoch: engineEpoch,
-                    protocolNext: protocolNext,
-                    protocolPrev: protocolPrev,
-                    queueRevision: state.queueRevision,
-                    disallowSetQueue: state.disallowSetQueue,
-                    disallowRemovingFromNextTracks: state.disallowRemovingFromNextTracks
-                )
-                guard !Task.isCancelled, !self.isTearingDown else { return }
-                guard self.accountEpoch == epoch, self.engineGeneration <= engineEpoch else { return }
-                guard let accepted else { return }
-                let previousOrdering = self.state.queue.entries.map(\.uri)
-                self.queueMutation = accepted.mutation
-                guard self.apply(accepted.snapshot, engineEpoch: engineEpoch) else { return }
-                if self.state.queue.entries.map(\.uri) != previousOrdering {
-                    self.queueInspectorOrderingVersion &+= 1
-                }
-            })
+        let lifetime = PlaybackLifetime(accountEpoch: epoch, engineGeneration: engineEpoch)
+        effects.run(.connectQueueAccept) { [weak self] in
+            guard let self else { return }
+            let accepted = await self.queueService.acceptConnect(
+                entries,
+                accountEpoch: epoch,
+                sourceRevision: revision,
+                contextURI: state.track?.uri ?? self.trackURI,
+                provisional: state.track == nil && entries.isEmpty,
+                engineEpoch: engineEpoch,
+                protocolNext: protocolNext,
+                protocolPrev: protocolPrev,
+                queueRevision: state.queueRevision,
+                disallowSetQueue: state.disallowSetQueue,
+                disallowRemovingFromNextTracks: state.disallowRemovingFromNextTracks
+            )
+            // Engine identity is a stale-payload floor here, not an equality: a payload from a
+            // newer generation than this store has adopted is still the authoritative queue.
+            guard self.stillCurrent(lifetime, scope: .account), self.engineGeneration <= engineEpoch else { return }
+            guard let accepted else { return }
+            let previousOrdering = self.state.queue.entries.map(\.uri)
+            self.queueMutation = accepted.mutation
+            guard self.apply(accepted.snapshot, engineEpoch: engineEpoch) else { return }
+            if self.state.queue.entries.map(\.uri) != previousOrdering {
+                self.queueInspectorOrderingVersion &+= 1
+            }
+        }
 
         guard let track = state.track, QueueProtocolProjection.isPlayableTrackURI(track.uri) else {
             return
@@ -432,43 +405,44 @@ extension PlaybackStore {
     ) {
         let epoch = accountEpoch ?? self.accountEpoch
         let capturedEngineEpoch = engineEpoch ?? engineGeneration
-        effects.replace(
-            .trackMetadata,
-            with: Task { [weak self] in
-                do {
-                    guard let self else { return }
-                    let metadata = try await self.coordinator.metadata(for: uri)
-                    guard !Task.isCancelled, !self.isTearingDown else { return }
-                    let accepted = self.setTrackMetadata(
-                        uri: uri,
-                        title: metadata.title,
-                        artist: metadata.artist,
-                        artworkURL: metadata.artworkURL,
-                        duration: metadata.duration > 0 ? metadata.duration : self.duration,
-                        provenance: .connect,
-                        accountEpoch: epoch,
-                        engineEpoch: capturedEngineEpoch
-                    )
-                    guard accepted else { return }
-                    self.catalog.metadata.replaceTracks(
-                        [
-                            CatalogTrack(
-                                id: uri, uri: uri, title: metadata.title, artist: metadata.artist,
-                                album: "", duration: metadata.duration, artworkURL: metadata.artworkURL,
-                                addedAt: nil, artists: metadata.artists)
-                        ], from: .nowPlaying)
-                    self.history.applyMetadata(
-                        uri: uri,
-                        title: metadata.title,
-                        artist: metadata.artist,
-                        artworkURL: metadata.artworkURL
-                    )
-                } catch {
-                    guard !Task.isCancelled, self?.isTearingDown == false else { return }
-                    debugLog(
-                        "SpotifyConnectAPI", "Track metadata resolution failed: \(String(describing: type(of: error)))")
-                }
-            })
+        // Engine staleness for metadata is resolved by the lifetime-stamped reducer send below,
+        // which carries the captured engine epoch, so this gate is account-scoped.
+        let lifetime = PlaybackLifetime(accountEpoch: epoch, engineGeneration: capturedEngineEpoch)
+        effects.run(.trackMetadata) { [weak self] in
+            do {
+                guard let self else { return }
+                let metadata = try await self.coordinator.metadata(for: uri)
+                guard self.stillCurrent(lifetime, scope: .account) else { return }
+                let accepted = self.setTrackMetadata(
+                    uri: uri,
+                    title: metadata.title,
+                    artist: metadata.artist,
+                    artworkURL: metadata.artworkURL,
+                    duration: metadata.duration > 0 ? metadata.duration : self.duration,
+                    provenance: .connect,
+                    accountEpoch: epoch,
+                    engineEpoch: capturedEngineEpoch
+                )
+                guard accepted else { return }
+                self.catalog.metadata.replaceTracks(
+                    [
+                        CatalogTrack(
+                            id: uri, uri: uri, title: metadata.title, artist: metadata.artist,
+                            album: "", duration: metadata.duration, artworkURL: metadata.artworkURL,
+                            addedAt: nil, artists: metadata.artists)
+                    ], from: .nowPlaying)
+                self.history.applyMetadata(
+                    uri: uri,
+                    title: metadata.title,
+                    artist: metadata.artist,
+                    artworkURL: metadata.artworkURL
+                )
+            } catch {
+                guard !Task.isCancelled, self?.isTearingDown == false else { return }
+                debugLog(
+                    "SpotifyConnectAPI", "Track metadata resolution failed: \(String(describing: type(of: error)))")
+            }
+        }
     }
 
     func receive(_ devices: [ConnectDevice], revision: UInt64, engineEpoch: UInt64) {
@@ -538,19 +512,13 @@ extension PlaybackStore {
             accountStore.markCredentialRejection()
             engineRehydrationWindowOpen = false
             let lifetime = playbackLifetime
-            effects.replace(
-                .credentialRejection,
-                with: Task { [weak self] in
-                    guard let self,
-                        self.playbackLifetime == lifetime,
-                        !self.isTearingDown
-                    else { return }
-                    await self.endSession(
-                        clearGrant: false,
-                        finalPhase: .failed(ConnectionSnapshotProjection.credentialsRejectedMessage)
-                    )
-                }
-            )
+            effects.run(.credentialRejection) { [weak self] in
+                guard let self, self.stillCurrent(lifetime) else { return }
+                await self.endSession(
+                    clearGrant: false,
+                    finalPhase: .failed(ConnectionSnapshotProjection.credentialsRejectedMessage)
+                )
+            }
             return
         }
         engineRehydrationWindowOpen = state.resumePending && !state.spircReady
@@ -575,23 +543,23 @@ extension PlaybackStore {
         rehydratedSessionGeneration = state.sessionGeneration
         let plan = resumeLoadPlan()
         let lifetime = playbackLifetime
-        effects.replace(
-            .reconnectRehydration,
-            with: Task { [weak self] in
-                guard let self, self.playbackLifetime == lifetime else { return }
-                let operation = LocalPlaybackOperation.rehydrate(
-                    plan, sessionGeneration: state.sessionGeneration)
-                let result = await self.coordinator.performLocalIfStillWanted(operation) {
-                    [weak self] in
-                    guard let self else { return false }
-                    return self.playbackLifetime == lifetime && self.engineRehydrationWindowOpen
-                }
-                if let result, !result.isOK {
-                    SpottyLog.playback.debug(
-                        "Reconnect rehydration did not land; result=\(result.rawValue, privacy: .public)"
-                    )
-                }
-            })
+        effects.run(.reconnectRehydration) { [weak self] in
+            guard let self, self.stillCurrent(lifetime) else { return }
+            let operation = LocalPlaybackOperation.rehydrate(
+                plan, sessionGeneration: state.sessionGeneration)
+            // The claim-time predicate runs on the coordinator's task, so it compares lifetime
+            // and the still-open window directly rather than this task's cancellation state.
+            let result = await self.coordinator.performLocalIfStillWanted(operation) {
+                [weak self] in
+                guard let self else { return false }
+                return self.playbackLifetime == lifetime && self.engineRehydrationWindowOpen
+            }
+            if let result, !result.isOK {
+                SpottyLog.playback.debug(
+                    "Reconnect rehydration did not land; result=\(result.rawValue, privacy: .public)"
+                )
+            }
+        }
     }
 
 }

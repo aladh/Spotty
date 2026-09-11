@@ -118,7 +118,7 @@ pub(crate) fn resume_position_to_save_on_deactivation(live_position_ms: u32) -> 
 
 /// Starts the player-event listener for `generation` and returns its stop sender and task.
 ///
-/// The caller stores the sender in [`PLAYER_EVENT_TX`] and owns the returned task with the rest
+/// The caller stores the sender on the engine generation and owns the returned task with the rest
 /// of the generation's handles. Teardown takes the sender and signals stop before awaiting the
 /// task and dropping the Player. This listener belongs to `generation` for its whole life: a
 /// rebuild replaces the listener along with the session, so the captured value never has to
@@ -246,7 +246,10 @@ fn apply_player_event_locked(
                 track_uri, position_ms
             );
             set_current_track_uri(track_uri);
-            IS_PLAYING.store(true, Ordering::SeqCst);
+            // The only transition that makes the engine report playing; it publishes the
+            // Playing stamp in the same lock acquisition, so a waiter cannot see the flag
+            // without the sequence edge that justifies it.
+            publish_playing_event(event_listener_generation);
             if store_active_device(true) {
                 if let Some(notification) =
                     capture_connection_state_notification(event_listener_generation)
@@ -256,7 +259,6 @@ fn apply_player_event_locked(
                         .push(PlayerEventNotification::Connection(notification));
                 }
             }
-            publish_playing_event(event_listener_generation);
             // Playback is running again, so any saved resume point belongs
             // to a deactivation that has been recovered from.
             RESUME_POSITION_MS.store(0, Ordering::SeqCst);
@@ -283,7 +285,7 @@ fn apply_player_event_locked(
                 track_uri, position_ms
             );
             set_current_track_uri(track_uri);
-            IS_PLAYING.store(false, Ordering::SeqCst);
+            clear_engine_playing();
             // Still active when paused - just not playing
             update_position(position_ms);
             // Send playback state update to Swift
@@ -328,7 +330,7 @@ fn apply_player_event_locked(
             // afterwards restarted it there instead of from the beginning.
             // A deactivation saves what it needs in RESUME_POSITION_MS
             // before this arrives.
-            IS_PLAYING.store(false, Ordering::SeqCst);
+            clear_engine_playing();
             update_position(0);
         }
         PlayerEvent::EndOfTrack {
@@ -346,7 +348,7 @@ fn apply_player_event_locked(
                 track_id,
                 POSITION_MS.load(Ordering::SeqCst)
             );
-            IS_PLAYING.store(false, Ordering::SeqCst);
+            clear_engine_playing();
             update_position(0);
         }
         PlayerEvent::TrackChanged { audio_item } => {
@@ -370,9 +372,9 @@ fn apply_player_event_locked(
         }
         PlayerEvent::ShuffleChanged { shuffle } => {
             debug!("PlayerEvent::ShuffleChanged: {}", shuffle);
-            SHUFFLE_STATE.store(shuffle, Ordering::SeqCst);
+            update_shuffle_option(shuffle);
             if let Some(notification) = capture_local_playback_state(
-                IS_PLAYING.load(Ordering::SeqCst),
+                engine_is_playing(),
                 POSITION_MS.load(Ordering::SeqCst),
                 event_listener_generation,
             ) {
@@ -386,10 +388,9 @@ fn apply_player_event_locked(
                 "PlayerEvent::RepeatChanged: context={}, track={}",
                 context, track
             );
-            REPEAT_CONTEXT_STATE.store(context, Ordering::SeqCst);
-            REPEAT_TRACK_STATE.store(track, Ordering::SeqCst);
+            update_repeat_options(track, context);
             if let Some(notification) = capture_local_playback_state(
-                IS_PLAYING.load(Ordering::SeqCst),
+                engine_is_playing(),
                 POSITION_MS.load(Ordering::SeqCst),
                 event_listener_generation,
             ) {
@@ -457,7 +458,7 @@ fn apply_player_event_locked(
                 && request_state.take_matching_unavailable(play_request_id, &track_uri)
                 && is_active_device()
             {
-                IS_PLAYING.store(false, Ordering::SeqCst);
+                clear_engine_playing();
                 update_position(0);
                 if let Some(notification) = capture_local_playback_unavailable(
                     POSITION_MS.load(Ordering::SeqCst),
@@ -541,11 +542,7 @@ fn apply_player_event_locked(
             // cluster listener may not observe if the dealer stream is still
             // open. A missing Session means some other path already owns the
             // lifecycle, so leave it alone.
-            let session_invalid = SESSION
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .is_some_and(|s| s.is_invalid());
+            let session_invalid = with_engine(|engine| engine.session_is_invalid());
 
             if should_recover_after_deactivation(session_invalid, teardown_in_progress()) {
                 debug!(
@@ -711,7 +708,7 @@ mod player_event_pump_policy {
         let uri = "spotify:track:0000000000000000000004";
         set_current_track_uri(uri.to_string());
         store_active_device(false);
-        IS_PLAYING.store(true, Ordering::SeqCst);
+        set_engine_playing_for_test(true);
         POSITION_MS.store(4_321, Ordering::SeqCst);
         let mut state = PlayerRequestState::default();
         state.play_request_id_changed(10);
@@ -727,7 +724,7 @@ mod player_event_pump_policy {
         );
 
         assert_eq!(state, PlayerRequestState::default());
-        assert!(IS_PLAYING.load(Ordering::SeqCst));
+        assert!(engine_is_playing());
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 4_321);
     }
 
@@ -761,7 +758,7 @@ mod player_event_pump_policy {
             .lock()
             .unwrap_or_else(|error| error.into_inner()) =
             Some("spotify:track:0000000000000000000001".to_string());
-        IS_PLAYING.store(true, Ordering::SeqCst);
+        set_engine_playing_for_test(true);
         POSITION_MS.store(4_321, Ordering::SeqCst);
         store_active_device(true);
 
@@ -778,7 +775,7 @@ mod player_event_pump_policy {
             &mut state,
         );
 
-        assert!(IS_PLAYING.load(Ordering::SeqCst));
+        assert!(engine_is_playing());
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 4_321);
         assert!(state.matches_current_unavailable(14, "spotify:track:0000000000000000000002"));
     }
@@ -809,7 +806,7 @@ mod player_event_pump_policy {
         ] {
             set_current_track_uri(uri.to_string());
             store_active_device(active);
-            IS_PLAYING.store(true, Ordering::SeqCst);
+            set_engine_playing_for_test(true);
             POSITION_MS.store(4_321, Ordering::SeqCst);
             let mut state = PlayerRequestState::default();
             state.play_request_id_changed(40);
@@ -825,7 +822,7 @@ mod player_event_pump_policy {
                 generation,
                 &mut state,
             );
-            assert!(IS_PLAYING.load(Ordering::SeqCst));
+            assert!(engine_is_playing());
             assert_eq!(POSITION_MS.load(Ordering::SeqCst), 4_321);
             assert!(current_track_uri_matches(uri));
         }
@@ -864,16 +861,13 @@ mod player_event_pump_policy {
         struct RestoreQueue(Option<QueueState>);
         impl Drop for RestoreQueue {
             fn drop(&mut self) {
-                *LAST_QUEUE.lock().unwrap_or_else(|error| error.into_inner()) = self.0.take();
+                store_last_queue(self.0.take());
             }
         }
         let queue = crate::queue_snapshot_tests::fixture_queue_state();
-        let _restore_queue = RestoreQueue(
-            LAST_QUEUE
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .replace(queue.clone()),
-        );
+        let _restore_queue = RestoreQueue(with_engine(|engine| {
+            engine.last_queue.replace(queue.clone())
+        }));
         let previous_callback = *CONTROL_CALLBACKS
             .playback_state
             .lock()
@@ -937,10 +931,7 @@ mod player_event_pump_policy {
         assert_eq!(CALLBACK_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(CALLBACK_UNAVAILABLE.load(Ordering::SeqCst), 1);
         assert_eq!(CALLBACK_REFUSED.load(Ordering::SeqCst), u8::from(refused));
-        assert_eq!(
-            *LAST_QUEUE.lock().unwrap_or_else(|error| error.into_inner()),
-            Some(queue)
-        );
+        assert_eq!(last_queue_snapshot(), Some(queue));
     }
 
     fn synthetic_track() -> SpotifyUri {
@@ -965,9 +956,9 @@ mod player_event_pump_policy {
         generation: u64,
         request_state: &mut PlayerRequestState,
     ) {
-        let previous_generation = SESSION_GENERATION.swap(generation, Ordering::SeqCst);
+        let previous_generation = set_session_generation_for_test(generation);
         apply_player_event(event, generation, request_state);
-        SESSION_GENERATION.store(previous_generation, Ordering::SeqCst);
+        set_session_generation_for_test(previous_generation);
     }
 
     #[derive(Clone)]
@@ -984,7 +975,7 @@ mod player_event_pump_policy {
 
     fn capture_playback_globals() -> PlaybackGlobals {
         PlaybackGlobals {
-            is_playing: IS_PLAYING.load(Ordering::SeqCst),
+            is_playing: engine_is_playing(),
             is_active: is_active_device(),
             playing_event_stamp: playing_event_stamp(),
             resume_position_ms: RESUME_POSITION_MS.load(Ordering::SeqCst),
@@ -1002,7 +993,7 @@ mod player_event_pump_policy {
     }
 
     fn restore_playback_globals(snapshot: PlaybackGlobals) {
-        IS_PLAYING.store(snapshot.is_playing, Ordering::SeqCst);
+        set_engine_playing_for_test(snapshot.is_playing);
         set_active_device(snapshot.is_active);
         replace_playing_event_stamp_for_test(snapshot.playing_event_stamp);
         RESUME_POSITION_MS.store(snapshot.resume_position_ms, Ordering::SeqCst);
@@ -1026,12 +1017,12 @@ mod player_event_pump_policy {
     fn a_playing_event_is_the_authoritative_playing_transition() {
         let _guard = lock_lifecycle_test_globals();
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
-        IS_PLAYING.store(false, Ordering::SeqCst);
+        set_engine_playing_for_test(false);
         let seq_before = playing_event_stamp().sequence;
 
         apply_current_generation_event(playing_event(1_250), 1);
 
-        assert!(IS_PLAYING.load(Ordering::SeqCst));
+        assert!(engine_is_playing());
         assert!(playing_event_stamp().sequence > seq_before);
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 1_250);
         assert_eq!(
@@ -1049,7 +1040,7 @@ mod player_event_pump_policy {
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
         let track_id = synthetic_track();
 
-        IS_PLAYING.store(true, Ordering::SeqCst);
+        set_engine_playing_for_test(true);
         apply_current_generation_event(
             PlayerEvent::Paused {
                 play_request_id: 1,
@@ -1058,10 +1049,10 @@ mod player_event_pump_policy {
             },
             1,
         );
-        assert!(!IS_PLAYING.load(Ordering::SeqCst));
+        assert!(!engine_is_playing());
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 800);
 
-        IS_PLAYING.store(true, Ordering::SeqCst);
+        set_engine_playing_for_test(true);
         apply_current_generation_event(
             PlayerEvent::Stopped {
                 play_request_id: 1,
@@ -1069,9 +1060,9 @@ mod player_event_pump_policy {
             },
             1,
         );
-        assert!(!IS_PLAYING.load(Ordering::SeqCst));
+        assert!(!engine_is_playing());
 
-        IS_PLAYING.store(true, Ordering::SeqCst);
+        set_engine_playing_for_test(true);
         apply_current_generation_event(
             PlayerEvent::EndOfTrack {
                 play_request_id: 1,
@@ -1079,7 +1070,7 @@ mod player_event_pump_policy {
             },
             1,
         );
-        assert!(!IS_PLAYING.load(Ordering::SeqCst));
+        assert!(!engine_is_playing());
     }
 
     #[test]
@@ -1170,8 +1161,8 @@ mod player_event_pump_policy {
     #[test]
     fn cleanup_still_clears_playing() {
         let _guard = lock_lifecycle_test_globals();
-        IS_PLAYING.store(true, Ordering::SeqCst);
+        set_engine_playing_for_test(true);
         spotty_playback_cleanup();
-        assert!(!IS_PLAYING.load(Ordering::SeqCst));
+        assert!(!engine_is_playing());
     }
 }

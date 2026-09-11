@@ -158,9 +158,7 @@ fn teardown_engine_resources_awaits_every_owned_task_before_returning() {
         });
         started_rx.await.expect("owned task started");
 
-        *ENGINE_TASKS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = Some(vec![task]);
+        with_engine(|engine| engine.tasks = Some(vec![task]));
 
         with_lifecycle_lock(async {
             let _store = enter_store_section();
@@ -174,8 +172,8 @@ fn teardown_engine_resources_awaits_every_owned_task_before_returning() {
         task_dropped.load(Ordering::SeqCst),
         "teardown must await an aborted task before returning"
     );
-    assert!(ENGINE_TASKS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .is_none());
+    assert!(
+        with_engine(|engine| engine.tasks.is_none()),
+        "teardown must leave the generation's task registry empty"
+    );
 }

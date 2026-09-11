@@ -8,11 +8,11 @@ import SpottyDomain
 /// `PlaybackCommandFailure.remoteRejected`. Those vocabularies and runtimes
 /// stay distinct; sharing only the tiny `index > 0` loop would be a generic
 /// two-phase runner this type exists to avoid.
-enum RepeatTransitionApplication {
+public enum RepeatTransitionApplication {
     /// Applies forward mutations in plan order. A first-step failure returns that
     /// result with no compensation. After a later step fails, compensation runs
     /// best-effort (its results are ignored) and the failed step's result is returned.
-    static func apply(
+    public static func apply(
         _ plan: RepeatTransitionPlan,
         send: (RepeatFlagMutation) -> PlaybackEngineResult
     ) -> PlaybackEngineResult {
@@ -32,7 +32,7 @@ enum RepeatTransitionApplication {
 
     /// Same skip/order/compensation rules for the throwing Connect client.
     /// Compensation uses `try?` so a compensation failure cannot be reported as success.
-    static func applyRemote(
+    public static func applyRemote(
         _ plan: RepeatTransitionPlan,
         send: (RepeatFlagMutation) async throws -> Void
     ) async throws {

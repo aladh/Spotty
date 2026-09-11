@@ -161,39 +161,54 @@ pub(crate) const SESSION_HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(6
 /// superseded, so it dies with the session it belongs to rather than accumulating.
 pub(crate) fn spawn_session_health_check(generation: u64) -> JoinHandle<()> {
     RUNTIME.spawn(run_session_health_check(move || {
-        // Superseded: whatever replaced our session brought its own check.
-        if !listener_may_act(generation, SESSION_GENERATION.load(Ordering::SeqCst)) {
-            return true;
-        }
+        // Keep the current-generation decision, the facts it reads, and the disconnected write
+        // on the same side of invalidation. Otherwise this sleeping task can pass an early atomic
+        // check, wake after a rebuild, and mark the replacement session unhealthy.
+        let transition = with_current_generation_mutation(generation, || {
+            // Sleep and shutdown invalidate the session on purpose.
+            if teardown_in_progress() {
+                return None;
+            }
+            let intent = with_engine_owned(generation, |engine| {
+                let session_invalid = engine.session_is_invalid();
+                if !health_check_should_recover(
+                    session_invalid,
+                    engine.connection.session_connected,
+                    recovery_is_active(),
+                    teardown_in_progress(),
+                ) {
+                    return None;
+                }
+                debug!(
+                    "Session health check: session {} needs recovery (invalid={})",
+                    generation, session_invalid
+                );
+                let intent = RecoveryIntent {
+                    was_playing: engine.is_playing(),
+                    was_active: engine.connection.is_active_device,
+                };
+                engine.connection.session_connected = false;
+                engine.connection.last_error = Some("Session unusable".to_string());
+                Some(intent)
+            })
+            .ok()
+            .flatten()?;
+            Some((intent, capture_connection_state_notification(generation)))
+        });
 
-        // Sleep and shutdown invalidate the session on purpose.
-        if teardown_in_progress() {
-            return false;
+        match transition {
+            // Superseded: whatever replaced our session brought its own check.
+            None => true,
+            Some(None) => false,
+            Some(Some((intent, notification))) => {
+                if let Some(notification) = notification {
+                    deliver_connection_state_notification(notification);
+                }
+                spawn_reconnection_loop_for_generation(intent, generation);
+                // Recovery owns it from here; the rebuild spawns the next check.
+                true
+            }
         }
-
-        let session_invalid = SESSION
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .is_some_and(|s| s.is_invalid());
-
-        if health_check_should_recover(
-            session_invalid,
-            with_connection(|c| c.session_connected),
-            recovery_is_active(),
-            teardown_in_progress(),
-        ) {
-            debug!(
-                "Session health check: session {} needs recovery (invalid={})",
-                generation, session_invalid
-            );
-            let intent = RecoveryIntent::capture();
-            mark_disconnected("Session unusable");
-            spawn_reconnection_loop(intent);
-            // Recovery owns it from here; the rebuild spawns the next check.
-            return true;
-        }
-        false
     }))
 }
 
@@ -323,11 +338,13 @@ pub(crate) fn spawn_reconnection_loop_for_generation(
                     // owns the lock. A later build must not supply our generation or receive our error.
                     let generation = LAST_BUILD_GENERATION.load(Ordering::SeqCst);
                     if result == Err(InitializationFailure::Transient)
-                        && listener_may_act(generation, SESSION_GENERATION.load(Ordering::SeqCst))
                         && !teardown_in_progress()
                         && !lease.is_cancelled()
+                        && with_connection_owned(generation, |c| {
+                            c.last_error = Some("Reconnect failed".to_string())
+                        })
+                        .is_ok()
                     {
-                        with_connection(|c| c.last_error = Some("Reconnect failed".to_string()));
                         notify_connection_state_change();
                     }
                     (generation, result)
@@ -394,7 +411,10 @@ pub(crate) fn publish_recovery_attempt(
         if lease.is_cancelled() || teardown_in_progress() {
             return Err(());
         }
-        with_connection(|c| c.last_error = Some(format!("Reconnecting (attempt {})", attempt)));
+        with_connection_owned(generation, |c| {
+            c.last_error = Some(format!("Reconnecting (attempt {})", attempt))
+        })
+        .map_err(|_| ())?;
         Ok(capture_connection_state_notification(generation))
     }) else {
         return false;
@@ -427,7 +447,7 @@ pub extern "C" fn spotty_playback_force_reconnect() -> i32 {
         );
 
         // Check if we even have a session
-        if SESSION.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+        if !session_is_present() {
             debug!(
                 "[WAKE +{}ms] Force reconnect: no session initialized",
                 elapsed_since_wake_ms()
@@ -458,13 +478,14 @@ pub extern "C" fn spotty_playback_force_reconnect() -> i32 {
 
 /// Performs full cleanup for reconnection.
 /// Clears Session, Spirc, Player, and Mixer because Player is tightly coupled
-/// to the Session's ChannelManager for decryption key requests.
+/// to the Session's ChannelManager for decryption key requests. Deliberately leaves playback
+/// identity alone so the rehydrating load has something to reload.
 pub(crate) async fn do_reconnect_cleanup() {
     debug!("do_reconnect_cleanup: full cleanup for reconnection");
     let _store = enter_store_section();
     teardown_engine_resources("do_reconnect_cleanup").await;
-    with_connection(|c| c.spirc_ready = false);
     with_connection(|c| {
+        c.spirc_ready = false;
         c.device_id = None;
         c.session_connected = false;
         c.credentials_rejected = false;

@@ -34,7 +34,7 @@
   Logout removes account credentials but retains the non-secret identity. It is independent of
   the advertised computer name and of the separately scoped client-token identifier. The app
   supplies this identity through
-  [ConnectInstallationIDStore](../../Sources/Spotty/Spotify/ConnectInstallationIDStore.swift);
+  [ConnectInstallationIDStore](../../Sources/SpottyEngineAdapter/ConnectInstallationIDStore.swift);
   debug checkout and unbundled-test isolation are documented in
   [local state](../development/local-state.md).
 - Closed command channels and failed rehydration request engine reinitialization through typed

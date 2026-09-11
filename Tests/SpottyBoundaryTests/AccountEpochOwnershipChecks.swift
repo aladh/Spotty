@@ -3,143 +3,18 @@ import SpottyDomain
 import Foundation
 @testable import SpottyCore
 
-private final class EpochEngine: LocalPlaybackEngine, @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [String: Int] = [:]
-
-    func events() -> AsyncStream<RustPlaybackEventEnvelope> {
-        AsyncStream { $0.finish() }
-    }
-
-    func count(_ name: String) -> Int {
-        lock.lock(); defer { lock.unlock() }
-        return storage[name, default: 0]
-    }
-
-    private func record(_ name: String) {
-        lock.lock(); storage[name, default: 0] += 1; lock.unlock()
-    }
-
-    func authorizeStreaming(with _: String) -> Int32 { record("authorize"); return 0 }
-    func initialize() -> PlaybackEngineResult { record("initialize"); return .ok }
-    func execute(_: LocalPlaybackOperation) -> PlaybackEngineResult { record("execute"); return .ok }
-    func positionMilliseconds() -> UInt32 { 0 }
-    func queueSnapshot() -> RustQueueState? { nil }
-    func shutdown() -> PlaybackEngineResult { record("shutdown"); return .ok }
-    func cleanup() { record("cleanup") }
-    func clearStreamingCredentials() { record("clearCredentials") }
-    func disconnect() -> PlaybackEngineResult { record("disconnect"); return .ok }
-    func forceReconnect() -> Int32 { record("reconnect"); return 0 }
-}
-
-private final class EpochAccount: AccountSession, @unchecked Sendable {
-    private let lock = NSLock()
-    private var clearStorage = 0
-    private var clearPark: CheckedContinuation<Void, Never>?
-    var hasStoredGrant = true
-    var parkClear = false
-
-    var clearCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return clearStorage
-    }
-
-    var isClearParked: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return clearPark != nil
-    }
-
-    func authorizeInteractively() async throws -> KeymasterTokens {
-        KeymasterTokens(
-            accessToken: "fixture-access",
-            refreshToken: "fixture-refresh",
-            expiresAt: .distantFuture,
-            username: "fixture-user"
-        )
-    }
-    func hasGrant() async -> Bool { hasStoredGrant }
-    func accessToken() async throws -> String { "fixture-access" }
-    func adopt(_: KeymasterTokens) async throws {}
-    func clear() async {
-        if parkClear {
-            await withCheckedContinuation { continuation in
-                lock.withLock { clearPark = continuation }
-            }
-        }
-        lock.withLock { clearStorage += 1 }
-    }
-    func completeClear() {
-        lock.lock(); let continuation = clearPark; clearPark = nil; lock.unlock()
-        continuation?.resume()
-    }
-    func revocations() -> AsyncStream<Void> {
-        AsyncStream { _ in }
-    }
-}
-
-private actor EpochPreferences: PlaybackPreferences {
-    func shuffleEnabled() -> Bool { false }
-    func setShuffleEnabled(_: Bool) {}
-    func lastRemoteDeviceID() -> String? { nil }
-    func setLastRemoteDeviceID(_: String?) {}
-    func shuffleHistory() -> [String: TimeInterval] { [:] }
-    func setShuffleHistory(_: [String: TimeInterval]) {}
-}
-
-private actor EpochRemote: RemotePlaybackClient {
-    func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {}
-
-    func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        SpotifyConnectTrackMetadata(
-            uri: uri,
-            title: "Metadata",
-            artist: "Artist",
-            artworkURL: nil,
-            duration: 180
-        )
-    }
-}
-
-private struct EpochClock: PlaybackClock {
-    func now() -> Date { Date(timeIntervalSince1970: 1_800_000_000) }
-    func sleep(seconds _: TimeInterval) async throws {}
-}
-private actor EpochWebQueue: WebQueueClient {
-    func queue() async throws -> [CatalogTrack] {
-        throw URLError(.badServerResponse)
-    }
-}
-
-private func epochEnvironment(
-    engine: EpochEngine,
-    account: EpochAccount
-) -> PlaybackEnvironment {
-    PlaybackEnvironment(
-        remote: EpochRemote(),
-        local: engine,
-        webQueue: EpochWebQueue(),
-        account: account,
-        audioOutput: BoundaryIdleAudio(),
-        preferences: EpochPreferences(),
-        lifecycle: BoundaryIdleLifecycle(),
-        clock: EpochClock(),
-        catalog: BoundaryIdleCatalog(),
-        playlistMutations: UnavailablePlaylistMutations(),
-        trackAttributes: BoundaryIdleAttributes()
-    )
-}
-
 @Suite("Account Epoch Ownership")
 struct AccountEpochOwnershipTests {
     @Test
     @MainActor
     func testAccountEpochOwnership() async {
         do {
-            let engine = EpochEngine()
-            let account = EpochAccount()
+            let engine = HarnessEngine()
+            let account = HarnessAccount(hasGrant: true, authorization: .succeed)
             let player = PlaybackStore(
-                environment: epochEnvironment(engine: engine, account: account),
-                feedback: TransientFeedbackPresenter(clock: EpochClock())
+                environment: HarnessEnvironment.make(
+                    engine: engine, account: account, clock: HarnessClock(sleep: .immediate)),
+                feedback: TransientFeedbackPresenter(clock: HarnessClock(sleep: .immediate))
             )
             await player.restore()
             let start = player.accountStore.epoch
@@ -155,17 +30,18 @@ struct AccountEpochOwnershipTests {
             #expect((player.catalogSession.accountEpoch) == (afterLogout), "catalog session observes that exact epoch")
             #expect(
                 (await player.queueService.accountEpoch) == (afterLogout), "QueueService reset uses that exact epoch")
-            #expect((engine.count("shutdown")) == (1), "logout still shuts the engine down once")
+            #expect((engine.count(.shutdown)) == (1), "logout still shuts the engine down once")
             #expect((account.clearCount) == (1), "logout still clears the grant once")
         }
 
         do {
-            let engine = EpochEngine()
-            let account = EpochAccount()
+            let engine = HarnessEngine()
+            let account = HarnessAccount(hasGrant: true, authorization: .succeed)
             account.parkClear = true
             let player = PlaybackStore(
-                environment: epochEnvironment(engine: engine, account: account),
-                feedback: TransientFeedbackPresenter(clock: EpochClock())
+                environment: HarnessEnvironment.make(
+                    engine: engine, account: account, clock: HarnessClock(sleep: .immediate)),
+                feedback: TransientFeedbackPresenter(clock: HarnessClock(sleep: .immediate))
             )
             await player.restore()
             let start = player.accountStore.epoch
@@ -195,15 +71,16 @@ struct AccountEpochOwnershipTests {
             await upgrade.value
             #expect((player.accountStore.epoch) == (start + 1), "the completed coalesced teardown still advanced once")
             #expect((account.clearCount) == (1), "grant clear still happens once")
-            #expect((engine.count("shutdown")) == (1), "engine shutdown still happens once")
+            #expect((engine.count(.shutdown)) == (1), "engine shutdown still happens once")
         }
 
         do {
-            let engine = EpochEngine()
-            let account = EpochAccount()
+            let engine = HarnessEngine()
+            let account = HarnessAccount(hasGrant: true, authorization: .succeed)
             let player = PlaybackStore(
-                environment: epochEnvironment(engine: engine, account: account),
-                feedback: TransientFeedbackPresenter(clock: EpochClock())
+                environment: HarnessEnvironment.make(
+                    engine: engine, account: account, clock: HarnessClock(sleep: .immediate)),
+                feedback: TransientFeedbackPresenter(clock: HarnessClock(sleep: .immediate))
             )
             await player.restore()
             let start = player.accountStore.epoch
@@ -214,22 +91,23 @@ struct AccountEpochOwnershipTests {
             #expect((player.accountEpoch) == (afterStop), "PlaybackStore projects the termination epoch")
             #expect((player.state.accountEpoch) == (afterStop), "reducer adopts the termination epoch")
             #expect((player.catalogSession.accountEpoch) == (afterStop), "catalog observes the termination epoch")
-            #expect((engine.count("shutdown")) == (1), "termination shuts the engine down once")
+            #expect((engine.count(.shutdown)) == (1), "termination shuts the engine down once")
             #expect((account.clearCount) == (0), "termination does not clear the reusable grant")
 
             await player.shutdownForTermination()
             #expect(
                 (player.accountStore.epoch) == (afterStop), "a second termination is idempotent and does not bump again"
             )
-            #expect((engine.count("shutdown")) == (1), "a second termination does not shut down again")
+            #expect((engine.count(.shutdown)) == (1), "a second termination does not shut down again")
         }
 
         do {
-            let engine = EpochEngine()
-            let account = EpochAccount()
+            let engine = HarnessEngine()
+            let account = HarnessAccount(hasGrant: true, authorization: .succeed)
             let player = PlaybackStore(
-                environment: epochEnvironment(engine: engine, account: account),
-                feedback: TransientFeedbackPresenter(clock: EpochClock())
+                environment: HarnessEnvironment.make(
+                    engine: engine, account: account, clock: HarnessClock(sleep: .immediate)),
+                feedback: TransientFeedbackPresenter(clock: HarnessClock(sleep: .immediate))
             )
             await player.restore()
             _ = player.send(

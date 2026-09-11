@@ -1946,13 +1946,13 @@ fn update_position_records_when_the_report_arrived_and_reset_clears_it() {
     let before = monotonic_ms() as u32;
     update_position(4_242);
     let (position, reported_at) = unpack_position_report(POSITION_REPORT.load(Ordering::SeqCst));
-    assert_eq!(current_position_ms(), 4_242);
+    assert_eq!(POSITION_MS.load(Ordering::SeqCst), 4_242);
     assert_eq!(position, 4_242);
     let recent = reported_at.wrapping_sub(before) < 1_000;
     assert!(reported_at != 0 && recent);
 
     reset_position();
-    assert_eq!(current_position_ms(), 0);
+    assert_eq!(POSITION_MS.load(Ordering::SeqCst), 0);
     assert_eq!(POSITION_REPORT.load(Ordering::SeqCst), 0);
 
     POSITION_MS.store(saved_position, Ordering::SeqCst);

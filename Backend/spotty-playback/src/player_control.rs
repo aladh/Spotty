@@ -401,19 +401,13 @@ pub(crate) async fn cleanup_player_globals() {
     debug!("spotty_playback_cleanup complete - ready for reinitialization");
 }
 
-/// Returns the last position reported by the Player, without interpolation.
-///
-/// Internal readers (resume capture, deactivation save, snapshots) want the raw report.
-pub(crate) fn current_position_ms() -> u32 {
-    POSITION_MS.load(Ordering::SeqCst)
-}
-
 /// librespot emits `PositionChanged` every 200 ms while playing, so a raw report read at an
 /// arbitrary instant is 0-200 ms behind the audible position. The display getter advances the
 /// report by the time since it arrived, but never by more than this, so a Player that has gone
 /// quiet (pause, stall, teardown) freezes within one update interval of its last report.
 /// Unbounded interpolation used to run on for seconds after events stopped while reconnect
 /// rehydration resumed from the raw report; the two then snapped several seconds apart.
+/// Internal readers (resume capture, deactivation save, snapshots) read `POSITION_MS` raw.
 pub(crate) const POSITION_INTERPOLATION_CAP_MS: u64 = 250;
 
 /// Pure form of the display getter: the reported position advanced by the bounded elapsed time.

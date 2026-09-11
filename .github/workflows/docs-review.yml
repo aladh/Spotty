@@ -44,4 +44,5 @@ jobs:
       primary_agent: docs-review
       expected_auditors: '2'
       legacy_unmarked_threads: 'false'
+      can_approve: 'false'
       path_regex: '^(docs/|README\.md$|PRIVACY\.md$|SECURITY\.md$|CONTRIBUTING\.md$|(.*/)?AGENTS\.md$)'

@@ -30,6 +30,10 @@ on:
         required: false
         type: string
         default: 'false'
+      can_approve:
+        required: false
+        type: string
+        default: 'true'
 
 jobs:
   review:
@@ -50,6 +54,7 @@ jobs:
       EXPECTED_AUDITORS: ${{ inputs.expected_auditors }}
       PATH_REGEX: ${{ inputs.path_regex }}
       LEGACY_UNMARKED_THREADS: ${{ inputs.legacy_unmarked_threads }}
+      CAN_APPROVE: ${{ inputs.can_approve }}
     steps:
       - name: Select eligible PR and review range
         id: eligibility
@@ -323,7 +328,8 @@ jobs:
           if [ "$open_threads" = '"truncated"' ]; then
             echo '::warning::More than one page of review threads; withholding approval.'
             open_threads=unknown
-          elif [ "$FINDINGS" -eq 0 ] && [ "$open_threads" -eq 0 ] && [ "$current_head" = "$HEAD_SHA" ] \
+          elif [ "$CAN_APPROVE" = true ] && [ "$FINDINGS" -eq 0 ] && [ "$open_threads" -eq 0 ] \
+            && [ "$current_head" = "$HEAD_SHA" ] \
             && jq -e '.state == "open" and .draft == false' <<< "$pr" > /dev/null; then
             event=APPROVE
           fi
@@ -332,7 +338,9 @@ jobs:
           elif [ "$open_threads" -gt 0 ]; then header="$header, $open_threads earlier thread(s) still open"; fi
           if [ "$current_head" != "$HEAD_SHA" ]; then header="$header. The PR head moved during the review; the next run covers it"; fi
           header="$header."
-          if [ "$event" = APPROVE ]; then header="$header No actionable findings remain in the reviewed scope."; fi
+          if [ "$FINDINGS" -eq 0 ] && [ "$open_threads" = 0 ]; then
+            header="$header No actionable findings remain in the reviewed scope."
+          fi
           body=$(printf '%s\n%s\n\n%s' "$REVIEW_MARKER" "$header" "$(cat summary.md)")
           request() {
             jq -n --arg commit "$HEAD_SHA" --arg event "$event" --arg body "$1" --arg marker "$REVIEW_MARKER" --slurpfile findings "$2" \

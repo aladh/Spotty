@@ -54,9 +54,8 @@ Write exactly these files into the output directory named in the run facts:
    number of new findings, each declared product-contract or rule change and whether its
    justification holds, the disposition of each earlier thread, and what the review could not
    verify. When there are no findings and no thread stays open, say that no actionable findings
-   remain in the reviewed documentation; that text becomes the approval body.
+   remain in the reviewed documentation.
 
 Publication rules, for your awareness: findings become inline review comments on the head
-commit. The review is submitted as an approval only when `findings.json` is empty and no earlier
-documentation-review thread remains unresolved; otherwise it is a comment. Changes are never
-formally requested.
+commit. The review is always submitted as a comment; the documentation review never approves and
+never formally requests changes. Its open threads still block merge until resolved.

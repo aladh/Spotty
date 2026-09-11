@@ -44,3 +44,4 @@ jobs:
       primary_agent: thermos
       expected_auditors: '2'
       legacy_unmarked_threads: 'true'
+      can_approve: 'true'

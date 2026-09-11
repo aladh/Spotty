@@ -7,7 +7,7 @@ primary agent, and optional path filter. Current reviewers:
 
 - [Thermos review](thermos-review.md): correctness and quality of every ready PR.
 - [Documentation review](docs-review.md): sense and product-specification guard for PRs that
-  touch documentation.
+  touch documentation; comment-only.
 
 ## Shared behavior
 
@@ -22,10 +22,11 @@ The agents run with a read-only repository token and never hold the App token. T
 `findings.json`, `thread-actions.json`, and `summary.md`; a trusted workflow step validates those
 files and publishes one review per head as the OpenCode App: the summary as the body, the findings
 as inline comments on the head commit, and replies and resolutions for that reviewer's earlier
-threads. The review approves when no new findings exist and none of that reviewer's earlier threads
-remains unresolved; otherwise it is a comment. Reviewers never request changes. An approval means no
-actionable findings remained in the reviewed scope; the summary states what the review could not
-exercise. Branch rules dismiss approvals on the next push, so every push is re-reviewed before merge.
+threads. A reviewer configured to approve does so when no new findings exist and none of its earlier
+threads remains unresolved; otherwise, and for comment-only reviewers always, the review is a
+comment. Reviewers never request changes. An approval means no actionable findings remained in the
+reviewed scope; the summary states what the review could not exercise. Branch rules dismiss
+approvals on the next push, so every push is re-reviewed before merge.
 
 Each run re-evaluates that reviewer's still-open threads against the new head. A thread whose
 problem is gone, or whose author reply documents a disposition that holds up, gets a short reply
@@ -39,9 +40,9 @@ All reviewers publish as the same App identity, so each review body and each inl
 with the reviewer's HTML-comment marker. A reviewer counts, re-evaluates, and resolves only threads
 that carry its marker. Thermos also claims older threads that predate the markers.
 
-Because the identity is shared, any reviewer's approval satisfies the branch rule's single required
-approving review. The rule also requires every review thread to be resolved, so an open thread from
-one reviewer still blocks merge after another reviewer approves.
+Because the identity is shared, an approval from any approving reviewer satisfies the branch rule's
+single required approving review; today only Thermos approves. The rule also requires every review
+thread to be resolved, so an open thread from a comment-only reviewer still blocks merge.
 
 ## Repeat a review
 

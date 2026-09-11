@@ -2,7 +2,9 @@
 
 The documentation review runs on open, ready PRs from this repository that change `docs/`,
 `README.md`, `PRIVACY.md`, `SECURITY.md`, `CONTRIBUTING.md`, or any `AGENTS.md`. It limits its
-diffs to those paths and skips PRs that touch none of them. Trigger phrase: `@docs-review review`.
+diffs to those paths and skips PRs that touch none of them. It is comment-only: it never approves
+and never requests changes, and its open threads block merge through the thread-resolution rule
+until they are resolved. Trigger phrase: `@docs-review review`.
 
 It shares its triggers, incremental mode, publication, approval, thread handling, and trust model
 with every other reviewer; see [agent reviews](agent-reviews.md). Its prompts are Spotty's own and
@@ -36,7 +38,7 @@ product decision is right; the maintainer owns that.
 The review reads documents and code; it does not build or run the app, so it cannot verify
 claims about runtime behavior beyond what source and tests show. It checks the PR description as
 written at review time; a declaration added later is picked up by the next run, which resolves the
-thread. Its approval is separate from Thermos's and covers only the documentation scope.
+thread. Thermos's approval remains the only automated approval.
 
 See the [caller workflow](../../.github/workflows/docs-review.yml) and
 [agent configuration and prompts](../../.github/docs-review) for models, tools, the task, and the

@@ -3,6 +3,8 @@ id: workflow-swift-tools
 valid:
 - 'run: brew install ripgrep'
 - 'run: echo "brew install swift-format"'
+- 'run: FOO=1 brew reinstall ast-grep'
+- 'run: echo "FOO=1 brew reinstall swift-format"'
 - |-
   run: |
     # brew install swiftlint
@@ -17,3 +19,13 @@ invalid:
 - |-
   run: >
     sudo brew install swift-format
+- 'run: brew reinstall swift-format'
+- 'run: brew reinstall swiftlint'
+- 'run: brew upgrade swift-format'
+- 'run: FOO=1 brew install swift-format'
+- 'run: FOO= BAR=2 brew reinstall swiftlint'
+- 'run: env FOO=1 brew reinstall swift-format'
+- 'run: FOO="hello world" brew upgrade swiftlint'
+- |-
+  run: |
+    check; FOO='hello world' brew install swift-format

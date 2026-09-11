@@ -5,6 +5,8 @@ valid:
 - fn f() { task.abort(); }
 - "// std::panic::set_hook(hook);"
 - 'const TEXT: &str = "std::process::exit(1)";'
+- use std::process::{Command, ExitCode};
+- use std::collections::*;
 invalid:
 - fn f() { std::panic::set_hook(Box::new(|_| {})); }
 - fn f() { std::panic::take_hook(); }
@@ -15,3 +17,12 @@ invalid:
 - use std::panic::{set_hook as hook};
 - use std::process::{abort, exit};
 - fn f() { set_hook(hook); }
+- fn f() { ::std::process::exit(1); }
+- fn f() { ::std::process::abort(); }
+- fn f() { ::std::panic::take_hook(); }
+- use std::process::*;
+- use ::std::process::*;
+- use std::{process::*};
+- use process::*;
+- use std::process::{self, *};
+- use ::std::{process::{exit as quit}};

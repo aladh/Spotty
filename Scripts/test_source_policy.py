@@ -12,21 +12,32 @@ ROOT = Path(__file__).resolve().parent.parent
 AST_GREP = shutil.which(os.environ.get("SPOTTY_AST_GREP", "ast-grep"))
 
 
+def read_yaml(paths):
+    return json.loads(subprocess.check_output([
+        "ruby", "-ryaml", "-rjson", "-e",
+        "puts JSON.generate(ARGV.map { |p| YAML.safe_load(File.read(p)) })",
+        *map(str, paths),
+    ], text=True))
+
+
 class SourcePolicyRoutingTests(unittest.TestCase):
     def test_every_rule_has_both_kinds_of_fixture(self):
         rules = {path.stem for path in (ROOT / "Scripts/ast-grep/rules").rglob("*.yml")}
         fixtures = list((ROOT / "Tests/SourcePolicy").rglob("*-test.yml"))
         self.assertEqual(rules, {path.stem.removesuffix("-test") for path in fixtures})
-        parsed = json.loads(subprocess.check_output([
-            "ruby", "-ryaml", "-rjson", "-e",
-            "puts JSON.generate(ARGV.map { |p| YAML.safe_load(File.read(p)) })",
-            *map(str, fixtures),
-        ], text=True))
-        for path, fixture in zip(fixtures, parsed):
+        for path, fixture in zip(fixtures, read_yaml(fixtures)):
             with self.subTest(rule=fixture["id"]):
                 self.assertEqual(fixture["id"], path.stem.removesuffix("-test"))
                 self.assertTrue(fixture.get("valid"))
                 self.assertTrue(fixture.get("invalid"))
+
+    def test_rule_routing_has_no_duplicate_patterns(self):
+        paths = list((ROOT / "Scripts/ast-grep/rules").rglob("*.yml"))
+        for rule in read_yaml(paths):
+            for field in ("files", "ignores"):
+                with self.subTest(rule=rule["id"], field=field):
+                    patterns = rule.get(field, [])
+                    self.assertEqual(len(patterns), len(set(patterns)), patterns)
 
     def scan(self, path, source):
         self.assertIsNotNone(AST_GREP, "ast-grep must be installed")
@@ -139,7 +150,9 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/Spotty/Spotify/KeymasterFileStore.swift", "SecItemDelete(query)", {"retired-keychain-api"}),
             ("Tests/SpottyBoundaryTests/NewChecks.swift", "Security.SecItemDelete(query)", {"retired-keychain-api"}),
             ("Sources/Spotty/New.swift", "Swift.print(token)", {"logging-owner"}),
+            ("Sources/Spotty/New.swift", "FileHandle.standardError.write(Data())", {"logging-owner"}),
             ("Sources/SpottyEngineAdapter/DebugLog.swift", "Logger(subsystem: name, category: name)", set()),
+            ("Sources/SpottyEngineAdapter/DebugLog.swift", "FileHandle.standardError.write(Data())", set()),
             ("Tests/SpottyBoundaryTests/NewChecks.swift", "print(result)", set()),
             ("Sources/Spotty/New.swift", "import Testing", {"production-test-code"}),
             ("Tests/SpottyDomainTests/NewChecks.swift", "import Testing", set()),
@@ -163,9 +176,12 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Backend/spotty-playback/src/nested/new_tests.rs", "fn f() { Runtime::new(); }", set()),
             ("Backend/spotty-playback/src/lifecycle_measurements.rs", "fn f() { Runtime::new(); }", set()),
             ("Backend/spotty-playback/src/runtime.rs", "fn f() { std::panic::set_hook(hook); }", {"rust-process-globals"}),
+            ("Backend/spotty-playback/src/new.rs", "fn f() { ::std::process::exit(1); }", {"rust-process-globals"}),
+            ("Backend/spotty-playback/src/new.rs", "use std::process::*;", {"rust-process-globals"}),
             ("Backend/spotty-playback/src/new.rs", 'pub extern "C-unwind" fn f() {}', {"rust-no-unwind-abi"}),
             ("Backend/spotty-playback/vendor/librespot/lib.rs", "fn f() { std::panic::set_hook(hook); }", set()),
             ("Scripts/new.sh", "#!/bin/bash\nwork", {"script-fail-fast"}),
+            ("Scripts/new.sh", "#!/bin/sh\nset -eu\nwork", {"script-fail-fast"}),
             ("Scripts/helper.sh", "helper() { work; }", set()),
             ("Backend/spotty-playback/new.sh", "set -x", {"script-no-xtrace"}),
             ("script/new.sh", "cargo build", {"app-script-rust-free"}),
@@ -174,10 +190,13 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             (".github/workflows/other.yml", "permissions: write-all", {"workflow-explicit-permissions"}),
             (".github/workflows/ci.yaml", "env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}", {"ci-published-engine"}),
             (".github/workflows/other.yaml", "run: brew install swift-format", {"workflow-swift-tools"}),
+            (".github/workflows/other.yaml", "run: FOO=1 brew reinstall swift-format", {"workflow-swift-tools"}),
             ("Scripts/tools.sh", "brew install swiftlint", {"xcode-swift-tools"}),
+            ("Scripts/tools.sh", "brew reinstall swiftlint", {"xcode-swift-tools"}),
             (".github/workflows/ci.yaml", "continue-on-error: true", {"ci-fail-closed"}),
             (".github/workflows/other.yml", "continue-on-error: true", set()),
             (".github/workflows/ci.yml", "permissions: {contents: write}\njobs: {}", {"ci-read-permissions"}),
+            (".github/workflows/ci.yaml", "permissions: {contents: read}\njobs:\n  check:\n    permissions: {contents: write}", {"ci-read-permissions"}),
             ("docs/example.yml", 'run: echo "${{ inputs.title }}"', set()),
         ]
         for path, source, expected in cases:

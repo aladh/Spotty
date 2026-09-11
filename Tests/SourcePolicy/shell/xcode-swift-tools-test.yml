@@ -5,7 +5,14 @@ valid:
 - brew install ast-grep
 - echo "brew install swift-format"
 - "# brew install swiftlint"
+- brew reinstall ast-grep
+- echo "brew reinstall swift-format"
 invalid:
 - brew install swift-format
 - brew install --quiet jq swiftlint
 - brew install "swift-format"
+- brew reinstall swift-format
+- brew reinstall swiftlint
+- brew upgrade swift-format
+- FOO=1 brew install swift-format
+- FOO=1 brew reinstall swiftlint

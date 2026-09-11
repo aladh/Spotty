@@ -38,8 +38,28 @@ rule:
         not:
           matches: read-permissions
     inside:
-      matches: root-map
+      any:
+      - matches: root-map
+      - matches: job-map
 utils:
+  # YAML wraps maps in block_node/flow_node: job map -> wrapper -> job pair ->
+  # jobs map -> wrapper -> jobs pair. Keep the path exact so step env data is unrelated.
+  job-map:
+    any:
+    - kind: block_mapping
+    - kind: flow_mapping
+    inside:
+      inside:
+        matches: yaml-pair
+        inside:
+          inside:
+            inside:
+              matches: yaml-pair
+              has:
+                field: key
+                regex: ^["']?jobs["']?$
+              inside:
+                matches: root-map
   root-map:
     any:
     - kind: block_mapping

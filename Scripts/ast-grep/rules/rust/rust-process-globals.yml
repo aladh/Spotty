@@ -9,17 +9,22 @@ files:
 rule:
   any:
   - kind: scoped_identifier
-    regex: "^(std::)?(panic::(set_hook|take_hook|update_hook)|process::(exit|abort))$"
+    regex: "^(::)?(std::)?(panic::(set_hook|take_hook|update_hook)|process::(exit|abort))$"
   - kind: identifier
     regex: "^(set_hook|take_hook|update_hook)$"
   - kind: scoped_use_list
     has:
       field: path
-      regex: "^(std::)?process$"
+      regex: "^(::)?(std::)?process$"
     all:
     - has:
         kind: use_list
         has:
-          kind: identifier
-          regex: "^(exit|abort)$"
+          any:
+          - kind: identifier
+            regex: "^(exit|abort)$"
+          - kind: use_wildcard
           stopBy: end
+  - kind: use_wildcard
+    has:
+      regex: "^(::)?(std::)?process$"

@@ -16,12 +16,6 @@ files:
 - Scripts/validate-app.sh
 - Scripts/embed-sparkle.sh
 - Scripts/browse-synthetic.sh
-- script/**/*.sh
-- Scripts/archive-app.sh
-- Scripts/notarize-app.sh
-- Scripts/validate-app.sh
-- Scripts/embed-sparkle.sh
-- Scripts/browse-synthetic.sh
 rule:
   any:
   - kind: word

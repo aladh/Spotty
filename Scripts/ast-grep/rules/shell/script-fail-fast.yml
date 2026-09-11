@@ -2,7 +2,7 @@
 id: script-fail-fast
 language: Bash
 severity: error
-message: Executable shell scripts enable errexit, nounset and pipefail at top level.
+message: Shell entry points use Bash or zsh and enable errexit, nounset and pipefail at top level.
 files:
 - Scripts/**/*.sh
 - script/**/*.sh
@@ -11,7 +11,10 @@ note: Sourced helpers inherit their caller flags. Bash parses zsh with recovery,
   this is only an entry-point shape check.
 rule:
   kind: program
-  regex: "^#![^\\n]*(/|\\s)(bash|zsh)\\b"
-  not:
-    has:
-      pattern: set -euo pipefail
+  regex: "^#!"
+  any:
+  - not:
+      regex: '^#![ \t]*(\S*/(bash|zsh)|\S*/env[ \t]+(-S[ \t]+)?(bash|zsh))([ \t]|\n|$)'
+  - not:
+      has:
+        pattern: set -euo pipefail

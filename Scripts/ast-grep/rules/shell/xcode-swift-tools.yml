@@ -2,7 +2,7 @@
 id: xcode-swift-tools
 language: Bash
 severity: error
-message: Use the selected Xcode Swift formatter; do not install parallel Swift formatters
+message: Use the selected Xcode Swift formatter; do not install or update parallel Swift formatters
   or linters with Homebrew.
 files:
 - Scripts/**/*.sh
@@ -15,7 +15,7 @@ rule:
   all:
   - has:
       kind: word
-      regex: "^install$"
+      regex: "^(install|reinstall|upgrade)$"
   - has:
       any:
       - kind: word

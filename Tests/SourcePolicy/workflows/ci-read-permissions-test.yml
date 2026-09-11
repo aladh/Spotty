@@ -17,6 +17,20 @@ valid:
     # comment
     contents: read
   jobs: {}
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      permissions:
+        contents: read
+      runs-on: ubuntu-latest
+- '{permissions: {contents: read}, jobs: {check: {permissions: {contents: read}}}}'
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      env:
+        permissions: {contents: write}
 invalid:
 - 'jobs: {}'
 - |-
@@ -36,3 +50,21 @@ invalid:
     contents: read
     actions: write
   jobs: {}
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      permissions: {contents: write}
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      permissions:
+        contents: read
+        actions: write
+- '{permissions: {contents: read}, jobs: {check: {permissions: {contents: write}}}}'
+- |-
+  permissions: {contents: read}
+  jobs:
+    check:
+      "permissions": {"contents": "write"}

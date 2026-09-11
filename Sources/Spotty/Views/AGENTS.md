@@ -18,5 +18,4 @@ and the affected [surface contract](../../../docs/product/README.md). Keep suppo
   selection, disabled state, truncation, and narrow/window-resize behavior within the authorized
   acceptance scope.
 - Views render state and invoke narrow actions; asynchronous orchestration belongs to the stores.
-  Artwork uses SwiftUI `AsyncImage`. Changes beyond framework caching need measured evidence;
-  the [Swift source policies](../../../Scripts/ast-grep/rules/swift) own the API constraints.
+  Artwork uses SwiftUI `AsyncImage`. Changes beyond framework caching need measured evidence.

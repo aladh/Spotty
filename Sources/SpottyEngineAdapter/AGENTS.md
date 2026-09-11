@@ -6,7 +6,7 @@ This target is the only one that depends on the `SpottyPlaybackCore` binary. Fol
 [ADR 001](../../docs/architecture/adrs/ADR-001-playback-engine.md).
 
 - Keep the C header, Rust exports, ownership, pointer lifetimes, callback threading, and typed C
-  snapshots aligned. The compiler owns the target boundary; source policies own access within it.
+  snapshots aligned.
 - `RustPlaybackEngine` assigns process-local envelope sequence on one drain. Never call
   `AsyncStream.Continuation.yield` or `onTermination` while the fan-out lock is held.
 - PCM goes directly from the retained engine adapter to `AudioRenderer`, never observable UI state.

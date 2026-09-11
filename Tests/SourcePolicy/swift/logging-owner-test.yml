@@ -7,6 +7,9 @@ valid:
 - "// print(secret)"
 - 'let text = "Logger(subsystem: x)"'
 - import OSLog
+- FileHandle.standardInput.readDataToEndOfFile()
+- 'try FileHandle(forWritingTo: url).write(contentsOf: data)'
+- 'let text = "FileHandle.standardError"'
 invalid:
 - print(token)
 - Swift.print(token)
@@ -15,3 +18,8 @@ invalid:
 - NSLog("%s", payload)
 - fputs(message, stderr)
 - let output = debugPrint
+- FileHandle.standardError.write(Data())
+- Foundation.FileHandle.standardError.write(Data())
+- let errorStream = FileHandle.standardError
+- FileHandle.standardOutput.write(data)
+- let handle = stderr

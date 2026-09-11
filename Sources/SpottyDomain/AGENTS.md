@@ -3,10 +3,8 @@
 Follow [ADR 002](../../docs/architecture/adrs/ADR-002-playback-state-and-dependencies.md) for this
 portable, deterministic policy layer.
 
-- This target is portable policy. The Linux build enforces the module boundary and
-  [source policies](../../Scripts/ast-grep/rules/swift/domain-no-io.yml) reject known I/O and task
-  scheduling APIs. Review injected closures and globals for environment access that syntax cannot
-  identify. Live retry timing belongs to the app adapter.
+- This target is portable policy. The Linux build enforces the module boundary. Review injected
+  closures and globals for environment access. Live retry timing belongs to the app adapter.
 - Reducer acceptance and lifetime values are behavior, not implementation trivia. Preserve stale,
   superseded, teardown, cancellation, epoch, and revision semantics when adding events or effects.
   Settled intent outcomes are immutable;

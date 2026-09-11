@@ -2,7 +2,7 @@
 id: workflow-swift-tools
 language: Yaml
 severity: error
-message: Use the selected Xcode Swift formatter; do not install parallel Swift formatters
+message: Use the selected Xcode Swift formatter; do not install or update parallel Swift formatters
   or linters with Homebrew.
 files:
 - ".github/workflows/*.yml"
@@ -15,4 +15,5 @@ rule:
       regex: ^["\']?run["\']?$
   - has:
       field: value
-      regex: (?m)(^|[\n;|&])[ \t]*["\']?(sudo[ \t]+)?brew[ \t]+install\b[^\n#]*\b(swift-format|swiftlint)\b
+      regex: >-
+        (?m)(^|[\n;|&])[ \t]*["']?((sudo|env)[ \t]+|[A-Za-z_][A-Za-z0-9_]*=([^ \t\n;|&"']*|"[^"\n]*"|'[^'\n]*')[ \t]+)*brew[ \t]+(install|reinstall|upgrade)\b[^\n#]*\b(swift-format|swiftlint)\b

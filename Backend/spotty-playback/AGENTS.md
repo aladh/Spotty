@@ -23,8 +23,7 @@ published artifact under [ADR 006](../../docs/architecture/adrs/ADR-006-prebuilt
   [retained-engine guarantees](../../docs/architecture/engine-contract.md#retained-engine-guarantees).
 - A superseded grant/run must not write credentials or lifecycle state. Routine cleanup is not grant
   supersession; preserve the distinct generation rules and their tests.
-- [Rust source policies](../../Scripts/ast-grep/rules/rust) own panic-barrier and runtime API
-  constraints. Call `refuse_if_nested_runtime` before mutating flags that nested `block_on` would
+- Call `refuse_if_nested_runtime` before mutating flags that nested `block_on` would
   have reached. Nested runtime re-entry returns `ERROR_GENERAL` and is not supersession.
 - Map panics to the defined sentinel. Do not hold Rust locks while invoking Swift or assume the
   barrier makes invalid foreign pointers safe.

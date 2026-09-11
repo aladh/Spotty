@@ -256,8 +256,8 @@ void spotty_playback_free_queue_snapshot(SpottyNullableQueueSnapshot snapshot);
 // of an export that returned null on error.
 void spotty_playback_free_string(SpottyNullableMutCString s);
 
-// Returns the last position the Player reported, in milliseconds, or 0 if it has not reported
-// one. Deliberately not interpolated: Swift owns display interpolation.
+// Returns the position to display, in milliseconds, or 0 if the Player has not reported one:
+// the last report advanced by at most `POSITION_INTERPOLATION_CAP_MS` while playing.
 uint32_t spotty_playback_get_position_ms(void);
 
 // The last queue the cluster described, or null if no cluster update has arrived.

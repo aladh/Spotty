@@ -346,7 +346,7 @@ pub(crate) async fn cleanup_player_globals() {
     SHUFFLE_STATE.store(false, Ordering::SeqCst);
     REPEAT_TRACK_STATE.store(false, Ordering::SeqCst);
     REPEAT_CONTEXT_STATE.store(false, Ordering::SeqCst);
-    POSITION_MS.store(0, Ordering::SeqCst);
+    reset_position();
     // Belongs to the session being torn down. Surviving a logout would let a resume seek to
     // an offset from the previous lifecycle, or another account's playback.
     RESUME_POSITION_MS.store(0, Ordering::SeqCst);
@@ -401,20 +401,50 @@ pub(crate) async fn cleanup_player_globals() {
     debug!("spotty_playback_cleanup complete - ready for reinitialization");
 }
 
-/// Returns the last position reported by the Player.
-///
-/// Swift owns display interpolation. Interpolating here as well used to add up to five
-/// seconds after Player events stopped, while reconnect rehydration correctly resumed from
-/// this raw position. The two clocks therefore produced an exact five-second snap backwards.
-pub(crate) fn current_position_ms() -> u32 {
-    POSITION_MS.load(Ordering::SeqCst)
+/// librespot emits `PositionChanged` every 200 ms while playing, so a raw report read at an
+/// arbitrary instant is 0-200 ms behind the audible position. The display getter advances the
+/// report by the time since it arrived, but never by more than this, so a Player that has gone
+/// quiet (pause, stall, teardown) freezes within one update interval of its last report.
+/// Unbounded interpolation used to run on for seconds after events stopped while reconnect
+/// rehydration resumed from the raw report; the two then snapped several seconds apart.
+/// Internal readers (resume capture, deactivation save, snapshots) read `POSITION_MS` raw.
+pub(crate) const POSITION_INTERPOLATION_CAP_MS: u64 = 250;
+
+/// Pure form of the display getter: the reported position advanced by the bounded elapsed time.
+/// Arrival and current times are the low 32 bits of `monotonic_ms`; wrapping subtraction keeps
+/// the elapsed time right across the 49-day wrap, and a zero arrival means no report.
+pub(crate) fn interpolate_position_ms(
+    reported_ms: u32,
+    reported_at_ms: u32,
+    now_ms: u32,
+    playing: bool,
+) -> u32 {
+    if !playing || reported_at_ms == 0 {
+        return reported_ms;
+    }
+    let elapsed = u64::from(now_ms.wrapping_sub(reported_at_ms)).min(POSITION_INTERPOLATION_CAP_MS);
+    u32::try_from(u64::from(reported_ms) + elapsed).unwrap_or(u32::MAX)
 }
 
-/// Returns the last position the Player reported, in milliseconds, or 0 if it has not reported
-/// one. Deliberately not interpolated: Swift owns display interpolation.
+/// The position to display: the last report, advanced by at most one update interval while
+/// playing. Swift still owns interpolation between its own samples; this only removes the
+/// 0-200 ms sampling error each sample would otherwise carry.
+pub(crate) fn displayed_position_ms() -> u32 {
+    let (reported_ms, reported_at_ms) =
+        unpack_position_report(POSITION_REPORT.load(Ordering::SeqCst));
+    interpolate_position_ms(
+        reported_ms,
+        reported_at_ms,
+        monotonic_ms() as u32,
+        IS_PLAYING.load(Ordering::SeqCst),
+    )
+}
+
+/// Returns the position to display, in milliseconds, or 0 if the Player has not reported one:
+/// the last report advanced by at most `POSITION_INTERPOLATION_CAP_MS` while playing.
 #[no_mangle]
 pub extern "C" fn spotty_playback_get_position_ms() -> u32 {
-    ffi_query_u32("spotty_playback_get_position_ms", current_position_ms)
+    ffi_query_u32("spotty_playback_get_position_ms", displayed_position_ms)
 }
 
 /// Returns the position saved at deactivation for a resume load, or 0 to use the live playhead.

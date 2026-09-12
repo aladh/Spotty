@@ -3,6 +3,9 @@
 Follow [product scope](../../../docs/product/scope.md), [navigation](../../../docs/product/navigation.md),
 and the affected [surface contract](../../../docs/product/README.md). Keep supported surfaces visually close to Spotify and information-dense without crowding.
 
+- For dense tables, selection, and scrolling, follow
+  [ADR 010](../../../docs/architecture/adrs/ADR-010-native-dense-surfaces.md): AppKit owns these
+  surfaces; SwiftUI supplies composition and leaf content.
 - Preserve Spotify layout, typography, colors, control proportions, and interaction states. Use
   native macOS APIs for menus, focus, keyboard behavior, accessibility, tracking, and window semantics;
   do not substitute system appearance as a side effect of an interaction repair. Follow the
@@ -17,7 +20,9 @@ and the affected [surface contract](../../../docs/product/README.md). Keep suppo
 - Verify the affected keyboard focus, VoiceOver labels/order, reduced motion, active/inactive
   selection, disabled state, truncation, and narrow/window-resize behavior within the authorized
   acceptance scope.
-- Views render state and invoke narrow actions; asynchronous orchestration belongs to the stores.
+- Views render state and invoke narrow actions. Presentation stores own browsing presentation;
+  `SpottySessionRuntime` owns account/playback orchestration under
+  [ADR 008](../../../docs/architecture/adrs/ADR-008-headless-session-runtime.md).
   Artwork and header tint use the shared account-stamped provider from
   [ADR 009](../../../docs/architecture/adrs/ADR-009-account-catalog-retention.md); do not start an
   independent network or image-decode pipeline in a view.

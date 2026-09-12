@@ -21,6 +21,9 @@ See [launch constraints](../../script/AGENTS.md) and
 For UI changes, follow the [visual fidelity procedure](../product/scope.md#visual-fidelity-and-interaction).
 Standing permissions cover [Spotty Demo](../product/safe-testing.md#spotty-demo-standing-authorization)
 and [read-only Spotify comparison](../product/safe-testing.md#spotify-read-only-reference).
+Use the Demo to inspect affected UI when useful, fix in-scope failures, and rerun affected checks
+without interim approval. Use the existing commands below for builds and checks; launch-script or
+Run-action setup is needed only when that workflow is missing or is itself part of the requested change.
 
 Use the smallest focused check per [AGENTS.md](../../AGENTS.md#development). Available gate scopes:
 

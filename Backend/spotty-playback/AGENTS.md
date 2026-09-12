@@ -5,9 +5,7 @@ and [ADR 005](../../docs/architecture/adrs/ADR-005-retain-librespot.md). ABI cha
 [engine contract](../../docs/architecture/engine-contract.md). The app consumes this crate only as a
 published artifact under [ADR 006](../../docs/architecture/adrs/ADR-006-prebuilt-playback-engine.md).
 
-- `EngineGeneration` in `state.rs` owns everything scoped to one engine generation — session,
-  Spirc, player, mixer, player-event sender, task registry, playing flag and its event stamp,
-  resume claim, playback options, cluster caches, and the connection fields — behind one
+- `EngineGeneration` in [`state.rs`](src/state.rs) owns generation-scoped state behind one
   `ENGINE` mutex tagged with its `session_generation`. Reach it only through the `state.rs`
   accessors; use `with_engine_owned` / `with_connection_owned` whenever the caller names a
   generation, so a stale owner is refused with `StaleGeneration` instead of overwriting its

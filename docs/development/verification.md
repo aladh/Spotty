@@ -61,15 +61,18 @@ CI uses exactly one macOS runner job for conditional compiled Rust verification/
 then Swift Debug checks and the Release distribution compile. The portable Python playback checks run
 in a separate Linux job, in parallel with source policies and the Linux domain build, and the macOS
 job requires all three Linux results before it starts. Debug and Release share one SwiftPM cache under a
-combined key; separate configuration directories remain inside `.build`. CI restores source timestamps
-only when tracked compiler input contents match the manifest saved with that build cache; changed and
-new inputs keep checkout timestamps. Rust verification disables incremental products and keeps line-table
+combined key; separate configuration directories remain inside `.build`. macOS cache restores remain
+available to pull requests, but explicit cache saves run only after the aggregate passes on `main` and
+only after a primary-key miss. This avoids uploading branch-private PR build products while successful
+main runs continue to populate caches for later restores. CI restores source timestamps only when tracked
+compiler input contents match the manifest saved with that build cache; changed and new inputs keep
+checkout timestamps. Rust verification disables incremental products and keeps line-table
 debug information to reduce cache transfer without changing assertions or test coverage. Release
 caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust compiler tools are blocked
 before Swift runs. The `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
 in a Swift container; `Package.swift` declares only those two targets off macOS, so an AppKit,
 SwiftUI, AVFoundation, or playback-FFI import in the domain fails to compile there. Main requires
-`Source policies`, `Playback script checks`, `Linux domain`, and `macOS checks`. The final macOS step
+`Source policies`, `Playback script checks`, `Linux domain`, and `macOS checks`. The macOS aggregate step
 validates every prerequisite and local phase outcome, including the explicit decision required to skip
 compiled Rust. Swift Debug checks have a 15-minute step watchdog so a wedge releases the scarce runner
 well before the candidate-capable job's 120-minute ceiling. The five-minute macOS target applies to

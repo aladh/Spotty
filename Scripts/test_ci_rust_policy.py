@@ -217,8 +217,8 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
             name, body = block.split("\n", 1)
             self.assertNotIn(name, steps)
             steps[name] = body
-        for name in ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen",
-                     "Identify playback inputs", "Cache Rust verification products", "Run Rust checks"):
+        for name in ("Show Rust toolchain", "Restore pinned cbindgen", "Install pinned cbindgen",
+                     "Identify playback inputs", "Restore Rust verification products", "Run Rust checks"):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
@@ -227,9 +227,10 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertIn("INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}", identify)
         self.assertIn("run: ./Scripts/playback-candidate-needed.sh", identify)
         macos_lines = [line.strip() for line in macos.splitlines()]
-        for step_id in ("inputs", "candidate_build", "candidate_upload", "rust", "debug", "release"):
+        for step_id in ("cbindgen_cache", "inputs", "rust_debug_cache", "rust_release_cache",
+                        "candidate_build", "candidate_upload", "swift_cache", "rust", "debug", "release"):
             self.assertEqual(macos_lines.count(f"id: {step_id}"), 1)
-        for name in ("Cache Rust release build products", "Restore unchanged Rust release input timestamps",
+        for name in ("Restore Rust release build products", "Restore unchanged Rust release input timestamps",
                      "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
                      "Upload candidate playback artifact"):
             with self.subTest(name=name):
@@ -237,8 +238,10 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
                 self.assertIn("if: steps.inputs.outputs.candidate_needed == 'true'", steps[name])
         names = list(steps)
         self.assertNotIn("\n  gate:", workflow)
-        self.assertEqual(names[-1], "Require every quality lane")
-        gate = steps[names[-1]]
+        save_names = ("Save pinned cbindgen", "Save Rust verification products",
+                      "Save Rust release build products", "Save SwiftPM build directory")
+        self.assertEqual(tuple(names[-5:]), ("Require every quality lane", *save_names))
+        gate = steps["Require every quality lane"]
         self.assertIn("if: always()", gate)
         for binding in ("POLICY_RESULT: ${{ needs.policy.result }}",
                         "DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}",
@@ -252,7 +255,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
                         "CHECKS_RESULT: ${{ steps.debug.outcome }}",
                         "RELEASE_RESULT: ${{ steps.release.outcome }}"):
             self.assertIn(binding, gate)
-        ordered = ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Restore unchanged Rust release input timestamps", "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
+        ordered = ("Show Rust toolchain", "Restore pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Restore Rust release build products", "Restore unchanged Rust release input timestamps", "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
                    "Upload candidate playback artifact", "Block Rust tools", "Run checks",
                    "Compile release Spotty with SPOTTY_DISTRIBUTION")
         for name in ordered:
@@ -268,16 +271,22 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
                         "false:skipped:skipped::skipped:skipped"):
             self.assertIn(outcome, gate)
         self.assertNotIn("continue-on-error:", macos)
-        cbindgen_cache = steps["Cache pinned cbindgen"]
+        cbindgen_cache = steps["Restore pinned cbindgen"]
         self.assertIn("${{ env.CBINDGEN_VERSION }}", cbindgen_cache)
         self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", cbindgen_cache)
         self.assertIn("${{ runner.arch }}", cbindgen_cache)
         self.assertNotIn("restore-keys:", cbindgen_cache)
-        cache = steps["Cache SwiftPM build directory"]
-        self.assertEqual(macos.count("path: |\n            .build/*"), 1)
+        cache = steps["Restore SwiftPM build directory"]
+        self.assertEqual(macos.count("path: |\n            .build/*"), 2)
         self.assertIn("!.build/spotty-signing", cache)
         self.assertNotIn("macos-swiftpm-debug-", cache)
         self.assertNotIn("macos-swiftpm-release-", cache)
+        for name in ("Restore pinned cbindgen", "Restore Rust verification products",
+                     "Restore Rust release build products", "Restore SwiftPM build directory"):
+            self.assertIn("uses: actions/cache/restore@", steps[name])
+        for name in save_names:
+            self.assertIn("uses: actions/cache/save@", steps[name])
+            self.assertIn("if: success() && github.ref == 'refs/heads/main'", steps[name])
 
 
 class CheckScopeOwnershipTests(unittest.TestCase):

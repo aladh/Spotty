@@ -174,7 +174,7 @@ class WorkflowInvariantTests(unittest.TestCase):
         self.assertIn('candidate selection must precede every candidate-dependent step', result.stderr)
 
         dependent_names = (
-            'Cache Rust release build products',
+            'Restore Rust release build products',
             'Restore unchanged Rust release input timestamps',
             'Snapshot Rust release input timestamps',
             'Build candidate playback XCFramework',
@@ -221,6 +221,64 @@ class WorkflowInvariantTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('aggregate must contain exactly the fail-closed Rust and candidate truth table',
                               result.stderr)
+
+    def test_macos_caches_restore_on_prs_and_save_only_after_successful_main(self):
+        cases = (
+            ('implicit_pr_save', 'Restore SwiftPM build directory', 'uses',
+             'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
+             'macOS caches must restore without implicit PR saves'),
+            ('pr_save', 'Save SwiftPM build directory', 'if',
+             "success() && steps.swift_cache.outputs.cache-hit != 'true'",
+             'Save SwiftPM build directory must remain successful-main-only'),
+            ('failed_main_save', 'Save SwiftPM build directory', 'if',
+             "github.ref == 'refs/heads/main' && steps.swift_cache.outputs.cache-hit != 'true'",
+             'Save SwiftPM build directory must remain successful-main-only'),
+            ('wrong_key', 'Save Rust verification products', 'key', '${{ github.sha }}',
+             'Save Rust verification products must save the restored paths under its primary key'),
+            ('candidate_save_without_selection', 'Save Rust release build products', 'if',
+             "success() && github.ref == 'refs/heads/main' && steps.rust_release_cache.outputs.cache-hit != 'true'",
+             'Save Rust release build products must remain successful-main-only'),
+        )
+        for kind, name, field, value, expected in cases:
+            with self.subTest(kind=kind):
+                variant = copy.deepcopy(self.workflow)
+                step = next(s for s in variant['jobs']['macos']['steps'] if s['name'] == name)
+                if field == 'key':
+                    step['with']['key'] = value
+                else:
+                    step[field] = value
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        steps = variant['jobs']['macos']['steps']
+        save = next(s for s in steps if s['name'] == 'Save pinned cbindgen')
+        gate_index = next(i for i, step in enumerate(steps)
+                          if step['name'] == 'Require every quality lane')
+        steps.remove(save)
+        steps.insert(gate_index, save)
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Save pinned cbindgen must run only after the aggregate passes', result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        steps = variant['jobs']['macos']['steps']
+        steps.remove(next(s for s in steps if s['name'] == 'Save SwiftPM build directory'))
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Save SwiftPM build directory must remain successful-main-only', result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        variant['jobs']['macos']['steps'].append({
+            'name': 'Unexpected PR cache save',
+            'if': "github.event_name == 'pull_request'",
+            'uses': 'actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
+            'with': {'path': '.build', 'key': '${{ github.sha }}'},
+        })
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('macOS must contain exactly four paired cache restores and saves', result.stderr)
 
     def test_source_script_coverage_and_candidate_digest_are_preserved(self):
         cases = [

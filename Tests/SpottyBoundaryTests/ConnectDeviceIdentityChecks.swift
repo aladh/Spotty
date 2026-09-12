@@ -1,6 +1,9 @@
 import Testing
 import Foundation
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Connect Device Identity")
 struct ConnectDeviceIdentityTests {

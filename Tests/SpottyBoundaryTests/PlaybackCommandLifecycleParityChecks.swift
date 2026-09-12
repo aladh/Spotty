@@ -2,6 +2,9 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+import SpottyRuntimeContracts
+@testable import SpottyEngineAdapter
 
 private enum LifecycleKind: String, CaseIterable {
     case transport
@@ -192,6 +195,22 @@ private func startLifecycleCommand(
     _ player: PlaybackStore,
     kind: LifecycleKind,
     completion: @escaping @MainActor (Bool) -> Void
+) {
+    player.withRuntime { runtime in
+        startLifecycleCommand(runtime, kind: kind) { accepted in
+            Task { @MainActor in
+                player.withRuntime { _ in }
+                completion(accepted)
+            }
+        }
+    }
+}
+
+@SessionRuntimeActor
+private func startLifecycleCommand(
+    _ player: PlaybackSessionRuntime,
+    kind: LifecycleKind,
+    completion: @escaping @SessionRuntimeActor (Bool) -> Void
 ) {
     switch kind {
     case .transport:
@@ -428,9 +447,13 @@ struct PlaybackCommandLifecycleParityTests {
                 )
                 _ = player.send(.session(.ready), source: .account)
                 _ = player.send(.owner(.uncertain(nil)), source: .command)
-                var completions: [Bool] = []
-                startLifecycleCommand(player, kind: kind) { completions.append($0) }
-                #expect((completions) == ([false]), "\(kind.rawValue) waiting route completes immediately as failure")
+                let completions = RuntimeCallbackRecorder<Bool>()
+                player.withRuntime { runtime in
+                    startLifecycleCommand(runtime, kind: kind) { completions.append($0) }
+                }
+                #expect(
+                    completions.snapshot == [false],
+                    "\(kind.rawValue) waiting route completes immediately as failure")
                 #expect(
                     (player.state.pendingCommands.isEmpty) == true,
                     "\(kind.rawValue) waiting route does not create a pending command")
@@ -522,13 +545,17 @@ struct PlaybackCommandLifecycleParityTests {
                     )
                     seedRoute(duplicate, route)
                     var firstCompletions: [Bool] = []
-                    var duplicateCompletions: [Bool] = []
+                    let duplicateCompletions = RuntimeCallbackRecorder<Bool>()
                     startLifecycleCommand(duplicate, kind: kind) { firstCompletions.append($0) }
                     let pendingReady = await waitUntil { duplicate.state.pendingCommands[kind.commandKind] != nil }
                     #expect((pendingReady) == true, "\(label) first command is pending before a duplicate")
                     let firstID = duplicate.state.pendingCommands[kind.commandKind]?.id
-                    startLifecycleCommand(duplicate, kind: kind) { duplicateCompletions.append($0) }
-                    #expect((duplicateCompletions) == ([false]), "\(label) duplicate completes immediately as failure")
+                    duplicate.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { duplicateCompletions.append($0) }
+                    }
+                    #expect(
+                        duplicateCompletions.snapshot == [false],
+                        "\(label) duplicate completes immediately as failure")
                     #expect(
                         (duplicate.state.pendingCommands[kind.commandKind]?.id) == (firstID),
                         "\(label) duplicate keeps the original command")
@@ -624,21 +651,25 @@ struct PlaybackCommandLifecycleParityTests {
                     )
                     seedRoute(stale, route)
                     var staleCompletions: [Bool] = []
-                    startLifecycleCommand(stale, kind: kind) { staleCompletions.append($0) }
-                    // `commandStarted` is a synchronous MainActor publication. Bump the engine
-                    // epoch in this same turn, before the effect task can create a dispatch
-                    // permit, to exercise the pre-dispatch lifetime fence deterministically.
-                    let stalePending = stale.state.pendingCommands[kind.commandKind] != nil
+                    let staleCompletion: @MainActor (Bool) -> Void = { staleCompletions.append($0) }
+                    // Admission, settlement capture and invalidation share one runtime turn,
+                    // before the effect can create its dispatch permit.
+                    let (stalePending, staleSettlement) = stale.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { accepted in
+                            Task { @MainActor in staleCompletion(accepted) }
+                        }
+                        let pending = runtime.state.pendingCommands[kind.commandKind]
+                        let settlement = pending.flatMap { runtime.effects.settlement(of: .command($0.id)) }
+                        _ = runtime.send(
+                            .engineConnection(
+                                EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
+                            source: .engineConnection,
+                            revision: 1,
+                            engineEpoch: runtime.engineGeneration + 1
+                        )
+                        return (pending != nil, settlement)
+                    }
                     #expect((stalePending) == true, "\(label) command is pending before an engine-epoch bump")
-                    let staleID = stale.state.pendingCommands[kind.commandKind]?.id
-                    let staleSettlement = staleID.flatMap { stale.effects.settlement(of: .command($0)) }
-                    _ = stale.send(
-                        .engineConnection(
-                            EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
-                        source: .engineConnection,
-                        revision: 1,
-                        engineEpoch: stale.engineGeneration + 1
-                    )
                     #expect(
                         (stale.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) engine-epoch bump drops the pending command")
@@ -649,7 +680,14 @@ struct PlaybackCommandLifecycleParityTests {
                             (staleRemote.sendCount) == 0,
                             "\(label) stale command never reaches the remote fixture")
                     }
+                    // Release both fixtures even if a dispatch assertion fails, so the failure
+                    // is reported instead of leaving settlement or teardown blocked forever.
+                    staleGate.finish(with: .ok)
+                    staleRemote.finish(success: true)
                     await staleSettlement?.wait()
+                    #expect(
+                        staleGate.enteredCount == 0 && staleRemote.sendCount == 0,
+                        "\(label) the stale command remains undispatched through settlement")
                     #expect((staleCompletions.isEmpty) == true, "\(label) stale finish reports no completion")
                     await stale.shutdownForTermination()
 
@@ -897,20 +935,24 @@ struct PlaybackCommandLifecycleParityTests {
                     )
                     seedRoute(staleCancelled, route)
                     var staleCancelCompletions: [Bool] = []
-                    startLifecycleCommand(staleCancelled, kind: kind) { staleCancelCompletions.append($0) }
-                    let staleCancelPending = staleCancelled.state.pendingCommands[kind.commandKind] != nil
-                    #expect((staleCancelPending) == true, "\(label) command is pending before stale cancellation")
-                    let staleCancelID = staleCancelled.state.pendingCommands[kind.commandKind]?.id
-                    let staleCancelSettlement = staleCancelID.flatMap {
-                        staleCancelled.effects.settlement(of: .command($0))
+                    let staleCancelCompletion: @MainActor (Bool) -> Void = { staleCancelCompletions.append($0) }
+                    let (staleCancelPending, staleCancelSettlement) = staleCancelled.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { accepted in
+                            Task { @MainActor in staleCancelCompletion(accepted) }
+                        }
+                        let pending = runtime.state.pendingCommands[kind.commandKind]
+                        let settlement = pending.flatMap { runtime.effects.settlement(of: .command($0.id)) }
+                        _ = runtime.send(
+                            .engineConnection(
+                                EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
+                            source: .engineConnection,
+                            revision: 1,
+                            engineEpoch: runtime.engineGeneration + 1
+                        )
+                        if let pending { runtime.effects.cancel(.command(pending.id)) }
+                        return (pending != nil, settlement)
                     }
-                    _ = staleCancelled.send(
-                        .engineConnection(
-                            EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
-                        source: .engineConnection,
-                        revision: 1,
-                        engineEpoch: staleCancelled.engineGeneration + 1
-                    )
+                    #expect((staleCancelPending) == true, "\(label) command is pending before stale cancellation")
                     #expect(
                         (staleCancelled.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) engine-epoch bump drops the pending command before cancel")
@@ -923,17 +965,14 @@ struct PlaybackCommandLifecycleParityTests {
                             (staleCancelRemote.sendCount) == 0,
                             "\(label) stale cancellation never reaches the remote fixture")
                     }
-                    if let commandID = staleCancelID {
-                        staleCancelled.effects.cancel(.command(commandID))
-                    }
                     #expect(
                         (staleCancelCompletions.isEmpty) == true, "\(label) stale cancellation reports no completion")
-                    if route == .local {
-                        staleCancelGate.finish(with: .ok)
-                    } else {
-                        staleCancelRemote.finish(success: true)
-                    }
+                    staleCancelGate.finish(with: .ok)
+                    staleCancelRemote.finish(success: true)
                     await staleCancelSettlement?.wait()
+                    #expect(
+                        staleCancelGate.enteredCount == 0 && staleCancelRemote.sendCount == 0,
+                        "\(label) the stale cancelled command remains undispatched through settlement")
                     await staleCancelled.shutdownForTermination()
 
                     let teardownGate = HarnessEngineGate(result: .ok)
@@ -953,14 +992,17 @@ struct PlaybackCommandLifecycleParityTests {
                         return teardownRemote.sendCount >= 1
                     }
                     #expect((teardownReached) == true, "\(label) teardown command still reaches the fixture")
-                    // Local execute is a blocking coordinator call. Shutdown awaits
-                    // shutdownEngine on that same actor, so the fixture must be released first.
+                    // Admit retirement before releasing the worker. The runtime must invalidate
+                    // completion while the command is still in flight, independent of UI scheduling.
+                    let shutdown = Task { await teardown.shutdownForTermination() }
+                    await expectEventually { !teardown.allowsCommands }
+                    // Local shutdown uses the blocked coordinator, so release before awaiting it.
                     if route == .local {
                         teardownGate.finish(with: .ok)
                     } else {
                         teardownRemote.finish(success: true)
                     }
-                    await teardown.shutdownForTermination()
+                    await shutdown.value
                     for _ in 0..<50 { await Task.yield() }
                     #expect((teardownCompletions.isEmpty) == true, "\(label) teardown reports no completion")
                     #expect(

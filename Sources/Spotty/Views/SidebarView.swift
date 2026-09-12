@@ -1,4 +1,3 @@
-import AppKit
 import SpottyDomain
 import SwiftUI
 
@@ -18,30 +17,11 @@ struct SidebarView: View {
                 .padding(.vertical, 12)
                 .accessibilityAddTraits(.isHeader)
 
-            List(selection: $selection) {
-                ForEach(PlaylistLibraryNode.visibleRows(library, expanded: expandedFolders)) { row in
-                    Group {
-                        if let playlist = row.node.playlist {
-                            SidebarPlaylistRow(
-                                playlist: playlist, isSelected: selection == .playlist(playlist.uri), playback: playback
-                            )
-                            .tag(SidebarSelection.playlist(playlist.uri))
-                        } else {
-                            SidebarFolderRow(node: row.node, isExpanded: expandedFolders.contains(row.id)) {
-                                if !expandedFolders.insert(row.id).inserted { expandedFolders.remove(row.id) }
-                            }
-                            .selectionDisabled()
-                        }
-                    }
-                    .padding(.leading, CGFloat(row.depth) * 16)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
-                    .listRowSeparator(.hidden)
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .environment(\.defaultMinListRowHeight, 64)
-            .accessibilityLabel("Playlists")
+            NativeOccurrenceList(
+                rows: nativeRows, selection: nativeSelection,
+                allowsMultipleSelection: false, drawsSelection: false,
+                accessibilityLabel: "Playlists"
+            )
             .overlay {
                 if library.isEmpty && isLoading {
                     ProgressView("Loading playlists")
@@ -51,6 +31,42 @@ struct SidebarView: View {
             }
         }
         .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+    }
+
+    private var nativeSelection: Binding<Set<String>> {
+        Binding(
+            get: {
+                guard let selection, case let .playlist(uri) = selection else { return [] }
+                return [uri]
+            },
+            set: { selection = $0.first.map(SidebarSelection.playlist) }
+        )
+    }
+
+    private var nativeRows: [NativeOccurrenceListRow] {
+        PlaylistLibraryNode.visibleRows(library, expanded: expandedFolders).map { row in
+            NativeOccurrenceListRow(
+                id: row.id, height: 64, isSelectable: row.node.playlist != nil,
+                content: AnyView(
+                    sidebarRow(row)
+                        .padding(.leading, CGFloat(row.depth) * 16)
+                        .padding(.horizontal, 8)
+                )
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarRow(_ row: PlaylistLibraryNode.VisibleRow) -> some View {
+        if let playlist = row.node.playlist {
+            SidebarPlaylistRow(
+                playlist: playlist, isSelected: selection == .playlist(playlist.uri), playback: playback
+            )
+        } else {
+            SidebarFolderRow(node: row.node, isExpanded: expandedFolders.contains(row.id)) {
+                if !expandedFolders.insert(row.id).inserted { expandedFolders.remove(row.id) }
+            }
+        }
     }
 }
 
@@ -157,7 +173,6 @@ private struct SidebarPlaylistRow: View {
                 : (isHovering ? SpottyPalette.navigationControl : .clear),
             in: RoundedRectangle(cornerRadius: 4)
         )
-        .background { PlaylistSelectionAppearance() }
         .contentShape(Rectangle())
         .pointingHandCursor(isHovering: $isHovering)
         .onDisappear { isHovering = false }

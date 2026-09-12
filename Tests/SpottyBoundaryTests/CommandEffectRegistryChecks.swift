@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
 
 private final class CancellationFlag: @unchecked Sendable {
     private let lock = NSLock()

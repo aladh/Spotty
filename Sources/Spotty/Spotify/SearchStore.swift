@@ -7,6 +7,7 @@
 
 import SpottyDomain
 import Foundation
+import SpottyRuntimeContracts
 
 @MainActor
 @Observable
@@ -135,7 +136,7 @@ final class SearchStore {
 
     private func loadTracks(_ query: String, handle: Flight.Handle) async {
         await load(.tracks, handle: handle) {
-            let values = try await provider.searchTracks(query, limit: 50).compactMap(CatalogMapping.searchTrack(from:))
+            let values = try await provider.searchTracks(query, limit: 50)
             guard flight.isCurrent(handle) else { return }
             trackCollection.replace(values)
             metadata.replaceTracks(values, from: .search)
@@ -145,7 +146,7 @@ final class SearchStore {
 
     private func loadAlbums(_ query: String, handle: Flight.Handle) async {
         await load(.albums, handle: handle) {
-            let values = try await provider.searchAlbums(query, limit: 30).compactMap(CatalogMapping.item(from:))
+            let values = try await provider.searchAlbums(query, limit: 30)
             guard flight.isCurrent(handle) else { return }
             albums = values
             metadata.cacheItems(values, from: .search)
@@ -154,7 +155,7 @@ final class SearchStore {
 
     private func loadArtists(_ query: String, handle: Flight.Handle) async {
         await load(.artists, handle: handle) {
-            let values = try await provider.searchArtists(query, limit: 30).compactMap(CatalogMapping.item(from:))
+            let values = try await provider.searchArtists(query, limit: 30)
             guard flight.isCurrent(handle) else { return }
             artists = values
             metadata.cacheItems(values, from: .search)
@@ -163,7 +164,7 @@ final class SearchStore {
 
     private func loadPlaylists(_ query: String, handle: Flight.Handle) async {
         await load(.playlists, handle: handle) {
-            let values = try await provider.searchPlaylists(query, limit: 30).compactMap(CatalogMapping.item(from:))
+            let values = try await provider.searchPlaylists(query, limit: 30)
             guard flight.isCurrent(handle) else { return }
             playlists = values
             metadata.cacheItems(values, from: .search)

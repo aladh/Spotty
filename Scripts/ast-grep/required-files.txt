@@ -3,7 +3,8 @@ SECURITY.md
 CONTRIBUTING.md
 Sources/Spotty/SpottyApp.swift
 Sources/SpottyEngineAdapter/PlaybackCore.swift
-Sources/Spotty/Spotify/KeymasterFileStore.swift
+Sources/SpottyGateway/KeymasterFileStore.swift
+Sources/SpottyDiagnostics/DebugLog.swift
 Sources/SpottyEngineAdapter/RustPlaybackEngine.swift
 Backend/spotty-playback/src/player_event_pump.rs
 script/build_and_run.sh

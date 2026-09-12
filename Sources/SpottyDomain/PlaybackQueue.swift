@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PlaybackQueueItem: Identifiable, Equatable, Sendable {
+public struct PlaybackQueueItem: Identifiable, Equatable, Sendable, Codable {
     public let id: String
     public let uri: String
     public let provider: String
@@ -20,7 +20,7 @@ public struct PlaybackQueueItem: Identifiable, Equatable, Sendable {
     }
 }
 
-public enum PlaybackQueueSource: Int, Comparable, Sendable {
+public enum PlaybackQueueSource: Int, Comparable, Sendable, Codable {
     case none = 0
     case provisional = 1
     case connect = 2
@@ -31,7 +31,7 @@ public enum PlaybackQueueSource: Int, Comparable, Sendable {
     }
 }
 
-public enum PlaybackQueueCompleteness: Int, Comparable, Sendable {
+public enum PlaybackQueueCompleteness: Int, Comparable, Sendable, Codable {
     case metadataOnly = 0
     case partial = 1
     case complete = 2
@@ -41,7 +41,7 @@ public enum PlaybackQueueCompleteness: Int, Comparable, Sendable {
     }
 }
 
-public struct PlaybackQueueSnapshot: Equatable, Sendable {
+public struct PlaybackQueueSnapshot: Equatable, Sendable, Codable {
     public var entries: [PlaybackQueueItem]
     public var source: PlaybackQueueSource
     public var completeness: PlaybackQueueCompleteness
@@ -66,7 +66,7 @@ public struct PlaybackQueueSnapshot: Equatable, Sendable {
     }
 }
 
-public struct PlaybackDeviceSnapshot: Equatable, Sendable {
+public struct PlaybackDeviceSnapshot: Equatable, Sendable, Codable {
     public var devices: [PlaybackDevice]
     public var localDeviceID: String?
     public var revision: UInt64

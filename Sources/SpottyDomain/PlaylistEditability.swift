@@ -41,8 +41,8 @@ public enum PlaylistEditability: Sendable {
     }
 }
 
-/// Occurrence-safe selection for playlist mutations. Track URIs may repeat; `CatalogTrack.id`
-/// is the Pathfinder occurrence uid in a playlist and must not be collapsed to a URI set.
+/// Occurrence-safe selection for playlist mutations. Display IDs select rows; only the explicit
+/// server occurrence UID can identify a removable playlist occurrence. Track URIs may repeat.
 public enum PlaylistMutationSelection: Sendable {
     /// Selected rows in `tracks` order. A `Set` of IDs cannot emit the same occurrence twice.
     public static func orderedTracks(
@@ -56,13 +56,15 @@ public enum PlaylistMutationSelection: Sendable {
         tracks.map(\.uri).filter { !$0.isEmpty }
     }
 
-    /// Pathfinder occurrence uids only. An id that is just the track URI is not a removable
-    /// occurrence, because remove-by-URI would delete every duplicate copy.
+    /// Missing and ambiguous UIDs cannot authorize removal. A generated display ID must never
+    /// be promoted to a server occurrence merely because it differs from the requested URI.
     public static func occurrenceIDsForRemoval(from tracks: [CatalogTrack]) -> [String] {
-        tracks.compactMap { track in
-            let id = track.id
-            guard !id.isEmpty, id != track.uri else { return nil }
-            return id
+        let counts = Dictionary(tracks.compactMap(\.occurrenceUID).map { ($0, 1) }, uniquingKeysWith: +)
+        return tracks.compactMap { track in
+            guard let uid = track.occurrenceUID, !uid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                uid != track.uri, counts[uid] == 1
+            else { return nil }
+            return uid
         }
     }
 

@@ -6,7 +6,7 @@ import Foundation
 struct PlaylistEditabilityTests {
     @Test
     func testPlaylistEditability() {
-        func track(id: String, uri: String) -> CatalogTrack {
+        func track(id: String, uri: String, occurrenceUID: String? = nil) -> CatalogTrack {
             CatalogTrack(
                 id: id,
                 uri: uri,
@@ -15,7 +15,8 @@ struct PlaylistEditabilityTests {
                 album: "",
                 duration: 1,
                 artworkURL: nil,
-                addedAt: nil
+                addedAt: nil,
+                occurrenceUID: occurrenceUID
             )
         }
 
@@ -100,9 +101,9 @@ struct PlaylistEditabilityTests {
             let duplicateURI = "spotify:track:dup"
             let otherURI = "spotify:track:other"
             let rows = [
-                track(id: "uid-a", uri: duplicateURI),
-                track(id: "uid-b", uri: duplicateURI),
-                track(id: "uid-c", uri: otherURI),
+                track(id: "uid-a", uri: duplicateURI, occurrenceUID: "uid-a"),
+                track(id: "uid-b", uri: duplicateURI, occurrenceUID: "uid-b"),
+                track(id: "uid-c", uri: otherURI, occurrenceUID: "uid-c"),
                 track(id: duplicateURI, uri: duplicateURI),
             ]
             let selected = PlaylistMutationSelection.orderedTracks(
@@ -137,5 +138,25 @@ struct PlaylistEditabilityTests {
                 (!PlaylistMutationSelection.canRemove(isPlaylistEditable: false, occurrenceIDs: ["uid-a"])) == true,
                 "read-only playlists cannot route destructive removal")
         }
+    }
+
+    @Test func displayIDsNeverSubstituteForUnambiguousServerOccurrences() {
+        func track(_ id: String, uid: String?) -> CatalogTrack {
+            CatalogTrack(
+                id: id, uri: "spotify:track:duplicate", title: "Duplicate", artist: "Artist", album: "Album",
+                duration: 1, artworkURL: nil, addedAt: nil, occurrenceUID: uid)
+        }
+        let rows = [
+            track("display-a", uid: "server-a"),
+            track("display-b", uid: nil),
+            track("display-c", uid: "ambiguous"),
+            track("display-d", uid: "ambiguous"),
+            track("display-e", uid: "spotify:track:duplicate"),
+            track("display-f", uid: "  "),
+        ]
+        #expect(PlaylistMutationSelection.occurrenceIDsForRemoval(from: rows) == ["server-a"])
+        #expect(
+            PlaylistMutationSelection.orderedTracks(selectedIDs: ["display-b"], in: rows).map(\.id) == ["display-b"])
+        #expect(PlaylistMutationSelection.occurrenceIDsForRemoval(from: [rows[1]]).isEmpty)
     }
 }

@@ -1,6 +1,10 @@
 import Foundation
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
+@testable import SpottyEngineAdapter
+@testable import SpottySessionRuntime
 
 /// The one composition point for boundary checks.
 ///

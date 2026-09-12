@@ -14,8 +14,7 @@ struct PlaylistDetailView: View {
     let playback: CatalogPlaybackAccess
     let playlistActions: TrackPlaylistActions
     let onSelect: (CatalogItem) -> Void
-    @State private var searchText = ""
-    @State private var showsSearch = false
+    @Bindable var interactionState: CatalogRouteInteractionState
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -31,24 +30,23 @@ struct PlaylistDetailView: View {
                 isConnected: playback.isConnected
             )
         ) {
-            guard playback.isConnected else { return }
             await store.load(item)
         }
         .onChange(of: searchFocused) {
-            if !searchFocused && searchText.isEmpty { showsSearch = false }
+            if !searchFocused && interactionState.searchText.isEmpty { interactionState.showsSearch = false }
         }
-        .navigationTitle(item.title)
-        .onChange(of: item.uri) {
-            searchText = ""
-            showsSearch = false
-        }
+        .navigationTitle(displayedItem.title)
+    }
+
+    private var displayedItem: CatalogItem {
+        store.item?.uri == item.uri ? (store.item ?? item) : item
     }
 
     private var expandedHeader: some View {
-        DetailHeroBackground(artworkURL: item.artworkURL) {
+        DetailHeroBackground(artworkURL: displayedItem.artworkURL) {
             VStack(spacing: 0) {
                 MediaDetailHeader(
-                    item: item,
+                    item: displayedItem,
                     description: store.description,
                     detail: playlistMetadataText ?? "",
                     style: .playlist
@@ -72,7 +70,7 @@ struct PlaylistDetailView: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Button {
-                showsSearch = true
+                interactionState.showsSearch = true
                 searchFocused = true
             } label: {
                 Image(systemName: "magnifyingglass").font(.system(size: 16))
@@ -80,23 +78,23 @@ struct PlaylistDetailView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Search in playlist")
             .help("Search in playlist")
-            if showsSearch {
-                TextField("Search in playlist", text: $searchText)
+            if interactionState.showsSearch {
+                TextField("Search in playlist", text: $interactionState.searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .focused($searchFocused)
                     .frame(minWidth: 0, maxWidth: .infinity)
                     .onExitCommand {
-                        if searchText.isEmpty {
-                            showsSearch = false
+                        if interactionState.searchText.isEmpty {
+                            interactionState.showsSearch = false
                             searchFocused = false
                         } else {
-                            searchText = ""
+                            interactionState.searchText = ""
                         }
                     }
-                if !searchText.isEmpty {
+                if !interactionState.searchText.isEmpty {
                     Button {
-                        searchText = ""
+                        interactionState.searchText = ""
                         searchFocused = true
                     } label: {
                         Image(systemName: "xmark").font(.system(size: 12))
@@ -107,9 +105,10 @@ struct PlaylistDetailView: View {
             }
         }
         .padding(8)
-        .frame(width: showsSearch ? 190 : 32, height: 32)
+        .frame(width: interactionState.showsSearch ? 190 : 32, height: 32)
         .background(
-            showsSearch ? SpottyPalette.quickAccessSurface : .clear, in: RoundedRectangle(cornerRadius: 4))
+            interactionState.showsSearch ? SpottyPalette.quickAccessSurface : .clear,
+            in: RoundedRectangle(cornerRadius: 4))
     }
 
     private var compactHeader: some View {
@@ -127,7 +126,7 @@ struct PlaylistDetailView: View {
             .disabled(!playback.canStartPlayback)
             .pointingHandCursor(enabled: playback.canStartPlayback)
             .accessibilityLabel("Play playlist")
-            Text(item.title)
+            Text(displayedItem.title)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(SpottyPalette.textPrimary)
                 .lineLimit(1)
@@ -165,17 +164,20 @@ struct PlaylistDetailView: View {
                     if store.error != nil {
                         staleRefreshWarning
                         CatalogTableDivider()
+                    } else if store.isShowingCachedContent {
+                        CachedCatalogNotice(isRefreshing: store.isLoading)
                     }
                     TrackTable(
                         tracks: store.trackCollection,
                         metadata: metadata,
                         playback: playback,
                         variant: .playlist,
-                        searchQuery: searchText,
+                        searchQuery: interactionState.searchText,
                         playlistActions: playlistActions,
                         onSelect: onSelect,
                         playlistHeader: AnyView(expandedHeader),
-                        compactPlaylistHeader: AnyView(compactHeader)
+                        compactPlaylistHeader: AnyView(compactHeader),
+                        interactionState: interactionState
                     )
                     .id(item.uri)
                 }
@@ -212,7 +214,7 @@ struct PlaylistDetailView: View {
     }
 
     private var matchingTracks: [CatalogTrack] {
-        store.tracks.filter(PlaylistSearch(searchText).matches)
+        store.tracks.filter(PlaylistSearch(interactionState.searchText).matches)
     }
 
     private var songCountText: String {

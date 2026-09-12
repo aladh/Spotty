@@ -3,7 +3,7 @@ id: domain-no-io
 language: Swift
 severity: error
 message: Keep SpottyDomain free of I/O and task scheduling; inject values and move
-  live timing to SpottyCore.
+  live timing to the session runtime.
 files:
 - Sources/SpottyDomain/**/*.swift
 note: The Linux build owns unavailable UI/audio/FFI imports. This rule covers known

@@ -3,6 +3,9 @@ import SpottyDomain
 import Foundation
 import Observation
 @testable import SpottyCore
+import SpottyRuntimeContracts
+@testable import SpottyEngineAdapter
+@testable import SpottySessionRuntime
 
 private final class ObservationCounter: @unchecked Sendable {
     private let lock = NSLock()
@@ -419,7 +422,12 @@ struct PlaybackEventOutcomeTests {
                 (await waitUntil { successRemote.requestedURI == "spotify:track:success" }) == true,
                 "metadata lookup starts")
             success.recordPlayed("spotify:track:success")
+            let successfulMetadata = success.effects.settlement(of: .trackMetadata)
             successRemote.completeMetadata(title: "Resolved")
+            await awaitCapturedEffect(
+                successfulMetadata,
+                registered: "successful metadata effect is captured before its result is released"
+            )
             #expect(
                 (await waitUntil { success.state.currentTrack?.title == "Resolved" }) == true,
                 "accepted metadata updates the current track")
@@ -622,7 +630,7 @@ struct PlaybackEventOutcomeTests {
                 HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
             )
             _ = player.send(.session(.ready), source: .account)
-            player.catalogSession.update(accountEpoch: player.accountEpoch, isAvailable: true)
+            player.withRuntime { $0.accountStore.publishPhase(.ready) }
 
             let firstURI = "spotify:track:first"
             player.apply(
@@ -684,7 +692,7 @@ struct PlaybackEventOutcomeTests {
             )
             await cancelled.restore()
             _ = cancelled.send(.session(.ready), source: .account)
-            cancelled.catalogSession.update(accountEpoch: cancelled.accountEpoch, isAvailable: true)
+            cancelled.withRuntime { $0.accountStore.publishPhase(.ready) }
             cancelled.refreshQueue()
             #expect((await waitUntil { webQueue.requestCount == 1 }) == true, "queue refresh starts")
             let cancelledQueueRefresh = cancelled.effects.settlement(of: .queueRefresh)
@@ -819,12 +827,17 @@ struct PlaybackEventOutcomeTests {
             let payloadGeneration = mirroredGeneration + 1
             payloadStore.refreshQueueSnapshot()
             #expect((await waitUntil { payloadGate.hasStarted }) == true, "payload-generation snapshot fetch starts")
+            let payloadSnapshot = payloadStore.effects.settlement(of: .queueSnapshot)
             payloadEngine.snapshot = queueSnapshot(
                 uri: uri,
                 revision: 3,
                 sessionGeneration: payloadGeneration
             )
             payloadGate.release()
+            await awaitCapturedEffect(
+                payloadSnapshot,
+                registered: "payload-generation snapshot effect is captured before its result is released"
+            )
             #expect(
                 (await waitUntil { payloadStore.state.engineEpoch == payloadGeneration }) == true,
                 "decoded payload generation stamps reducer state before playback catches up")
@@ -1029,7 +1042,7 @@ struct PlaybackEventOutcomeTests {
             seedIdentity(teardown)
             teardown.lastRemoteDeviceID = nil
             let beforeTeardown = teardown.state
-            teardown.isTearingDown = true
+            teardown.withRuntime { $0.isTearingDown = true }
             teardown.receive([mac, activePhone], revision: 1, engineEpoch: teardown.engineGeneration)
             #expect((teardown.state) == (beforeTeardown), "teardown device intake is inert")
             #expect(
@@ -1378,9 +1391,15 @@ struct CoherentConnectIntakeTests {
         #expect(store.trackURI == "spotify:track:new")
         #expect(store.commandRoute == .remote(from: "local", to: "phone"))
         #expect(store.state.devices.devices.first(where: \.isActive)?.id == "phone")
-        let accepted = store.state
-        store.receive(cluster(revision: 1, activeID: "local", trackURI: "spotify:track:old"), receivedAt: Date())
-        #expect(store.state == accepted)
+        let (accepted, afterDuplicate) = store.withRuntime { runtime in
+            // Compare the two authoritative states in one intake turn. Unrelated metadata
+            // enrichment may legitimately arrive between separate desktop mailbox entrances.
+            let accepted = runtime.state
+            runtime.receive(
+                cluster(revision: 1, activeID: "local", trackURI: "spotify:track:old"), receivedAt: Date())
+            return (accepted, runtime.state)
+        }
+        #expect(afterDuplicate == accepted)
         await store.shutdownForTermination()
     }
 

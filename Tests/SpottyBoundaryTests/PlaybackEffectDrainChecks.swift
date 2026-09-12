@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import SpottyCore
+@testable import SpottySessionRuntime
 
 @Suite("Playback Effect Drain")
 struct PlaybackEffectDrainTests {

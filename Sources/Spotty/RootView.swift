@@ -66,15 +66,25 @@ struct RootView: View {
 
             NowPlayingBar(player: player, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel)
         }
+        .environment(
+            \.artworkAccess,
+            ArtworkAccess(provider: player.artworkProvider, accountEpoch: player.accountEpoch)
+        )
         .foregroundStyle(SpottyPalette.textPrimary)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                Button("Go back", systemImage: "chevron.left", action: navigation.goBack)
-                    .disabled(navigation.backHistory.isEmpty)
-                    .keyboardShortcut("[", modifiers: .command)
-                Button("Go forward", systemImage: "chevron.right", action: navigation.goForward)
-                    .disabled(navigation.forwardHistory.isEmpty)
-                    .keyboardShortcut("]", modifiers: .command)
+                Button("Go back", systemImage: "chevron.left") {
+                    navigation.goBack()
+                    prepareSelectedRoute()
+                }
+                .disabled(navigation.backHistory.isEmpty)
+                .keyboardShortcut("[", modifiers: .command)
+                Button("Go forward", systemImage: "chevron.right") {
+                    navigation.goForward()
+                    prepareSelectedRoute()
+                }
+                .disabled(navigation.forwardHistory.isEmpty)
+                .keyboardShortcut("]", modifiers: .command)
             }
             ToolbarItem(placement: .principal) {
                 NavigationBar(
@@ -87,6 +97,9 @@ struct RootView: View {
         }
         .toolbarBackground(SpottyPalette.windowChrome, for: .windowToolbar)
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+        .onOpenURL { url in
+            if navigation.open(url) { prepareSelectedRoute() }
+        }
         .onChange(of: player.accountEpoch) {
             navigation.reset()
             upcomingQueueSelection.removeAll()
@@ -112,7 +125,8 @@ struct RootView: View {
                     metadata: catalog.metadata,
                     playback: catalogPlayback,
                     playlistActions: playlistActions(removingFrom: item),
-                    onSelect: select
+                    onSelect: select,
+                    interactionState: navigation.interactionState(for: uri)
                 )
             } else if catalog.homeLibrary.isLoading(.playlists) {
                 LoadingState(label: "Loading playlist")
@@ -131,7 +145,8 @@ struct RootView: View {
                     store: catalog.albumStore,
                     metadata: catalog.metadata,
                     playback: catalogPlayback,
-                    playlistActions: playlistActions()
+                    playlistActions: playlistActions(),
+                    interactionState: navigation.interactionState(for: uri)
                 )
             } else {
                 unavailableMedia("Album", destination: .albums)
@@ -142,7 +157,8 @@ struct RootView: View {
                     item: item,
                     store: catalog.artistStore,
                     playback: catalogPlayback,
-                    onSelect: select
+                    onSelect: select,
+                    interactionState: navigation.interactionState(for: uri)
                 )
             } else {
                 unavailableMedia("Artist", destination: .artists)
@@ -211,9 +227,22 @@ struct RootView: View {
     private func select(_ item: CatalogItem) {
         switch navigation.select(item) {
         case .navigate:
-            break
+            prepareSelectedRoute()
         case let .play(uri):
             catalogPlayback.playURI(uri)
+        }
+    }
+
+    private func prepareSelectedRoute() {
+        switch selection {
+        case let .playlist(uri):
+            if let item = playlistItem(for: uri) { catalog.playlistStore.prepare(item) }
+        case let .album(uri):
+            if let item = selectedItem(uri: uri, kind: .album) { catalog.albumStore.prepare(item) }
+        case let .artist(uri):
+            if let item = selectedItem(uri: uri, kind: .artist) { catalog.artistStore.prepare(item) }
+        case .destination:
+            break
         }
     }
 
@@ -263,15 +292,17 @@ struct RootView: View {
     }
 
     private func playlistActions(removingFrom openPlaylist: CatalogItem? = nil) -> TrackPlaylistActions {
-        TrackPlaylistActions(
+        let accountEpoch = player.accountEpoch
+        return TrackPlaylistActions(
             editablePlaylists: catalog.playlistMutations.editableLibraryPlaylists,
             canRemoveOccurrences: openPlaylist.map { catalog.playlistMutations.isOpenPlaylistEditable($0) } ?? false,
             addToPlaylist: { playlist, tracks in
-                catalog.playlistMutations.addTracks(tracks, to: playlist)
+                catalog.playlistMutations.addTracks(tracks, to: playlist, accountEpoch: accountEpoch)
             },
             removeOccurrences: { ids in
                 guard let openPlaylist else { return }
-                catalog.playlistMutations.removeOccurrences(selectedIDs: Set(ids), from: openPlaylist)
+                catalog.playlistMutations.removeOccurrences(
+                    selectedIDs: Set(ids), from: openPlaylist, accountEpoch: accountEpoch)
             }
         )
     }
@@ -281,6 +312,7 @@ struct RootView: View {
             get: { selection },
             set: { selection in
                 navigation.updateSelection(selection)
+                prepareSelectedRoute()
             }
         )
     }

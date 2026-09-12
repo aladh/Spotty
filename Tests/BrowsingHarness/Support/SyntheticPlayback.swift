@@ -1,6 +1,9 @@
 import Foundation
 import SpottyDomain
+import SpottyEngineAdapter
+import SpottyRuntimeContracts
 @testable import SpottyCore
+@testable import SpottyGateway
 
 /// The Demo's only playback authority. It models the ports Spotty consumes, never a Spotify
 /// server, decoder or audio device. State and fault injection share one lock; delivery happens
@@ -164,9 +167,15 @@ final class SyntheticPlayback: @unchecked Sendable {
                 }
             case .play:
                 if let context = command.context {
-                    trackURI =
-                        context.pages?.first?.tracks.first?.uri ?? context.options?.skipTo.trackURI
-                        ?? (context.uri.hasPrefix("spotify:track:") ? context.uri : trackURI)
+                    if let first = context.trackURIs?.first {
+                        trackURI = first
+                    } else if context.uri.hasPrefix("spotify:track:") {
+                        trackURI = context.uri
+                    } else if let playlistID = SpotifyURI.id(from: context.uri, kind: "playlist"),
+                        playlistID.hasPrefix("synthetic")
+                    {
+                        trackURI = "spotify:track:\(playlistID)x\(max(0, context.trackIndex ?? 0))"
+                    }
                     playing = true; positionMS = 0
                 }
             }

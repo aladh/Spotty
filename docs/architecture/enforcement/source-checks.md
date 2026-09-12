@@ -27,7 +27,13 @@ is not a parse guarantee. Review new syntax and owner exceptions against the act
 
 Additional owners:
 
-- Playback projection access: [compiler access probes](../../../Scripts/check-playback-projection-access.sh).
+- Playback projection access and hidden desktop implementation types:
+  [compiler access probes](../../../Scripts/check-playback-projection-access.sh). The desktop import
+  rule additionally closes SwiftPM's transitive module-search gap; the compiler probes detect
+  accidental re-exports to even testable desktop clients. Separate package-peer probes reject
+  inferred credential, engine, raw reducer and coordination access while allowing supported
+  runtime actions and catalog ports. The headless import rule rejects presentation-framework
+  imports that remain visible through the macOS SDK without a package dependency.
 - Repository text and artifact hygiene: [repository-text checks](../../../Scripts/check-source-policy.sh),
   [artifact hygiene](../../../Scripts/check.sh), the
   [notices preamble prefix check](../../../Scripts/test_notices_policy.py), gitignore, and privacy review.

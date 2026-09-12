@@ -1,6 +1,7 @@
 # ADR 003: Keep PlaybackEffectRegistry; reject TCA and a generic Effect type
 
-Status: accepted on 2026-08-27.
+Status: accepted on 2026-08-27; effect ownership in the MainActor `PlaybackStore` is superseded by
+[ADR 008](ADR-008-headless-session-runtime.md). The registry and intent-settlement decisions remain.
 
 ## Context
 

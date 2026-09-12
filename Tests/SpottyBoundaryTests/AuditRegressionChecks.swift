@@ -3,6 +3,8 @@ import Foundation
 import SpottyDomain
 import Testing
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Audit lifetime regressions")
 @MainActor
@@ -87,28 +89,15 @@ struct AuditRegressionChecks {
         #expect(admitted.map { admission.isCurrent($0) } == false)
     }
 
-    @Test func selectionLeaseRestoresAfterOwnerDeinitializesWithoutDismantling() async {
-        let table = NSTableView()
-        table.selectionHighlightStyle = .regular
-        var first: PlaylistSelectionAppearance.SelectionView? = .init()
-        first?.attach(to: table)
-        var replacement: PlaylistSelectionAppearance.SelectionView? = .init()
-        replacement?.attach(to: table)
-        first = nil
-        #expect(table.selectionHighlightStyle == .none)
-        replacement = nil
-        await expectEventually { table.selectionHighlightStyle == .regular }
-    }
-
     @Test func catalogErrorCopyDoesNotExposeTransportDetails() {
         #expect(
-            CatalogErrorPresentation.message(for: PartnerAPIError.persistedQueryNotFound("getAlbum"))
+            CatalogErrorPresentation.message(for: CatalogReadFailure.compatibility)
                 == "Spotify changed how this content loads. Update Spotty to try again.")
         #expect(
-            CatalogErrorPresentation.message(for: URLError(.notConnectedToInternet)).contains("Check your connection"))
-        #expect(CatalogErrorPresentation.message(for: KeymasterAuthError.grantRevoked).contains("Sign in again"))
+            CatalogErrorPresentation.message(for: CatalogReadFailure.offline).contains("Check your connection"))
+        #expect(CatalogErrorPresentation.message(for: CatalogReadFailure.sessionExpired).contains("Sign in again"))
         #expect(
-            CatalogErrorPresentation.message(for: PartnerAPIError.graphQLErrors("private-operation"))
+            CatalogErrorPresentation.message(for: CatalogReadFailure.unavailable)
                 == "Couldn't load this content from Spotify. Try again.")
     }
 }

@@ -2,6 +2,8 @@ import Foundation
 import SpottyDomain
 import Testing
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Playlist Library")
 struct PlaylistLibraryTests {

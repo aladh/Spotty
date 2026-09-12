@@ -7,6 +7,7 @@
 
 import SpottyDomain
 import Foundation
+import SpottyRuntimeContracts
 import OSLog
 
 @MainActor
@@ -109,8 +110,8 @@ final class HomeLibraryStore {
         await loadSection(.home, force: force) { [provider] in
             let home = try await provider.home()
             return .home(
-                greeting: home.greeting?.transformedLabel ?? "Home",
-                sections: CatalogMapping.sections(from: home)
+                greeting: home.greeting,
+                sections: home.sections
             )
         }
     }
@@ -119,8 +120,8 @@ final class HomeLibraryStore {
         await loadSection(.profile, force: force) { [provider] in
             let profile = try await provider.profile()
             return .profile(
-                name: profile.name ?? profile.username ?? "Spotify Premium",
-                uri: CatalogMapping.profileUserURI(from: profile)
+                name: profile.name,
+                uri: profile.uri
             )
         }
     }
@@ -133,19 +134,19 @@ final class HomeLibraryStore {
 
     func loadAlbums(force: Bool = false) async {
         await loadSection(.albums, force: force) { [provider] in
-            .items(try await provider.libraryAlbums().compactMap(CatalogMapping.item(from:)))
+            .items(try await provider.libraryAlbums())
         }
     }
 
     func loadArtists(force: Bool = false) async {
         await loadSection(.artists, force: force) { [provider] in
-            .items(try await provider.libraryArtists().compactMap(CatalogMapping.item(from:)))
+            .items(try await provider.libraryArtists())
         }
     }
 
     func loadLikedTracks(force: Bool = false) async {
         await loadSection(.likedTracks, force: force) { [provider] in
-            .tracks(try await provider.libraryTracks().compactMap(CatalogMapping.track(from:)))
+            .tracks(try await provider.libraryTracks())
         }
     }
 

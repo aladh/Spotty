@@ -5,11 +5,16 @@ import Observation
 import SpottyDomain
 import SwiftUI
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
 
 struct BrowsingLaunch: Codable {
     let runRoot: String
     let revision: String
     let diffSHA256: String
+    let source: BrowsingSourceIdentity
+    let build: BrowsingBuildIdentity
+    let engine: BrowsingEngineIdentity
     let automated: Bool
     var waitForProfiler: Bool? = nil
 
@@ -20,7 +25,14 @@ struct BrowsingLaunch: Codable {
         let launch = try JSONDecoder().decode(
             Self.self, from: Data(contentsOf: root.appendingPathComponent("launch.json")))
         let scenario = try BrowsingScenario.decode(Data(contentsOf: root.appendingPathComponent("scenario.json")))
-        guard launch.runRoot.hasPrefix("/"), FileManager.default.fileExists(atPath: launch.runRoot) else {
+        let execution = BrowsingExecutionConfiguration.current
+        guard launch.runRoot.hasPrefix("/"), FileManager.default.fileExists(atPath: launch.runRoot),
+            launch.build.configuration == execution.configuration,
+            launch.build.optimization == execution.optimization, launch.build.testabilityEnabled,
+            launch.source.includesUntrackedNonignoredFiles,
+            launch.source.revision == launch.revision, launch.source.diffSHA256 == launch.diffSHA256,
+            !launch.engine.usedForPlayback
+        else {
             throw BrowsingFailure.invalidScenario
         }
         return (launch, scenario)
@@ -81,8 +93,9 @@ struct BrowsingSample: Codable {
 }
 
 private struct BrowsingReport: Encodable {
-    let version = 1
+    let version = 2
     let launch: BrowsingLaunch
+    let execution = BrowsingExecutionConfiguration.current
     let scenario: BrowsingScenario
     let os: String
     let processorCount: Int
@@ -335,13 +348,12 @@ final class BrowsingRun {
         throw BrowsingFailure.checkpoint("playlist.view-ready")
     }
 
-    /// Only playlist headers contain this production observer. TrackTable's per-playlist .id
-    /// replaces its native list; readiness also rejects the previous destination's scroll view.
+    /// TrackTable owns its native scroll view. Its per-playlist identity replaces the container;
+    /// readiness also rejects the previous destination's scroll view.
     static func findPlaylistScrollView(in root: NSView, retaining current: NSScrollView? = nil) -> NSScrollView? {
-        // The header observer is virtualized away after scrolling. Retain its discovered owner
-        // while attached, but never reuse a detached view from a replaced destination.
+        // Retain the known scroll view while attached, but never reuse a detached destination.
         if let current, current.isDescendant(of: root), current.documentView != nil { return current }
-        if root is PlaylistScrollObserver.ObserverView { return root.enclosingScrollView }
+        if let container = root as? NativeTrackTableContainer { return container.scrollView }
         for child in root.subviews {
             if let scroll = findPlaylistScrollView(in: child) { return scroll }
         }

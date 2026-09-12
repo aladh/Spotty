@@ -33,21 +33,24 @@
   Time columns.
 - Playlist tables initially show newest Date Added first, matching Spotify's Recently added view.
   Rows have a 56-point minimum height, no row separators, and a quiet 36-point header with a
-  clock for Duration and a green sort indicator. Aligned header buttons handle local sorting; rows retain native list selection and context menus, with neutral-gray selection highlights with native active/inactive behavior and rounded neutral-gray hover backgrounds on unselected rows. This local display projection never changes source order. Clicking **Date Added** sorts directly and reverses on the next click through native sorting; it never opens a
+  clock for Duration and a green sort indicator. Aligned header buttons handle local sorting; rows retain native table selection and context menus, with neutral-gray selection highlights with native active/inactive behavior and rounded neutral-gray hover backgrounds on unselected rows. This local display projection never changes source order. Clicking **Date Added** sorts directly and reverses on the next click through native sorting; it never opens a
   picker or menu.
 - Track tables use native multi-selection. **Add to Playlist** is a context-menu command listing
   library playlists whose owner URI matches the signed-in profile. The selected rows are batched
   as one mutation, preserving duplicate track URIs from distinct occurrences and ignoring repeated
   selection IDs.
 - In an editable open playlist, Delete/Backspace and **Remove from Playlist** remove the selected
-  occurrences by Pathfinder UID (`CatalogTrack.id`), never by track URI. Read-only playlists do
-  not advertise or route those commands.
-- Successful add/remove refreshes only the affected open playlist and reports through
-  `TransientFeedbackPresenter`. Failed, cancelled, and stale account/session writes leave
-  presentation unchanged. A committed write remains successful if refresh fails: retain prior rows,
+  occurrences by explicit Pathfinder UID (`CatalogTrack.occurrenceUID`), never by display ID or track URI. Read-only playlists do
+  not advertise or route those commands. Saved or failed-refresh content cannot establish
+  editability, even when it contains an owner or historical occurrence identifiers.
+- Successful add/remove invalidates the affected retained playlist, refreshes it if open, and
+  reports through `TransientFeedbackPresenter`. A later revisit cannot treat a pre-mutation
+  snapshot as fresh; cancelled reconciliation keeps prior rows visibly stale and disables
+  occurrence removal. A failed or cancelled request with an uncertain server outcome also marks
+  retained rows stale; a definite rejection or stale account/session callback leaves presentation
+  unchanged. A committed write remains successful if refresh fails: retain prior rows,
   mark them possibly stale, and let Retry reload without repeating the mutation.
-- No playlist drag-and-drop: SwiftUI Table serializes the dragged row, not occurrence-aware
-  multi-selection, and disabled drop targeting was not verified without private hit-testing or pixel
-  coordinates. Use the keyboard-accessible context-menu command.
+- No playlist drag-and-drop or arbitrary reordering. Native table ownership does not add an
+  occurrence-aware multi-selection drag mutation. Use the keyboard-accessible context-menu command.
 
 See [transient mutation feedback](navigation.md#transient-mutation-feedback) for shared banner behavior.

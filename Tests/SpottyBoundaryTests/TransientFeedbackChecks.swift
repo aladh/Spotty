@@ -2,6 +2,8 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+@testable import SpottyEngineAdapter
 
 @MainActor
 private func yieldPasses(_ count: Int = 200) async {

@@ -2,6 +2,7 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
 
 @Suite("Media Selection")
 struct MediaSelectionTests {

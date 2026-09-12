@@ -12,6 +12,7 @@ contracts and records.
 - [Development signing](development/signing.md): signing identities and credential recovery.
 - [Generated local state](development/local-state.md): build outputs and artwork regeneration.
 - [Build and verification](development/verification.md): launch, formatting, tests, and diagnostics.
+- [Runtime architecture acceptance](development/runtime-acceptance.md): implemented boundaries, evidence requirements, and process/distribution gates.
 - [Playback binary artifacts](development/playback-artifacts.md): local candidates, publication, and app pins.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.
 - [Agent reviews](development/agent-reviews.md): shared review pipeline, approval, thread handling, and trust.

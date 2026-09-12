@@ -13,14 +13,14 @@ public func queueBootstrapMetadataURI(
     return snapshotTrackURI
 }
 
-public enum PlaybackTransportState: Equatable, Sendable {
+public enum PlaybackTransportState: Equatable, Sendable, Codable {
     case stopped
     case buffering
     case paused
     case playing
 }
 
-public enum MetadataProvenance: Int, Comparable, Sendable {
+public enum MetadataProvenance: Int, Comparable, Sendable, Codable {
     case none = 0
     case catalog = 1
     case connect = 2
@@ -31,7 +31,7 @@ public enum MetadataProvenance: Int, Comparable, Sendable {
     }
 }
 
-public struct CurrentTrack: Equatable, Sendable {
+public struct CurrentTrack: Equatable, Sendable, Codable {
     public var uri: String
     public var title: String?
     public var artist: String?
@@ -56,7 +56,7 @@ public struct CurrentTrack: Equatable, Sendable {
     }
 }
 
-public struct PlaybackTiming: Equatable, Sendable {
+public struct PlaybackTiming: Equatable, Sendable, Codable {
     public var position: TimeInterval
     public var duration: TimeInterval
     public var anchoredAt: Date
@@ -71,7 +71,7 @@ public struct PlaybackTiming: Equatable, Sendable {
 /// A complete user-visible playback presentation. Optimistic starts, rollbacks, and restoration
 /// enter the reducer as one value so observers never see a title from one track paired with the
 /// transport or timing of another.
-public struct PlaybackPresentationSnapshot: Equatable, Sendable {
+public struct PlaybackPresentationSnapshot: Equatable, Sendable, Codable {
     public var currentTrack: CurrentTrack?
     public var transport: PlaybackTransportState
     public var timing: PlaybackTiming
@@ -114,7 +114,7 @@ public struct PlaybackTrackMetadata: Equatable, Sendable {
     }
 }
 
-public struct PlaybackOptions: Equatable, Sendable {
+public struct PlaybackOptions: Equatable, Sendable, Codable {
     public var shuffle: Bool
     public var repeatMode: RepeatMode
     /// Independent Connect/FFI switches. `repeatMode` is the display collapse

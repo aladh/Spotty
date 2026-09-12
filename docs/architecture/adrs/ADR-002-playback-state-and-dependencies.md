@@ -1,6 +1,8 @@
 # ADR 002: Atomic playback state and explicit dependency ownership
 
-Status: accepted on 2026-08-23.
+Status: accepted on 2026-08-23; `PlaybackStore` ownership, MainActor execution, and target-placement
+choices are superseded by [ADR 008](ADR-008-headless-session-runtime.md). The atomic reducer,
+lifetime, and projection decisions below remain current.
 
 ## Context
 

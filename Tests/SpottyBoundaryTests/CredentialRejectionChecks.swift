@@ -2,6 +2,10 @@ import Foundation
 import Testing
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+@testable import SpottyEngineAdapter
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Credential Rejection")
 struct CredentialRejectionTests {
@@ -19,21 +23,26 @@ struct CredentialRejectionTests {
             feedback: TransientFeedbackPresenter(clock: environment.clock)
         )
 
-        player.receive(
-            RustConnectionState(
+        let rejection = player.withRuntime { runtime in
+            runtime.receive(
+                RustConnectionState(
+                    revision: 1,
+                    sessionGeneration: 0,
+                    sessionConnected: false,
+                    spircReady: false,
+                    isActiveDevice: true,
+                    resumePending: true,
+                    lastError: "private upstream detail",
+                    deviceID: "local",
+                    credentialsRejected: true
+                ),
                 revision: 1,
-                sessionGeneration: 0,
-                sessionConnected: false,
-                spircReady: false,
-                isActiveDevice: true,
-                resumePending: true,
-                lastError: "private upstream detail",
-                deviceID: "local",
-                credentialsRejected: true
-            ),
-            revision: 1,
-            receivedAt: Date(timeIntervalSince1970: 1)
-        )
+                receivedAt: Date(timeIntervalSince1970: 1)
+            )
+            // Teardown removes account-scoped registrations as soon as it starts. Capture the
+            // exact effect before the independent runtime can begin that teardown transition.
+            return runtime.effects.settlement(of: .credentialRejection)
+        }
 
         #expect(
             (player.statusText) == (ConnectionSnapshotProjection.credentialsRejectedMessage),
@@ -42,9 +51,9 @@ struct CredentialRejectionTests {
         #expect((player.requiresReauthentication) == true, "accepted rejection enables reauthorization")
         #expect((account.clearCount) == (0), "credential rejection does not clear the Keymaster grant")
 
-        let rejection = player.effects.settlement(of: .credentialRejection)
         #expect((rejection != nil) == true, "accepted rejection owns its teardown effect")
         await rejection?.wait()
+        player.withRuntime { _ in }
         #expect((engine.clearStreamingCredentialsCount) == (1), "only streaming credentials are cleared")
         #expect((account.clearCount) == (0), "teardown preserves the independent account grant")
         #expect(
@@ -81,8 +90,11 @@ struct CredentialRejectionTests {
         let playback = CatalogPlaybackAccess(player: player)
         #expect((playback.connectionActionTitle) == ("Sign In Again"), "the action names reauthorization")
         playback.connect()
+        // The worker's counter can advance before MainActor receives the runtime publication.
+        // Wait for both independent observations before inspecting the displayed readiness.
         #expect(
-            (await waitUntil { engine.initializeCount > initializeBeforeRestore }) == true,
+            (await waitUntil { engine.initializeCount > initializeBeforeRestore && player.phase == .connecting })
+                == true,
             "the explicit sign-in action initializes a fresh engine"
         )
         #expect(player.phase == .connecting, "initialization alone does not establish Connect readiness")

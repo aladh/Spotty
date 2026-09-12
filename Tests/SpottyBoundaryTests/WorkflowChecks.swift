@@ -2,6 +2,10 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 /// Parks `libraryAlbums`/`libraryArtists` reads for `HarnessCatalog.onLibraryAlbums`/
 /// `onLibraryArtists` closures. `HarnessCatalog` has no built-in notion of an overlapping in-flight
@@ -328,7 +332,7 @@ struct WorkflowTests {
         }
         let cachedTracks = [workflowTrack("spotify:track:0"), workflowTrack("spotify:track:1")]
         let expectedRequestedURIs = Set(entries.map(\.uri)).subtracting(cachedTracks.map(\.uri))
-        var updates: [ProvenanceQueueSnapshot] = []
+        let updates = RuntimeCallbackRecorder<ProvenanceQueueSnapshot>()
         let refresh = Task {
             await service.refresh(
                 fallbackEntries: entries,
@@ -341,16 +345,17 @@ struct WorkflowTests {
 
         while remote.requestedURIs.count < 8 { await Task.yield() }
         #expect(
-            (updates.first?.entries.count) == (12), "queue ordering is published before network hydration completes"
+            (updates.snapshot.first?.entries.count) == (12),
+            "queue ordering is published before network hydration completes"
         )
-        #expect((updates.first?.tracks.count) == (2), "cached metadata is included in the first update")
+        #expect((updates.snapshot.first?.tracks.count) == (2), "cached metadata is included in the first update")
         #expect((remote.maximumActiveMetadataRequests) == (8), "metadata concurrency is bounded")
 
         let initiallyRequested = remote.requestedURIs
         if let first = initiallyRequested.first { remote.completeMetadata(for: first) }
         while remote.requestedURIs.count < 9 { await Task.yield() }
         #expect(
-            await waitUntil { updates.contains { $0.tracks.count == 3 } },
+            await waitUntil { updates.snapshot.contains { $0.tracks.count == 3 } },
             "a completed lookup publishes in a bounded batch while other requests remain pending")
 
         var completed: Set<String> = Set(initiallyRequested.prefix(1))
@@ -732,6 +737,9 @@ struct WorkflowTests {
         // New generation: the engine session changes while the coordinator is busy.
         engine.onExecute = { [gate] _ in gate.enter() }
         let busyAgain = Task { await coordinator.performLocal(.pause) }
+        #expect(
+            (await waitUntil { gate.enteredCount == 2 }) == true,
+            "the coordinator is occupied before the replacement generation arrives")
         player.receive(
             workflowConnectionEnvelope(sequence: 3, sessionGeneration: 2, spircReady: false, resumePending: true))
         #expect(

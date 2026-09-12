@@ -11,8 +11,30 @@ final class CatalogNavigation {
     var searchText = ""
     private(set) var backHistory: [String] = []
     private(set) var forwardHistory: [String] = []
+    @ObservationIgnored private var routeInteractions: [String: CatalogRouteInteractionState] = [:]
+    @ObservationIgnored private var interactionOrder: [String] = []
 
     var selection: SidebarSelection { model.selection }
+
+    func interactionState(for uri: String) -> CatalogRouteInteractionState {
+        interactionOrder.removeAll { $0 == uri }
+        interactionOrder.append(uri)
+        if let retained = routeInteractions[uri] { return retained }
+        let state = CatalogRouteInteractionState(isPlaylist: uri.hasPrefix("spotify:playlist:"))
+        routeInteractions[uri] = state
+        if interactionOrder.count > 100 {
+            routeInteractions[interactionOrder.removeFirst()] = nil
+        }
+        return state
+    }
+
+    /// Resource links navigate only; receiving a URL never authorizes playback.
+    @discardableResult
+    func open(_ url: URL) -> Bool {
+        guard let item = SpotifyResourceLink.item(from: url) else { return false }
+        _ = select(item)
+        return true
+    }
 
     @discardableResult
     func select(_ item: CatalogItem) -> MediaSelectionModel.SelectionResult {
@@ -44,6 +66,8 @@ final class CatalogNavigation {
         backHistory.removeAll()
         forwardHistory.removeAll()
         searchText = ""
+        routeInteractions.removeAll()
+        interactionOrder.removeAll()
         model = MediaSelectionModel()
     }
 

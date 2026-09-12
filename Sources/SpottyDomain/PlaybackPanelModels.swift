@@ -47,7 +47,7 @@ public func playbackSnapshotPosition(
 }
 
 /// Repeat state, mirroring Spotify's off → context → track cycle.
-public enum RepeatMode: Equatable, Sendable {
+public enum RepeatMode: Equatable, Sendable, Codable {
     case off
     case context
     case track
@@ -87,7 +87,7 @@ public enum RepeatMode: Equatable, Sendable {
 }
 
 /// The backend models repeat as two independent booleans.
-public struct RepeatFlags: Equatable, Sendable {
+public struct RepeatFlags: Equatable, Sendable, Codable {
     public let context: Bool
     public let track: Bool
 
@@ -221,7 +221,7 @@ public struct QueueEntry: Identifiable, Equatable, Sendable {
 }
 
 /// One Spotify Connect device, as `/me/player/devices` spells it.
-public struct ConnectDevice: Identifiable, Equatable, Sendable, Decodable {
+public struct ConnectDevice: Identifiable, Equatable, Sendable, Codable {
     public let id: String
     public let name: String
     public let type: String

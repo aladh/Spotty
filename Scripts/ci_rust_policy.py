@@ -9,7 +9,12 @@ import subprocess
 APP_ONLY_DIRECTORIES = (
     "Sources/Spotty/", "Sources/SpottyApp/", "Sources/SpottyDomain/",
     "Sources/SpottyEngineAdapter/",
+    "Sources/SpottyRuntimeContracts/", "Sources/SpottySessionRuntime/",
+    "Sources/SpottySessionTransport/", "Sources/SpottyGateway/",
+    "Sources/SpottyCatalogStorage/", "Sources/SpottyDiagnostics/",
     "Tests/SpottyBoundaryTests/", "Tests/SpottyDomainTests/",
+    "Tests/SpottyCatalogStorageTests/", "Tests/SpottySessionTransportTests/",
+    "Tests/SpottySessionRuntimeTests/", "Tests/SpottyGatewayTests/",
     "Assets/", "Packaging/", "docs/",
 )
 APP_ONLY_FILES = {

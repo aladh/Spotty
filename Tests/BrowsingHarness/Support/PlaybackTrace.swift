@@ -1,6 +1,7 @@
 import Foundation
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottySessionRuntime
 
 struct PlaybackTraceCheckpoint: Codable, Sendable {
     let name: String

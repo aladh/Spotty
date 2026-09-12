@@ -16,6 +16,7 @@ files:
 - Scripts/validate-app.sh
 - Scripts/embed-sparkle.sh
 - Scripts/browse-synthetic.sh
+- Scripts/check-session-scenarios.sh
 rule:
   any:
   - kind: word

@@ -2,8 +2,8 @@ import Foundation
 import SpottyDomain
 @testable import SpottyCore
 
-// Each probe enables exactly one assignment. The checker expects the compiler to reject it
-// because PlaybackStore.state has a private setter and all presentation projections are reads.
+// Each probe enables one forbidden access. The reducer snapshot is absent from the facade,
+// and its presentation projections have no writable surface for boundary clients.
 @MainActor
 func rejectPlaybackStoreWrite(_ store: PlaybackStore) {
     #if NEG_CURRENT_TRACK_INDICATOR
@@ -11,15 +11,15 @@ func rejectPlaybackStoreWrite(_ store: PlaybackStore) {
     #elseif NEG_CATALOG_PLAYBACK_AVAILABILITY
         store.catalogPlaybackAvailability = store.catalogPlaybackAvailability
     #elseif NEG_STATE
-        store.state = store.state
+        _ = store.state
     #elseif NEG_STATE_MEMBER
         store.state.transport = store.state.transport
     #elseif NEG_REQUIRES_REAUTHENTICATION
         store.requiresReauthentication = store.requiresReauthentication
     #elseif NEG_ACCOUNT_EPOCH
         store.accountEpoch = store.accountEpoch
-    #elseif NEG_PLAYBACK_LIFETIME
-        store.playbackLifetime = store.playbackLifetime
+    #elseif NEG_ENGINE_GENERATION
+        store.engineGeneration = store.engineGeneration
     #elseif NEG_PHASE
         store.phase = store.phase
     #elseif NEG_TRACK_URI

@@ -20,6 +20,7 @@ struct ConnectPanelContent: View {
     }
 
     var body: some View {
+        let actions = SidePanelPlaybackActions(player: player)
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -49,7 +50,7 @@ struct ConnectPanelContent: View {
                     VStack(spacing: 0) {
                         ForEach(availableDevices) { device in
                             ConnectDeviceRow(device: device, name: deviceName(device)) {
-                                player.transferPlayback(to: device)
+                                actions.transfer(to: device)
                             }
                             .disabled(!player.canStartPlayback || player.isPlaybackCommandPending)
                         }

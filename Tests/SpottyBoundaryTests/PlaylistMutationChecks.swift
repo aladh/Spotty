@@ -2,6 +2,8 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 private enum PlaylistMutationCheckFailure: Error {
     case unavailable
@@ -32,10 +34,10 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
         addCalls.count == count && waiters.count == count
     }
 
-    func searchTracks(_: String, limit _: Int) async throws -> [PathfinderTrack] {
+    func searchTracks(_: String, limit _: Int) async throws -> [CatalogTrack] {
         throw PlaylistMutationCheckFailure.unavailable
     }
-    func home() async throws -> PathfinderHome { throw PlaylistMutationCheckFailure.unavailable }
+    func home() async throws -> CatalogHomeSnapshot { throw PlaylistMutationCheckFailure.unavailable }
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
         try await libraryPlaylists().compactMap(CatalogMapping.item(from:)).map(PlaylistLibraryNode.init(playlist:))
     }
@@ -44,18 +46,18 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
         libraryLoadCount += 1
         return library
     }
-    func libraryAlbums() async throws -> [PathfinderAlbum] { throw PlaylistMutationCheckFailure.unavailable }
-    func libraryArtists() async throws -> [PathfinderArtist] { throw PlaylistMutationCheckFailure.unavailable }
-    func libraryTracks() async throws -> [PathfinderLibraryTrackItem] { throw PlaylistMutationCheckFailure.unavailable }
-    func profile() async throws -> PathfinderProfile { profile }
-    func playlist(id: String) async throws -> PathfinderPlaylistUnion {
+    func libraryAlbums() async throws -> [CatalogItem] { throw PlaylistMutationCheckFailure.unavailable }
+    func libraryArtists() async throws -> [CatalogItem] { throw PlaylistMutationCheckFailure.unavailable }
+    func libraryTracks() async throws -> [CatalogTrack] { throw PlaylistMutationCheckFailure.unavailable }
+    func profile() async throws -> CatalogProfileSnapshot { CatalogMapping.profile(profile) }
+    func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         playlistLoadCount += 1
         if parkPlaylistLoads {
             try await parkPlaylistLoad()
         }
         if let playlistError { throw playlistError }
         guard let playlist = playlistsByID[id] else { throw PlaylistMutationCheckFailure.unavailable }
-        return playlist
+        return CatalogMapping.playlist(playlist)
     }
 
     func addToPlaylist(playlistId: String, trackUris: [String]) async throws {
@@ -75,9 +77,9 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
         waiters.removeFirst().resume()
     }
 
-    func failPark() {
+    func failPark(_ error: any Error = CancellationError()) {
         guard !waiters.isEmpty else { return }
-        waiters.removeFirst().resume(throwing: CancellationError())
+        waiters.removeFirst().resume(throwing: error)
     }
 
     func completePlaylistPark() {
@@ -182,6 +184,52 @@ private func fixtureTrack(id: String, uri: String, duration: TimeInterval = 1) -
 
 @Suite("Playlist Mutation")
 struct PlaylistMutationTests {
+    @Test(arguments: [0, 1, 2])
+    @MainActor
+    func uncertainWritesRetireRouteAuthorityWithoutReplayingTheMutation(outcome: Int) async throws {
+        let services = ScriptedPlaylistServices()
+        await services.setLibrary([try decodePlaylist(ownedLibraryJSON), try decodePlaylist(foreignLibraryJSON)])
+        await services.setPlaylist(try decodePlaylistUnion(ownedContentsJSON))
+        await services.setPlaylist(try decodePlaylistUnion(foreignContentsJSON))
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked())
+        defer { feedback.dismiss() }
+        let catalog = makeCatalog(services: services, session: session, feedback: feedback)
+        await catalog.homeLibrary.loadProfile()
+        await catalog.homeLibrary.loadPlaylists()
+        let owned = try #require(catalog.homeLibrary.playlists.first { $0.uri == "spotify:playlist:owned" })
+        let foreign = try #require(catalog.homeLibrary.playlists.first { $0.uri == "spotify:playlist:foreign" })
+        await catalog.playlistStore.load(owned)
+        let rows = catalog.playlistStore.tracks
+        #expect(catalog.playlistStore.canEditLoadedContent)
+
+        catalog.playlistMutations.addTracks(
+            [fixtureTrack(id: "new", uri: "spotify:track:new")], to: owned, accountEpoch: 0)
+        #expect(await services.addCalls.isEmpty, "An old menu cannot reinterpret rows under a new account")
+        catalog.playlistMutations.addTracks([fixtureTrack(id: "new", uri: "spotify:track:new")], to: owned)
+        await expectEventually { await services.isParked }
+        let error: any Error
+        switch outcome {
+        case 0: error = PlaylistMutationFailure.failed
+        case 1: error = CancellationError()
+        default: error = PlaylistMutationFailure.rejected
+        }
+        await services.failPark(error)
+        if outcome == 2 {
+            await expectEventually { feedback.message?.kind == .failure }
+            #expect(catalog.playlistStore.canEditLoadedContent)
+        } else {
+            await expectEventually { catalog.playlistStore.isShowingCachedContent }
+            #expect(!catalog.playlistStore.canEditLoadedContent)
+        }
+        #expect(catalog.playlistStore.tracks == rows, "Uncertainty preserves useful rows while retiring authority")
+        await catalog.playlistStore.load(foreign)
+        let readsBeforeReturn = await services.playlistLoadCount
+        await catalog.playlistStore.load(owned)
+        #expect(await services.playlistLoadCount == readsBeforeReturn + (outcome == 2 ? 0 : 1))
+        #expect(await services.addCalls.count == 1, "Reconciliation reads never replay the uncertain mutation")
+    }
+
     @Test
     @MainActor
     func testPlaylistMutation() async {
@@ -424,7 +472,7 @@ struct PlaylistMutationTests {
             await catalog.playlistStore.load(owned)
             let loadedIDs = catalog.playlistStore.tracks.map(\.id)
 
-            await services.setAddError(PartnerAPIError.mutationRejected("addToPlaylist"))
+            await services.setAddError(PlaylistMutationFailure.rejected)
             catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:new")], to: owned)
             await expectEventually { feedback.message?.kind == .failure }
             #expect(

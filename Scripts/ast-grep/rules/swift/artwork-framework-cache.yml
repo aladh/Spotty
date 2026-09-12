@@ -2,14 +2,16 @@
 id: artwork-framework-cache
 language: Swift
 severity: error
-message: Use AsyncImage and framework caching; custom artwork caches/downsampling
-  require measured justification in this rule.
+message: Request artwork through ArtworkProviding; shared fetching, caches and image
+  decoding belong to the account-scoped runtime artwork pipeline.
 files:
 - Sources/Spotty/Views/**/*.swift
 - Sources/Spotty/RootView.swift
-note: ArtworkDominantColor may use shared URLSession data to derive a tint. It must
-  not introduce a second cache. This does not detect caches implemented with arbitrary
-  collections.
+note: Issue 424 replaces separate AsyncImage and tint requests with a bounded memory-only
+  pipeline. ArtworkPipeline owns account retirement and cache budgets, ArtworkSourceLoader
+  owns ephemeral transport, and ArtworkDecoder owns off-main downsampling and tint extraction.
+  Views may create CGImage over the already decoded raster. This lexical check cannot detect
+  caches disguised as arbitrary collections; lifecycle and byte-bound tests verify the owner.
 rule:
   matches: swift-symbol
-  regex: "^(NSCache|URLCache|CGImageSourceCreateThumbnailAtIndex|CachedAsyncImage|SDWebImageSwiftUI|Kingfisher|Nuke|NukeUI)$"
+  regex: "^(AsyncImage|NSCache|URLCache|URLSession|CGImageSourceCreateWithData|CGImageSourceCreateImageAtIndex|CGImageSourceCreateThumbnailAtIndex|CachedAsyncImage|SDWebImageSwiftUI|Kingfisher|Nuke|NukeUI)$"

@@ -8,15 +8,21 @@ PCM output. This page describes boundaries, not a module inventory.
 
 | Responsibility | Owner |
 | --- | --- |
-| Account connection lifecycle and its single writable epoch | [AccountStore](../../Sources/Spotty/Spotify/AccountStore.swift) |
-| Session teardown coalescing, ordering, and gate release | [SessionTeardownController](../../Sources/Spotty/Spotify/SessionTeardownController.swift), owned by `PlaybackStore` |
+| Account connection lifecycle and its single writable epoch | [AccountStore](../../Sources/SpottySessionRuntime/AccountStore.swift) on the session executor |
+| Session teardown coalescing, ordering, and gate release | [SessionTeardownController](../../Sources/SpottySessionRuntime/SessionTeardownController.swift), owned by `PlaybackSessionRuntime` |
 | Atomic playback presentation and stale-observation rejection | [PlaybackState](../../Sources/SpottyDomain/PlaybackState.swift) and its reducer |
 | Command serialization, cancellation, and follow-ups | [ADR 003](adrs/ADR-003-playback-command-effects.md) |
-| Queue precedence, playback context, and mutation authority | [QueueService](../../Sources/Spotty/Spotify/QueueService.swift) |
+| Queue precedence, playback context, and mutation authority | [QueueService](../../Sources/SpottySessionRuntime/QueueService.swift) |
 | Pure queue/device/connection/playback projections and resume target order | [SpottyDomain](../../Sources/SpottyDomain) |
-| Catalog, authorization, HTTP retry, and user-facing errors | [Spotify adapters](../../Sources/Spotty/Spotify) |
+| Private Spotify wire models, authorization, HTTP retry, and failure mapping | [SpottyGateway](../../Sources/SpottyGateway), consumed through typed runtime contracts |
+| Account-admitted persistent browsing data | [Catalog retention](adrs/ADR-009-account-catalog-retention.md) |
+| MainActor observation, native commands, and browsing presentation | [PlaybackStore](../../Sources/Spotty/Spotify/PlaybackStore.swift) and [native surface ownership](adrs/ADR-010-native-dense-surfaces.md) |
 | Output buffering, backpressure, routes, and audio teardown | [AudioRenderer](../../Sources/SpottyEngineAdapter/AudioRenderer.swift) |
-| The C boundary, typed engine observations, and their fan-out | [SpottyEngineAdapter](../../Sources/SpottyEngineAdapter), the only target depending on the playback binary |
+| The C boundary, typed engine observations, and their fan-out | [SpottyEngineAdapter](../../Sources/SpottyEngineAdapter), the only production target directly depending on the playback binary |
+
+[ADR 008](adrs/ADR-008-headless-session-runtime.md) places session authority on its dedicated
+transition executor. The production client is in process; the independent XPC transport candidate
+does not imply a bundled production session helper.
 
 Account epoch projections are not independent counters. Connect callback identity must also remain
 separate from merged queue presentation: adopting an engine epoch must not erase the callback

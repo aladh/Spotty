@@ -1,5 +1,6 @@
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
 
 /// Lock-protected continuation so cancellation and resume do not hop onto an
 /// actor that is already waiting in that continuation.

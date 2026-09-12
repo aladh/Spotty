@@ -2,6 +2,10 @@ import Foundation
 import SpottyDomain
 import Testing
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Account Reauthentication Persistence")
 struct AccountReauthenticationPersistenceTests {

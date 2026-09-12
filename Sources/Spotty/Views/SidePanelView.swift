@@ -5,6 +5,7 @@
 //  The right-hand playback panel: the play queue and the recently played list.
 //
 
+import AppKit
 import SpottyDomain
 import SwiftUI
 
@@ -26,6 +27,8 @@ struct SidePanelView: View {
     let onClose: () -> Void
 
     @State private var tab: Tab = .queue
+    @State private var queueScrollState = NativeListScrollState()
+    @State private var historyScrollState = NativeListScrollState()
 
     enum Tab: String, CaseIterable {
         case queue = "Queue"
@@ -115,6 +118,7 @@ struct SidePanelView: View {
     @ViewBuilder
     private var queueList: some View {
         let entries = player.queueNextEntries
+        let actions = SidePanelPlaybackActions(player: player)
         if !player.hasCurrentTrack && entries.isEmpty {
             EmptyState(
                 icon: "list.bullet.rectangle",
@@ -122,81 +126,78 @@ struct SidePanelView: View {
                 message: "Play something, or use a track's context menu to add it to the queue."
             )
         } else {
-            List(selection: $upcomingSelection) {
-                if player.hasCurrentTrack {
-                    railSectionHeader("Now playing")
-                    CurrentTrackRow(player: player, metadata: metadata, onSelect: onSelect)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .listRowSeparator(.hidden)
-                }
-
-                if !entries.isEmpty {
-                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                        if index == 0 || queueHeading(entry) != queueHeading(entries[index - 1]) {
-                            if queueHeading(entry) == "Next up", let playlist = queuePlaylist {
-                                railSectionHeader {
-                                    QueuePlaylistHeading(playlist: playlist, action: { onSelect(playlist) })
-                                }
-                            } else {
-                                railSectionHeader(queueHeading(entry))
-                            }
-                        }
-                        QueueUpcomingRow(entry: entry, metadata: metadata, player: player, onSelect: onSelect)
-                            .tag(entry.id)
-                            .accessibilityIdentifier("queue-occurrence-\(entry.id)")
-                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                            .listRowSeparator(.hidden)
-                    }
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .listRowSeparator(.hidden)
-            .environment(\.defaultMinListRowHeight, 0)
-            .contextMenu(forSelectionType: QueueEntry.ID.self) { selectedIDs in
-                let selected = QueueMutationSelection.orderedUpcoming(
-                    selectedIDs: selectedIDs,
-                    in: player.queueNextEntries
-                )
-                if selected.count == 1, let entry = selected.first {
-                    Button("Play", systemImage: "play.fill") {
-                        player.play(uri: entry.uri)
-                    }
-                    .disabled(!player.canStartPlayback)
-                }
-                if !selected.isEmpty {
-                    Button("Remove from Queue", role: .destructive) {
-                        player.removeUpcomingQueueOccurrences(selectedIDs: selectedIDs)
-                    }
-                    .disabled(!player.canRemoveUpcomingQueue(selectedIDs: selectedIDs))
-                }
-            } primaryAction: { selectedIDs in
-                let selected = QueueMutationSelection.orderedUpcoming(
-                    selectedIDs: selectedIDs,
-                    in: player.queueNextEntries
-                )
-                guard selected.count == 1, let entry = selected.first else { return }
-                guard player.canStartPlayback else { return }
-                player.play(uri: entry.uri)
-            }
-            .onDeleteCommand {
-                let selectedCount = QueueMutationSelection.orderedUpcoming(
-                    selectedIDs: upcomingSelection,
-                    in: player.queueNextEntries
-                ).count
-                guard
-                    QueueMutationSelection.keyboardCommand(
-                        deleteOrBackspace: true,
-                        selectedUpcomingCount: selectedCount,
-                        isRemovalAllowed: player.canRemoveUpcomingQueue(selectedIDs: upcomingSelection)
-                    ) == .removeUpcomingOccurrences
-                else {
-                    return
-                }
-                player.removeUpcomingQueueOccurrences(selectedIDs: upcomingSelection)
-            }
-            .accessibilityLabel("Queue")
+            NativeOccurrenceList(
+                rows: queueRows(entries, actions: actions), selection: $upcomingSelection, accessibilityLabel: "Queue",
+                scrollState: queueScrollState,
+                primaryAction: { playQueueSelection($0, actions: actions) },
+                deleteAction: { actions.removeUpcomingQueue(selectedIDs: $0) },
+                contextMenu: { queueSelectionMenu($0, actions: actions) }
+            )
         }
+    }
+
+    private func queueRows(_ entries: [QueueEntry], actions: SidePanelPlaybackActions) -> [NativeOccurrenceListRow] {
+        var rows: [NativeOccurrenceListRow] = []
+        if player.hasCurrentTrack {
+            rows.append(
+                NativeOccurrenceListRow(
+                    id: "section:current", height: 44, isSelectable: false,
+                    content: AnyView(railSectionHeader("Now playing"))
+                ))
+            rows.append(
+                NativeOccurrenceListRow(
+                    id: "current", height: 64, isSelectable: false,
+                    content: AnyView(
+                        CurrentTrackRow(player: player, metadata: metadata, actions: actions, onSelect: onSelect))
+                ))
+        }
+        for (index, entry) in entries.enumerated() {
+            if index == 0 || queueHeading(entry) != queueHeading(entries[index - 1]) {
+                let heading: AnyView
+                if queueHeading(entry) == "Next up", let playlist = queuePlaylist {
+                    heading = AnyView(
+                        railSectionHeader {
+                            QueuePlaylistHeading(playlist: playlist, action: { onSelect(playlist) })
+                        })
+                } else {
+                    heading = AnyView(railSectionHeader(queueHeading(entry)))
+                }
+                rows.append(
+                    NativeOccurrenceListRow(
+                        id: "section:\(entry.id)", height: 44, isSelectable: false, content: heading
+                    ))
+            }
+            rows.append(
+                NativeOccurrenceListRow(
+                    id: entry.id, height: 64,
+                    content: AnyView(
+                        QueueUpcomingRow(entry: entry, metadata: metadata, actions: actions, onSelect: onSelect)
+                            .accessibilityIdentifier("queue-occurrence-\(entry.id)")
+                    )
+                ))
+        }
+        return rows
+    }
+
+    private func playQueueSelection(_ selectedIDs: Set<QueueEntry.ID>, actions: SidePanelPlaybackActions) {
+        let selected = QueueMutationSelection.orderedUpcoming(selectedIDs: selectedIDs, in: player.queueNextEntries)
+        guard selected.count == 1, let entry = selected.first, actions.canStartPlayback else { return }
+        actions.play(uri: entry.uri)
+    }
+
+    private func queueSelectionMenu(_ selectedIDs: Set<QueueEntry.ID>, actions: SidePanelPlaybackActions) -> NSMenu? {
+        let selected = QueueMutationSelection.orderedUpcoming(selectedIDs: selectedIDs, in: player.queueNextEntries)
+        guard !selected.isEmpty else { return nil }
+        let menu = NSMenu()
+        if selected.count == 1 {
+            menu.addAction("Play", systemImage: "play.fill", enabled: actions.canStartPlayback) {
+                playQueueSelection(selectedIDs, actions: actions)
+            }
+        }
+        menu.addAction("Remove from Queue", enabled: actions.canRemoveUpcomingQueue(selectedIDs: selectedIDs)) {
+            actions.removeUpcomingQueue(selectedIDs: selectedIDs)
+        }
+        return menu
     }
 
     private func queueHeading(_ entry: QueueEntry) -> String {
@@ -224,16 +225,16 @@ struct SidePanelView: View {
             .textCase(nil)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
-            .listRowBackground(SpottyPalette.catalogCanvas)
-            .listRowInsets(EdgeInsets(top: 16, leading: 8, bottom: 8, trailing: 8))
-            .listRowSeparator(.hidden)
-            .environment(\.defaultMinListRowHeight, 0)
+            .padding(.horizontal, 8)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
     }
 
     // MARK: - History
 
     @ViewBuilder
     private var historyList: some View {
+        let actions = SidePanelPlaybackActions(player: player)
         if player.history.entries.isEmpty {
             EmptyState(
                 icon: "clock.arrow.circlepath",
@@ -241,17 +242,18 @@ struct SidePanelView: View {
                 message: "Tracks you play will appear here."
             )
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(player.history.entries) { entry in
-                        HistoryRow(entry: entry) {
-                            player.play(uri: entry.uri)
-                        }
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-            }
+            NativeOccurrenceList(
+                rows: player.history.entries.map { entry in
+                    NativeOccurrenceListRow(
+                        id: entry.id, height: 64, isSelectable: false,
+                        content: AnyView(HistoryRow(entry: entry) { actions.play(uri: entry.uri) })
+                    )
+                },
+                selection: .constant([]), drawsSelection: false, accessibilityLabel: "Recently played",
+                scrollState: historyScrollState
+            )
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
         }
     }
 }
@@ -283,7 +285,7 @@ private struct QueuePlaylistHeading: View {
 private struct QueueUpcomingRow: View {
     let entry: QueueEntry
     let metadata: CatalogMetadataRepository
-    let player: PlaybackStore
+    let actions: SidePanelPlaybackActions
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
@@ -298,8 +300,8 @@ private struct QueueUpcomingRow: View {
             duration: metadata.knownTrack(for: entry.uri)?.duration,
             isCurrent: false,
             showsPause: false,
-            canPlay: player.canStartPlayback,
-            play: { player.play(uri: entry.uri) }
+            canPlay: actions.canStartPlayback,
+            play: { actions.play(uri: entry.uri) }
         )
     }
 }
@@ -411,6 +413,7 @@ private struct HistoryRow: View {
 private struct CurrentTrackRow: View {
     let player: PlaybackStore
     let metadata: CatalogMetadataRepository
+    let actions: SidePanelPlaybackActions
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
@@ -423,8 +426,8 @@ private struct CurrentTrackRow: View {
             duration: player.duration,
             isCurrent: true,
             showsPause: player.showsPauseControl,
-            canPlay: player.canTogglePlayback,
-            play: player.togglePlayback
+            canPlay: actions.canTogglePlayback,
+            play: actions.togglePlayback
         )
     }
 }

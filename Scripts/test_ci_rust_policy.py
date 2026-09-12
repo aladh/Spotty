@@ -226,6 +226,9 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertIn("id: inputs", identify)
         self.assertIn("INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}", identify)
         self.assertIn("run: ./Scripts/playback-candidate-needed.sh", identify)
+        macos_lines = [line.strip() for line in macos.splitlines()]
+        for step_id in ("inputs", "candidate_build", "candidate_upload", "rust", "debug", "release"):
+            self.assertEqual(macos_lines.count(f"id: {step_id}"), 1)
         for name in ("Cache Rust release build products", "Restore unchanged Rust release input timestamps",
                      "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
                      "Upload candidate playback artifact"):
@@ -360,20 +363,23 @@ class AggregateGateTests(unittest.TestCase):
                                            env={**env, **outcome})
                 self.assertEqual(completed.returncode, 0, completed.stderr)
 
-        invalid_values = {
-            "RUST_NEEDED": ("", "invalid"),
-            "RUST_RESULT": ("success", "failure", "cancelled", ""),
-            "CANDIDATE_SELECTION_RESULT": ("success", "failure", "cancelled", ""),
-            "CANDIDATE_NEEDED": ("true", "false", "invalid"),
-            "CANDIDATE_BUILD_RESULT": ("success", "failure", "cancelled", ""),
-            "CANDIDATE_UPLOAD_RESULT": ("success", "failure", "cancelled", ""),
+        field_values = {
+            "RUST_NEEDED": ("true", "false", "invalid", ""),
+            "RUST_RESULT": ("success", "skipped", "failure", "cancelled", ""),
+            "CANDIDATE_SELECTION_RESULT": ("success", "skipped", "failure", "cancelled", ""),
+            "CANDIDATE_NEEDED": ("true", "false", "invalid", ""),
+            "CANDIDATE_BUILD_RESULT": ("success", "skipped", "failure", "cancelled", ""),
+            "CANDIDATE_UPLOAD_RESULT": ("success", "skipped", "failure", "cancelled", ""),
         }
-        for field, values in invalid_values.items():
-            for value in values:
-                with self.subTest(field=field, value=value):
-                    completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                               env={**env, field: value})
-                    self.assertNotEqual(completed.returncode, 0)
+        for base in valid:
+            for field, values in field_values.items():
+                for value in values:
+                    if value == base[field]:
+                        continue
+                    with self.subTest(base=base, field=field, value=value):
+                        completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
+                                                   env={**env, **base, field: value})
+                        self.assertNotEqual(completed.returncode, 0)
         for lane in ("POLICY_RESULT", "DOMAIN_LINUX_RESULT", "PLAYBACK_PYTHON_RESULT",
                      "CHECKS_RESULT", "RELEASE_RESULT"):
             with self.subTest(lane=lane):

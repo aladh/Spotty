@@ -41,6 +41,8 @@ check.call(mac['name'] == 'macOS checks', 'required aggregate must retain the ma
 check.call(Array(mac['needs']).sort == %w[domain_linux playback_python policy], 'macOS must depend on policy, Linux domain, and playback script checks')
 check.call(mac['if'] == "always() && needs.policy.outputs.macos_needed == 'true'", 'macOS must retain aggregate failure semantics while honoring docs-only skips')
 check.call(mac_steps.none? { |step| step.key?('continue-on-error') }, 'macOS verification steps must fail without continue-on-error')
+mac_step_ids = mac_steps.map { |step| step['id'] }.compact
+check.call(mac_step_ids.uniq.length == mac_step_ids.length, 'macOS step IDs must be unique')
 {'rust' => 'SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh', 'debug' => 'SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh', 'release' => './Scripts/compile-release-spotty.sh'}.each do |id, command|
   matches = mac_steps.select { |s| s['id'] == id }
   check.call(matches.length == 1 && matches[0]['run'] == command, "#{id} verification command must run once in the macOS job")
@@ -111,6 +113,27 @@ end
 end
 check.call(gate.dig('env', 'RUST_NEEDED') == '${{ needs.policy.outputs.rust_needed }}' && gate.dig('env', 'RUST_RESULT') == '${{ steps.rust.outcome }}', 'aggregate must bind the actual Rust decision and outcome')
 candidate_cases = %w[true:success:success:true:success:success true:success:success:false:skipped:skipped false:skipped:skipped::skipped:skipped]
-check.call(candidate_cases.all? { |outcome| gate.fetch('run', '').include?(outcome) }, 'aggregate must fail closed over Rust selection and candidate outcomes')
+case_expression = 'case "$RUST_NEEDED:$RUST_RESULT:$CANDIDATE_SELECTION_RESULT:$CANDIDATE_NEEDED:$CANDIDATE_BUILD_RESULT:$CANDIDATE_UPLOAD_RESULT" in'
+gate_lines = gate.fetch('run', '').lines.map(&:strip)
+case_starts = gate_lines.each_index.select { |index| gate_lines[index] == case_expression }
+case_body = []
+case_structure_valid = case_starts.length == 1
+if case_structure_valid
+  case_end = ((case_starts[0] + 1)...gate_lines.length).find { |index| gate_lines[index] == 'esac' }
+  case_structure_valid = !case_end.nil?
+  case_body = gate_lines[(case_starts[0] + 1)...case_end].reject(&:empty?) if case_structure_valid
+end
+parsed_cases = []
+default_cases = 0
+case_body.each do |line|
+  if line == '*) echo "Rust or candidate results disagree with verification selection" >&2; exit 1 ;;'
+    default_cases += 1
+  elsif (match = line.match(/\A((?:true|false)[^)]*)\)\s*;;\z/))
+    parsed_cases.concat(match[1].split('|'))
+  else
+    case_structure_valid = false
+  end
+end
+check.call(case_structure_valid && default_cases == 1 && parsed_cases.sort == candidate_cases.sort && parsed_cases.uniq.length == parsed_cases.length, 'aggregate must contain exactly the fail-closed Rust and candidate truth table')
 abort(errors.map { |e| "CI invariant: #{e}" }.join("\n")) unless errors.empty?
 puts 'CI workflow invariants passed'

@@ -129,6 +129,16 @@ class WorkflowInvariantTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('macOS verification steps must fail without continue-on-error', result.stderr)
 
+        for step_id in ('inputs', 'candidate_build', 'candidate_upload'):
+            with self.subTest(duplicate_step_id=step_id):
+                variant = copy.deepcopy(self.workflow)
+                variant['jobs']['macos']['steps'].append({
+                    'name': f'Duplicate {step_id}', 'id': step_id, 'run': 'echo duplicate',
+                })
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('macOS step IDs must be unique', result.stderr)
+
         variant = copy.deepcopy(self.workflow)
         mac_steps = variant['jobs']['macos']['steps']
         identify = next(s for s in mac_steps if s['name'] == 'Identify playback inputs')
@@ -185,14 +195,18 @@ class WorkflowInvariantTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f'aggregate must bind {binding} to its candidate step', result.stderr)
 
-        variant = copy.deepcopy(self.workflow)
-        gate = next(s for s in variant['jobs']['macos']['steps']
-                    if s['name'] == 'Require every quality lane')
-        gate['run'] = gate['run'].replace('true:success:success:true:success:success',
-                                          'true:success:success:true:skipped:skipped')
-        result = self.check_workflow(variant)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('aggregate must fail closed over Rust selection and candidate outcomes', result.stderr)
+        for permissive in ('true:failure:success:true:success:success',
+                           'true:success:success:true:skipped:skipped'):
+            with self.subTest(permissive_case=permissive):
+                variant = copy.deepcopy(self.workflow)
+                gate = next(s for s in variant['jobs']['macos']['steps']
+                            if s['name'] == 'Require every quality lane')
+                valid = 'true:success:success:true:success:success'
+                gate['run'] = gate['run'].replace(valid, f'{valid}|{permissive}')
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('aggregate must contain exactly the fail-closed Rust and candidate truth table',
+                              result.stderr)
 
     def test_source_script_coverage_and_candidate_digest_are_preserved(self):
         cases = [

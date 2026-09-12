@@ -45,7 +45,8 @@ class WorkflowInvariantTests(unittest.TestCase):
     def test_failures_name_the_broken_invariant(self):
         for kind, expected in [('runner', 'macOS image must remain macos-26'),
                                ('aggregate', 'aggregate must run even after failures'),
-                               ('repeats', 'main must repeat boundary checks three times')]:
+                               ('repeats', 'main must repeat boundary checks three times'),
+                               ('cbindgen', 'header parser setup must follow explicit Rust classification')]:
             with self.subTest(kind=kind):
                 variant = copy.deepcopy(self.workflow)
                 steps = variant['jobs']['macos']['steps']
@@ -55,6 +56,8 @@ class WorkflowInvariantTests(unittest.TestCase):
                     next(s for s in steps if s['name'] == 'Require every quality lane')['if'] = 'success()'
                 elif kind == 'repeats':
                     next(s for s in steps if s.get('id') == 'debug').pop('env')
+                elif kind == 'cbindgen':
+                    next(s for s in steps if s['name'] == 'Install pinned cbindgen').pop('if')
                 result = self.check_workflow(variant)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)

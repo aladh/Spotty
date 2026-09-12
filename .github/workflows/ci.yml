@@ -136,12 +136,14 @@ jobs:
           echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
 
       - name: Cache pinned cbindgen
+        if: needs.policy.outputs.rust_needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/spotty-cbindgen
           key: macos-26-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}
 
       - name: Install pinned cbindgen
+        if: needs.policy.outputs.rust_needed == 'true'
         run: |
           set -euo pipefail
           cbindgen_bin="$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"

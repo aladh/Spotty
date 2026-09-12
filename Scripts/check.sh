@@ -33,14 +33,14 @@ if [[ "$check_scope" != rust ]]; then
     "$project_root/Scripts/format-swift.sh" --check
 fi
 
-python3 -B -m unittest discover -s "$project_root/Scripts" -p 'test_playback_*.py'
-"$project_root/Scripts/generate-c-header.sh" --check
-
 # The Rust suite owns lifecycle, generation, queue conversion, typed C snapshots,
-# and compile-time C signature checks. Prefer the developer's normal toolchain;
-# the fallback is the project-local toolchain provisioned by the development
-# bootstrap on this workspace.
+# source-header reproducibility, and compile-time C signature checks. Prefer the
+# developer's normal toolchain; the fallback is the project-local toolchain
+# provisioned by the development bootstrap on this workspace.
 if [[ "$check_scope" != swift ]]; then
+    python3 -B -m unittest discover -s "$project_root/Scripts" -p 'test_playback_*.py'
+    "$project_root/Scripts/generate-c-header.sh" --check
+
     cargo_bin="${SPOTTY_CARGO:-}"
     if [[ -z "$cargo_bin" ]]; then
         cargo_bin="$(command -v cargo || true)"

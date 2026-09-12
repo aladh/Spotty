@@ -108,10 +108,10 @@ jobs:
         id: domain_tests
         run: swift test --filter SpottyDomainTests
 
-  macos:
-    name: macOS checks
-    needs: [policy, domain_linux]
-    if: needs.policy.outputs.macos_needed == 'true'
+  rust_macos:
+    name: Rust checks
+    needs: policy
+    if: needs.policy.outputs.rust_needed == 'true'
     runs-on: macos-26
     timeout-minutes: 120
     env:
@@ -129,21 +129,18 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
 
       - name: Show Rust toolchain
-        if: needs.policy.outputs.rust_needed == 'true'
         run: |
           set -euo pipefail
           rustc --version
           echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
 
       - name: Cache pinned cbindgen
-        if: needs.policy.outputs.rust_needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/spotty-cbindgen
           key: macos-26-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}
 
       - name: Install pinned cbindgen
-        if: needs.policy.outputs.rust_needed == 'true'
         run: |
           set -euo pipefail
           cbindgen_bin="$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
@@ -154,15 +151,7 @@ jobs:
           test "$("$cbindgen_bin" --version)" = "cbindgen $CBINDGEN_VERSION"
           echo "$RUNNER_TEMP/spotty-cbindgen/bin" >> "$GITHUB_PATH"
 
-      - name: Identify playback inputs
-        if: needs.policy.outputs.rust_needed == 'true'
-        id: inputs
-        env:
-          INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: ./Scripts/playback-candidate-needed.sh
-
       - name: Cache Rust verification products
-        if: needs.policy.outputs.rust_needed == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -175,8 +164,36 @@ jobs:
 
       - name: Run Rust checks
         id: rust
-        if: needs.policy.outputs.rust_needed == 'true'
         run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
+
+  playback_candidate:
+    name: Playback candidate
+    needs: policy
+    if: needs.policy.outputs.rust_needed == 'true'
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      - name: Show candidate Rust toolchain
+        run: |
+          set -euo pipefail
+          rustc --version
+          echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Identify playback inputs
+        id: inputs
+        env:
+          INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: ./Scripts/playback-candidate-needed.sh
 
       - name: Cache Rust release build products
         if: steps.inputs.outputs.candidate_needed == 'true'
@@ -233,6 +250,21 @@ jobs:
           path: ${{ runner.temp }}/spotty-playback-candidate
           if-no-files-found: error
           retention-days: 7
+
+  app_macos:
+    name: macOS app
+    needs: policy
+    if: needs.policy.outputs.macos_needed == 'true'
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
 
       - name: Install verification tools
         run: |
@@ -303,23 +335,33 @@ jobs:
           path: ${{ runner.temp }}/size-report.json
           retention-days: 30
 
+  # Keep the stable branch-protection check name while the independent macOS producers run in
+  # parallel. This job owns their required/skipped truth table and finishes in seconds.
+  macos:
+    name: macOS checks
+    needs: [policy, domain_linux, rust_macos, playback_candidate, app_macos]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
       - name: Require every quality lane
-        if: always()
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
           DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}
           RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
-          RUST_RESULT: ${{ steps.rust.outcome }}
-          CHECKS_RESULT: ${{ steps.debug.outcome }}
-          RELEASE_RESULT: ${{ steps.release.outcome }}
+          MACOS_NEEDED: ${{ needs.policy.outputs.macos_needed }}
+          RUST_RESULT: ${{ needs.rust_macos.result }}
+          CANDIDATE_RESULT: ${{ needs.playback_candidate.result }}
+          APP_RESULT: ${{ needs.app_macos.result }}
         run: |
+          set -euo pipefail
           test "$POLICY_RESULT" = success
           test "$DOMAIN_LINUX_RESULT" = success
-          if [[ "$RUST_NEEDED" == true ]]; then
-            test "$RUST_RESULT" = success
-          else
-            test "$RUST_NEEDED" = false
-            test "$RUST_RESULT" = skipped
-          fi
-          test "$CHECKS_RESULT" = success
-          test "$RELEASE_RESULT" = success
+          case "$RUST_NEEDED:$RUST_RESULT:$CANDIDATE_RESULT" in
+            true:success:success|false:skipped:skipped) ;;
+            *) echo "Rust and candidate results disagree with verification selection" >&2; exit 1 ;;
+          esac
+          case "$MACOS_NEEDED:$APP_RESULT" in
+            true:success|false:skipped) ;;
+            *) echo "macOS app result disagrees with verification selection" >&2; exit 1 ;;
+          esac

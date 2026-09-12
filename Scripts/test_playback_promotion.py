@@ -57,13 +57,19 @@ class PromotionTests(unittest.TestCase):
             "path": ".github/workflows/ci.yml", "event": "push", "head_branch": "main",
             "head_sha": HEAD, "status": "completed", "conclusion": "failure",
         }
-        self.jobs = [{"name": "Source policies", "conclusion": "success"}, {
-            "name": "macOS checks", "conclusion": "failure", "steps": [
+        self.jobs = [
+            {"name": "Source policies", "conclusion": "success"},
+            {"name": "Rust checks", "conclusion": "success", "steps": [
+                {"name": "Run Rust checks", "conclusion": "success"},
+            ]},
+            {"name": "Playback candidate", "conclusion": "success", "steps": [
                 {"name": name, "conclusion": "success", "started_at": "2026-09-05T12:00:00Z",
                  "completed_at": "2026-09-05T12:10:00Z"} for name in PRODUCER_STEPS
-            ] + [{"name": "Run checks", "conclusion": "failure"}],
-        }]
-        self.jobs[1]["steps"][2]["started_at"] = "2026-09-05T12:08:00Z"
+            ]},
+            {"name": "macOS app", "conclusion": "failure"},
+            {"name": "macOS checks", "conclusion": "failure"},
+        ]
+        self.jobs[2]["steps"][1]["started_at"] = "2026-09-05T12:08:00Z"
         self.artifact = {"expired": False, "created_at": "2026-09-05T12:09:00Z"}
 
     def test_engine_promotion_survives_later_swift_failure(self):
@@ -142,30 +148,41 @@ class PromotionTests(unittest.TestCase):
                 validate_run({**self.run, key: value}, self.jobs, "owner/repo", HEAD)
 
     def test_every_required_job_must_pass(self):
-        for conclusion in ("failure", "skipped", "cancelled", None):
-            jobs = copy.deepcopy(self.jobs)
-            jobs[0]["conclusion"] = conclusion
-            with self.subTest(conclusion=conclusion), self.assertRaises(ValueError):
-                validate_run(self.run, jobs, "owner/repo", HEAD)
-        for index in range(len(self.jobs)):
+        for index in range(3):
+            for conclusion in ("failure", "skipped", "cancelled", None):
+                jobs = copy.deepcopy(self.jobs)
+                jobs[index]["conclusion"] = conclusion
+                with self.subTest(index=index, conclusion=conclusion), self.assertRaises(ValueError):
+                    validate_run(self.run, jobs, "owner/repo", HEAD)
             with self.subTest(missing=index), self.assertRaises(ValueError):
                 validate_run(self.run, self.jobs[:index] + self.jobs[index + 1:], "owner/repo", HEAD)
             with self.subTest(duplicate=index), self.assertRaises(ValueError):
                 validate_run(self.run, [*self.jobs, self.jobs[index]], "owner/repo", HEAD)
 
+    def test_rust_verification_step_must_pass_once(self):
+        for conclusion in ("failure", "skipped", "cancelled", None):
+            jobs = copy.deepcopy(self.jobs)
+            jobs[1]["steps"][0]["conclusion"] = conclusion
+            with self.subTest(conclusion=conclusion), self.assertRaises(ValueError):
+                validate_run(self.run, jobs, "owner/repo", HEAD)
+        for steps in ([], self.jobs[1]["steps"] * 2):
+            jobs = copy.deepcopy(self.jobs)
+            jobs[1]["steps"] = steps
+            with self.subTest(count=len(steps)), self.assertRaises(ValueError):
+                validate_run(self.run, jobs, "owner/repo", HEAD)
+
     def test_every_producer_step_must_pass_even_when_job_succeeds(self):
         for index in range(len(PRODUCER_STEPS)):
             for conclusion in ("failure", "skipped", "cancelled", None):
                 jobs = copy.deepcopy(self.jobs)
-                jobs[1]["conclusion"] = "success"
-                jobs[1]["steps"][index]["conclusion"] = conclusion
+                jobs[2]["steps"][index]["conclusion"] = conclusion
                 with self.subTest(index=index, conclusion=conclusion), self.assertRaises(ValueError):
                     validate_run(self.run, jobs, "owner/repo", HEAD)
             for duplicate in (False, True):
                 jobs = copy.deepcopy(self.jobs)
-                step = jobs[1]["steps"].pop(index)
+                step = jobs[2]["steps"].pop(index)
                 if duplicate:
-                    jobs[1]["steps"].extend([step, step])
+                    jobs[2]["steps"].extend([step, step])
                 with self.subTest(index=index, duplicate=duplicate), self.assertRaises(ValueError):
                     validate_run(self.run, jobs, "owner/repo", HEAD)
 
@@ -176,7 +193,7 @@ class PromotionTests(unittest.TestCase):
                 validate_artifact({**self.artifact, "created_at": created}, self.jobs)
 
     def test_artifact_timestamp_tolerance_crosses_midnight(self):
-        self.jobs[1]["steps"][2]["completed_at"] = "2026-09-05T23:59:59Z"
+        self.jobs[2]["steps"][1]["completed_at"] = "2026-09-05T23:59:59Z"
         validate_artifact({**self.artifact, "created_at": "2026-09-06T00:00:00Z"}, self.jobs)
         with self.assertRaises(ValueError):
             validate_artifact({**self.artifact, "created_at": "2026-09-06T00:00:01Z"}, self.jobs)

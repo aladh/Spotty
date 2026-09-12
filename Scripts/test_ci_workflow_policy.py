@@ -43,21 +43,25 @@ class WorkflowInvariantTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_failures_name_the_broken_invariant(self):
-        for kind, expected in [('runner', 'macOS image must remain macos-26'),
-                               ('aggregate', 'aggregate must run even after failures'),
+        for kind, expected in [('runner', 'macOS app must remain on macos-26'),
+                               ('aggregate', 'aggregate must run even after failures or intentional skips'),
                                ('repeats', 'main must repeat boundary checks three times'),
-                               ('cbindgen', 'header parser setup must follow explicit Rust classification')]:
+                               ('cbindgen', 'Rust job must own unconditional pinned header parser setup'),
+                               ('serialized', 'macOS app must depend only on policy so macOS work stays parallel')]:
             with self.subTest(kind=kind):
                 variant = copy.deepcopy(self.workflow)
-                steps = variant['jobs']['macos']['steps']
                 if kind == 'runner':
-                    variant['jobs']['macos']['runs-on'] = 'macos-latest'
+                    variant['jobs']['app_macos']['runs-on'] = 'macos-latest'
                 elif kind == 'aggregate':
-                    next(s for s in steps if s['name'] == 'Require every quality lane')['if'] = 'success()'
+                    variant['jobs']['macos']['if'] = 'success()'
                 elif kind == 'repeats':
+                    steps = variant['jobs']['app_macos']['steps']
                     next(s for s in steps if s.get('id') == 'debug').pop('env')
                 elif kind == 'cbindgen':
-                    next(s for s in steps if s['name'] == 'Install pinned cbindgen').pop('if')
+                    steps = variant['jobs']['rust_macos']['steps']
+                    steps.remove(next(s for s in steps if s['name'] == 'Install pinned cbindgen'))
+                elif kind == 'serialized':
+                    variant['jobs']['app_macos']['needs'] = ['policy', 'rust_macos']
                 result = self.check_workflow(variant)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
@@ -70,7 +74,8 @@ class WorkflowInvariantTests(unittest.TestCase):
             ('Identify playback inputs', 'base', None, 'HEAD', 'candidate selection must receive'),
             ('Build candidate playback XCFramework', 'if', None, 'success()', 'Build candidate must follow'),
             ('Upload candidate playback artifact', 'if', None, 'success()', 'Upload candidate must follow'),
-            ('Require every quality lane', 'outcome', None, 'success', 'aggregate must require CHECKS_RESULT'),
+            ('Require every quality lane', 'app_result', None, 'success', 'aggregate must bind APP_RESULT'),
+            ('Require every quality lane', 'candidate_result', None, 'success', 'aggregate must bind CANDIDATE_RESULT'),
         ]
         for name, field, old, new, expected in cases:
             with self.subTest(name=name, field=field):
@@ -79,8 +84,10 @@ class WorkflowInvariantTests(unittest.TestCase):
                             if s['name'] == name)
                 if field == 'base':
                     step['env']['INPUT_BASE_SHA'] = new
-                elif field == 'outcome':
-                    step['env']['CHECKS_RESULT'] = new
+                elif field == 'app_result':
+                    step['env']['APP_RESULT'] = new
+                elif field == 'candidate_result':
+                    step['env']['CANDIDATE_RESULT'] = new
                 elif old:
                     self.assertIn(old, step[field])
                     step[field] = step[field].replace(old, new)

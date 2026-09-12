@@ -24,8 +24,9 @@ SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ./Backend/spotty-playback/build-xcframework.sh
 ```
 
-Both verification scopes check header regeneration with the pinned cbindgen source parser; Rust
-checks also validate producer ABI compatibility. Swift CI consumes only published artifacts,
+The Rust scope checks header regeneration with the pinned cbindgen source parser and validates
+producer ABI compatibility. Candidate production packages those checked-in headers and validates the
+source-built archive independently. Swift CI consumes only published artifacts,
 rejecting noncanonical or unversioned release URLs before dependency resolution.
 [Verification](verification.md#normal-verification) defines when app-only PRs may skip the Rust steps.
 
@@ -35,8 +36,8 @@ Publication requires explicit authorization. It promotes the exact candidate fro
 main-branch push CI run, without rebuilding. The source must be merged and an ancestor of the
 publisher checkout; PR and fork candidates cannot be published. Source policies and the Rust
 verification, candidate build, and upload steps must pass in the selected run attempt. The artifact
-creation time must fall inside that upload step. Later Swift steps validate the published app pin
-independently and do not gate engine publication. The tested commit becomes the release target.
+creation time must fall inside that upload step. The parallel Swift app job validates the published
+app pin independently and does not gate engine publication. The tested commit becomes the release target.
 Expired artifacts or a changed producer CI definition require a fresh main CI run.
 
 CI builds candidates for engine-input or engine build/validation script changes relative to the

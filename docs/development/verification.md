@@ -57,21 +57,23 @@ tools. A differing source input digest produces a pin-freshness warning without 
 or replacing the independently released engine. Checks do not sign in or initiate playback. See the
 [enforcement inventory](../architecture/enforcement.md) for coverage.
 
-CI uses one macOS job for conditional Rust verification/candidate production, then Swift Debug
-checks and the Release distribution compile. Debug and Release share one SwiftPM cache under a
-combined key; separate configuration directories remain inside `.build`. CI restores source timestamps
-only when tracked compiler input contents match the manifest saved with that build cache; changed and
-new inputs keep checkout timestamps. Rust verification disables incremental products and keeps line-table
-debug information to reduce cache transfer without changing assertions or test coverage. Release
-caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust compiler tools are blocked
-before Swift runs. A separate `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
+CI runs independent macOS jobs for conditional Rust verification, candidate production, and the
+Swift Debug plus Release app checks. Each depends only on the trusted policy decision, so they run in
+parallel. A short Linux aggregate retains the required `macOS checks` name and fails unless every
+selected producer succeeds and every skip matches an explicit negative classification. Debug and
+Release share one SwiftPM cache within the app job; separate configuration directories remain inside
+`.build`. CI restores source timestamps only when tracked compiler input contents match the manifest
+saved with that build cache; changed and new inputs keep checkout timestamps. Rust verification
+disables incremental products and keeps line-table debug information to reduce cache transfer without
+changing assertions or test coverage. Candidate Release caches include Cargo host tools as well as
+target products and a content-checked input timestamp manifest. Rust compiler tools are blocked in
+the app job. A separate `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
 in a Swift container; `Package.swift` declares only those two targets off macOS, so an AppKit,
 SwiftUI, AVFoundation, or playback-FFI import in the domain fails to compile there. Main requires
-`Source policies`, `Linux domain`, and `macOS checks`. The final macOS step validates each phase
-outcome, including the explicit decision required to skip Rust.
+`Source policies`, `Linux domain`, and `macOS checks`.
 
-CI skips macOS for PRs limited to documentation, including nested `AGENTS.md` files. The Linux
-source-policy and domain jobs still run; neither is conditional. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or
+CI skips the macOS workers for PRs limited to documentation, including nested `AGENTS.md` files. The
+Linux source-policy, domain, and aggregate jobs still run. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or
 documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
 runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
 requires Rust; a base without macOS classification keeps macOS enabled. Detection errors fail CI. Skipped Rust steps are accepted only after an

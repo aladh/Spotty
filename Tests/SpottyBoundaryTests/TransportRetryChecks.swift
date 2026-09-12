@@ -210,7 +210,10 @@ func testTransportRetry() async {
             .http(status: 429, headers: ["Retry-After": "5"]),
             .http(status: 200, body: profileBody),
         ])
-        let task = Task {
+        // The cancellation probe must not inherit this test's MainActor isolation. A parked
+        // unstructured MainActor child can otherwise outlive a failed synchronization and block
+        // unrelated MainActor suites from starting.
+        let task = Task.detached {
             try await partnerAPI(
                 transport: parked.send,
                 retryTiming: SpotifyTransientRetry.Timing(
@@ -220,7 +223,7 @@ func testTransportRetry() async {
                 )
             ).profile()
         }
-        await sleeper.waitUntilStarted()
+        await expectEventually { sleeper.hasStarted }
         task.cancel()
         var cancelledDuringBackoff = false
         do {
@@ -435,7 +438,9 @@ func testTransportRetry() async {
             .http(status: 401),
             .http(status: 200, body: profileBody),
         ])
-        let task = Task {
+        // Keep this parked cancellation probe off MainActor for the same reason as the retry
+        // backoff probe above. The bounded start check also guarantees cleanup on a regression.
+        let task = Task.detached {
             try await PartnerAPI(
                 accessToken: { parkedTokens.next() },
                 clientToken: { parkedClients.next() },
@@ -445,7 +450,7 @@ func testTransportRetry() async {
                 retryTiming: .immediate
             ).profile()
         }
-        await parkedAccess.waitUntilStarted()
+        await expectEventually { await parkedAccess.hasStarted }
         task.cancel()
         var cancelledDuringInvalidation = false
         do {
@@ -732,36 +737,22 @@ private final class RecordingSleeper: @unchecked Sendable {
 private final class ParkUntilCancelledSleeper: @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [TimeInterval] = []
-    private var started: CheckedContinuation<Void, Never>?
     private var didStart = false
 
     var delays: [TimeInterval] {
         lock.withLock { recorded }
     }
 
-    func sleep(_ seconds: TimeInterval) async throws {
-        let waiter: CheckedContinuation<Void, Never>? = lock.withLock {
-            recorded.append(seconds)
-            let waiter = started
-            started = nil
-            didStart = true
-            return waiter
-        }
-        waiter?.resume()
-        try await HarnessClock.parked().sleep(seconds: 60)
+    var hasStarted: Bool {
+        lock.withLock { didStart }
     }
 
-    func waitUntilStarted() async {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            if didStart {
-                lock.unlock()
-                continuation.resume()
-            } else {
-                started = continuation
-                lock.unlock()
-            }
+    func sleep(_ seconds: TimeInterval) async throws {
+        lock.withLock {
+            recorded.append(seconds)
+            didStart = true
         }
+        try await HarnessClock.parked().sleep(seconds: 60)
     }
 }
 
@@ -797,26 +788,12 @@ private actor RecordingInvalidator {
 
 private actor ParkUntilCancelledInvalidator {
     private(set) var values: [String] = []
-    private var started: CheckedContinuation<Void, Never>?
-    private var didStart = false
+    private(set) var hasStarted = false
 
     func park(_ value: String) async throws {
         values.append(value)
-        let waiter = started
-        started = nil
-        didStart = true
-        waiter?.resume()
+        hasStarted = true
         try await HarnessClock.parked().sleep(seconds: 60)
-    }
-
-    func waitUntilStarted() async {
-        await withCheckedContinuation { continuation in
-            if didStart {
-                continuation.resume()
-            } else {
-                started = continuation
-            }
-        }
     }
 }
 

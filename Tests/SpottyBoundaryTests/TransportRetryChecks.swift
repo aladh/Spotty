@@ -223,16 +223,11 @@ func testTransportRetry() async {
                 )
             ).profile()
         }
-        await expectEventually { sleeper.hasStarted }
-        task.cancel()
-        var cancelledDuringBackoff = false
-        do {
-            _ = try await task.value
-        } catch is CancellationError {
-            cancelledDuringBackoff = true
-        } catch {
-            #expect((false) == true, "backoff cancellation stays CancellationError, got \(error)")
-        }
+        let cancelledDuringBackoff = await cancelOnceParked(
+            task,
+            latch: sleeper.cancellationLatch,
+            label: "backoff cancellation"
+        )
         #expect((cancelledDuringBackoff) == true, "cancellation during backoff surfaces CancellationError")
         #expect((parked.callCount) == (1), "cancellation during backoff does not send the retry")
         #expect((sleeper.delays) == ([5]), "cancellation still recorded the Retry-After delay")
@@ -450,21 +445,16 @@ func testTransportRetry() async {
                 retryTiming: .immediate
             ).profile()
         }
-        await expectEventually { await parkedAccess.hasStarted }
-        task.cancel()
-        var cancelledDuringInvalidation = false
-        do {
-            _ = try await task.value
-        } catch is CancellationError {
-            cancelledDuringInvalidation = true
-        } catch {
-            #expect((false) == true, "terminal invalidation cancellation stays CancellationError, got \(error)")
-        }
+        let cancelledDuringInvalidation = await cancelOnceParked(
+            task,
+            latch: parkedAccess.cancellationLatch,
+            label: "terminal invalidation cancellation"
+        )
         #expect(
             (cancelledDuringInvalidation) == true,
             "cancellation during terminal invalidation surfaces CancellationError")
         #expect((parked.callCount) == (3), "cancellation during terminal invalidation does not add a request")
-        #expect((await parkedAccess.values) == (["park-c"]), "cancellation still named the final bearer")
+        #expect((parkedAccess.values) == (["park-c"]), "cancellation still named the final bearer")
         #expect((parkedTokens.callCount) == (3), "cancellation does not fetch another credential")
     }
 
@@ -529,6 +519,17 @@ func testTransportRetry() async {
         #expect(
             (recovered?.entries.map(\.uid)) == (["uid-alpha", "uid-beta"]),
             "expired cooldown preserves Connect occurrence uids")
+    }
+}
+
+@Test("Cancellation probe cleanup is bounded before parking")
+func cancellationProbeCleanupBeforeParking() async {
+    let latch = CancellationLatch()
+    latch.cancel()
+
+    #expect(latch.hasStarted == false)
+    await #expect(throws: CancellationError.self) {
+        try await latch.park()
     }
 }
 
@@ -737,22 +738,15 @@ private final class RecordingSleeper: @unchecked Sendable {
 private final class ParkUntilCancelledSleeper: @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [TimeInterval] = []
-    private var didStart = false
+    let cancellationLatch = CancellationLatch()
 
     var delays: [TimeInterval] {
         lock.withLock { recorded }
     }
 
-    var hasStarted: Bool {
-        lock.withLock { didStart }
-    }
-
     func sleep(_ seconds: TimeInterval) async throws {
-        lock.withLock {
-            recorded.append(seconds)
-            didStart = true
-        }
-        try await HarnessClock.parked().sleep(seconds: 60)
+        lock.withLock { recorded.append(seconds) }
+        try await cancellationLatch.park()
     }
 }
 
@@ -786,14 +780,101 @@ private actor RecordingInvalidator {
     }
 }
 
-private actor ParkUntilCancelledInvalidator {
-    private(set) var values: [String] = []
-    private(set) var hasStarted = false
+private final class ParkUntilCancelledInvalidator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    let cancellationLatch = CancellationLatch()
+
+    var values: [String] {
+        lock.withLock { recorded }
+    }
 
     func park(_ value: String) async throws {
-        values.append(value)
-        hasStarted = true
-        try await HarnessClock.parked().sleep(seconds: 60)
+        lock.withLock { recorded.append(value) }
+        try await cancellationLatch.park()
+    }
+}
+
+/// One-shot test latch whose only exit is task cancellation.
+///
+/// `started` becomes true in the same critical section that stores the continuation, so a caller
+/// that observes a parked task can cancel and join it without racing continuation registration.
+/// An explicit `cancel()` also makes a late park fail immediately, which lets a failed start
+/// watchdog clean up without awaiting a task that never reached its expected suspension point.
+private final class CancellationLatch: @unchecked Sendable {
+    private struct Storage {
+        var cancelled = false
+        var started = false
+        var waiter: CheckedContinuation<Void, any Error>?
+    }
+
+    private let lock = NSLock()
+    private var storage = Storage()
+
+    var hasStarted: Bool {
+        lock.withLock { storage.started }
+    }
+
+    func park() async throws {
+        try await withTaskCancellationHandler(
+            operation: {
+                try Task.checkCancellation()
+                try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<Void, any Error>) in
+                    let cancelImmediately = lock.withLock { () -> Bool in
+                        if storage.cancelled || Task.isCancelled { return true }
+                        precondition(storage.waiter == nil, "CancellationLatch is one-shot")
+                        storage.waiter = continuation
+                        storage.started = true
+                        return false
+                    }
+                    if cancelImmediately {
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            },
+            onCancel: { self.cancel() }
+        )
+    }
+
+    func cancel() {
+        let waiter = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
+            storage.cancelled = true
+            defer { storage.waiter = nil }
+            return storage.waiter
+        }
+        waiter?.resume(throwing: CancellationError())
+    }
+}
+
+@MainActor
+private func cancelOnceParked<Success: Sendable>(
+    _ task: Task<Success, any Error>,
+    latch: CancellationLatch,
+    label: String,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async -> Bool {
+    guard await waitUntil({ latch.hasStarted }) else {
+        task.cancel()
+        latch.cancel()
+        Issue.record(
+            "\(label) did not reach its cancellation point before the watchdog",
+            sourceLocation: sourceLocation
+        )
+        return false
+    }
+
+    task.cancel()
+    latch.cancel()
+    do {
+        _ = try await task.value
+        Issue.record("\(label) completed instead of throwing CancellationError", sourceLocation: sourceLocation)
+        return false
+    } catch is CancellationError {
+        return true
+    } catch {
+        Issue.record("\(label) threw \(error) instead of CancellationError", sourceLocation: sourceLocation)
+        return false
     }
 }
 

@@ -77,7 +77,7 @@ public enum SessionAction: Codable, Equatable, Sendable {
         }
     }
 
-    /// Even account operations can have irreversible effects. A broken connection never retries them.
+    /// Even account operations can have irreversible effects. An uncertain result is never retried.
     public var mayWrite: Bool { kind != .queueRefresh }
 }
 

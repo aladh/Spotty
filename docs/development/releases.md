@@ -50,10 +50,8 @@ Gatekeeper acceptance. Signing proves artifact integrity; it does not make the p
 integration supported or policy-compliant. Retain the selected engine's dependency notices; see
 [playback artifacts](playback-artifacts.md) for engine publication.
 
-The production session runtime runs inside the app executable; the transport candidate is not an
-embedded session XPC helper. [ADR 008](../architecture/adrs/ADR-008-headless-session-runtime.md)
-requires stable peer identity and packaged audio/lifetime validation before that deployment changes.
-The notarization commands above do not by themselves establish those runtime acceptance conditions.
+The production session runtime runs inside the app executable. Spotty does not package a custom
+session XPC helper; the XPC services embedded by Sparkle belong only to the updater.
 
 ## Tagged releases
 

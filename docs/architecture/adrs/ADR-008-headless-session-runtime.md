@@ -12,10 +12,10 @@ session execution to UI scheduling and makes independent lifetime scenarios hard
 The existing domain reducer, effect registry, command permits, and retained engine already encode
 useful safety decisions; changing their owner does not justify replacing those decisions.
 
-A bundled XPC service can additionally contain process failures, but requires a reliable signing,
-peer-identity, packaging, and audio lifecycle contract. Ad-hoc distribution does not establish that
-contract. A development certificate alone does not establish Developer ID distribution or
-notarization across updates.
+Moving the runtime into a separate helper could additionally contain process failures, but the app
+has no measured need for that deployment boundary. It would add serialization, helper lifecycle,
+packaging, and audio-continuity obligations without strengthening the runtime's account and command
+ownership rules.
 
 ## Decision
 
@@ -41,16 +41,11 @@ enrichment; playback command dispatch has its own lane. Read retries and uncerta
 distinct. Moving a private interface behind a target does
 not make that interface stable or officially supported.
 
-The production desktop uses this runtime in process. Closing a window keeps the app and runtime
-alive; quitting terminates them. This does not provide playback after app termination or crash.
-The engine adapter remains the only production consumer of the playback binary, and PCM stays
-between that adapter and its AVFoundation renderer.
-
-The versioned session command/snapshot contract also has an independently exercised XPC transport
-candidate. It validates peer identity, session identity, revisions, and bounded messages. Connection
-loss around a dispatched write produces an unknown outcome; reconnect begins with a complete
-snapshot and must not replay uncertain mutations. This transport is not a production helper, a
-separately installed agent, or a second session authority.
+The production desktop uses this runtime in process, and the package does not maintain a custom XPC
+session transport or helper. Closing a window keeps the app and runtime alive; quitting terminates
+them. This does not provide playback after app termination or crash. The engine adapter remains the
+only production consumer of the playback binary, and PCM stays between that adapter and its
+AVFoundation renderer.
 
 ## Tradeoffs and alternatives
 
@@ -59,11 +54,11 @@ A stalled transition can still delay local synchronous admission, so bounded tra
 a correctness requirement, not merely an optimization. The runtime retains explicit task ownership
 through `PlaybackEffectRegistry`; no TCA or general-purpose effect framework is introduced.
 
-A full XPC cutover would remove the direct local entrance but add serialization, helper startup,
-crash recovery, packaging, and trust obligations. Adopt it only after packaged continuous audio,
-sleep/wake, output changes, helper failure, and reconnect scenarios pass with the intended release
-identity. Desktop, helper, and contract must then ship as one compatible release.
+A separate helper was considered and a nonshipping XPC candidate was removed after the in-process
+runtime established the needed ownership and lifetime boundary. Revisit process isolation only if a
+measured user or reliability problem justifies a new proposal; repository history retains the old
+prototype if its experiments are useful.
 
 OAuth persistence remains governed by [ADR 007](ADR-007-session-persistence.md). A future move to
-service-owned Keychain storage requires separately verified signing continuity and a recoverable
-migration; this boundary change neither imports nor modifies old Keychain grants.
+Keychain storage requires separately verified signing continuity and a recoverable migration; this
+boundary change neither imports nor modifies old Keychain grants.

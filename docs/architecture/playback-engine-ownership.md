@@ -21,8 +21,7 @@ PCM output. This page describes boundaries, not a module inventory.
 | The C boundary, typed engine observations, and their fan-out | [SpottyEngineAdapter](../../Sources/SpottyEngineAdapter), the only production target directly depending on the playback binary |
 
 [ADR 008](adrs/ADR-008-headless-session-runtime.md) places session authority on its dedicated
-transition executor. The production client is in process; the independent XPC transport candidate
-does not imply a bundled production session helper.
+transition executor. The production client and runtime both execute inside the app process.
 
 Account epoch projections are not independent counters. Connect callback identity must also remain
 separate from merged queue presentation: adopting an engine epoch must not erase the callback

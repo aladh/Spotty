@@ -32,7 +32,7 @@ package actor SessionRuntimeActor {
 
     /// Local clients use this entrance for bounded admission and deterministic scenario setup.
     /// A transition may never wait for MainActor, storage, network or a blocking engine call.
-    /// Remote clients use SessionRuntimeServing's asynchronous command contract instead.
+    /// Other in-process clients use SessionRuntimeServing's asynchronous command contract instead.
     package nonisolated static func sync<Value: Sendable>(
         _ operation: @SessionRuntimeActor () -> Value
     ) -> Value {

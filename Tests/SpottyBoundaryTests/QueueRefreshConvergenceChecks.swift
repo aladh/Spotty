@@ -146,7 +146,7 @@ struct QueueRefreshConvergenceTests {
                 fallbackEntries: [QueueEntry(uri: uri, provider: "connect")],
                 currentTrackURI: "spotify:track:current", accountEpoch: 1, onUpdate: { _ in updates.record("update") })
         }
-        #expect(await waitUntil { remote.requestedURIs.count == 1 })
+        #expect(await waitUntil { remote.parkedMetadataRequestCount == 1 })
         remote.completeMetadata(for: uri)
         #expect(await waitUntil { clock.waiterCount == 1 })
         await service.reset(accountEpoch: 2)

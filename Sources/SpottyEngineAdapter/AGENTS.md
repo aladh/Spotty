@@ -1,6 +1,7 @@
 # Engine adapter agent guidance
 
-This target is the only one that depends on the `SpottyPlaybackCore` binary. Follow the
+This is the only production target with a direct dependency on the `SpottyPlaybackCore` binary.
+Follow the
 [engine contract](../../docs/architecture/engine-contract.md),
 [ownership boundary](../../docs/architecture/playback-engine-ownership.md), and
 [ADR 001](../../docs/architecture/adrs/ADR-001-playback-engine.md).

@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct SidePanelPlaybackActionTests {
-    @Test func retainedRowsAndMenusCannotCommandTheReplacementAccount() {
+    @Test func retainedRowsAndMenusCannotCommandTheReplacementAccount() async {
         let engine = HarnessEngine()
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine))
         player.withRuntime { seedReady($0) }
@@ -34,10 +34,20 @@ struct SidePanelPlaybackActionTests {
         #expect(engine.operations.isEmpty)
 
         // A newly rendered row keeps the normal admission path available.
+        let gate = HarnessEngineGate(result: .ok)
+        defer { gate.finish(with: .ok) }
+        engine.onExecute = { [gate] _ in gate.enter() }
         let currentRowsAndMenu = SidePanelPlaybackActions(player: player)
         #expect(currentRowsAndMenu.canStartPlayback)
         currentRowsAndMenu.play(uri: "spotify:track:current-selection")
         #expect(player.state.pendingCommands[.transport] != nil)
+        let command = player.state.pendingCommands[.transport].flatMap {
+            player.effects.settlement(of: .command($0.id))
+        }
+        await expectEventually { gate.enteredCount == 1 }
+        gate.finish(with: .ok)
+        await command?.wait()
+        await player.shutdownForTermination()
     }
 
     @SessionRuntimeActor

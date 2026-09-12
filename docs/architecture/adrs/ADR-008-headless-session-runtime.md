@@ -43,8 +43,8 @@ not make that interface stable or officially supported.
 
 The production desktop uses this runtime in process. Closing a window keeps the app and runtime
 alive; quitting terminates them. This does not provide playback after app termination or crash.
-The engine adapter remains the only consumer of the playback binary, and PCM stays between that
-adapter and its AVFoundation renderer.
+The engine adapter remains the only production consumer of the playback binary, and PCM stays
+between that adapter and its AVFoundation renderer.
 
 The versioned session command/snapshot contract also has an independently exercised XPC transport
 candidate. It validates peer identity, session identity, revisions, and bounded messages. Connection

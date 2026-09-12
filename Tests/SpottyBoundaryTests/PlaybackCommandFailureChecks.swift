@@ -307,6 +307,7 @@ struct PlaybackDispatchRoutingTests {
         } else {
             #expect((false) == true, "explicit transfer uses a device-targeted operation")
         }
+        await expectEventually { player.feedback.message != nil }
         #expect(
             (player.feedback.message?.text) == ("Playback request sent to Speaker A"),
             "accepted explicit transfer presents success feedback"
@@ -802,9 +803,10 @@ struct PlaybackCommandFailureTests {
             )
         }
 
+        let pauseFailRemote = HarnessRemote(send: .park)
         let pauseFailStore = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .ok), remote: HarnessRemote(send: .fail)
+                engine: HarnessEngine(executeResult: .ok), remote: pauseFailRemote
             )
         )
         seedRemotePlayback(pauseFailStore, transport: .playing, timing: priorPlayingTiming)
@@ -816,6 +818,13 @@ struct PlaybackCommandFailureTests {
         #expect(
             (pauseFailStore.state.timing) == (frozenPauseTiming),
             "remote pause freezes displayed timing before completion")
+        let pauseSettlement = pauseFailStore.state.pendingCommands[.transport].flatMap {
+            pauseFailStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(pauseSettlement != nil)
+        await expectEventually { pauseFailRemote.parkedSendCount == 1 }
+        pauseFailRemote.completePark(success: false)
+        await pauseSettlement?.wait()
         await expectEventually { pauseFailStore.state.pendingCommands[.transport] == nil }
         #expect((pauseFailStore.state.transport) == (.playing), "remote pause rejection restores playing")
         #expect(
@@ -826,9 +835,10 @@ struct PlaybackCommandFailureTests {
             "remote pause rejection uses the action notice")
         await pauseFailStore.shutdownForTermination()
 
+        let resumeFailRemote = HarnessRemote(send: .park)
         let resumeFailStore = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .ok), remote: HarnessRemote(send: .fail)
+                engine: HarnessEngine(executeResult: .ok), remote: resumeFailRemote
             )
         )
         seedRemotePlayback(resumeFailStore, transport: .paused, timing: pausedTiming)
@@ -836,6 +846,13 @@ struct PlaybackCommandFailureTests {
         #expect((resumeFailStore.state.transport) == (.playing), "remote resume applies playing before completion")
         #expect(
             (resumeFailStore.state.timing) == (resumeTiming), "remote resume re-anchors from the injected clock")
+        let resumeSettlement = resumeFailStore.state.pendingCommands[.transport].flatMap {
+            resumeFailStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(resumeSettlement != nil)
+        await expectEventually { resumeFailRemote.parkedSendCount == 1 }
+        resumeFailRemote.completePark(success: false)
+        await resumeSettlement?.wait()
         await expectEventually { resumeFailStore.state.pendingCommands[.transport] == nil }
         #expect((resumeFailStore.state.transport) == (.paused), "remote resume rejection restores paused")
         #expect(
@@ -855,15 +872,23 @@ struct PlaybackCommandFailureTests {
         #expect((pauseOkStore.transientCommandError) == nil, "accepted remote pause has no command notice")
         await pauseOkStore.shutdownForTermination()
 
+        let seekFailRemote = HarnessRemote(send: .park)
         let seekFailStore = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .ok), remote: HarnessRemote(send: .fail)
+                engine: HarnessEngine(executeResult: .ok), remote: seekFailRemote
             )
         )
         seedRemotePlayback(seekFailStore, transport: .playing, timing: priorPlayingTiming)
         seekFailStore.seek(to: 0.4)
         #expect((seekFailStore.state.timing.position) == (80), "seek applies optimistic timing before completion")
         #expect((seekFailStore.state.transport) == (.playing), "seek leaves transport playing")
+        let seekSettlement = seekFailStore.state.pendingCommands[.seek].flatMap {
+            seekFailStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(seekSettlement != nil)
+        await expectEventually { seekFailRemote.parkedSendCount == 1 }
+        seekFailRemote.completePark(success: false)
+        await seekSettlement?.wait()
         await expectEventually { seekFailStore.state.pendingCommands[.seek] == nil }
         #expect((seekFailStore.state.timing) == (priorPlayingTiming), "rejected seek restores exact prior timing")
         #expect(
@@ -882,9 +907,13 @@ struct PlaybackCommandFailureTests {
         #expect((seekOkStore.state.transport) == (.paused), "accepted seek does not change transport")
         await seekOkStore.shutdownForTermination()
 
+        let localSeekGate = HarnessEngineGate(result: .error)
+        defer { localSeekGate.finish(with: .error) }
+        let localSeekEngine = HarnessEngine()
+        localSeekEngine.onExecute = { [localSeekGate] _ in localSeekGate.enter() }
         let localSeekFail = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .error), remote: HarnessRemote(send: .succeed)
+                engine: localSeekEngine, remote: HarnessRemote(send: .succeed)
             )
         )
         _ = localSeekFail.send(.session(.ready), source: .account)
@@ -915,6 +944,12 @@ struct PlaybackCommandFailureTests {
         )
         localSeekFail.seek(to: 0.4)
         #expect((localSeekFail.state.timing.position) == (80), "local seek applies optimistic timing")
+        let localSeekSettlement = localSeekFail.state.pendingCommands[.seek].flatMap {
+            localSeekFail.effects.settlement(of: .command($0.id))
+        }
+        #expect(localSeekSettlement != nil)
+        localSeekGate.finish(with: .error)
+        await localSeekSettlement?.wait()
         await expectEventually { localSeekFail.state.pendingCommands[.seek] == nil }
         #expect(
             (localSeekFail.state.timing) == (priorPlayingTiming), "local seek rejection restores exact prior timing"
@@ -1159,9 +1194,12 @@ struct PlaybackCommandFailureTests {
             )
         }
 
+        let localRejectedEngine = HarnessEngine()
+        let localRejectedGate = HarnessEngineGate()
+        localRejectedEngine.onExecute = { [localRejectedGate] _ in localRejectedGate.enter() }
         let localRejected = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .error), remote: HarnessRemote(send: .succeed)
+                engine: localRejectedEngine, remote: HarnessRemote(send: .succeed)
             )
         )
         seedPlayingA(localRejected, local: true)
@@ -1171,6 +1209,12 @@ struct PlaybackCommandFailureTests {
         #expect(
             (localRejected.state.timing) == (optimisticTiming), "local play applies target timing before completion"
         )
+        let localRejectedSettlement = localRejected.state.pendingCommands[.transport].flatMap {
+            localRejected.effects.settlement(of: .command($0.id))
+        }
+        #expect(localRejectedSettlement != nil, "the parked local play has an exact completion")
+        localRejectedGate.finish(with: .error)
+        await localRejectedSettlement?.wait()
         await expectEventually { localRejected.state.pendingCommands[.transport] == nil }
         #expect((localRejected.state.currentTrack?.uri) == (trackA.uri), "local play rejection restores A")
         #expect(
@@ -1203,15 +1247,23 @@ struct PlaybackCommandFailureTests {
         #expect(localAccepted.history.entries.contains { $0.uri == trackB.uri })
         await localAccepted.shutdownForTermination()
 
+        let rejectedRemote = HarnessRemote(send: .park)
         let remoteRejected = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .ok), remote: HarnessRemote(send: .fail)
+                engine: HarnessEngine(executeResult: .ok), remote: rejectedRemote
             )
         )
         seedPlayingA(remoteRejected, local: false)
         remoteRejected.play(track: trackB)
         #expect(
             (remoteRejected.state.currentTrack?.uri) == (trackB.uri), "remote play presents B before completion")
+        let remoteRejectedSettlement = remoteRejected.state.pendingCommands[.transport].flatMap {
+            remoteRejected.effects.settlement(of: .command($0.id))
+        }
+        #expect(remoteRejectedSettlement != nil, "the parked remote play has an exact completion")
+        await expectEventually { rejectedRemote.parkedSendCount == 1 }
+        rejectedRemote.completePark(success: false)
+        await remoteRejectedSettlement?.wait()
         await expectEventually { remoteRejected.state.pendingCommands[.transport] == nil }
         #expect((remoteRejected.state.currentTrack?.uri) == (trackA.uri), "remote play rejection restores A")
         #expect(
@@ -1249,7 +1301,7 @@ struct PlaybackCommandFailureTests {
         laggingStore.play(track: trackB)
         let laggingPending = await waitUntil { laggingStore.state.pendingCommands[.transport] != nil }
         #expect((laggingPending) == true, "remote play is pending before a lagging A snapshot")
-        await expectEventually { laggingRemote.sendCount == 1 }
+        await expectEventually { laggingRemote.parkedSendCount == 1 }
         sendEnginePlayback(
             laggingStore,
             uri: trackA.uri,
@@ -1279,7 +1331,7 @@ struct PlaybackCommandFailureTests {
         seedPlayingA(confirmStore, local: false)
         confirmStore.play(track: trackB)
         await expectEventually { confirmStore.state.pendingCommands[.transport] != nil }
-        await expectEventually { confirmRemote.sendCount == 1 }
+        await expectEventually { confirmRemote.parkedSendCount == 1 }
         let confirmedCommandID = confirmStore.state.pendingCommands[.transport]?.id
         sendEnginePlayback(
             confirmStore,
@@ -1315,7 +1367,7 @@ struct PlaybackCommandFailureTests {
         seedPlayingA(supersedeStore, local: false)
         supersedeStore.play(track: trackB)
         await expectEventually { supersedeStore.state.pendingCommands[.transport] != nil }
-        await expectEventually { supersedeRemote.sendCount == 1 }
+        await expectEventually { supersedeRemote.parkedSendCount == 1 }
         let supersedeStoreSettlement = supersedeStore.state.pendingCommands[.transport].flatMap {
             supersedeStore.effects.settlement(of: .command($0.id))
         }
@@ -1352,7 +1404,7 @@ struct PlaybackCommandFailureTests {
         seedPlayingA(nilStore, local: false)
         nilStore.play(track: trackB)
         await expectEventually { nilStore.state.pendingCommands[.transport] != nil }
-        await expectEventually { nilRemote.sendCount == 1 }
+        await expectEventually { nilRemote.parkedSendCount == 1 }
         let nilStoreSettlement = nilStore.state.pendingCommands[.transport].flatMap {
             nilStore.effects.settlement(of: .command($0.id))
         }
@@ -1474,9 +1526,12 @@ struct PlaybackCommandFailureTests {
             "an engine-epoch bump clears play confirmation state")
         await staleStore.shutdownForTermination()
 
+        let playlistEngine = HarnessEngine()
+        let playlistGate = HarnessEngineGate()
+        playlistEngine.onExecute = { [playlistGate] _ in playlistGate.enter() }
         let playlistStore = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .error), remote: HarnessRemote(send: .succeed)
+                engine: playlistEngine, remote: HarnessRemote(send: .succeed)
             )
         )
         seedPlayingA(playlistStore, local: true)
@@ -1493,6 +1548,12 @@ struct PlaybackCommandFailureTests {
         #expect(
             (playlistStore.state.currentTrack?.uri) == (trackB.uri),
             "a loaded playlist presents the known first track")
+        let playlistSettlement = playlistStore.state.pendingCommands[.transport].flatMap {
+            playlistStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(playlistSettlement != nil, "the parked playlist play has an exact completion")
+        playlistGate.finish(with: .error)
+        await playlistSettlement?.wait()
         await expectEventually { playlistStore.state.pendingCommands[.transport] == nil }
         #expect((playlistStore.state.currentTrack?.uri) == (trackA.uri), "a rejected loaded playlist restores A")
         #expect(
@@ -1664,8 +1725,11 @@ struct PlaybackCommandFailureTests {
         }
 
         let localRejectedPrefs = HarnessPreferences(shuffle: true, shuffleHistory: ["restored": 1])
+        let localRejectedEngine = HarnessEngine()
+        let localRejectedGate = HarnessEngineGate()
+        localRejectedEngine.onExecute = { [localRejectedGate] _ in localRejectedGate.enter() }
         let localRejected = await restoredStore(
-            local: HarnessEngine(executeResult: .error),
+            local: localRejectedEngine,
             remote: HarnessRemote(send: .succeed),
             preferences: localRejectedPrefs
         )
@@ -1674,6 +1738,12 @@ struct PlaybackCommandFailureTests {
         #expect((localRejected.state.options.shuffle) == (false), "local shuffle presents off before completion")
         #expect(
             (localRejected.state.pendingCommands[.options]) != nil, "local shuffle is pending before completion")
+        let localRejectedSettlement = localRejected.state.pendingCommands[.options].flatMap {
+            localRejected.effects.settlement(of: .command($0.id))
+        }
+        #expect(localRejectedSettlement != nil, "the parked local shuffle has an exact completion")
+        localRejectedGate.finish(with: .error)
+        await localRejectedSettlement?.wait()
         await expectEventually { localRejected.state.pendingCommands[.options] == nil }
         #expect((localRejected.state.options.shuffle) == (true), "local shuffle rejection restores on")
         #expect(
@@ -1685,13 +1755,22 @@ struct PlaybackCommandFailureTests {
         await localRejected.shutdownForTermination()
 
         let localAcceptedPrefs = HarnessPreferences(shuffle: true, shuffleHistory: ["restored": 1])
+        let localAcceptedEngine = HarnessEngine()
+        let localAcceptedGate = HarnessEngineGate()
+        localAcceptedEngine.onExecute = { [localAcceptedGate] _ in localAcceptedGate.enter() }
         let localAccepted = await restoredStore(
-            local: HarnessEngine(executeResult: .ok),
+            local: localAcceptedEngine,
             remote: HarnessRemote(send: .succeed),
             preferences: localAcceptedPrefs
         )
         seedLiveShuffle(localAccepted, local: true, shuffle: true)
         localAccepted.toggleShuffle()
+        let localAcceptedSettlement = localAccepted.state.pendingCommands[.options].flatMap {
+            localAccepted.effects.settlement(of: .command($0.id))
+        }
+        #expect(localAcceptedSettlement != nil, "the first local shuffle has an exact completion")
+        localAcceptedGate.finish(with: .ok)
+        await localAcceptedSettlement?.wait()
         await expectEventually { localAccepted.state.pendingCommands[.options] == nil }
         #expect((localAccepted.state.options.shuffle) == (false), "accepted local shuffle keeps off")
         await expectEventually { localAcceptedPrefs.shuffleWrites == [false] }
@@ -1699,6 +1778,12 @@ struct PlaybackCommandFailureTests {
         localAccepted.toggleShuffle()
         #expect(
             (localAccepted.state.options.shuffle) == (true), "a later local shuffle presents on before completion")
+        let laterAcceptedSettlement = localAccepted.state.pendingCommands[.options].flatMap {
+            localAccepted.effects.settlement(of: .command($0.id))
+        }
+        #expect(laterAcceptedSettlement != nil, "the later local shuffle has an exact completion")
+        localAcceptedGate.finish(with: .ok)
+        await laterAcceptedSettlement?.wait()
         await expectEventually { localAccepted.state.pendingCommands[.options] == nil }
         #expect((localAccepted.state.options.shuffle) == (true), "an accepted later local shuffle keeps on")
         await expectEventually { localAcceptedPrefs.shuffleWrites == [false, true] }
@@ -1708,14 +1793,22 @@ struct PlaybackCommandFailureTests {
         await localAccepted.shutdownForTermination()
 
         let remoteRejectedPrefs = HarnessPreferences(shuffle: true, shuffleHistory: ["restored": 1])
+        let rejectedRemote = HarnessRemote(send: .park)
         let remoteRejected = await restoredStore(
             local: HarnessEngine(executeResult: .ok),
-            remote: HarnessRemote(send: .fail),
+            remote: rejectedRemote,
             preferences: remoteRejectedPrefs
         )
         seedLiveShuffle(remoteRejected, local: false, shuffle: true)
         remoteRejected.toggleShuffle()
         #expect((remoteRejected.state.options.shuffle) == (false), "remote shuffle presents off before completion")
+        let remoteRejectedSettlement = remoteRejected.state.pendingCommands[.options].flatMap {
+            remoteRejected.effects.settlement(of: .command($0.id))
+        }
+        #expect(remoteRejectedSettlement != nil, "the parked remote shuffle has an exact completion")
+        await expectEventually { rejectedRemote.parkedSendCount == 1 }
+        rejectedRemote.completePark(success: false)
+        await remoteRejectedSettlement?.wait()
         await expectEventually { remoteRejected.state.pendingCommands[.options] == nil }
         #expect((remoteRejected.state.options.shuffle) == (true), "remote shuffle rejection restores on")
         #expect(
@@ -1748,7 +1841,7 @@ struct PlaybackCommandFailureTests {
         laggingStore.toggleShuffle()
         let laggingPending = await waitUntil { laggingStore.state.pendingCommands[.options] != nil }
         #expect((laggingPending) == true, "remote shuffle is pending before a lagging on snapshot")
-        await expectEventually { laggingRemote.sendCount == 1 }
+        await expectEventually { laggingRemote.parkedSendCount == 1 }
         sendEngineShuffle(laggingStore, shuffle: true, revision: 1)
         #expect((laggingStore.state.options.shuffle) == (false), "a lagging on snapshot keeps optimistic off")
         #expect(
@@ -1770,7 +1863,7 @@ struct PlaybackCommandFailureTests {
         seedLiveShuffle(confirmStore, local: false, shuffle: true)
         confirmStore.toggleShuffle()
         await expectEventually { confirmStore.state.pendingCommands[.options] != nil }
-        await expectEventually { confirmRemote.sendCount == 1 }
+        await expectEventually { confirmRemote.parkedSendCount == 1 }
         let confirmedCommandID = confirmStore.state.pendingCommands[.options]?.id
         sendEngineShuffle(confirmStore, shuffle: false, revision: 1)
         #expect(
@@ -1936,7 +2029,7 @@ struct PlaybackCommandFailureTests {
         restoreStore.toggleShuffle()
         let restorePending = await waitUntil { restoreStore.state.pendingCommands[.options] != nil }
         #expect((restorePending) == true, "remote shuffle is pending before a restoring options event")
-        await expectEventually { restoreRemote.sendCount == 1 }
+        await expectEventually { restoreRemote.parkedSendCount == 1 }
         _ = restoreStore.send(.options(PlaybackOptions(shuffle: true)), source: .user)
         #expect((restoreStore.state.options.shuffle) == (false), "a restoring options event keeps optimistic off")
         #expect(
@@ -1959,7 +2052,7 @@ struct PlaybackCommandFailureTests {
         matchingStore.toggleShuffle()
         let matchingPending = await waitUntil { matchingStore.state.pendingCommands[.options] != nil }
         #expect((matchingPending) == true, "remote shuffle is pending before a matching user options event")
-        await expectEventually { matchingRemote.sendCount == 1 }
+        await expectEventually { matchingRemote.parkedSendCount == 1 }
         _ = matchingStore.send(.options(PlaybackOptions(shuffle: false, repeatMode: .track)), source: .user)
         #expect(
             (matchingStore.state.options.shuffle) == (false), "a matching user options event keeps optimistic off")
@@ -1995,7 +2088,12 @@ struct PlaybackCommandFailureTests {
         persistStore.toggleShuffle()
         let persistPending = await waitUntil { persistStore.state.pendingCommands[.options] != nil }
         #expect((persistPending) == true, "local shuffle is pending before the admitted persist")
+        let firstPersistSettlement = persistStore.state.pendingCommands[.options].flatMap {
+            persistStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(firstPersistSettlement != nil, "the first persisted shuffle has an exact completion")
         persistGate.finish(with: .ok)
+        await firstPersistSettlement?.wait()
         await expectEventually { persistStore.state.pendingCommands[.options] == nil }
         persistStore.toggleShuffle()
         let secondPending = await waitUntil { persistStore.state.pendingCommands[.options] != nil }
@@ -2106,9 +2204,13 @@ struct PlaybackCommandFailureTests {
             )
         }
 
+        let localRejectedGate = HarnessEngineGate(result: .error)
+        defer { localRejectedGate.finish(with: .error) }
+        let localRejectedEngine = HarnessEngine()
+        localRejectedEngine.onExecute = { [localRejectedGate] _ in localRejectedGate.enter() }
         let localRejected = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .error),
+                engine: localRejectedEngine,
                 remote: HarnessRemote(send: .succeed)
             )
         )
@@ -2120,6 +2222,12 @@ struct PlaybackCommandFailureTests {
         #expect(
             (localRejected.state.pendingCommands[.transfer]?.rollbackOwner) == (Optional(ownerA)),
             "local transfer captures owner A")
+        let localRejectedSettlement = localRejected.state.pendingCommands[.transfer].flatMap {
+            localRejected.effects.settlement(of: .command($0.id))
+        }
+        #expect(localRejectedSettlement != nil)
+        localRejectedGate.finish(with: .error)
+        await localRejectedSettlement?.wait()
         await expectEventually { localRejected.state.pendingCommands[.transfer] == nil }
         #expect((localRejected.state.owner) == (ownerA), "local transfer rejection restores A")
         #expect(
@@ -2137,6 +2245,7 @@ struct PlaybackCommandFailureTests {
         seedRemoteOwner(localAccepted)
         localAccepted.transferPlayback(to: speakerB)
         await expectEventually { localAccepted.state.pendingCommands[.transfer] == nil }
+        await expectEventually { localAccepted.feedback.message?.text == "Playback request sent to Speaker B" }
         #expect((localAccepted.state.owner) == (expectedB), "accepted local transfer keeps admitted B")
         #expect(
             (localAccepted.feedback.message)
@@ -2180,7 +2289,12 @@ struct PlaybackCommandFailureTests {
         #expect((laggingStore.state.owner) == (expectedB), "a lagging A snapshot keeps optimistic B")
         #expect(
             (laggingStore.state.pendingCommands[.transfer]) != nil, "a lagging A snapshot keeps rollback ownership")
+        let laggingSettlement = laggingStore.state.pendingCommands[.transfer].flatMap {
+            laggingStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(laggingSettlement != nil)
         laggingGate.finish(with: .error)
+        await laggingSettlement?.wait()
         await expectEventually { laggingStore.state.pendingCommands[.transfer] == nil }
         #expect((laggingStore.state.owner) == (ownerA), "lagging A then rejection restores A")
         #expect(
@@ -2199,6 +2313,10 @@ struct PlaybackCommandFailureTests {
         await expectEventually { confirmStore.state.pendingCommands[.transfer] != nil }
         #expect(await waitUntil { confirmGate.enteredCount == 1 }, "transfer dispatch precedes confirmation")
         let confirmedCommandID = confirmStore.state.pendingCommands[.transfer]?.id
+        let confirmSettlement = confirmedCommandID.flatMap {
+            confirmStore.effects.settlement(of: .command($0))
+        }
+        #expect(confirmSettlement != nil)
         sendConnectionOwner(confirmStore, owner: remoteB, revision: 1)
         #expect(
             (confirmStore.state.pendingCommands[.transfer]) == nil, "an authoritative B snapshot confirms transfer")
@@ -2207,6 +2325,7 @@ struct PlaybackCommandFailureTests {
                 == (Optional(PlaybackTransportCommandResolution.confirmed)),
             "an authoritative B snapshot records transfer confirmation")
         confirmGate.finish(with: .error)
+        await confirmSettlement?.wait()
         await expectEventually {
             confirmStore.state.transportCommandResolutions.isEmpty
                 && confirmStore.feedback.message?.text == "Playback request sent to Speaker B"
@@ -2234,6 +2353,10 @@ struct PlaybackCommandFailureTests {
         supersedeStore.transferPlayback(to: speakerB)
         await expectEventually { supersedeStore.state.pendingCommands[.transfer] != nil }
         await expectEventually { supersedeGate.enteredCount == 1 }
+        let supersedeSettlement = supersedeStore.state.pendingCommands[.transfer].flatMap {
+            supersedeStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(supersedeSettlement != nil)
         sendConnectionOwner(supersedeStore, owner: ownerC, revision: 1)
         #expect((supersedeStore.state.owner) == (ownerC), "an unrelated owner C supersedes B")
         #expect(
@@ -2241,6 +2364,7 @@ struct PlaybackCommandFailureTests {
             "an unrelated owner C clears the pending transfer"
         )
         supersedeGate.finish(with: .error)
+        await supersedeSettlement?.wait()
         await expectEventually { supersedeStore.state.transportCommandResolutions.isEmpty }
         #expect((supersedeStore.state.owner) == (ownerC), "unrelated C then late failure keeps C")
         #expect(
@@ -2260,9 +2384,14 @@ struct PlaybackCommandFailureTests {
         noneStore.transferPlayback(to: speakerB)
         await expectEventually { noneStore.state.pendingCommands[.transfer] != nil }
         await expectEventually { noneGate.enteredCount == 1 }
+        let noneSettlement = noneStore.state.pendingCommands[.transfer].flatMap {
+            noneStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(noneSettlement != nil)
         sendConnectionOwner(noneStore, owner: .none, revision: 1)
         #expect((noneStore.state.owner) == (.none), "an unrelated empty owner supersedes B")
         noneGate.finish(with: .ok)
+        await noneSettlement?.wait()
         await expectEventually { noneStore.state.transportCommandResolutions.isEmpty }
         #expect((noneStore.state.owner) == (.none), "accepted completion after empty supersession keeps none")
         #expect((noneStore.transientCommandError) == nil, "unrelated empty supersession does not announce success")
@@ -2301,7 +2430,12 @@ struct PlaybackCommandFailureTests {
             (duplicateStore.state.pendingCommands[.transfer]?.id)
                 == (afterFirstTransfer.pendingCommands[.transfer]?.id),
             "a duplicate transfer keeps the original command")
+        let duplicateSettlement = duplicateStore.state.pendingCommands[.transfer].flatMap {
+            duplicateStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(duplicateSettlement != nil)
         duplicateGate.finish(with: .error)
+        await duplicateSettlement?.wait()
         await expectEventually { duplicateStore.state.pendingCommands[.transfer] == nil }
         #expect((duplicateStore.state.owner) == (ownerA), "duplicate then rejection restores A")
         await duplicateStore.shutdownForTermination()
@@ -2318,6 +2452,10 @@ struct PlaybackCommandFailureTests {
         #expect((cancelPending) == true, "remote transfer is pending before cancellation")
         let transferReached = await waitUntil { cancelGate.enteredCount == 1 }
         #expect((transferReached) == true, "cancelled transfer still reaches the local fixture")
+        let cancelSettlement = cancelStore.state.pendingCommands[.transfer].flatMap {
+            cancelStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(cancelSettlement != nil)
         if let commandID = cancelStore.state.pendingCommands[.transfer]?.id {
             cancelStore.effects.cancel(.command(commandID))
         }
@@ -2325,8 +2463,9 @@ struct PlaybackCommandFailureTests {
         #expect((cancelSettled) == true, "cancellation settles the pending transfer")
         #expect((cancelStore.state.owner) == (ownerA), "cancellation restores the captured owner")
         #expect((cancelStore.state.pendingCommands[.transfer]) == nil, "cancellation clears the pending transfer")
-        #expect((cancelStore.feedback.message) == nil, "cancelled transfer presents no success feedback")
         cancelGate.finish(with: .error)
+        await cancelSettlement?.wait()
+        #expect((cancelStore.feedback.message) == nil, "cancelled transfer presents no success feedback")
         await cancelStore.shutdownForTermination()
 
         let staleEngine = HarnessEngine()
@@ -2366,9 +2505,13 @@ struct PlaybackCommandFailureTests {
         #expect((staleStore.feedback.message) == nil, "engine-stale transfer presents no success feedback")
         await staleStore.shutdownForTermination()
 
+        let localMacGate = HarnessEngineGate(result: .error)
+        defer { localMacGate.finish(with: .error) }
+        let localMacEngine = HarnessEngine()
+        localMacEngine.onExecute = { [localMacGate] _ in localMacGate.enter() }
         let localMacStore = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: HarnessEngine(executeResult: .error),
+                engine: localMacEngine,
                 remote: HarnessRemote(send: .succeed)
             )
         )
@@ -2381,6 +2524,12 @@ struct PlaybackCommandFailureTests {
         #expect(
             (localMacStore.state.pendingCommands[.transfer]?.rollbackOwner) == nil,
             "transfer-to-this-Mac does not capture owner rollback")
+        let localMacSettlement = localMacStore.state.pendingCommands[.transfer].flatMap {
+            localMacStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(localMacSettlement != nil)
+        localMacGate.finish(with: .error)
+        await localMacSettlement?.wait()
         await expectEventually { localMacStore.state.pendingCommands[.transfer] == nil }
         #expect((localMacStore.state.owner) == (ownerA), "a rejected transfer-to-this-Mac leaves owner A")
         #expect(
@@ -2398,6 +2547,9 @@ struct PlaybackCommandFailureTests {
         seedRemoteOwner(acceptedLocalMacStore)
         acceptedLocalMacStore.transferPlayback(to: thisMac)
         await expectEventually { acceptedLocalMacStore.state.pendingCommands[.transfer] == nil }
+        await expectEventually {
+            acceptedLocalMacStore.feedback.message?.text == "Playback request sent to This Mac"
+        }
         #expect(
             (acceptedLocalMacStore.feedback.message)
                 == (TransientFeedbackMessage(id: 1, kind: .success, text: "Playback request sent to This Mac")),

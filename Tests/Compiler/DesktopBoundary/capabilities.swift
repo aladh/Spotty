@@ -14,7 +14,12 @@ func readDesktopCatalogPorts(_ environment: PlaybackEnvironment) {
 
 @SessionRuntimeActor
 func useSupportedRuntimeActions(_ runtime: PlaybackSessionRuntime) {
-    _ = runtime.presentation()
+    let value = runtime.presentation()
+    _ = value.semantic
+    _ = value.timeline
+    _ = value.queueEntries
+    _ = value.devices
+    _ = value.commandRoute
     _ = runtime.presentations()
     runtime.play(uri: "spotify:track:synthetic")
     runtime.togglePlayback()
@@ -58,6 +63,8 @@ func rejectInferredRuntimeCapabilities(_ runtime: PlaybackSessionRuntime) {
         _ = runtime.queueService
     #elseif NEG_RUNTIME_STATE
         _ = runtime.state
+    #elseif NEG_RUNTIME_PRESENTATION_STATE
+        _ = runtime.presentation().state
     #elseif NEG_RUNTIME_GENERATION_WRITE
         runtime.engineGeneration = runtime.engineGeneration
     #elseif NEG_RUNTIME_CATALOG_STATE

@@ -422,7 +422,12 @@ struct PlaybackEventOutcomeTests {
                 (await waitUntil { successRemote.requestedURI == "spotify:track:success" }) == true,
                 "metadata lookup starts")
             success.recordPlayed("spotify:track:success")
+            let successfulMetadata = success.effects.settlement(of: .trackMetadata)
             successRemote.completeMetadata(title: "Resolved")
+            await awaitCapturedEffect(
+                successfulMetadata,
+                registered: "successful metadata effect is captured before its result is released"
+            )
             #expect(
                 (await waitUntil { success.state.currentTrack?.title == "Resolved" }) == true,
                 "accepted metadata updates the current track")
@@ -822,12 +827,17 @@ struct PlaybackEventOutcomeTests {
             let payloadGeneration = mirroredGeneration + 1
             payloadStore.refreshQueueSnapshot()
             #expect((await waitUntil { payloadGate.hasStarted }) == true, "payload-generation snapshot fetch starts")
+            let payloadSnapshot = payloadStore.effects.settlement(of: .queueSnapshot)
             payloadEngine.snapshot = queueSnapshot(
                 uri: uri,
                 revision: 3,
                 sessionGeneration: payloadGeneration
             )
             payloadGate.release()
+            await awaitCapturedEffect(
+                payloadSnapshot,
+                registered: "payload-generation snapshot effect is captured before its result is released"
+            )
             #expect(
                 (await waitUntil { payloadStore.state.engineEpoch == payloadGeneration }) == true,
                 "decoded payload generation stamps reducer state before playback catches up")

@@ -6,6 +6,7 @@ import SpottySessionRuntime
 
 typealias CurrentTrackIndicator = SpottySessionRuntime.CurrentTrackIndicator
 typealias CatalogPlaybackAvailability = SpottySessionRuntime.CatalogPlaybackAvailability
+typealias PlaybackSemanticProjection = SpottySessionRuntime.PlaybackSemanticProjection
 
 /// MainActor owns observation and native interaction. Playback/account authority and all command
 /// effects live in PlaybackSessionRuntime on its dedicated transition executor.
@@ -15,16 +16,17 @@ final class PlaybackStore {
     typealias Phase = PlaybackSessionPhase
 
     @ObservationIgnored let runtime: PlaybackSessionRuntime
-    @ObservationIgnored private(set) var state = PlaybackState(accountEpoch: 1)
-    private(set) var semantic = PlaybackSemanticProjection(state: PlaybackState(accountEpoch: 1))
+    private(set) var semantic = RuntimePresentation.initial.semantic
     private(set) var timeline = PlaybackTiming(anchoredAt: .distantPast)
     private(set) var playbackDuration: TimeInterval = 0
     private(set) var presentedQueueEntries: [QueueEntry] = []
     private(set) var presentedDevices: [ConnectDevice] = []
     private(set) var presentedLocalDeviceID: String?
+    private(set) var presentedDefaultLocalDevice: ConnectDevice?
+    private(set) var presentedCommandRoute = RuntimePresentation.initial.commandRoute
     private(set) var currentTrackIndicator = CurrentTrackIndicator()
     private(set) var playingContextURI: String?
-    private(set) var catalogPlaybackAvailability = CatalogPlaybackAvailability(state: PlaybackState(accountEpoch: 1))
+    private(set) var catalogPlaybackAvailability = RuntimePresentation.initial.catalogPlaybackAvailability
     private(set) var requiresReauthentication = false
     private(set) var accountEpoch: UInt64 = 1
     private(set) var engineGeneration: UInt64 = 0
@@ -162,12 +164,9 @@ final class PlaybackStore {
             lastCatalogInputRevision = nil
             lastCatalogInputEpoch = nil
         }
-        let previousState = state
-        state = value.state
-        let nextSemantic = PlaybackSemanticProjection(state: value.state)
-        if semantic != nextSemantic { semantic = nextSemantic }
-        if timeline != value.state.timing { timeline = value.state.timing }
-        if playbackDuration != value.state.timing.duration { playbackDuration = value.state.timing.duration }
+        if semantic != value.semantic { semantic = value.semantic }
+        if timeline != value.timeline { timeline = value.timeline }
+        if playbackDuration != value.timeline.duration { playbackDuration = value.timeline.duration }
         if engineGeneration != value.engineGeneration { engineGeneration = value.engineGeneration }
         if queueInspectorOrderingVersion != value.queueInspectorOrderingVersion {
             queueInspectorOrderingVersion = value.queueInspectorOrderingVersion
@@ -177,29 +176,18 @@ final class PlaybackStore {
         }
         if isTearingDown != value.isTearingDown { isTearingDown = value.isTearingDown }
         if allowsCommands != value.allowsCommands { allowsCommands = value.allowsCommands }
-        if previousState.queue.entries != value.state.queue.entries {
-            let queue = QueueEntry.uniquelyIdentified(
-                value.state.queue.entries.map {
-                    QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
-                })
-            if presentedQueueEntries != queue { presentedQueueEntries = queue }
+        if presentedQueueEntries != value.queueEntries { presentedQueueEntries = value.queueEntries }
+        if presentedDevices != value.devices { presentedDevices = value.devices }
+        if presentedLocalDeviceID != value.localDeviceID { presentedLocalDeviceID = value.localDeviceID }
+        if presentedDefaultLocalDevice != value.defaultLocalDevice {
+            presentedDefaultLocalDevice = value.defaultLocalDevice
         }
-        if previousState.devices.devices != value.state.devices.devices {
-            let devices = value.state.devices.devices.map {
-                ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
-            }
-            if presentedDevices != devices { presentedDevices = devices }
+        if presentedCommandRoute != value.commandRoute { presentedCommandRoute = value.commandRoute }
+        if currentTrackIndicator != value.currentTrackIndicator { currentTrackIndicator = value.currentTrackIndicator }
+        if catalogPlaybackAvailability != value.catalogPlaybackAvailability {
+            catalogPlaybackAvailability = value.catalogPlaybackAvailability
         }
-        if presentedLocalDeviceID != value.state.devices.localDeviceID {
-            presentedLocalDeviceID = value.state.devices.localDeviceID
-        }
-        let indicator = CurrentTrackIndicator(state: value.state)
-        if currentTrackIndicator != indicator { currentTrackIndicator = indicator }
-        let availability = CatalogPlaybackAvailability(state: value.state)
-        if catalogPlaybackAvailability != availability { catalogPlaybackAvailability = availability }
-        let context =
-            availability.isConnected && value.state.transport == .playing ? value.state.playbackContextURI : nil
-        if playingContextURI != context { playingContextURI = context }
+        if playingContextURI != value.playingContextURI { playingContextURI = value.playingContextURI }
         history.replaceEntries(value.history)
         if value.catalogAvailable, lastMetadata != value.metadata {
             lastMetadata = value.metadata

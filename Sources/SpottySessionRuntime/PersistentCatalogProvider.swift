@@ -122,10 +122,18 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             finishEntitySubscriptions()
             throw CatalogReadFailure.sessionExpired
         }
-        guard storage == nil else { return profile }
-        accountURI = uri
-        let database = PersistentCatalog(rootDirectory: rootDirectory, accountID: uri)
-        storage = database
+        let database: PersistentCatalog
+        if let storage {
+            database = storage
+        } else {
+            accountURI = uri
+            database = PersistentCatalog(rootDirectory: rootDirectory, accountID: uri)
+            storage = database
+        }
+        // Retain the original account owner after an unavailable open, but retry it when fresh
+        // same-account proof arrives. A failed/rejected write is a different state: reopening
+        // cannot establish that the cache contains every live result missed in this lifetime.
+        guard entityQueryAvailability == .unbound else { return profile }
         do {
             try await database.open(scope: database.scope)
             try validate(stamp)

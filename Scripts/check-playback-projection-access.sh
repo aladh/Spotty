@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Compile-only access-control contract for the testable SpottyCore module. The fixtures are never
-# linked or run: the compiler must accept reads of the store snapshot/projections and reject each
-# attempted write. Independent desktop probes also reject concrete credential, gateway, and
+# linked or run: the compiler must accept projection reads and reject reducer snapshot access
+# and attempted writes. Independent desktop probes also reject concrete credential, gateway, and
 # engine types accidentally re-exported by the runtime. Keep these compiler contracts instead
 # of making a source spelling snapshot of PlaybackStore's implementation.
 project_root="${0:A:h:h}"
@@ -138,7 +138,11 @@ for flag in "${negative_flags[@]}"; do
         print -u2 "negative $flag probe unexpectedly compiled"
         exit 1
     fi
-    if ! rg -q 'setter is inaccessible|get-only property' "$negative_log"; then
+    expected_diagnostic='setter is inaccessible|get-only property'
+    if [[ "$flag" == NEG_STATE || "$flag" == NEG_STATE_MEMBER ]]; then
+        expected_diagnostic="value of type 'PlaybackStore' has no member 'state'"
+    fi
+    if ! rg -q "$expected_diagnostic" "$negative_log"; then
         print -u2 "negative $flag probe failed for an unexpected reason"
         cat "$negative_log" >&2
         exit 1
@@ -186,7 +190,11 @@ for flag in "${capability_flags[@]}"; do
         print -u2 "negative $flag desktop capability probe unexpectedly compiled"
         exit 1
     fi
-    if ! rg -q "is inaccessible due to '(internal|private|fileprivate)' protection level|setter is inaccessible" "$negative_log"; then
+    expected_diagnostic="is inaccessible due to '(internal|private|fileprivate)' protection level|setter is inaccessible"
+    if [[ "$flag" == NEG_RUNTIME_PRESENTATION_STATE ]]; then
+        expected_diagnostic="value of type 'RuntimePresentation' has no member 'state'"
+    fi
+    if ! rg -q "$expected_diagnostic" "$negative_log"; then
         print -u2 "negative $flag desktop capability probe failed for an unexpected reason"
         cat "$negative_log" >&2
         exit 1

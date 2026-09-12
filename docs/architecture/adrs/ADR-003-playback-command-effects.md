@@ -10,14 +10,14 @@ need an owner, but not necessarily another state-management framework.
 
 ## Decision
 
-Keep `PlaybackEffectRegistry`; the session runtime starts and owns tasks. Reducer acceptance and shared
+Keep `PlaybackEffectRegistry`; the store starts and owns tasks. Reducer acceptance and shared
 command-follow-up policy govern results. Reuse that policy at new command sites rather than adding
 another runner. Keep callback identity separate from command-effect ownership.
 
-`PlaybackEffectRegistry.run` is how a runtime effect is started: it registers, runs, and completes one
+`PlaybackEffectRegistry.run` is how a store effect is started: it registers, runs, and completes one
 token, so no site can forget to complete it or complete one a newer effect already owns.
 `replace`/`complete`/`cancel` remain for the few sites that need the pieces. Inside an effect,
-`PlaybackSessionRuntime.stillCurrent` is the only sanctioned revalidation after an `await`.
+`PlaybackStore.stillCurrent` is the only sanctioned revalidation after an `await`.
 
 Do not adopt The Composable Architecture (TCA) or introduce a generic `Effect` abstraction for the
 current playback architecture.
@@ -36,7 +36,7 @@ their existing lifetime and registration identity.
 ### Intent outcomes
 
 The reducer records admission, permit dispatch, successful transport return (`sent`), observed
-confirmation, rejection, supersession, and expiration. The runtime drains the permit's synchronous
+confirmation, rejection, supersession, and expiration. The store drains the permit's synchronous
 claim receipt before reducing observations, including observations arriving before transport returns.
 Only accepted engine payloads received after dispatch can provide confirmation; optimistic state and
 metadata cannot. Spotify does not echo our operation ID, so confirmation means a matching observed
@@ -77,6 +77,5 @@ and generation checks.
 
 ## Revisit trigger
 
-The ownership change in [ADR 008](ADR-008-headless-session-runtime.md) retains this registry.
-Reconsider the effect mechanism when a demonstrated testing or lifetime-management need cannot be
-met by its explicit registration and focused suites.
+Reconsider when replacing `PlaybackStore` or when a demonstrated testing or effect-management need
+cannot be met by the existing registry and focused suites.

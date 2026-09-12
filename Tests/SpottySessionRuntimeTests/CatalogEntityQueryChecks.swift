@@ -31,6 +31,49 @@ struct CatalogEntityQueryChecks {
         #expect(await updates.next() == nil)
     }
 
+    @Test func freshAccountProofRetriesATransientCatalogOpenFailure() async throws {
+        let fixture = QueryFixture()
+        defer { fixture.removeFiles() }
+        let retained = queryTrack("retained")
+        let blocker = PersistentCatalog(rootDirectory: fixture.directory, accountID: "spotify:user:query-account")
+        _ = try await blocker.upsertTracks([retained], scope: blocker.scope)
+        // A real owner lock makes the first open fail without replacing the account owner or
+        // treating the verified profile as an unavailable live gateway response.
+        try await fixture.bind()
+        await #expect(throws: CatalogEntityQueryFailure.unavailable) {
+            try await fixture.provider.subscribeCatalogEntities([retained.uri])
+        }
+        try await blocker.close(scope: blocker.scope)
+        _ = try await fixture.provider.profile()
+        let subscription = try await fixture.provider.subscribeCatalogEntities([retained.uri])
+        let page = try await fixture.provider.catalogEntityPage(
+            subscription.token, revision: 0, offset: 0, limit: 500)
+        #expect(page.tracks[retained.uri]?.title == retained.title)
+        #expect(await fixture.provider.retire(purge: true))
+    }
+
+    @Test func retryingAccountProofCannotRecoverQueriesAfterAMissedLiveWrite() async throws {
+        let fixture = QueryFixture()
+        defer { fixture.removeFiles() }
+        let retained = queryTrack("one", title: "Retained")
+        let blocker = PersistentCatalog(rootDirectory: fixture.directory, accountID: "spotify:user:query-account")
+        _ = try await blocker.upsertTracks([retained], scope: blocker.scope)
+        try await fixture.bind()
+        let fresh = queryTrack("one", title: "Fresh but not retained")
+        await fixture.source.setTracks([fresh])
+        #expect(try await fixture.provider.playlist(id: "one").tracks == [fresh])
+        try await blocker.close(scope: blocker.scope)
+        _ = try await fixture.provider.profile()
+        // A later unrelated success can reopen storage, but cannot repair the missed entity.
+        await fixture.source.setTracks([queryTrack("unrelated")])
+        _ = try await fixture.provider.album(id: "unrelated")
+        _ = try await fixture.provider.profile()
+        await #expect(throws: CatalogEntityQueryFailure.unavailable) {
+            try await fixture.provider.subscribeCatalogEntities([fresh.uri])
+        }
+        #expect(await fixture.provider.retire(purge: true))
+    }
+
     @Test func relinkedMetadataRetainsRequestedQueryIdentity() async throws {
         let fixture = QueryFixture()
         defer { fixture.removeFiles() }

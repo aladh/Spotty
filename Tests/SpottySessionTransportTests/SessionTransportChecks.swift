@@ -242,6 +242,43 @@ struct SessionTransportChecks {
     }
 
     @Test func accountReplacementSettlesPendingWriteBeforeLateResponse() async throws {
+        let runtime = SyntheticSessionRuntime(holdCommands: true, heldCommandDisposition: .observedConfirmed)
+        let host = try SessionXPCServiceHost.synthetic(runtime: runtime)
+        defer { host.invalidate() }
+        let client = try host.makeSyntheticClient()
+        let original = try await client.connect()
+        let command = SessionCommand(sessionID: original.sessionID, action: .togglePlayback)
+        let operation = Task { try await client.submit(command) }
+        await runtime.waitForSubmission()
+        let replacement = UUID()
+        await runtime.replaceSession(with: replacement)
+        do {
+            _ = try await operation.value
+            Issue.record("Retired write returned a known outcome")
+        } catch { #expect(error as? SessionTransportError == .unknownOutcome(commandID: command.id)) }
+        #expect(await client.unknownOutcomes.map(\.commandID) == [command.id])
+        await runtime.stopHoldingNewCommands()
+        let replacementCommand = SessionCommand(id: command.id, sessionID: replacement, action: .next)
+        #expect(try await client.submit(replacementCommand).disposition == .sent)
+        let stream = await client.subscribe()
+        await runtime.releaseCommands()
+        await runtime.publish(revision: 2)
+        for await event in stream {
+            if case let .snapshot(snapshot) = event, snapshot.sessionID == replacement, snapshot.revision == 2 {
+                break
+            }
+        }
+        #expect(await client.unknownOutcomes.map(\.sessionID) == [original.sessionID])
+        #expect(await runtime.submissionCount == 2, "The retired RPC is never replayed")
+        await client.disconnect()
+        #expect(await Set(client.unknownOutcomes.map(\.sessionID)) == [original.sessionID, replacement])
+        #expect(await client.unknownOutcomes.allSatisfy { $0.commandID == command.id })
+    }
+
+    @Test(arguments: [SessionCommandDisposition.observedConfirmed, .rejected, .unknown])
+    func rolloverSnapshotSettlesPendingWriteFromItsExactTerminalReceipt(
+        disposition: SessionCommandDisposition
+    ) async throws {
         let runtime = SyntheticSessionRuntime(holdCommands: true)
         let host = try SessionXPCServiceHost.synthetic(runtime: runtime)
         defer { host.invalidate() }
@@ -250,13 +287,84 @@ struct SessionTransportChecks {
         let command = SessionCommand(sessionID: original.sessionID, action: .togglePlayback)
         let operation = Task { try await client.submit(command) }
         await runtime.waitForSubmission()
-        await runtime.replaceSession(with: UUID())
+        let receipt = SessionCommandReceipt(
+            commandID: command.id, sessionID: command.sessionID, disposition: disposition)
+        await runtime.replaceSession(with: UUID(), receipts: [receipt])
+        let actual = try await operation.value
+        #expect(actual.commandID == command.id)
+        #expect(actual.sessionID == command.sessionID)
+        #expect(actual.disposition == disposition, "A complete snapshot settles the RPC before its wire reply")
+        await runtime.releaseCommands()
+        await client.disconnect()
+        #expect(await client.unknownOutcomes.map(\.commandID) == (disposition == .unknown ? [command.id] : []))
+        _ = try await client.connect()
+        #expect(await runtime.submissionCount == 1, "A retained terminal receipt never causes replay")
+        await client.disconnect()
+    }
+
+    @Test(arguments: [false, true])
+    func rolloverDoesNotSettlePendingWriteFromNonterminalOrMismatchedReceipt(wrongSession: Bool) async throws {
+        let runtime = SyntheticSessionRuntime(holdCommands: true, heldCommandDisposition: .observedConfirmed)
+        let host = try SessionXPCServiceHost.synthetic(runtime: runtime)
+        defer { host.invalidate() }
+        let client = try host.makeSyntheticClient()
+        let original = try await client.connect()
+        let command = SessionCommand(sessionID: original.sessionID, action: .togglePlayback)
+        let operation = Task { try await client.submit(command) }
+        await runtime.waitForSubmission()
+        let replacement = UUID()
+        let receipt = SessionCommandReceipt(
+            commandID: command.id, sessionID: wrongSession ? replacement : original.sessionID,
+            disposition: wrongSession ? .observedConfirmed : .sent)
+        await runtime.replaceSession(with: replacement, receipts: [receipt])
         do {
             _ = try await operation.value
-            Issue.record("Retired write returned a known outcome")
+            Issue.record("A nonterminal or mismatched receipt settled a retired write")
         } catch { #expect(error as? SessionTransportError == .unknownOutcome(commandID: command.id)) }
         await runtime.releaseCommands()
+        await client.disconnect()
         #expect(await client.unknownOutcomes.map(\.commandID) == [command.id])
+        #expect(await client.unknownOutcomes.map(\.sessionID) == [original.sessionID])
+        #expect(await runtime.submissionCount == 1)
+    }
+
+    @Test func rolloverSettlesRetainedTerminalReceiptsBeforeRetiringOtherWrites() async throws {
+        let runtime = SyntheticSessionRuntime()
+        let host = try SessionXPCServiceHost.synthetic(runtime: runtime)
+        defer { host.invalidate() }
+        let client = try host.makeSyntheticClient()
+        let original = try await client.connect()
+        let confirmed = SessionCommand(sessionID: original.sessionID, action: .togglePlayback)
+        let unknown = SessionCommand(sessionID: original.sessionID, action: .next)
+        let absent = SessionCommand(sessionID: original.sessionID, action: .togglePlayback)
+        let wrongSession = SessionCommand(sessionID: original.sessionID, action: .next)
+        let nonterminal = SessionCommand(sessionID: original.sessionID, action: .togglePlayback)
+        for command in [confirmed, unknown, absent, wrongSession, nonterminal] {
+            #expect(try await client.submit(command).disposition == .sent)
+        }
+        let replacement = UUID()
+        let stream = await client.subscribe()
+        await runtime.replaceSession(
+            with: replacement,
+            receipts: [
+                .init(commandID: confirmed.id, sessionID: original.sessionID, disposition: .observedConfirmed),
+                .init(commandID: unknown.id, sessionID: original.sessionID, disposition: .unknown),
+                .init(commandID: wrongSession.id, sessionID: replacement, disposition: .observedConfirmed),
+                .init(commandID: nonterminal.id, sessionID: original.sessionID, disposition: .sent),
+            ])
+        var retired: [SessionCommandReceipt] = []
+        for await event in stream {
+            if case let .commandsUnknown(receipts) = event { retired.append(contentsOf: receipts) }
+            if case let .snapshot(snapshot) = event, snapshot.sessionID == replacement { break }
+        }
+        #expect(Set(retired.map(\.commandID)) == [absent.id, wrongSession.id, nonterminal.id])
+        let expectedUnknown = Set([unknown.id, absent.id, wrongSession.id, nonterminal.id])
+        #expect(await Set(client.unknownOutcomes.map(\.commandID)) == expectedUnknown)
+        #expect(await client.unknownOutcomes.allSatisfy { $0.sessionID == original.sessionID })
+        await client.disconnect()
+        #expect(await Set(client.unknownOutcomes.map(\.commandID)) == expectedUnknown)
+        _ = try await client.connect()
+        #expect(await runtime.submissionCount == 5, "Rollover and reconnect never replay retired writes")
         await client.disconnect()
     }
 
@@ -290,16 +398,21 @@ struct SessionTransportChecks {
 private actor SyntheticSessionRuntime: SessionRuntimeServing {
     private var value = SessionSnapshot(sessionID: UUID(), revision: 1, capabilities: [.transport, .queueAppend])
     private var subscriptions: [UUID: AsyncStream<SessionSnapshot>.Continuation] = [:]
-    private let holdCommands: Bool
+    private var holdCommands: Bool
     private let oversizedReceipt: Bool
+    private let heldCommandDisposition: SessionCommandDisposition
     private var commandGates: [CheckedContinuation<Void, Never>] = []
     private var submissionWaiters: [CheckedContinuation<Void, Never>] = []
     private(set) var submissionCount = 0
     private(set) var snapshotReads = 0
 
-    init(holdCommands: Bool = false, oversizedReceipt: Bool = false) {
+    init(
+        holdCommands: Bool = false, oversizedReceipt: Bool = false,
+        heldCommandDisposition: SessionCommandDisposition = .sent
+    ) {
         self.holdCommands = holdCommands
         self.oversizedReceipt = oversizedReceipt
+        self.heldCommandDisposition = heldCommandDisposition
     }
 
     func snapshot() -> SessionSnapshot {
@@ -312,9 +425,15 @@ private actor SyntheticSessionRuntime: SessionRuntimeServing {
         let waiters = submissionWaiters
         submissionWaiters.removeAll()
         waiters.forEach { $0.resume() }
-        if holdCommands { await withCheckedContinuation { commandGates.append($0) } }
+        let disposition: SessionCommandDisposition
+        if holdCommands {
+            await withCheckedContinuation { commandGates.append($0) }
+            disposition = heldCommandDisposition
+        } else {
+            disposition = .sent
+        }
         return SessionCommandReceipt(
-            commandID: command.id, sessionID: command.sessionID, disposition: .sent,
+            commandID: command.id, sessionID: command.sessionID, disposition: disposition,
             message: oversizedReceipt ? String(repeating: "x", count: SessionWire.maximumBytes + 1) : nil)
     }
 
@@ -334,8 +453,8 @@ private actor SyntheticSessionRuntime: SessionRuntimeServing {
         for subscriber in subscriptions.values { subscriber.yield(value) }
     }
 
-    func replaceSession(with id: UUID) {
-        value = SessionSnapshot(sessionID: id, revision: 1)
+    func replaceSession(with id: UUID, receipts: [SessionCommandReceipt] = []) {
+        value = SessionSnapshot(sessionID: id, revision: 1, receipts: receipts)
         for subscriber in subscriptions.values { subscriber.yield(value) }
     }
 
@@ -363,6 +482,8 @@ private actor SyntheticSessionRuntime: SessionRuntimeServing {
         commandGates.removeAll()
         gates.forEach { $0.resume() }
     }
+
+    func stopHoldingNewCommands() { holdCommands = false }
 
     private func removeSubscription(_ id: UUID) { subscriptions.removeValue(forKey: id) }
 }

@@ -61,7 +61,7 @@ public actor SessionXPCClient {
         do {
             let reply = try await request(.handshake)
             guard generation == connectionID else { throw SessionTransportError.disconnected }
-            guard case let .snapshot(snapshot) = reply else { throw SessionTransportError.invalidPayload }
+            guard case let .snapshot(snapshot) = reply.body else { throw SessionTransportError.invalidPayload }
             try acceptComplete(snapshot)
             if let buffered = handshakePublication {
                 handshakePublication = nil
@@ -89,30 +89,37 @@ public actor SessionXPCClient {
             throw SessionTransportError.tooManyRequests
         }
         if command.action.mayWrite { unsettledCommands[command.id] = command }
-        let reply: SessionWireResponse.Body
+        let reply: RequestReply
         do {
             reply = try await request(.command(command), command: command)
         } catch {
-            if submittedGeneration == connectionID { unsettledCommands.removeValue(forKey: command.id) }
+            if submittedGeneration == connectionID,
+                unsettledCommands[command.id]?.sessionID == command.sessionID
+            {
+                unsettledCommands.removeValue(forKey: command.id)
+            }
             throw error
         }
         guard submittedGeneration == connectionID else {
             throw command.action.mayWrite
                 ? SessionTransportError.unknownOutcome(commandID: command.id) : .disconnected
         }
-        guard command.sessionID == self.currentSnapshot?.sessionID else {
+        guard command.sessionID == self.currentSnapshot?.sessionID || reply.settledBySnapshot else {
             throw command.action.mayWrite
                 ? SessionTransportError.unknownOutcome(commandID: command.id) : .staleSession
         }
-        guard case let .receipt(receipt) = reply,
-            receipt.commandID == command.id, receipt.sessionID == command.sessionID
+        guard case let .receipt(receipt) = reply.body,
+            receipt.commandID == command.id, receipt.sessionID == command.sessionID,
+            !reply.settledBySnapshot || receipt.disposition.isTerminal
         else {
             if let connectionID { connectionLost(connectionID) }
             throw command.action.mayWrite
                 ? SessionTransportError.unknownOutcome(commandID: command.id) : .invalidPayload
         }
         if receipt.disposition == .unknown { rememberUnknown([receipt]) }
-        if receipt.disposition.isTerminal { unsettledCommands.removeValue(forKey: command.id) }
+        if receipt.disposition.isTerminal, unsettledCommands[command.id]?.sessionID == command.sessionID {
+            unsettledCommands.removeValue(forKey: command.id)
+        }
         if let unknown = unknownOutcomes.first(where: {
             $0.commandID == command.id && $0.sessionID == command.sessionID
         }) {
@@ -141,7 +148,7 @@ public actor SessionXPCClient {
 
     private func request(
         _ body: SessionWireRequest.Body, command: SessionCommand? = nil
-    ) async throws -> SessionWireResponse.Body {
+    ) async throws -> RequestReply {
         guard let connection, let generation = connectionID else { throw SessionTransportError.notConnected }
         guard pending.count < SessionWire.maximumPendingRequests else { throw SessionTransportError.tooManyRequests }
         let id = UUID()
@@ -177,7 +184,7 @@ public actor SessionXPCClient {
             if case let .failure(failure) = response.body {
                 request.continuation.resume(throwing: failure.error)
             } else {
-                request.continuation.resume(returning: response.body)
+                request.continuation.resume(returning: RequestReply(body: response.body))
             }
         } catch { connectionLost(generation) }
     }
@@ -214,7 +221,7 @@ public actor SessionXPCClient {
             do {
                 let response = try await request(.snapshot(sessionID: sessionID))
                 guard generation == connectionID else { return }
-                guard case let .snapshot(complete) = response else { throw SessionTransportError.invalidPayload }
+                guard case let .snapshot(complete) = response.body else { throw SessionTransportError.invalidPayload }
                 // A later contiguous publication can arrive while this read is in flight.
                 if complete.sessionID != currentSnapshot?.sessionID
                     || complete.revision >= (currentSnapshot?.revision ?? 0)
@@ -233,10 +240,12 @@ public actor SessionXPCClient {
 
     private func acceptComplete(_ snapshot: SessionSnapshot) throws {
         try SessionWire.validate(snapshot)
+        // A ledger rollover can retain terminal receipts from the previous session. Settle
+        // those exact command/session identities before retiring the remaining old writes.
+        settleReceipts(in: snapshot, settleRetiredRequests: true)
         retireCommands(outside: snapshot.sessionID)
         cursor.reset(to: snapshot)
         currentSnapshot = snapshot
-        settleReceipts(in: snapshot)
         broadcast(.snapshot(snapshot))
     }
 
@@ -245,7 +254,7 @@ public actor SessionXPCClient {
         let unknown = retired.map {
             SessionCommandReceipt(
                 commandID: $0.id, sessionID: $0.sessionID, disposition: .unknown,
-                message: "The account session ended before this command was observed.")
+                message: "The command session changed before this command was observed.")
         }
         for command in retired { unsettledCommands.removeValue(forKey: command.id) }
         let retiredRequests = pending.filter { $0.value.command.map { $0.sessionID != sessionID } ?? false }
@@ -263,11 +272,22 @@ public actor SessionXPCClient {
         broadcast(.commandsUnknown(unknown))
     }
 
-    private func settleReceipts(in snapshot: SessionSnapshot) {
+    private func settleReceipts(in snapshot: SessionSnapshot, settleRetiredRequests: Bool = false) {
         for receipt in snapshot.receipts where receipt.disposition.isTerminal {
-            guard unsettledCommands[receipt.commandID]?.sessionID == receipt.sessionID else { continue }
-            if receipt.disposition == .unknown { rememberUnknown([receipt]) }
-            unsettledCommands.removeValue(forKey: receipt.commandID)
+            if unsettledCommands[receipt.commandID]?.sessionID == receipt.sessionID {
+                if receipt.disposition == .unknown { rememberUnknown([receipt]) }
+                unsettledCommands.removeValue(forKey: receipt.commandID)
+            }
+            guard settleRetiredRequests, receipt.sessionID != snapshot.sessionID else { continue }
+            let settledRequests = pending.filter {
+                $0.value.command?.id == receipt.commandID && $0.value.command?.sessionID == receipt.sessionID
+            }
+            for (id, request) in settledRequests {
+                pending.removeValue(forKey: id)
+                request.timeout.cancel()
+                request.continuation.resume(
+                    returning: RequestReply(body: .receipt(receipt), settledBySnapshot: true))
+            }
         }
     }
 
@@ -329,9 +349,16 @@ public actor SessionXPCClient {
     }
 
     private struct PendingRequest {
-        let continuation: CheckedContinuation<SessionWireResponse.Body, any Error>
+        let continuation: CheckedContinuation<RequestReply, any Error>
         let command: SessionCommand?
         let timeout: Task<Void, Never>
+    }
+
+    private struct RequestReply: Sendable {
+        let body: SessionWireResponse.Body
+        // Only a validated complete snapshot can settle an old-session RPC after rollover.
+        // A late wire reply never receives this authority, even when its receipt is terminal.
+        var settledBySnapshot = false
     }
 }
 

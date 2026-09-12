@@ -9,6 +9,12 @@ import SpottyRuntimeContracts
 /// access out of the shipping MainActor facade while executing every mutation on runtime isolation.
 @MainActor
 extension PlaybackStore {
+    /// Inspection reads runtime authority directly; it must not flush a desktop publication.
+    var state: PlaybackState {
+        let runtime = runtime
+        return SessionRuntimeActor.sync { runtime.state }
+    }
+
     var accountStore: AccountStore {
         AccountStore(raw: withRuntime { $0.accountStore }, didMutate: { [weak self] in self?.withRuntime { _ in } })
     }

@@ -6,7 +6,7 @@ package extension PlaybackSessionRuntime {
     func serviceCapabilities() -> Set<SessionCommandKind> {
         guard terminationGate.allowsCommands else { return [] }
         var capabilities: Set<SessionCommandKind> = [.account]
-        if !isTearingDown, serviceCommandLedger.count < 4_096 {
+        if !isTearingDown, serviceCommandLedger.count < serviceCommandLedgerLimit {
             if canStartPlayback {
                 capabilities.formUnion([.play, .options, .transfer, .queueAppend, .queueRefresh])
             }

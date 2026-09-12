@@ -203,6 +203,32 @@ private func sendRepeatSnapshot(
     )
 }
 
+// Runtime command settlement and MainActor publication are independent. Rollback and notice
+// checks must observe both, rather than treating the raw pending slot as a UI delivery barrier.
+@MainActor
+private func waitForRepeatCompletion(
+    _ player: PlaybackStore,
+    mode: RepeatMode,
+    notice: String? = nil
+) async -> Bool {
+    await waitUntil {
+        player.state.pendingCommands[.options] == nil
+            && player.repeatMode == mode
+            && player.transientCommandError == notice
+    }
+}
+
+// A confirming or superseding snapshot can consume the pending slot before the held request
+// returns. Retain its exact registration so late-failure assertions run after that completion.
+@MainActor
+private func captureRepeatCompletion(_ player: PlaybackStore) -> PlaybackEffectSettlement? {
+    let completion = player.state.pendingCommands[.options].flatMap {
+        player.effects.settlement(of: .command($0.id))
+    }
+    #expect(completion != nil, "the held repeat command has an effect registration")
+    return completion
+}
+
 @Suite("Repeat Transition")
 struct RepeatTransitionTests {
     @Test
@@ -310,7 +336,7 @@ struct RepeatTransitionTests {
                 seedReadyRemote(player)
                 player.setRepeatMode(item.from)
                 player.cycleRepeat()
-                let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+                let finished = await waitForRepeatCompletion(player, mode: item.from.next)
                 #expect((finished) == true, "\(item.label) finishes")
                 #expect((await remote.sends) == (item.expected), "\(item.label) sends")
                 #expect((player.repeatMode) == (item.from.next), "\(item.label) keeps the optimistic mode")
@@ -330,7 +356,7 @@ struct RepeatTransitionTests {
             )
             seedReadyRemote(player)
             player.cycleRepeat()
-            let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+            let finished = await waitForRepeatCompletion(player, mode: .off, notice: "Could not update repeat")
             #expect((finished) == true, "first-step failure finishes")
             #expect(
                 (await remote.sends) == ([RepeatSend(endpoint: .repeatContext, enabled: true)]),
@@ -350,7 +376,7 @@ struct RepeatTransitionTests {
             seedReadyRemote(player)
             player.setRepeatMode(.context)
             player.cycleRepeat()
-            let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+            let finished = await waitForRepeatCompletion(player, mode: .context, notice: "Could not update repeat")
             #expect((finished) == true, "second-step failure finishes")
             #expect(
                 (await remote.sends)
@@ -376,7 +402,7 @@ struct RepeatTransitionTests {
             seedReadyRemote(player)
             player.setRepeatMode(.context)
             player.cycleRepeat()
-            let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+            let finished = await waitForRepeatCompletion(player, mode: .context, notice: "Could not update repeat")
             #expect((finished) == true, "compensation failure finishes")
             #expect(
                 (await remote.sends)
@@ -400,7 +426,7 @@ struct RepeatTransitionTests {
             seedReadyLocal(player)
             player.setRepeatMode(.context)
             player.cycleRepeat()
-            let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+            let finished = await waitForRepeatCompletion(player, mode: .context, notice: "Could not update repeat")
             #expect((finished) == true, "local second-step failure finishes")
             #expect(
                 (local.mutations)
@@ -427,10 +453,12 @@ struct RepeatTransitionTests {
             let held = await waitUntil { await remote.sends.count == 1 }
             #expect((held) == true, "repeat send is held before failure")
             #expect((player.repeatMode) == (RepeatMode.context), "optimistic repeat is context before the snapshot")
+            let completion = captureRepeatCompletion(player)
             sendRepeatSnapshot(player, mode: .context, revision: 3)
             #expect((player.repeatMode) == (RepeatMode.context), "engine snapshot keeps context repeat")
             await remote.releaseHold()
-            let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+            await completion?.wait()
+            let finished = await waitForRepeatCompletion(player, mode: .context)
             #expect((finished) == true, "stale failure completion arrives")
             #expect(
                 (player.repeatMode) == (RepeatMode.context),
@@ -451,7 +479,7 @@ struct RepeatTransitionTests {
                 (bothTruePlayer.state.options.repeatFlags) == (RepeatFlags(context: true, track: true)),
                 "both-true raw flags are retained on options")
             bothTruePlayer.cycleRepeat()
-            let bothFinished = await waitUntil { bothTruePlayer.state.pendingCommands[.options] == nil }
+            let bothFinished = await waitForRepeatCompletion(bothTruePlayer, mode: .off)
             #expect((bothFinished) == true, "both-true track → off finishes")
             #expect(
                 (await bothTrueRemote.sends)
@@ -469,7 +497,7 @@ struct RepeatTransitionTests {
             seedReadyRemote(ordinaryPlayer)
             ordinaryPlayer.setRepeatMode(.track)
             ordinaryPlayer.cycleRepeat()
-            let ordinaryFinished = await waitUntil { ordinaryPlayer.state.pendingCommands[.options] == nil }
+            let ordinaryFinished = await waitForRepeatCompletion(ordinaryPlayer, mode: .off)
             #expect((ordinaryFinished) == true, "ordinary track → off finishes")
             #expect(
                 (await ordinaryRemote.sends) == ([RepeatSend(endpoint: .repeatTrack, enabled: false)]),
@@ -495,7 +523,7 @@ struct RepeatTransitionTests {
             )
             #expect((player.repeatMode) == (RepeatMode.off), "intermediate engine sample shows off")
             await remote.releaseHold()
-            let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+            let finished = await waitForRepeatCompletion(player, mode: .context, notice: "Could not update repeat")
             #expect((finished) == true, "compensated second-step failure finishes")
             #expect(
                 (await remote.sends)
@@ -534,7 +562,7 @@ struct RepeatTransitionTests {
                 (player.state.options.repeatFlags) == (intermediateFlags),
                 "intermediate raw flags are context off, track on")
             await remote.releaseHold()
-            let finished = await waitUntil { player.state.pendingCommands[.options] == nil }
+            let finished = await waitForRepeatCompletion(player, mode: .track, notice: "Could not update repeat")
             #expect((finished) == true, "compensated both-true second-step failure finishes")
             #expect(
                 (await remote.sends)
@@ -569,9 +597,11 @@ struct RepeatTransitionTests {
             targetPlayer.cycleRepeat()
             let targetHeld = await waitUntil { await targetRemote.sends.count == 2 }
             #expect((targetHeld) == true, "target snapshot is injected before second-step failure")
+            let targetCompletion = captureRepeatCompletion(targetPlayer)
             sendRepeatSnapshot(targetPlayer, mode: .track, revision: 5)
             await targetRemote.releaseHold()
-            let targetFinished = await waitUntil { targetPlayer.state.pendingCommands[.options] == nil }
+            await targetCompletion?.wait()
+            let targetFinished = await waitForRepeatCompletion(targetPlayer, mode: .track)
             #expect((targetFinished) == true, "target snapshot failure finishes")
             #expect((targetPlayer.repeatMode) == (RepeatMode.track), "a later target track snapshot remains track")
             #expect(
@@ -587,9 +617,11 @@ struct RepeatTransitionTests {
             unrelatedPlayer.cycleRepeat()
             let unrelatedHeld = await waitUntil { await unrelatedRemote.sends.count == 1 }
             #expect((unrelatedHeld) == true, "unrelated snapshot is injected before first-step failure")
+            let unrelatedCompletion = captureRepeatCompletion(unrelatedPlayer)
             sendRepeatSnapshot(unrelatedPlayer, mode: .track, revision: 6)
             await unrelatedRemote.releaseHold()
-            let unrelatedFinished = await waitUntil { unrelatedPlayer.state.pendingCommands[.options] == nil }
+            await unrelatedCompletion?.wait()
+            let unrelatedFinished = await waitForRepeatCompletion(unrelatedPlayer, mode: .track)
             #expect((unrelatedFinished) == true, "unrelated snapshot failure finishes")
             #expect(
                 (unrelatedPlayer.repeatMode) == (RepeatMode.track),
@@ -614,7 +646,7 @@ struct RepeatTransitionTests {
             if let commandID = cancelStore.state.pendingCommands[.options]?.id {
                 cancelStore.effects.cancel(.command(commandID))
             }
-            let cancellationSettled = await waitUntil { cancelStore.state.pendingCommands[.options] == nil }
+            let cancellationSettled = await waitForRepeatCompletion(cancelStore, mode: .off)
             #expect((cancellationSettled) == true, "cancelled repeat settles")
             #expect((cancelStore.repeatMode) == (RepeatMode.off), "cancelled repeat restores the captured mode")
             #expect((cancelStore.transientCommandError) == nil, "cancelled repeat has no notice")
@@ -646,7 +678,7 @@ struct RepeatTransitionTests {
             failed.cycleRepeat()
             #expect(
                 (failed.repeatMode) == (RepeatMode.context), "local off → context presents context before completion")
-            let failedFinished = await waitUntil { failed.state.pendingCommands[.options] == nil }
+            let failedFinished = await waitForRepeatCompletion(failed, mode: .off, notice: "Could not update repeat")
             #expect((failedFinished) == true, "local first-step failure finishes")
             #expect(
                 (failing.mutations) == ([RepeatFlagMutation(flag: .context, enabled: true)]),
@@ -663,7 +695,7 @@ struct RepeatTransitionTests {
             )
             seedReadyLocal(accepted)
             accepted.cycleRepeat()
-            let acceptedFinished = await waitUntil { accepted.state.pendingCommands[.options] == nil }
+            let acceptedFinished = await waitForRepeatCompletion(accepted, mode: .context)
             #expect((acceptedFinished) == true, "local off → context success finishes")
             #expect(
                 (succeeding.mutations) == ([RepeatFlagMutation(flag: .context, enabled: true)]),
@@ -686,7 +718,7 @@ struct RepeatTransitionTests {
             #expect((lagging.repeatMode) == (RepeatMode.context), "a lagging off snapshot keeps optimistic context")
             #expect((lagging.state.pendingCommands[.options]) != nil, "a lagging off snapshot keeps rollback ownership")
             await laggingRemote.releaseHold()
-            let lagFinished = await waitUntil { lagging.state.pendingCommands[.options] == nil }
+            let lagFinished = await waitForRepeatCompletion(lagging, mode: .off, notice: "Could not update repeat")
             #expect((lagFinished) == true, "lagging prior then rejection finishes")
             #expect((lagging.repeatMode) == (RepeatMode.off), "lagging prior then rejection restores off")
             #expect(
@@ -717,7 +749,7 @@ struct RepeatTransitionTests {
                 (userStore.state.transportCommandResolutions.isEmpty) == true,
                 "a matching user options event does not record confirmation")
             await userRemote.releaseHold()
-            let userFinished = await waitUntil { userStore.state.pendingCommands[.options] == nil }
+            let userFinished = await waitForRepeatCompletion(userStore, mode: .off, notice: "Could not update repeat")
             #expect((userFinished) == true, "user options then rejection finishes")
             #expect(
                 (userStore.repeatMode) == (RepeatMode.off),

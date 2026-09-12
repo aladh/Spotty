@@ -3,13 +3,12 @@ import SpottyDomain
 @testable import SpottyCore
 
 // This function is intentionally never called. Type-checking it against the built testable
-// module proves that boundary clients can observe the reducer snapshot and its presentation
-// projections without depending on source spelling or linking the playback archive.
+// module proves that boundary clients can observe presentation projections without depending
+// on source spelling or linking the playback archive.
 @MainActor
 func readPlaybackStoreAccess(_ store: PlaybackStore) {
     _ = store.currentTrackIndicator
     _ = store.catalogPlaybackAvailability
-    _ = store.state
     _ = store.requiresReauthentication
     _ = store.accountEpoch
     _ = store.engineGeneration
@@ -28,6 +27,7 @@ func readPlaybackStoreAccess(_ store: PlaybackStore) {
     _ = store.queueNextEntries
     _ = store.connectDevices
     _ = store.localDeviceID
+    _ = store.defaultLocalPlaybackDevice
     _ = store.isPlaybackCommandPending
     _ = store.hasCurrentTrackMetadata
     _ = store.transientCommandError

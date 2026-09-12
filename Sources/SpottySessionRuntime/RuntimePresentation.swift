@@ -10,10 +10,20 @@ package struct RuntimeFeedbackMessage: Equatable, Sendable {
     package let text: String
 }
 
-/// A value publication. Nothing here lets a client dispatch directly into the engine or account.
+/// Equatable presentation values, prepared by the runtime. Reducer receipts, source watermarks,
+/// pending-command payloads and rollback state never cross into the desktop's observation owner.
 package struct RuntimePresentation: Equatable, Sendable {
     package let revision: UInt64
-    package let state: PlaybackState
+    package let semantic: PlaybackSemanticProjection
+    package let timeline: PlaybackTiming
+    package let queueEntries: [QueueEntry]
+    package let devices: [ConnectDevice]
+    package let localDeviceID: String?
+    package let defaultLocalDevice: ConnectDevice?
+    package let commandRoute: ConnectCommandRoute
+    package let currentTrackIndicator: CurrentTrackIndicator
+    package let playingContextURI: String?
+    package let catalogPlaybackAvailability: CatalogPlaybackAvailability
     package let accountEpoch: UInt64
     package let engineGeneration: UInt64
     package let queueInspectorOrderingVersion: UInt64
@@ -24,6 +34,16 @@ package struct RuntimePresentation: Equatable, Sendable {
     package let history: [HistoryEntry]
     package let metadata: [CatalogTrack]
     package let feedback: RuntimeFeedbackMessage?
+
+    package static let initial = RuntimePresentation(
+        revision: 0, semantic: PlaybackSemanticProjection(state: PlaybackState(accountEpoch: 1)),
+        timeline: PlaybackTiming(anchoredAt: .distantPast), queueEntries: [], devices: [],
+        localDeviceID: nil, defaultLocalDevice: nil, commandRoute: .local,
+        currentTrackIndicator: CurrentTrackIndicator(), playingContextURI: nil,
+        catalogPlaybackAvailability: CatalogPlaybackAvailability(state: PlaybackState(accountEpoch: 1)),
+        accountEpoch: 1, engineGeneration: 0, queueInspectorOrderingVersion: 0,
+        requiresReauthentication: false, isTearingDown: false, allowsCommands: true,
+        catalogAvailable: false, history: [], metadata: [], feedback: nil)
 }
 
 @SessionRuntimeActor

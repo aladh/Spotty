@@ -3,6 +3,8 @@ import SpottyDomain
 
 /// The desktop contract contains presentation and intent, never credentials, engine handles or PCM.
 public struct SessionSnapshot: Codable, Equatable, Sendable {
+    /// Command replay namespace. It may renew without changing the account epoch; clients must
+    /// resynchronize from a complete snapshot and must not replay old-session commands.
     public var sessionID: UUID
     public var revision: UInt64
     public var accountEpoch: UInt64
@@ -81,6 +83,8 @@ public enum SessionAction: Codable, Equatable, Sendable {
 
 public struct SessionCommand: Codable, Equatable, Sendable {
     public let id: UUID
+    /// The namespace observed when this intent was created. Never rewrite it to retry an
+    /// uncertain command after the runtime renews its session.
     public let sessionID: UUID
     public let expectedRouteRevision: UInt64?
     public let action: SessionAction

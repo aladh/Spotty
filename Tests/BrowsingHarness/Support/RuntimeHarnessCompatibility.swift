@@ -7,6 +7,11 @@ import SpottyEngineAdapter
 /// the shipping presentation facade. Commands still enter through the ordinary UI actions.
 @MainActor
 extension PlaybackStore {
+    var state: PlaybackState {
+        let runtime = runtime
+        return SessionRuntimeActor.sync { runtime.state }
+    }
+
     var queueService: QueueService { withRuntime { $0.queueService } }
     var coordinator: PlaybackCoordinator { withRuntime { $0.coordinator } }
     var accountStore: RuntimeBrowsingAccount { RuntimeBrowsingAccount(raw: withRuntime { $0.accountStore }) }

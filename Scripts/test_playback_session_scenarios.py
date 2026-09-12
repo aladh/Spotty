@@ -201,8 +201,10 @@ for seed in UInt64(1_001)...UInt64(1_003) {
         self.assertEqual(len(evidence["runs"]), 2)
         compatible_sdk = Path("/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk")
         sdk = compatible_sdk if compatible_sdk.is_dir() else Path("/synthetic-sdk-parent/MacOSX.sdk")
-        self.assertEqual(evidence["environment"]["sdk"], sdk.name)
-        self.assertEqual(evidence["environment"]["sdkSelection"], "explicit-swiftpm-option")
+        self.assertEqual(evidence["environment"]["requestedSDK"], sdk.name)
+        self.assertEqual(evidence["environment"]["sdkSelection"], "explicit-swiftpm-request")
+        self.assertEqual(evidence["environment"]["compilerSDK"], "unverified")
+        self.assertNotIn("sdk", evidence["environment"])
         directory = self.root / ".build/session-scenarios" / evidence["runID"]
         for number, (run, command) in enumerate(zip(evidence["runs"], self.calls()[1:]), 1):
             self.assertEqual(run["repetition"], number)

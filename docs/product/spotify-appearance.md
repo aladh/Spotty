@@ -14,9 +14,9 @@ and its unchanged shared palette, layout, Home, detail-header, and transport sou
 existing Spotty design choices; they are not new measurements of Spotify.
 
 Spotify desktop **1.2.99.317** was viewed read-only on **2026-09-12**. Only **Home at rest** was
-inspected. The locked Mac prevented further visual comparison; current native playlist, sidebar,
-queue, and interaction states remain visually unverified. This reference does not establish parity
-for those surfaces or replace the comparison required by the visual fidelity policy.
+inspected; current native playlist, sidebar, queue, and interaction states remain visually
+unverified. This reference does not establish parity for those surfaces or replace the comparison
+required by the visual fidelity policy.
 
 ## Retained anchors
 

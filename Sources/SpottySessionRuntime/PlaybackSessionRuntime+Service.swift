@@ -2,6 +2,8 @@ import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
 
+let serviceCommandLedgerLimit = 4_096
+
 /// Child effects inherit correlation; a late task from a retired account cannot attach itself to
 /// a newly admitted command that happens to reuse an ID.
 package enum ServiceCommandContext {
@@ -28,17 +30,28 @@ extension PlaybackSessionRuntime: SessionRuntimeServing {
     }
 
     package func submit(_ command: SessionCommand) async -> SessionCommandReceipt {
+        flushPublication()
         guard command.sessionID == sessionID else {
-            return serviceReceipt(command, .rejected, "The account session changed.")
+            return serviceReceipt(command, .rejected, "The command session changed. Refresh the session snapshot.")
         }
         synchronizeServiceReceipts()
         if let previous = serviceCommandLedger[command.id] { return previous }
-        // Never evict a replay fence to make room. Reconnecting does not create a new session.
-        guard serviceCommandLedger.count < 4_096 || command.action == .logout else {
+        // Keep every replay fence valid until the complete command session rolls over. One
+        // reserved logout slot permits account retirement while a full ledger is still pending.
+        guard
+            serviceCommandLedger.count < serviceCommandLedgerLimit
+                || (command.action == .logout && serviceCommandLedger.count == serviceCommandLedgerLimit)
+        else {
             return serviceReceipt(
-                command, .rejected, "This session has reached its command limit. Reconnect the account.")
+                command, .rejected,
+                "Earlier commands are still awaiting a result. Refresh the session snapshot after they settle.")
         }
         if let reason = serviceRefusal(command) {
+            // Only an admitted retirement may consume the reserved slot. A refused attempt
+            // must not prevent a subsequent valid logout from ending the pending account work.
+            guard serviceCommandLedger.count < serviceCommandLedgerLimit else {
+                return serviceReceipt(command, .rejected, reason)
+            }
             return rememberServiceReceipt(command, .rejected, reason)
         }
         guard serviceCommandActions.count < 64 || command.action == .logout || command.action == .cancelConnect else {
@@ -55,6 +68,27 @@ extension PlaybackSessionRuntime: SessionRuntimeServing {
 }
 
 package extension PlaybackSessionRuntime {
+    /// A command-session ID is a replay namespace, separate from the account and engine lifetime.
+    /// Once every admitted result is terminal, publish a fresh namespace instead of permanently
+    /// disabling commands for this signed-in account. An old immutable envelope can never pass
+    /// the new session's admission gate, even after its individual ledger entry is discarded.
+    ///
+    /// Unknown means observation ended, not that its worker stopped. Previously admitted work
+    /// retains its original account/route guards; the old TaskLocal session cannot correlate its
+    /// eventual completion with a new command. Keep bounded terminal receipts for client resync.
+    internal func rolloverServiceSessionIfNeeded() {
+        guard serviceCommandLedger.count >= serviceCommandLedgerLimit,
+            serviceCommandActions.isEmpty,
+            serviceCommandLedger.values.allSatisfy({ $0.disposition.isTerminal })
+        else { return }
+        sessionID = UUID()
+        serviceCommandLedger.removeAll(keepingCapacity: true)
+        serviceIntentIDs.removeAll(keepingCapacity: true)
+        serviceIntentOutcomes.removeAll(keepingCapacity: true)
+        serviceCommandActions.removeAll(keepingCapacity: true)
+        serviceCommandEpochs.removeAll(keepingCapacity: true)
+    }
+
     /// Called synchronously after reducer acceptance, before publication can be coalesced. This
     /// captures every queue occurrence intent, including those created by a later child effect.
     func recordServiceIntent(_ event: PlaybackEvent) {
@@ -278,7 +312,7 @@ package extension PlaybackSessionRuntime {
     ) -> SessionCommandReceipt {
         let receipt = serviceReceipt(command, disposition, message)
         serviceCommandLedger[command.id] = receipt
-        serviceReceipts.removeAll { $0.commandID == command.id }
+        serviceReceipts.removeAll { $0.commandID == command.id && $0.sessionID == command.sessionID }
         serviceReceipts.append(receipt)
         if serviceReceipts.count > 128 { serviceReceipts.removeFirst(serviceReceipts.count - 128) }
         publish()
@@ -292,7 +326,7 @@ package extension PlaybackSessionRuntime {
         let receipt = SessionCommandReceipt(
             commandID: id, sessionID: previous.sessionID, disposition: disposition, message: message)
         serviceCommandLedger[id] = receipt
-        if let index = serviceReceipts.firstIndex(where: { $0.commandID == id }) {
+        if let index = serviceReceipts.firstIndex(where: { $0.commandID == id && $0.sessionID == previous.sessionID }) {
             serviceReceipts[index] = receipt
         } else {
             serviceReceipts.append(receipt)

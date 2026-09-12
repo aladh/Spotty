@@ -220,7 +220,9 @@ evidence_path = directory / "evidence.json"
 evidence = {"schemaVersion": 1, "runID": run_id, "startedAt": now(), "finishedAt": None,
             "environment": {"os": platform.system(), "osVersion": platform.mac_ver()[0],
                             "architecture": platform.machine(),
-                            "sdk": Path(os.environ["SDKROOT"]).name, "sdkSelection": "explicit-swiftpm-option",
+                            # SwiftPM may use a different SDK even with an explicit --sdk request.
+                            "requestedSDK": Path(os.environ["SDKROOT"]).name,
+                            "sdkSelection": "explicit-swiftpm-request", "compilerSDK": "unverified",
                             "configuration": "debug",
                             "parallel": False, "warningsAsErrors": True},
             "expected": {"targets": targets, "filter": test_filter, "repetitions": repeats,

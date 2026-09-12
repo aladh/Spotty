@@ -6,7 +6,12 @@ package extension PlaybackSessionRuntime {
     func presentation() -> RuntimePresentation {
         flushPublication()
         return RuntimePresentation(
-            revision: presentationRevision, state: state, accountEpoch: accountEpoch,
+            revision: presentationRevision, semantic: semantic, timeline: timeline,
+            queueEntries: presentedQueueEntries, devices: presentedDevices,
+            localDeviceID: presentedLocalDeviceID, defaultLocalDevice: defaultLocalPlaybackDevice,
+            commandRoute: commandRoute, currentTrackIndicator: currentTrackIndicator,
+            playingContextURI: playingContextURI, catalogPlaybackAvailability: catalogPlaybackAvailability,
+            accountEpoch: accountEpoch,
             engineGeneration: engineGeneration, queueInspectorOrderingVersion: queueInspectorOrderingVersion,
             requiresReauthentication: requiresReauthentication, isTearingDown: isTearingDown,
             allowsCommands: terminationGate.allowsCommands, catalogAvailable: catalogSession.isAvailable,
@@ -51,6 +56,7 @@ package extension PlaybackSessionRuntime {
         publicationPending = false
         presentationRevision &+= 1
         synchronizeServiceReceipts()
+        rolloverServiceSessionIfNeeded()
         if !presentationSubscribers.isEmpty {
             let value = presentation()
             for subscriber in presentationSubscribers.values { subscriber.yield(value) }

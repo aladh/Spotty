@@ -9,6 +9,10 @@ create a manual PR acceptance gate.
 Spotify Connect controls a live account and can interrupt playback on another device. Playback and
 account mutations are therefore **opt-in**, not part of routine acceptance testing.
 
+Authorization remains valid throughout the ongoing task for the named actions and limits, including
+follow-up messages, unless the user revokes or narrows it. Ask again only when an action exceeds
+that scope; a new task does not inherit live-account authorization from an earlier task.
+
 ## Spotty Demo: standing authorization
 
 Agents may build, launch, relaunch, browse, and interact with the isolated Spotty Demo whenever
@@ -37,13 +41,16 @@ Spotty screenshots for committed or published evidence.
 Without explicit playback permission, it is safe to:
 
 - run `./Scripts/check.sh` and the non-shipping Swift test targets;
-- launch, sign in, browse Home/Search/library/detail pages, sort tables, inspect devices and queue,
-  and close/reopen the window;
+- browse Home/Search/library/detail pages, sort tables, inspect devices and queue, and close/reopen
+  the window in an existing live session;
+- launch or sign in to live Spotty when authorized for the task; live app replacement follows the
+  [launch contract](../../script/AGENTS.md), while Demo and official Spotify reference access retain
+  their standing permissions above;
 - observe remote playback state without pressing Play/Pause, Previous, Next, Shuffle, Repeat,
   Seek, Add to Queue, Transfer, Add to Playlist, or Remove from Playlist.
 
 Transport, seek, transfer, queue/library/playlist/follow mutation, and sign-out each require explicit
-current-request authorization naming that action.
+authorization naming that action for the ongoing task.
 
 Do not infer playback permission from a request to launch, inspect, accept-test, or test read-only.
 Do not transfer playback, alter the queue, seek, or change transport modes as a substitute for a

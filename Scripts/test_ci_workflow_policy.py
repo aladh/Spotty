@@ -1,4 +1,4 @@
-"""Exercise workflow invariants against parsed variants, including multiple macOS jobs."""
+"""Exercise workflow invariants against parsed variants, including the one-macOS-job cap."""
 import copy
 import json
 from pathlib import Path
@@ -34,34 +34,49 @@ class WorkflowInvariantTests(unittest.TestCase):
             return subprocess.run(['ruby', str(scripts / 'check-ci-workflow.rb'), str(path)],
                                   text=True, capture_output=True)
 
-    def test_current_workflow_and_additional_macos_lane_pass(self):
+    def test_current_workflow_passes_and_additional_macos_lane_fails(self):
         result = self.check_workflow(self.workflow)
         self.assertEqual(result.returncode, 0, result.stderr)
         variant = copy.deepcopy(self.workflow)
         variant['jobs']['additional_macos'] = {'runs-on': 'macos-26', 'steps': [{'run': 'true'}]}
         result = self.check_workflow(variant)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('CI must use exactly one macOS runner job', result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        variant['jobs']['dynamic_runner'] = {'runs-on': '${{ matrix.os }}', 'steps': [{'run': 'true'}]}
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('CI runner selection must remain static', result.stderr)
 
     def test_failures_name_the_broken_invariant(self):
-        for kind, expected in [('runner', 'macOS app must remain on macos-26'),
-                               ('aggregate', 'aggregate must run even after failures or intentional skips'),
+        for kind, expected in [('runner', 'macOS image must remain macos-26'),
+                               ('aggregate', 'aggregate must run even after failures'),
                                ('repeats', 'main must repeat boundary checks three times'),
-                               ('cbindgen', 'Rust job must own unconditional pinned header parser setup'),
-                               ('serialized', 'macOS app must depend only on policy so macOS work stays parallel')]:
+                               ('cbindgen', 'header parser setup must follow explicit Rust classification'),
+                               ('playback', 'Linux must run the playback script checks'),
+                               ('playback_dependency', 'playback script checks must install their zsh fixture dependency'),
+                               ('compiled_scope', 'rust verification command must run'),
+                               ('job_gate', 'macOS must retain aggregate failure semantics')]:
             with self.subTest(kind=kind):
                 variant = copy.deepcopy(self.workflow)
+                steps = variant['jobs']['macos']['steps']
                 if kind == 'runner':
-                    variant['jobs']['app_macos']['runs-on'] = 'macos-latest'
+                    variant['jobs']['macos']['runs-on'] = 'macos-latest'
                 elif kind == 'aggregate':
-                    variant['jobs']['macos']['if'] = 'success()'
+                    next(s for s in steps if s['name'] == 'Require every quality lane')['if'] = 'success()'
                 elif kind == 'repeats':
-                    steps = variant['jobs']['app_macos']['steps']
                     next(s for s in steps if s.get('id') == 'debug').pop('env')
                 elif kind == 'cbindgen':
-                    steps = variant['jobs']['rust_macos']['steps']
-                    steps.remove(next(s for s in steps if s['name'] == 'Install pinned cbindgen'))
-                elif kind == 'serialized':
-                    variant['jobs']['app_macos']['needs'] = ['policy', 'rust_macos']
+                    next(s for s in steps if s['name'] == 'Install pinned cbindgen').pop('if')
+                elif kind == 'playback':
+                    variant['jobs']['playback_python']['steps'][-1]['run'] = 'true'
+                elif kind == 'playback_dependency':
+                    variant['jobs']['playback_python']['steps'][-2]['run'] = 'zsh --version'
+                elif kind == 'compiled_scope':
+                    next(s for s in steps if s.get('id') == 'rust')['run'] = 'SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh'
+                elif kind == 'job_gate':
+                    variant['jobs']['macos']['if'] = "needs.policy.outputs.macos_needed == 'true'"
                 result = self.check_workflow(variant)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
@@ -74,8 +89,8 @@ class WorkflowInvariantTests(unittest.TestCase):
             ('Identify playback inputs', 'base', None, 'HEAD', 'candidate selection must receive'),
             ('Build candidate playback XCFramework', 'if', None, 'success()', 'Build candidate must follow'),
             ('Upload candidate playback artifact', 'if', None, 'success()', 'Upload candidate must follow'),
-            ('Require every quality lane', 'app_result', None, 'success', 'aggregate must bind APP_RESULT'),
-            ('Require every quality lane', 'candidate_result', None, 'success', 'aggregate must bind CANDIDATE_RESULT'),
+            ('Require every quality lane', 'outcome', None, 'success', 'aggregate must require CHECKS_RESULT'),
+            ('Require every quality lane', 'playback_result', None, 'success', 'aggregate must require PLAYBACK_PYTHON_RESULT'),
         ]
         for name, field, old, new, expected in cases:
             with self.subTest(name=name, field=field):
@@ -84,10 +99,10 @@ class WorkflowInvariantTests(unittest.TestCase):
                             if s['name'] == name)
                 if field == 'base':
                     step['env']['INPUT_BASE_SHA'] = new
-                elif field == 'app_result':
-                    step['env']['APP_RESULT'] = new
-                elif field == 'candidate_result':
-                    step['env']['CANDIDATE_RESULT'] = new
+                elif field == 'outcome':
+                    step['env']['CHECKS_RESULT'] = new
+                elif field == 'playback_result':
+                    step['env']['PLAYBACK_PYTHON_RESULT'] = new
                 elif old:
                     self.assertIn(old, step[field])
                     step[field] = step[field].replace(old, new)

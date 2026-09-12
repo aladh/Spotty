@@ -25,15 +25,14 @@ ASSETS = (
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
 )
-REQUIRED_JOBS = ("Source policies", "Rust checks")
-PRODUCER_STEPS = ("Build candidate playback XCFramework", "Upload candidate playback artifact")
+REQUIRED_JOBS = ("Source policies", "Playback script checks")
+PRODUCER_STEPS = ("Run Rust checks", "Build candidate playback XCFramework", "Upload candidate playback artifact")
 
 
 def producer_job(jobs):
-    matches = [job for job in jobs if job["name"] == "Playback candidate"]
-    require(len(matches) == 1, "Expected one Playback candidate job in this run attempt")
+    matches = [job for job in jobs if job["name"] == "macOS checks"]
+    require(len(matches) == 1, "Expected one macOS checks job in this run attempt")
     job = matches[0]
-    require(job["conclusion"] == "success", "Playback candidate job did not succeed")
     for name in PRODUCER_STEPS:
         steps = [step for step in job.get("steps", []) if step["name"] == name]
         require(len(steps) == 1 and steps[0]["conclusion"] == "success",
@@ -67,10 +66,6 @@ def validate_run(run, jobs, repo, source_ref):
         matches = [job for job in jobs if job["name"] == name]
         require(len(matches) == 1 and matches[0]["conclusion"] == "success",
                 f"Missing successful {name} in this run attempt")
-        if name == "Rust checks":
-            rust_steps = [step for step in matches[0].get("steps", []) if step["name"] == "Run Rust checks"]
-            require(len(rust_steps) == 1 and rust_steps[0]["conclusion"] == "success",
-                    "Missing successful Run Rust checks in this run attempt")
 
 
 def validate_checkout(run, source_sha):

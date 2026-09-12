@@ -49,13 +49,13 @@ The same scan roots run locally and in CI, including tests, launch/engine script
 manifest. Rule fixtures cover matching; routing tests cover file owners and exceptions. A clean
 syntax scan does not replace Swift compilation or behavior tests.
 
-The full and Rust scopes require the [engine toolchain](setup.md#engine-development).
-The Swift scope and packaging use the pinned binary without the Rust compiler. Verification also
-requires Ruby (for parsed workflow invariants) and pinned cbindgen (for source header reproducibility);
-`package-app.sh` runs this gate and therefore needs both tools. Standalone
-`compile-release-spotty.sh` does not. A differing source input digest produces a pin-freshness warning without
-implicitly rebuilding or replacing the independently released engine. Checks do not sign in or
-initiate playback. See the [enforcement inventory](../architecture/enforcement.md) for coverage.
+The full and Rust scopes require the [engine toolchain](setup.md#engine-development) and pinned
+cbindgen for source-header reproducibility. The Swift scope and packaging use the pinned binary
+without either tool. All scopes require Python 3; the full and Swift scopes also require Ruby for
+parsed workflow checks. Standalone `compile-release-spotty.sh` does not require those verification
+tools. A differing source input digest produces a pin-freshness warning without implicitly rebuilding
+or replacing the independently released engine. Checks do not sign in or initiate playback. See the
+[enforcement inventory](../architecture/enforcement.md) for coverage.
 
 CI uses one macOS job for conditional Rust verification/candidate production, then Swift Debug
 checks and the Release distribution compile. Debug and Release share one SwiftPM cache under a
@@ -75,10 +75,11 @@ source-policy and domain jobs still run; neither is conditional. Other PRs skip 
 documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
 runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
 requires Rust; a base without macOS classification keeps macOS enabled. Detection errors fail CI. Skipped Rust steps are accepted only after an
-explicit successful app-only decision. Pinned cbindgen binaries are cached by version and runner image/architecture,
-with a version check before reuse. Header regeneration and the Python playback checks also run on
-app-only PRs. cbindgen parses source files directly without Cargo metadata; it remains available after
-CI blocks the Rust compiler tools. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
+explicit successful app-only decision. When Rust is selected, CI caches pinned cbindgen by version
+and runner image/architecture, verifies its version before reuse, and runs header regeneration and
+the Python playback checks once in the Rust scope. App-only PRs skip those source-engine checks only
+because changes to engine, shared-header, CI, script, license, and unknown paths select Rust through
+the trusted base policy. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
 header. `--check` verifies reproducibility; set `SPOTTY_CBINDGEN` if the pinned tool is not on `PATH`.

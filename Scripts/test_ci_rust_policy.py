@@ -211,8 +211,8 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
             name, body = block.split("\n", 1)
             self.assertNotIn(name, steps)
             steps[name] = body
-        for name in ("Show Rust toolchain", "Identify playback inputs",
-                     "Cache Rust verification products", "Run Rust checks"):
+        for name in ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen",
+                     "Identify playback inputs", "Cache Rust verification products", "Run Rust checks"):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
@@ -243,7 +243,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertNotIn("continue-on-error:", macos)
         cbindgen_cache = steps["Cache pinned cbindgen"]
         self.assertIn("${{ env.CBINDGEN_VERSION }}", cbindgen_cache)
-        self.assertNotIn("if:", cbindgen_cache)
+        self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", cbindgen_cache)
         self.assertIn("${{ runner.arch }}", cbindgen_cache)
         self.assertNotIn("restore-keys:", cbindgen_cache)
         cache = steps["Cache SwiftPM build directory"]
@@ -251,6 +251,21 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertIn("!.build/spotty-signing", cache)
         self.assertNotIn("macos-swiftpm-debug-", cache)
         self.assertNotIn("macos-swiftpm-release-", cache)
+
+
+class CheckScopeOwnershipTests(unittest.TestCase):
+    def test_playback_source_checks_run_once_inside_non_swift_scope(self):
+        script = (ROOT / "Scripts/check.sh").read_text()
+        python_check = "python3 -B -m unittest discover -s \"$project_root/Scripts\" -p 'test_playback_*.py'"
+        header_check = '"$project_root/Scripts/generate-c-header.sh" --check'
+        scope_start = script.index('if [[ "$check_scope" != swift ]]; then')
+        rust_exit = script.index('if [[ "$check_scope" == rust ]]; then', scope_start)
+
+        self.assertEqual(script.count(python_check), 1)
+        self.assertEqual(script.count(header_check), 1)
+        self.assertLess(scope_start, script.index(python_check))
+        self.assertLess(script.index(python_check), script.index(header_check))
+        self.assertLess(script.index(header_check), rust_exit)
 
 
 class SelectionValidationTests(unittest.TestCase):

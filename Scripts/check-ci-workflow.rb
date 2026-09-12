@@ -37,7 +37,8 @@ steps.each do |step|
   end
 end
 check.call(all_runs.include?('xcode-select -s /Applications/Xcode_26.6.app') && all_runs.include?("grep -q 'Apple Swift version 6.3.3'"), 'macOS must select and verify the pinned Swift toolchain')
-check.call(steps.any? { |s| s['name'] == 'Install pinned cbindgen' && !s.key?('if') }, 'header parser must be installed for app-only PRs')
+cbindgen_steps = steps.select { |s| ['Cache pinned cbindgen', 'Install pinned cbindgen'].include?(s['name']) }
+check.call(cbindgen_steps.length == 2 && cbindgen_steps.all? { |s| s['if'] == "needs.policy.outputs.rust_needed == 'true'" }, 'header parser setup must follow explicit Rust classification')
 check.call(steps.any? { |s| s['id'] == 'debug' && s.dig('env', 'SPOTTY_CHECK_REPEATS').to_s.include?("'3'") }, 'main must repeat boundary checks three times')
 check.call(all_runs.include?('for tool in cargo rustc rustup; do'), 'Swift lane must block Rust tools')
 check.call(all_runs.include?('command -v rg') && all_runs.include?('brew install ripgrep'), 'use runner ripgrep before installing it')

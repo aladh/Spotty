@@ -222,7 +222,12 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
-        for name in ("Cache Rust release build products", "Build candidate playback XCFramework",
+        identify = steps["Identify playback inputs"]
+        self.assertIn("id: inputs", identify)
+        self.assertIn("INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}", identify)
+        self.assertIn("run: ./Scripts/playback-candidate-needed.sh", identify)
+        for name in ("Cache Rust release build products", "Restore unchanged Rust release input timestamps",
+                     "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
                      "Upload candidate playback artifact"):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
@@ -237,10 +242,14 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
                         "PLAYBACK_PYTHON_RESULT: ${{ needs.playback_python.result }}",
                         "RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}",
                         "RUST_RESULT: ${{ steps.rust.outcome }}",
+                        "CANDIDATE_SELECTION_RESULT: ${{ steps.inputs.outcome }}",
+                        "CANDIDATE_NEEDED: ${{ steps.inputs.outputs.candidate_needed }}",
+                        "CANDIDATE_BUILD_RESULT: ${{ steps.candidate_build.outcome }}",
+                        "CANDIDATE_UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}",
                         "CHECKS_RESULT: ${{ steps.debug.outcome }}",
                         "RELEASE_RESULT: ${{ steps.release.outcome }}"):
             self.assertIn(binding, gate)
-        ordered = ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",
+        ordered = ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Restore unchanged Rust release input timestamps", "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
                    "Upload candidate playback artifact", "Block Rust tools", "Run checks",
                    "Compile release Spotty with SPOTTY_DISTRIBUTION")
         for name in ordered:
@@ -248,6 +257,12 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         positions = [names.index(name) for name in ordered]
         self.assertEqual(positions, sorted(positions))
         self.assertIn("run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh", steps["Run Rust checks"])
+        self.assertIn("id: candidate_build", steps["Build candidate playback XCFramework"])
+        self.assertIn("id: candidate_upload", steps["Upload candidate playback artifact"])
+        for outcome in ("true:success:success:true:success:success",
+                        "true:success:success:false:skipped:skipped",
+                        "false:skipped:skipped::skipped:skipped"):
+            self.assertIn(outcome, gate)
         self.assertNotIn("continue-on-error:", macos)
         cbindgen_cache = steps["Cache pinned cbindgen"]
         self.assertIn("${{ env.CBINDGEN_VERSION }}", cbindgen_cache)
@@ -320,23 +335,50 @@ chmod +x "$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
 
 
 class AggregateGateTests(unittest.TestCase):
-    def test_only_an_explicit_app_only_decision_allows_skipped_rust(self):
+    def test_only_explicit_rust_and_candidate_outcomes_are_accepted(self):
         script = workflow_script("Require every quality lane")
         env = {**os.environ, "POLICY_RESULT": "success", "DOMAIN_LINUX_RESULT": "success",
                "PLAYBACK_PYTHON_RESULT": "success",
-               "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
-        for needed in ("true", "false", "", "invalid"):
-            for result in ("success", "skipped", "failure", "cancelled", ""):
-                with self.subTest(needed=needed, result=result):
+               "CHECKS_RESULT": "success", "RELEASE_RESULT": "success",
+               "RUST_NEEDED": "false", "RUST_RESULT": "skipped",
+               "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
+               "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"}
+        valid = (
+            {"RUST_NEEDED": "false", "RUST_RESULT": "skipped",
+             "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
+             "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"},
+            {"RUST_NEEDED": "true", "RUST_RESULT": "success",
+             "CANDIDATE_SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "false",
+             "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"},
+            {"RUST_NEEDED": "true", "RUST_RESULT": "success",
+             "CANDIDATE_SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "true",
+             "CANDIDATE_BUILD_RESULT": "success", "CANDIDATE_UPLOAD_RESULT": "success"},
+        )
+        for outcome in valid:
+            with self.subTest(outcome=outcome):
+                completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
+                                           env={**env, **outcome})
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        invalid_values = {
+            "RUST_NEEDED": ("", "invalid"),
+            "RUST_RESULT": ("success", "failure", "cancelled", ""),
+            "CANDIDATE_SELECTION_RESULT": ("success", "failure", "cancelled", ""),
+            "CANDIDATE_NEEDED": ("true", "false", "invalid"),
+            "CANDIDATE_BUILD_RESULT": ("success", "failure", "cancelled", ""),
+            "CANDIDATE_UPLOAD_RESULT": ("success", "failure", "cancelled", ""),
+        }
+        for field, values in invalid_values.items():
+            for value in values:
+                with self.subTest(field=field, value=value):
                     completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                               env={**env, "RUST_NEEDED": needed, "RUST_RESULT": result})
-                    expected = (needed, result) in (("true", "success"), ("false", "skipped"))
-                    self.assertEqual(completed.returncode == 0, expected)
+                                               env={**env, field: value})
+                    self.assertNotEqual(completed.returncode, 0)
         for lane in ("POLICY_RESULT", "DOMAIN_LINUX_RESULT", "PLAYBACK_PYTHON_RESULT",
                      "CHECKS_RESULT", "RELEASE_RESULT"):
             with self.subTest(lane=lane):
                 completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                           env={**env, "RUST_NEEDED": "false", "RUST_RESULT": "skipped", lane: "failure"})
+                                           env={**env, lane: "failure"})
                 self.assertNotEqual(completed.returncode, 0)
 
 

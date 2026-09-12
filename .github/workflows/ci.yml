@@ -219,6 +219,7 @@ jobs:
         run: python3 Scripts/ci_source_mtimes.py save --scope rust
 
       - name: Build candidate playback XCFramework
+        id: candidate_build
         env:
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         if: steps.inputs.outputs.candidate_needed == 'true'
@@ -248,6 +249,7 @@ jobs:
           (cd "$framework_path" && zip -X -q -r "$candidate_root/SpottyPlaybackCore-notices.zip" Notices)
 
       - name: Upload candidate playback artifact
+        id: candidate_upload
         if: steps.inputs.outputs.candidate_needed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -333,17 +335,19 @@ jobs:
           PLAYBACK_PYTHON_RESULT: ${{ needs.playback_python.result }}
           RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
           RUST_RESULT: ${{ steps.rust.outcome }}
+          CANDIDATE_SELECTION_RESULT: ${{ steps.inputs.outcome }}
+          CANDIDATE_NEEDED: ${{ steps.inputs.outputs.candidate_needed }}
+          CANDIDATE_BUILD_RESULT: ${{ steps.candidate_build.outcome }}
+          CANDIDATE_UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}
           CHECKS_RESULT: ${{ steps.debug.outcome }}
           RELEASE_RESULT: ${{ steps.release.outcome }}
         run: |
           test "$POLICY_RESULT" = success
           test "$DOMAIN_LINUX_RESULT" = success
           test "$PLAYBACK_PYTHON_RESULT" = success
-          if [[ "$RUST_NEEDED" == true ]]; then
-            test "$RUST_RESULT" = success
-          else
-            test "$RUST_NEEDED" = false
-            test "$RUST_RESULT" = skipped
-          fi
+          case "$RUST_NEEDED:$RUST_RESULT:$CANDIDATE_SELECTION_RESULT:$CANDIDATE_NEEDED:$CANDIDATE_BUILD_RESULT:$CANDIDATE_UPLOAD_RESULT" in
+            true:success:success:true:success:success|true:success:success:false:skipped:skipped|false:skipped:skipped::skipped:skipped) ;;
+            *) echo "Rust or candidate results disagree with verification selection" >&2; exit 1 ;;
+          esac
           test "$CHECKS_RESULT" = success
           test "$RELEASE_RESULT" = success

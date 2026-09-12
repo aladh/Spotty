@@ -30,6 +30,7 @@ playback_runs = playback_python.fetch('steps', []).map { |s| s.fetch('run', '') 
 check.call(playback_runs.include?('apt-get install --no-install-recommends --yes zsh') && playback_runs.include?('zsh --version'), 'playback script checks must install their zsh fixture dependency')
 check.call(playback_python.fetch('steps', []).any? { |s| s['run'] == "python3 -B -m unittest discover -s Scripts -p 'test_playback_*.py'" }, 'Linux must run the playback script checks')
 mac = jobs.fetch('macos', {})
+mac_steps = mac.fetch('steps', [])
 check.call(jobs.values.all? { |job| job['runs-on'].is_a?(String) && !job['runs-on'].include?('${{') }, 'CI runner selection must remain static')
 macos_jobs = jobs.values.select do |job|
   Array(job['runs-on']).any? { |label| label.to_s.downcase.include?('macos') }
@@ -39,10 +40,12 @@ check.call(mac['runs-on'] == 'macos-26', 'macOS image must remain macos-26')
 check.call(mac['name'] == 'macOS checks', 'required aggregate must retain the macOS checks name')
 check.call(Array(mac['needs']).sort == %w[domain_linux playback_python policy], 'macOS must depend on policy, Linux domain, and playback script checks')
 check.call(mac['if'] == "always() && needs.policy.outputs.macos_needed == 'true'", 'macOS must retain aggregate failure semantics while honoring docs-only skips')
+check.call(mac_steps.none? { |step| step.key?('continue-on-error') }, 'macOS verification steps must fail without continue-on-error')
 {'rust' => 'SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh', 'debug' => 'SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh', 'release' => './Scripts/compile-release-spotty.sh'}.each do |id, command|
-  check.call(steps.any? { |s| s['id'] == id && s['run'] == command }, "#{id} verification command must run")
+  matches = mac_steps.select { |s| s['id'] == id }
+  check.call(matches.length == 1 && matches[0]['run'] == command, "#{id} verification command must run once in the macOS job")
 end
-steps.each do |step|
+mac_steps.each do |step|
   if step['id'] == 'rust'
     check.call(step['if'] == "needs.policy.outputs.rust_needed == 'true'", 'Rust execution must follow explicit classification')
   end
@@ -53,13 +56,33 @@ check.call(cbindgen_steps.length == 2 && cbindgen_steps.all? { |s| s['if'] == "n
 check.call(steps.any? { |s| s['id'] == 'debug' && s.dig('env', 'SPOTTY_CHECK_REPEATS').to_s.include?("'3'") }, 'main must repeat boundary checks three times')
 check.call(all_runs.include?('for tool in cargo rustc rustup; do'), 'Swift lane must block Rust tools')
 check.call(all_runs.include?('command -v rg') && all_runs.include?('brew install ripgrep'), 'use runner ripgrep before installing it')
-candidate = steps.find { |s| s['run'] == './Scripts/playback-candidate-needed.sh' } || {}
-check.call(!candidate.empty?, 'candidate selection must compare engine inputs')
-check.call(candidate.dig('env', 'INPUT_BASE_SHA') == '${{ github.event.pull_request.base.sha || github.event.before }}', 'candidate selection must receive the PR or push base SHA')
-%w[Build Upload].each do |verb|
-  step = steps.find { |s| s['name'].to_s.start_with?("#{verb} candidate playback") } || {}
-  check.call(step['if'] == "steps.inputs.outputs.candidate_needed == 'true'", "#{verb} candidate must follow the candidate-needed decision")
+candidate_matches = steps.select do |step|
+  step['name'] == 'Identify playback inputs' || step['run'] == './Scripts/playback-candidate-needed.sh'
 end
+candidate = candidate_matches.first || {}
+check.call(candidate_matches.length == 1 && mac_steps.include?(candidate), 'candidate selection must run exactly once in the macOS job')
+check.call(candidate['name'] == 'Identify playback inputs' && candidate['id'] == 'inputs' && candidate['run'] == './Scripts/playback-candidate-needed.sh', 'candidate selection must retain its inputs step identity')
+check.call(candidate['if'] == "needs.policy.outputs.rust_needed == 'true'", 'candidate selection must follow explicit Rust classification')
+check.call(candidate.dig('env', 'INPUT_BASE_SHA') == '${{ github.event.pull_request.base.sha || github.event.before }}', 'candidate selection must receive the PR or push base SHA')
+candidate_step_names = [
+  'Cache Rust release build products',
+  'Restore unchanged Rust release input timestamps',
+  'Snapshot Rust release input timestamps',
+  'Build candidate playback XCFramework',
+  'Upload candidate playback artifact',
+]
+candidate_steps = []
+candidate_step_names.each do |name|
+  matches = mac_steps.select { |step| step['name'] == name }
+  check.call(matches.length == 1, "#{name} must run once in the macOS job")
+  step = matches.first
+  check.call(step && step['if'] == "steps.inputs.outputs.candidate_needed == 'true'", "#{name} must follow the candidate-needed decision")
+  candidate_steps << step if step
+end
+candidate_index = mac_steps.index(candidate)
+check.call(candidate_index && candidate_steps.length == candidate_step_names.length && candidate_steps.all? { |step| candidate_index < mac_steps.index(step) }, 'candidate selection must precede every candidate-dependent step')
+check.call(candidate_steps[3] && candidate_steps[3]['id'] == 'candidate_build', 'candidate build must retain its outcome identity')
+check.call(candidate_steps[4] && candidate_steps[4]['id'] == 'candidate_upload', 'candidate upload must retain its outcome identity')
 candidate_script = File.read(File.join(__dir__, 'playback-candidate-needed.sh'))
 check.call(candidate_script.include?('digest="$(./Backend/spotty-playback/source-input-digest.sh)"'), 'candidate selection must compute the engine source input digest')
 check.call(candidate_script.include?('echo "candidate_needed=$candidate_needed" >> "$GITHUB_OUTPUT"'), 'candidate selection must publish its decision')
@@ -78,7 +101,16 @@ check.call(gate['if'] == 'always()', 'aggregate must run even after failures')
 }.each do |result, binding|
   check.call(gate.dig('env', result) == binding && gate.fetch('run', '').include?("test \"$#{result}\" = success"), "aggregate must require #{result} success")
 end
+{
+  'CANDIDATE_SELECTION_RESULT' => '${{ steps.inputs.outcome }}',
+  'CANDIDATE_NEEDED' => '${{ steps.inputs.outputs.candidate_needed }}',
+  'CANDIDATE_BUILD_RESULT' => '${{ steps.candidate_build.outcome }}',
+  'CANDIDATE_UPLOAD_RESULT' => '${{ steps.candidate_upload.outcome }}',
+}.each do |result, binding|
+  check.call(gate.dig('env', result) == binding, "aggregate must bind #{result} to its candidate step")
+end
 check.call(gate.dig('env', 'RUST_NEEDED') == '${{ needs.policy.outputs.rust_needed }}' && gate.dig('env', 'RUST_RESULT') == '${{ steps.rust.outcome }}', 'aggregate must bind the actual Rust decision and outcome')
-check.call(gate.fetch('run', '').include?('test "$RUST_NEEDED" = false') && gate.fetch('run', '').include?('test "$RUST_RESULT" = skipped') && gate.fetch('run', '').include?('test "$RUST_RESULT" = success'), 'Rust skip must require an explicit negative classification')
+candidate_cases = %w[true:success:success:true:success:success true:success:success:false:skipped:skipped false:skipped:skipped::skipped:skipped]
+check.call(candidate_cases.all? { |outcome| gate.fetch('run', '').include?(outcome) }, 'aggregate must fail closed over Rust selection and candidate outcomes')
 abort(errors.map { |e| "CI invariant: #{e}" }.join("\n")) unless errors.empty?
 puts 'CI workflow invariants passed'

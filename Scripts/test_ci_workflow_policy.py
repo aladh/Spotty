@@ -87,8 +87,8 @@ class WorkflowInvariantTests(unittest.TestCase):
             ('Select Rust verification', 'run', '> "$trusted_policy"', '> "$other_policy"', 'trusted-policy export'),
             ('Select Rust verification', 'run', '--base "$INPUT_BASE_SHA"', '--base HEAD', 'trusted-policy execution'),
             ('Identify playback inputs', 'base', None, 'HEAD', 'candidate selection must receive'),
-            ('Build candidate playback XCFramework', 'if', None, 'success()', 'Build candidate must follow'),
-            ('Upload candidate playback artifact', 'if', None, 'success()', 'Upload candidate must follow'),
+            ('Build candidate playback XCFramework', 'if', None, 'success()', 'Build candidate playback XCFramework must follow'),
+            ('Upload candidate playback artifact', 'if', None, 'success()', 'Upload candidate playback artifact must follow'),
             ('Require every quality lane', 'outcome', None, 'success', 'aggregate must require CHECKS_RESULT'),
             ('Require every quality lane', 'playback_result', None, 'success', 'aggregate must require PLAYBACK_PYTHON_RESULT'),
         ]
@@ -111,6 +111,88 @@ class WorkflowInvariantTests(unittest.TestCase):
                 result = self.check_workflow(variant)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
+
+    def test_candidate_selection_and_outcomes_fail_closed(self):
+        variant = copy.deepcopy(self.workflow)
+        identify = next(s for s in variant['jobs']['macos']['steps']
+                        if s['name'] == 'Identify playback inputs')
+        identify.pop('id')
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('candidate selection must retain its inputs step identity', result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        identify = next(s for s in variant['jobs']['macos']['steps']
+                        if s['name'] == 'Identify playback inputs')
+        identify['continue-on-error'] = True
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('macOS verification steps must fail without continue-on-error', result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        mac_steps = variant['jobs']['macos']['steps']
+        identify = next(s for s in mac_steps if s['name'] == 'Identify playback inputs')
+        mac_steps.remove(identify)
+        variant['jobs']['playback_python']['steps'].append(identify)
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('candidate selection must run exactly once in the macOS job', result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        mac_steps = variant['jobs']['macos']['steps']
+        identify = next(s for s in mac_steps if s['name'] == 'Identify playback inputs')
+        mac_steps.remove(identify)
+        build_index = next(index for index, step in enumerate(mac_steps)
+                           if step['name'] == 'Build candidate playback XCFramework')
+        mac_steps.insert(build_index + 1, identify)
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('candidate selection must precede every candidate-dependent step', result.stderr)
+
+        dependent_names = (
+            'Cache Rust release build products',
+            'Restore unchanged Rust release input timestamps',
+            'Snapshot Rust release input timestamps',
+            'Build candidate playback XCFramework',
+            'Upload candidate playback artifact',
+        )
+        for name in dependent_names:
+            with self.subTest(candidate_guard=name):
+                variant = copy.deepcopy(self.workflow)
+                step = next(s for s in variant['jobs']['macos']['steps'] if s['name'] == name)
+                step['if'] = 'success()'
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f'{name} must follow the candidate-needed decision', result.stderr)
+
+        for name, expected in (('Build candidate playback XCFramework', 'candidate build must retain its outcome identity'),
+                               ('Upload candidate playback artifact', 'candidate upload must retain its outcome identity')):
+            with self.subTest(candidate_id=name):
+                variant = copy.deepcopy(self.workflow)
+                next(s for s in variant['jobs']['macos']['steps'] if s['name'] == name).pop('id')
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+
+        for binding in ('CANDIDATE_SELECTION_RESULT', 'CANDIDATE_NEEDED',
+                        'CANDIDATE_BUILD_RESULT', 'CANDIDATE_UPLOAD_RESULT'):
+            with self.subTest(candidate_binding=binding):
+                variant = copy.deepcopy(self.workflow)
+                gate = next(s for s in variant['jobs']['macos']['steps']
+                            if s['name'] == 'Require every quality lane')
+                gate['env'][binding] = 'success'
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f'aggregate must bind {binding} to its candidate step', result.stderr)
+
+        variant = copy.deepcopy(self.workflow)
+        gate = next(s for s in variant['jobs']['macos']['steps']
+                    if s['name'] == 'Require every quality lane')
+        gate['run'] = gate['run'].replace('true:success:success:true:success:success',
+                                          'true:success:success:true:skipped:skipped')
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('aggregate must fail closed over Rust selection and candidate outcomes', result.stderr)
 
     def test_source_script_coverage_and_candidate_digest_are_preserved(self):
         cases = [

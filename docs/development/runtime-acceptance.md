@@ -13,7 +13,7 @@ The production desktop consumes an in-process session runtime on a dedicated tra
 It retains the domain reducer, command effects, account teardown, queue authority, and pinned
 Rust/librespot engine. Private Spotify transport and response mapping live behind typed gateway
 ports. The MainActor adapter owns UI observation and browsing presentation; a local synchronous
-admission entrance remains, so the desktop is not exclusively an IPC client.
+admission entrance forwards bounded work to the session executor.
 
 The account-verified SQLite fallback persists complete playlist and album browsing results.
 In-memory route snapshots restore playlist, album, and artist revisits. Saved rows expose freshness
@@ -30,7 +30,7 @@ unchanged. A native implementation alone provides no measured speed improvement.
 ## Evidence for the implemented scope
 
 - Run the complete gate on the final changes, including the existing reducer and boundary corpus
-  and the separate runtime, gateway, storage, and transport targets. Tests must retain independent
+  and the separate runtime, gateway, and storage targets. Tests must retain independent
   expected behavior after ownership moves rather than merely exercising renamed production code.
 - Exercise account replacement, request cancellation, late publication, snapshot/receipt identity,
   retirement during I/O, cache corruption/unsupported schema, purge failure, and complete-versus-
@@ -66,24 +66,18 @@ Use synthetic fixtures and the [safe testing contract](../product/safe-testing.m
 acceptance does not expand live-account permissions. Attach evidence to the reviewed revision and
 report missing measurements explicitly instead of inferring them from compilation or fewer updates.
 
-## Production process and distribution gates
+## Production process
 
-`SpottySessionTransport` is an independently tested XPC transport candidate. Its anonymous synthetic
-endpoint cannot discover the live user's session. Peer requirements, bounded versioned envelopes,
-revision-gap recovery, and unknown outcomes after connection loss can be tested there, but it is
-not a shipped session helper and does not prove continuous audio in another process.
-
-A production XPC cutover remains conditional on a stable release identity and packaged validation
-of audio continuity, output changes, sleep/wake, helper death, client reconnection, and app shutdown.
-Desktop, helper, and transport contract must ship as one versioned unit. Developer ID signing,
-notarization, and peer trust across updates are distribution requirements; an Apple Development
-certificate or ad-hoc signature does not satisfy them. [ADR 008](../architecture/adrs/ADR-008-headless-session-runtime.md)
-chooses the in-process fallback until these conditions hold.
+The session runtime is an in-process component of the app. Spotty does not ship or maintain a custom
+session XPC transport or helper, and a process-isolation cutover is not an active acceptance or
+distribution gate. Session identity, bounded snapshots, revision-gap detection, command receipts,
+and truthful unknown outcomes remain runtime correctness rules even without serialization across a
+process boundary. [ADR 008](../architecture/adrs/ADR-008-headless-session-runtime.md) owns this choice.
 
 OAuth storage remains the private file from [ADR 007](../architecture/adrs/ADR-007-session-persistence.md).
 A future Keychain migration must prove access across updates, developer builds, lock/unlock, and
 reinstallation, and define a recoverable migration of the active grant. Old Keychain entries remain
-untouched. Neither the transport candidate nor catalog persistence establishes this migration.
+untouched. Neither the runtime boundary nor catalog persistence establishes this migration.
 
 ## Product expansions outside this cutover
 

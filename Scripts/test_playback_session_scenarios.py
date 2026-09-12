@@ -15,7 +15,7 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parent
 TARGETS = [
     "SpottyDomainTests", "SpottyBoundaryTests", "SpottySessionRuntimeTests",
-    "SpottyGatewayTests", "SpottyCatalogStorageTests", "SpottySessionTransportTests",
+    "SpottyGatewayTests", "SpottyCatalogStorageTests",
 ]
 LIFECYCLE = {
     "version": 1, "deadlineMilliseconds": 125,
@@ -208,7 +208,9 @@ for seed in UInt64(1_001)...UInt64(1_003) {
         directory = self.root / ".build/session-scenarios" / evidence["runID"]
         for number, (run, command) in enumerate(zip(evidence["runs"], self.calls()[1:]), 1):
             self.assertEqual(run["repetition"], number)
-            self.assertEqual(run["observed"]["counts"], {"passed": 6, "failed": 0, "skipped": 0})
+            self.assertEqual(
+                run["observed"]["counts"], {"passed": len(TARGETS), "failed": 0, "skipped": 0}
+            )
             self.assertEqual(run["lifecycle"]["sampleCount"], 1)
             self.assertEqual(run["xunitFiles"], [f"tests-{number}.xml", f"tests-{number}-swift-testing.xml"])
             self.assertEqual({case["xunit"] for case in run["observed"]["tests"]},
@@ -261,7 +263,7 @@ for seed in UInt64(1_001)...UInt64(1_003) {
         cases = [{"suite": target} for target in TARGETS]
         result, evidence = self.run_fixture([{"cases": cases[:-1], "xctestCases": cases[-1:]}])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(evidence["runs"][0]["observed"]["counts"]["passed"], 6)
+        self.assertEqual(evidence["runs"][0]["observed"]["counts"]["passed"], len(TARGETS))
         result, evidence = self.run_fixture([{"xctestCases": [
             {"suite": TARGETS[0], "name": "xctestFailure()", "status": "failure"},
         ]}])
@@ -279,7 +281,7 @@ for seed in UInt64(1_001)...UInt64(1_003) {
                 result, evidence = self.run_fixture([{"suiteAttributes": {field: "1"}}])
                 self.assertNotEqual(result.returncode, 0)
                 observed = evidence["runs"][0]["observed"]
-                self.assertEqual(observed["counts"]["passed"], 6)
+                self.assertEqual(observed["counts"]["passed"], len(TARGETS))
                 self.assertEqual(observed["suiteSummaryIssues"], [field])
         result, evidence = self.run_fixture([{"suiteAttributes": {"failures": "not a count"}}])
         self.assertNotEqual(result.returncode, 0)

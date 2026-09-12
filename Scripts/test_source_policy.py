@@ -241,8 +241,8 @@ class SourcePolicyRoutingTests(unittest.TestCase):
                 self.assertEqual(self.scan("Sources/Spotty/New.swift", f"import {module}"), set())
 
     def test_headless_targets_cannot_import_presentation_frameworks(self):
-        for target in ("SpottyRuntimeContracts", "SpottySessionRuntime", "SpottySessionTransport",
-                       "SpottyGateway", "SpottyCatalogStorage"):
+        for target in ("SpottyRuntimeContracts", "SpottySessionRuntime", "SpottyGateway",
+                       "SpottyCatalogStorage"):
             for module in ("AppKit", "SwiftUI", "Observation", "UIKit"):
                 with self.subTest(target=target, module=module):
                     self.assertEqual(self.scan(f"Sources/{target}/Nested/New.swift", f"import {module}"),
@@ -254,8 +254,8 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             self.assertEqual(self.scan(path, "import SwiftUI"), set())
 
     def test_new_behavior_targets_keep_deterministic_and_isolated_dependencies(self):
-        for target in ("SpottyCatalogStorageTests", "SpottySessionTransportTests",
-                       "SpottySessionRuntimeTests", "SpottyGatewayTests", "SpottyFutureTests"):
+        for target in ("SpottyCatalogStorageTests", "SpottySessionRuntimeTests",
+                       "SpottyGatewayTests", "SpottyFutureTests"):
             path = f"Tests/{target}/Nested/New.swift"
             with self.subTest(target=target):
                 self.assertEqual(self.scan(path, "try await Task.sleep(for: .seconds(1))"),

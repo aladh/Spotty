@@ -186,7 +186,7 @@ boundary_test_arguments=(
     --no-parallel
     --package-path "$project_root"
     --configuration debug
-    --filter 'Spotty(Boundary|CatalogStorage|SessionTransport|SessionRuntime|Gateway)Tests'
+    --filter 'Spotty(Boundary|CatalogStorage|SessionRuntime|Gateway)Tests'
     "${spotty_swiftc_warnings_as_errors[@]}"
 )
 for (( run = 1; run <= repeat_count; run++ )); do
@@ -215,7 +215,7 @@ if find "$project_root/Sources" -type d \( -name SpottyChecks -o -name DeferredB
     exit 1
 fi
 for test_target in SpottyDomainTests SpottyBoundaryTests SpottyCatalogStorageTests \
-    SpottySessionTransportTests SpottySessionRuntimeTests SpottyGatewayTests; do
+    SpottySessionRuntimeTests SpottyGatewayTests; do
     if [[ ! -d "$project_root/Tests/$test_target" ]]; then
         print -u2 "Conventional Swift test directory is missing: Tests/$test_target"
         exit 1

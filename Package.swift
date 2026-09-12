@@ -111,11 +111,6 @@ private func playbackTarget() -> Target {
             playbackSelection,
             .target(name: "SpottyDiagnostics", path: "Sources/SpottyDiagnostics"),
             .target(name: "SpottyRuntimeContracts", dependencies: ["SpottyDomain"]),
-            .target(name: "SpottySessionTransport", dependencies: ["SpottyRuntimeContracts"]),
-            .testTarget(
-                name: "SpottySessionTransportTests",
-                dependencies: ["SpottySessionTransport", "SpottyRuntimeContracts", "SpottyDomain"]
-            ),
             .target(
                 name: "SpottyGateway",
                 dependencies: ["SpottyDomain", "SpottyRuntimeContracts", "SpottyDiagnostics"]

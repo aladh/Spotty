@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 
-# One non-shipping entry point for the existing deterministic behavior corpus and real XPC tests.
+# One non-shipping entry point for the existing deterministic session behavior corpus.
 # Like check.sh, owner tests use Debug because they import their implementation with @testable.
 project_root="${0:A:h:h}"
 if (( $# != 0 )); then
@@ -33,7 +33,7 @@ if not re.fullmatch(r"[1-9][0-9]*", repeats_text) or int(repeats_text) > 25:
     sys.exit("SPOTTY_CHECK_REPEATS must be between 1 and 25")
 repeats = int(repeats_text)
 targets = ["SpottyDomainTests", "SpottyBoundaryTests", "SpottySessionRuntimeTests",
-           "SpottyGatewayTests", "SpottyCatalogStorageTests", "SpottySessionTransportTests"]
+           "SpottyGatewayTests", "SpottyCatalogStorageTests"]
 test_filter = "^(" + "|".join(targets) + ")[./]"
 
 
@@ -229,9 +229,8 @@ evidence = {"schemaVersion": 1, "runID": run_id, "startedAt": now(), "finishedAt
                          "outcome": "Every selected test passes; no missing targets or skipped tests",
                          "generatedTraces": []},
             "isolation": ["Non-shipping test targets with synthetic dependencies and temporary test storage.",
-                          "Real NSXPC transport uses anonymous test endpoints, never a named live service.",
                           "No app launch or live account mutation is requested by this runner.",
-                          "This is not packaged-helper, live playback, audio, or UI performance evidence."],
+                          "This is not live playback, audio, or UI performance evidence."],
             "runs": [], "outcome": "running"}
 
 

@@ -92,9 +92,9 @@ Swift formatting:
 ```
 
 The domain and boundary suites retain the existing policy and injected-workflow corpus. Separate
-SwiftPM targets exercise session runtime, gateway admission, catalog storage, and the non-shipping
-XPC transport; [Package.swift](../../Package.swift) owns the complete target list. The full gate
-runs every target in full. `Tests/BrowsingHarness/Checks` provides the `SpottyBrowsingHarnessTests` target, which
+SwiftPM targets exercise session runtime, gateway admission, and catalog storage;
+[Package.swift](../../Package.swift) owns the complete target list. The full gate runs every target
+in full. `Tests/BrowsingHarness/Checks` provides the `SpottyBrowsingHarnessTests` target, which
 `Package.swift` includes only when `SPOTTY_BUILD_BROWSING_HARNESS=1` is set; `check.sh` sets it.
 `Tests/ABI`, `Tests/Compiler`, and `Tests/SourcePolicy` hold fixtures read by scripts rather than
 test targets. Discover test names with `swift test list` (add `SPOTTY_BUILD_BROWSING_HARNESS=1` to

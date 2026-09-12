@@ -307,6 +307,7 @@ jobs:
 
       - name: Run checks
         id: debug
+        timeout-minutes: 15
         env:
           SPOTTY_CHECK_REPEATS: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
         run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh

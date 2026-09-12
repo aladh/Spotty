@@ -47,6 +47,8 @@ check.call(mac_step_ids.uniq.length == mac_step_ids.length, 'macOS step IDs must
   matches = mac_steps.select { |s| s['id'] == id }
   check.call(matches.length == 1 && matches[0]['run'] == command, "#{id} verification command must run once in the macOS job")
 end
+debug_step = mac_steps.find { |step| step['id'] == 'debug' } || {}
+check.call(debug_step['timeout-minutes'] == 15, 'Swift Run checks must retain its 15-minute timeout')
 mac_steps.each do |step|
   if step['id'] == 'rust'
     check.call(step['if'] == "needs.policy.outputs.rust_needed == 'true'", 'Rust execution must follow explicit classification')

@@ -260,6 +260,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         positions = [names.index(name) for name in ordered]
         self.assertEqual(positions, sorted(positions))
         self.assertIn("run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh", steps["Run Rust checks"])
+        self.assertIn("timeout-minutes: 15", steps["Run checks"])
         self.assertIn("id: candidate_build", steps["Build candidate playback XCFramework"])
         self.assertIn("id: candidate_upload", steps["Upload candidate playback artifact"])
         for outcome in ("true:success:success:true:success:success",

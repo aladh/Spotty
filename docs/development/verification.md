@@ -71,9 +71,10 @@ in a Swift container; `Package.swift` declares only those two targets off macOS,
 SwiftUI, AVFoundation, or playback-FFI import in the domain fails to compile there. Main requires
 `Source policies`, `Playback script checks`, `Linux domain`, and `macOS checks`. The final macOS step
 validates every prerequisite and local phase outcome, including the explicit decision required to skip
-compiled Rust. The five-minute macOS target applies to ordinary non-candidate PRs; candidate-producing
-runs are an explicit exception because the required source-built XCFramework alone can exceed that
-budget.
+compiled Rust. Swift Debug checks have a 15-minute step watchdog so a wedge releases the scarce runner
+well before the candidate-capable job's 120-minute ceiling. The five-minute macOS target applies to
+ordinary non-candidate PRs; candidate-producing runs are an explicit exception because the required
+source-built XCFramework alone can exceed that budget.
 
 CI skips macOS for PRs limited to documentation, including nested `AGENTS.md` files. The Linux
 source-policy, playback-script, and domain jobs still run; none is conditional. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or

@@ -81,6 +81,20 @@ class WorkflowInvariantTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
 
+    def test_swift_check_timeout_is_exact(self):
+        for value in (None, 14, 16):
+            with self.subTest(timeout=value):
+                variant = copy.deepcopy(self.workflow)
+                debug = next(s for s in variant['jobs']['macos']['steps']
+                             if s.get('id') == 'debug')
+                if value is None:
+                    debug.pop('timeout-minutes')
+                else:
+                    debug['timeout-minutes'] = value
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Swift Run checks must retain its 15-minute timeout', result.stderr)
+
 
     def test_trusted_policy_and_candidate_bindings_are_preserved(self):
         cases = [

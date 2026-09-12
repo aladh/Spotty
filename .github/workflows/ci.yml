@@ -157,9 +157,10 @@ jobs:
           rustc --version
           echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
 
-      - name: Cache pinned cbindgen
+      - name: Restore pinned cbindgen
+        id: cbindgen_cache
         if: needs.policy.outputs.rust_needed == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/spotty-cbindgen
           key: macos-26-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}
@@ -183,9 +184,10 @@ jobs:
           INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: ./Scripts/playback-candidate-needed.sh
 
-      - name: Cache Rust verification products
+      - name: Restore Rust verification products
+        id: rust_debug_cache
         if: needs.policy.outputs.rust_needed == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/git
@@ -200,9 +202,10 @@ jobs:
         if: needs.policy.outputs.rust_needed == 'true'
         run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh
 
-      - name: Cache Rust release build products
+      - name: Restore Rust release build products
+        id: rust_release_cache
         if: steps.inputs.outputs.candidate_needed == 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             Backend/spotty-playback/target/aarch64-apple-darwin/release
@@ -289,8 +292,9 @@ jobs:
           done
           echo "$blocked_tools" >> "$GITHUB_PATH"
 
-      - name: Cache SwiftPM build directory
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore SwiftPM build directory
+        id: swift_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .build/*
@@ -352,3 +356,39 @@ jobs:
           esac
           test "$CHECKS_RESULT" = success
           test "$RELEASE_RESULT" = success
+
+      - name: Save pinned cbindgen
+        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true' && steps.cbindgen_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/spotty-cbindgen
+          key: ${{ steps.cbindgen_cache.outputs.cache-primary-key }}
+
+      - name: Save Rust verification products
+        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true' && steps.rust_debug_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            Backend/spotty-playback/target/debug
+            Backend/spotty-playback/target/.rustc_info.json
+          key: ${{ steps.rust_debug_cache.outputs.cache-primary-key }}
+
+      - name: Save Rust release build products
+        if: success() && github.ref == 'refs/heads/main' && steps.inputs.outputs.candidate_needed == 'true' && steps.rust_release_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            Backend/spotty-playback/target/aarch64-apple-darwin/release
+            Backend/spotty-playback/target/release
+          key: ${{ steps.rust_release_cache.outputs.cache-primary-key }}
+
+      - name: Save SwiftPM build directory
+        if: success() && github.ref == 'refs/heads/main' && steps.swift_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build/*
+            !.build/spotty-signing
+          key: ${{ steps.swift_cache.outputs.cache-primary-key }}

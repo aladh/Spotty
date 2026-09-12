@@ -55,7 +55,7 @@ mac_steps.each do |step|
   end
 end
 check.call(all_runs.include?('xcode-select -s /Applications/Xcode_26.6.app') && all_runs.include?("grep -q 'Apple Swift version 6.3.3'"), 'macOS must select and verify the pinned Swift toolchain')
-cbindgen_steps = steps.select { |s| ['Cache pinned cbindgen', 'Install pinned cbindgen'].include?(s['name']) }
+cbindgen_steps = steps.select { |s| ['Restore pinned cbindgen', 'Install pinned cbindgen'].include?(s['name']) }
 check.call(cbindgen_steps.length == 2 && cbindgen_steps.all? { |s| s['if'] == "needs.policy.outputs.rust_needed == 'true'" }, 'header parser setup must follow explicit Rust classification')
 check.call(steps.any? { |s| s['id'] == 'debug' && s.dig('env', 'SPOTTY_CHECK_REPEATS').to_s.include?("'3'") }, 'main must repeat boundary checks three times')
 check.call(all_runs.include?('for tool in cargo rustc rustup; do'), 'Swift lane must block Rust tools')
@@ -69,7 +69,7 @@ check.call(candidate['name'] == 'Identify playback inputs' && candidate['id'] ==
 check.call(candidate['if'] == "needs.policy.outputs.rust_needed == 'true'", 'candidate selection must follow explicit Rust classification')
 check.call(candidate.dig('env', 'INPUT_BASE_SHA') == '${{ github.event.pull_request.base.sha || github.event.before }}', 'candidate selection must receive the PR or push base SHA')
 candidate_step_names = [
-  'Cache Rust release build products',
+  'Restore Rust release build products',
   'Restore unchanged Rust release input timestamps',
   'Snapshot Rust release input timestamps',
   'Build candidate playback XCFramework',
@@ -91,10 +91,12 @@ candidate_script = File.read(File.join(__dir__, 'playback-candidate-needed.sh'))
 check.call(candidate_script.include?('digest="$(./Backend/spotty-playback/source-input-digest.sh)"'), 'candidate selection must compute the engine source input digest')
 check.call(candidate_script.include?('echo "candidate_needed=$candidate_needed" >> "$GITHUB_OUTPUT"'), 'candidate selection must publish its decision')
 check.call(all_runs.include?('./Scripts/report-size.sh'), 'release size reporting must run')
-caches = steps.select { |s| s.fetch('uses', '').start_with?('actions/cache@') }
-check.call(caches.any? { |s| s.dig('with', 'key').to_s.include?("hashFiles('Package.swift', 'Package.resolved')") }, 'Swift cache must key package inputs')
-check.call(caches.any? { |s| s.dig('with', 'key').to_s.include?("hashFiles('Backend/spotty-playback/Cargo.lock')") }, 'Rust cache must key Cargo.lock')
-gate = steps.find { |s| s['name'] == 'Require every quality lane' } || {}
+cache_restores = mac_steps.select { |s| s.fetch('uses', '').start_with?('actions/cache/restore@') }
+check.call(cache_restores.any? { |s| s.dig('with', 'key').to_s.include?("hashFiles('Package.swift', 'Package.resolved')") }, 'Swift cache must key package inputs')
+check.call(cache_restores.any? { |s| s.dig('with', 'key').to_s.include?("hashFiles('Backend/spotty-playback/Cargo.lock')") }, 'Rust cache must key Cargo.lock')
+gate_matches = mac_steps.select { |s| s['name'] == 'Require every quality lane' }
+gate = gate_matches.first || {}
+check.call(gate_matches.length == 1, 'aggregate must run exactly once in the macOS job')
 check.call(gate['if'] == 'always()', 'aggregate must run even after failures')
 {
   'POLICY_RESULT' => '${{ needs.policy.result }}',
@@ -137,5 +139,46 @@ case_body.each do |line|
   end
 end
 check.call(case_structure_valid && default_cases == 1 && parsed_cases.sort == candidate_cases.sort && parsed_cases.uniq.length == parsed_cases.length, 'aggregate must contain exactly the fail-closed Rust and candidate truth table')
+cache_sha = '55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+cache_specs = {
+  'cbindgen_cache' => {
+    restore_name: 'Restore pinned cbindgen',
+    restore_if: "needs.policy.outputs.rust_needed == 'true'",
+    save_name: 'Save pinned cbindgen',
+    save_if: "success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true' && steps.cbindgen_cache.outputs.cache-hit != 'true'",
+  },
+  'rust_debug_cache' => {
+    restore_name: 'Restore Rust verification products',
+    restore_if: "needs.policy.outputs.rust_needed == 'true'",
+    save_name: 'Save Rust verification products',
+    save_if: "success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true' && steps.rust_debug_cache.outputs.cache-hit != 'true'",
+  },
+  'rust_release_cache' => {
+    restore_name: 'Restore Rust release build products',
+    restore_if: "steps.inputs.outputs.candidate_needed == 'true'",
+    save_name: 'Save Rust release build products',
+    save_if: "success() && github.ref == 'refs/heads/main' && steps.inputs.outputs.candidate_needed == 'true' && steps.rust_release_cache.outputs.cache-hit != 'true'",
+  },
+  'swift_cache' => {
+    restore_name: 'Restore SwiftPM build directory',
+    restore_if: nil,
+    save_name: 'Save SwiftPM build directory',
+    save_if: "success() && github.ref == 'refs/heads/main' && steps.swift_cache.outputs.cache-hit != 'true'",
+  },
+}
+check.call(mac_steps.none? { |step| step.fetch('uses', '').start_with?('actions/cache@') }, 'macOS caches must restore without implicit PR saves')
+cache_action_steps = mac_steps.select { |step| step.fetch('uses', '').start_with?('actions/cache') }
+check.call(cache_action_steps.length == cache_specs.length * 2, 'macOS must contain exactly four paired cache restores and saves')
+gate_index = mac_steps.index(gate)
+cache_specs.each do |id, spec|
+  restore_matches = mac_steps.select { |step| step['id'] == id && step['name'] == spec[:restore_name] }
+  save_matches = mac_steps.select { |step| step['name'] == spec[:save_name] }
+  restore = restore_matches.first || {}
+  save = save_matches.first || {}
+  check.call(restore_matches.length == 1 && restore['uses'] == "actions/cache/restore@#{cache_sha}" && restore['if'] == spec[:restore_if], "#{spec[:restore_name]} must remain the guarded restore owner")
+  check.call(save_matches.length == 1 && save['uses'] == "actions/cache/save@#{cache_sha}" && save['if'] == spec[:save_if], "#{spec[:save_name]} must remain successful-main-only")
+  check.call(save.dig('with', 'path') == restore.dig('with', 'path') && save.dig('with', 'key') == "${{ steps.#{id}.outputs.cache-primary-key }}", "#{spec[:save_name]} must save the restored paths under its primary key")
+  check.call(gate_index && mac_steps.index(restore) && mac_steps.index(restore) < gate_index && mac_steps.index(save) && gate_index < mac_steps.index(save), "#{spec[:save_name]} must run only after the aggregate passes")
+end
 abort(errors.map { |e| "CI invariant: #{e}" }.join("\n")) unless errors.empty?
 puts 'CI workflow invariants passed'

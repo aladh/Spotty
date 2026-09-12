@@ -15,9 +15,9 @@ case "$build_configuration" in
         ;;
 esac
 case "$check_scope" in
-    full|rust|swift) ;;
+    full|rust|rust-compiled|swift) ;;
     *)
-        print -u2 "SPOTTY_CHECK_SCOPE must be full, rust, or swift"
+        print -u2 "SPOTTY_CHECK_SCOPE must be full, rust, rust-compiled, or swift"
         exit 2
         ;;
 esac
@@ -28,7 +28,7 @@ fi
 
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
-if [[ "$check_scope" != rust ]]; then
+if [[ "$check_scope" != rust && "$check_scope" != rust-compiled ]]; then
     "$project_root/Scripts/format-swift-self-test.sh"
     "$project_root/Scripts/format-swift.sh" --check
 fi
@@ -38,7 +38,11 @@ fi
 # developer's normal toolchain; the fallback is the project-local toolchain
 # provisioned by the development bootstrap on this workspace.
 if [[ "$check_scope" != swift ]]; then
-    python3 -B -m unittest discover -s "$project_root/Scripts" -p 'test_playback_*.py'
+    # CI runs these portable source-level checks in parallel on Linux. Full and normal Rust
+    # verification retain them so local aggregate behavior remains unchanged.
+    if [[ "$check_scope" != rust-compiled ]]; then
+        python3 -B -m unittest discover -s "$project_root/Scripts" -p 'test_playback_*.py'
+    fi
     "$project_root/Scripts/generate-c-header.sh" --check
 
     cargo_bin="${SPOTTY_CARGO:-}"
@@ -67,7 +71,7 @@ if [[ "$check_scope" != swift ]]; then
     "$cargo_bin" test --locked --manifest-path "$project_root/Backend/spotty-playback/Cargo.toml" \
         -p librespot-core -p librespot-playback --lib spotty_
 
-    if [[ "$check_scope" == rust ]]; then
+    if [[ "$check_scope" == rust || "$check_scope" == rust-compiled ]]; then
         print "Spotty Rust checks passed: formatting, warning-clean clippy, and locked tests are green"
         exit 0
     fi

@@ -41,13 +41,16 @@ CI checks cover workflow presence, tool selection, cache integrity, and complete
 Their executable owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
 [check-ci-workflow.rb](../../../Scripts/check-ci-workflow.rb), invoked by
 [check.sh](../../../Scripts/check.sh). The `Linux domain` job builds `SpottyDomain` and runs
-`SpottyDomainTests` in a Swift container; the macOS gate requires its result alongside source
-policies. [Source policies](source-checks.md) cover the syntax-only
+`SpottyDomainTests` in a Swift container; `Playback script checks` runs the portable Python playback
+suite on Linux in parallel. The single `macOS checks` runner requires both results alongside source
+policies, then serially owns compiled Rust/header verification, candidate production, Swift checks,
+and Release compilation. [Source policies](source-checks.md) cover the syntax-only
 facets of Rust-free app scripts, workflow trust, and published-engine use; artifact validation and
-build execution remain here. The required aggregate includes source policies, Rust,
-Swift/architecture, and Release compilation. Source policies run unconditionally in the `policy`
+build execution remain here. The required checks include source policies, playback scripts, Rust,
+Swift/architecture, and Release compilation. Source policies and playback scripts run unconditionally
+in Linux jobs; the trusted classifier runs in the `policy`
 job; [ci_rust_policy.py](../../../Scripts/ci_rust_policy.py) sets `macos_needed=false` for
-docs-only PR changes, which skips the `macos` job and with it Rust, Swift/architecture, and Release
+docs-only PR changes, which skips the single `macos` job and with it Rust, Swift/architecture, and Release
 compilation. Rust runs on main and on PRs outside the
 [app-only scope](../../development/verification.md#normal-verification); detection failures cannot
 authorize a skip. Swift CI uses only published engines. Candidate builds

@@ -202,10 +202,16 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
     def test_rust_scope_guards_and_phase_order(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertEqual(workflow.count("runs-on: macos-"), 1)
+        playback = workflow.split("  playback_python:\n", 1)[1].split("\n  macos:\n", 1)[0]
+        self.assertIn("name: Playback script checks", playback)
+        self.assertIn("runs-on: ubuntu-latest", playback)
+        self.assertIn("apt-get install --no-install-recommends --yes zsh", playback)
+        self.assertIn("run: python3 -B -m unittest discover -s Scripts -p 'test_playback_*.py'", playback)
         macos = workflow.split("  macos:\n", 1)[1]
         self.assertNotRegex(macos, r"(?m)^  [^ #\s]",
                             "macOS must remain the final CI job; update the job extractor if this changes")
-        self.assertIn("if: needs.policy.outputs.macos_needed == 'true'", macos)
+        self.assertIn("if: always() && needs.policy.outputs.macos_needed == 'true'", macos)
+        self.assertIn("needs: [policy, domain_linux, playback_python]", macos)
         steps = {}
         for block in macos.split("      - name: ")[1:]:
             name, body = block.split("\n", 1)
@@ -216,7 +222,15 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
                 self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
-        for name in ("Cache Rust release build products", "Build candidate playback XCFramework",
+        identify = steps["Identify playback inputs"]
+        self.assertIn("id: inputs", identify)
+        self.assertIn("INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}", identify)
+        self.assertIn("run: ./Scripts/playback-candidate-needed.sh", identify)
+        macos_lines = [line.strip() for line in macos.splitlines()]
+        for step_id in ("inputs", "candidate_build", "candidate_upload", "rust", "debug", "release"):
+            self.assertEqual(macos_lines.count(f"id: {step_id}"), 1)
+        for name in ("Cache Rust release build products", "Restore unchanged Rust release input timestamps",
+                     "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
                      "Upload candidate playback artifact"):
             with self.subTest(name=name):
                 self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
@@ -228,18 +242,31 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertIn("if: always()", gate)
         for binding in ("POLICY_RESULT: ${{ needs.policy.result }}",
                         "DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}",
+                        "PLAYBACK_PYTHON_RESULT: ${{ needs.playback_python.result }}",
                         "RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}",
                         "RUST_RESULT: ${{ steps.rust.outcome }}",
+                        "CANDIDATE_SELECTION_RESULT: ${{ steps.inputs.outcome }}",
+                        "CANDIDATE_NEEDED: ${{ steps.inputs.outputs.candidate_needed }}",
+                        "CANDIDATE_BUILD_RESULT: ${{ steps.candidate_build.outcome }}",
+                        "CANDIDATE_UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}",
                         "CHECKS_RESULT: ${{ steps.debug.outcome }}",
                         "RELEASE_RESULT: ${{ steps.release.outcome }}"):
             self.assertIn(binding, gate)
-        ordered = ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Build candidate playback XCFramework",
+        ordered = ("Show Rust toolchain", "Cache pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Cache Rust release build products", "Restore unchanged Rust release input timestamps", "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
                    "Upload candidate playback artifact", "Block Rust tools", "Run checks",
                    "Compile release Spotty with SPOTTY_DISTRIBUTION")
         for name in ordered:
             self.assertIn(name, steps, f"Required CI producer/consumer step was renamed or removed: {name}")
         positions = [names.index(name) for name in ordered]
         self.assertEqual(positions, sorted(positions))
+        self.assertIn("run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh", steps["Run Rust checks"])
+        self.assertIn("timeout-minutes: 15", steps["Run checks"])
+        self.assertIn("id: candidate_build", steps["Build candidate playback XCFramework"])
+        self.assertIn("id: candidate_upload", steps["Upload candidate playback artifact"])
+        for outcome in ("true:success:success:true:success:success",
+                        "true:success:success:false:skipped:skipped",
+                        "false:skipped:skipped::skipped:skipped"):
+            self.assertIn(outcome, gate)
         self.assertNotIn("continue-on-error:", macos)
         cbindgen_cache = steps["Cache pinned cbindgen"]
         self.assertIn("${{ env.CBINDGEN_VERSION }}", cbindgen_cache)
@@ -254,16 +281,19 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
 
 
 class CheckScopeOwnershipTests(unittest.TestCase):
-    def test_playback_source_checks_run_once_inside_non_swift_scope(self):
+    def test_playback_source_checks_run_once_and_only_ci_compiled_scope_skips_them(self):
         script = (ROOT / "Scripts/check.sh").read_text()
         python_check = "python3 -B -m unittest discover -s \"$project_root/Scripts\" -p 'test_playback_*.py'"
         header_check = '"$project_root/Scripts/generate-c-header.sh" --check'
         scope_start = script.index('if [[ "$check_scope" != swift ]]; then')
-        rust_exit = script.index('if [[ "$check_scope" == rust ]]; then', scope_start)
+        python_guard = script.index('if [[ "$check_scope" != rust-compiled ]]; then', scope_start)
+        rust_exit = script.index('if [[ "$check_scope" == rust || "$check_scope" == rust-compiled ]]; then', scope_start)
 
         self.assertEqual(script.count(python_check), 1)
         self.assertEqual(script.count(header_check), 1)
-        self.assertLess(scope_start, script.index(python_check))
+        self.assertIn("full|rust|rust-compiled|swift", script)
+        self.assertLess(scope_start, python_guard)
+        self.assertLess(python_guard, script.index(python_check))
         self.assertLess(script.index(python_check), script.index(header_check))
         self.assertLess(script.index(header_check), rust_exit)
 
@@ -309,21 +339,53 @@ chmod +x "$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
 
 
 class AggregateGateTests(unittest.TestCase):
-    def test_only_an_explicit_app_only_decision_allows_skipped_rust(self):
+    def test_only_explicit_rust_and_candidate_outcomes_are_accepted(self):
         script = workflow_script("Require every quality lane")
         env = {**os.environ, "POLICY_RESULT": "success", "DOMAIN_LINUX_RESULT": "success",
-               "CHECKS_RESULT": "success", "RELEASE_RESULT": "success"}
-        for needed in ("true", "false", "", "invalid"):
-            for result in ("success", "skipped", "failure", "cancelled", ""):
-                with self.subTest(needed=needed, result=result):
-                    completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                               env={**env, "RUST_NEEDED": needed, "RUST_RESULT": result})
-                    expected = (needed, result) in (("true", "success"), ("false", "skipped"))
-                    self.assertEqual(completed.returncode == 0, expected)
-        for lane in ("POLICY_RESULT", "DOMAIN_LINUX_RESULT", "CHECKS_RESULT", "RELEASE_RESULT"):
+               "PLAYBACK_PYTHON_RESULT": "success",
+               "CHECKS_RESULT": "success", "RELEASE_RESULT": "success",
+               "RUST_NEEDED": "false", "RUST_RESULT": "skipped",
+               "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
+               "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"}
+        valid = (
+            {"RUST_NEEDED": "false", "RUST_RESULT": "skipped",
+             "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
+             "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"},
+            {"RUST_NEEDED": "true", "RUST_RESULT": "success",
+             "CANDIDATE_SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "false",
+             "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"},
+            {"RUST_NEEDED": "true", "RUST_RESULT": "success",
+             "CANDIDATE_SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "true",
+             "CANDIDATE_BUILD_RESULT": "success", "CANDIDATE_UPLOAD_RESULT": "success"},
+        )
+        for outcome in valid:
+            with self.subTest(outcome=outcome):
+                completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
+                                           env={**env, **outcome})
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        field_values = {
+            "RUST_NEEDED": ("true", "false", "invalid", ""),
+            "RUST_RESULT": ("success", "skipped", "failure", "cancelled", ""),
+            "CANDIDATE_SELECTION_RESULT": ("success", "skipped", "failure", "cancelled", ""),
+            "CANDIDATE_NEEDED": ("true", "false", "invalid", ""),
+            "CANDIDATE_BUILD_RESULT": ("success", "skipped", "failure", "cancelled", ""),
+            "CANDIDATE_UPLOAD_RESULT": ("success", "skipped", "failure", "cancelled", ""),
+        }
+        for base in valid:
+            for field, values in field_values.items():
+                for value in values:
+                    if value == base[field]:
+                        continue
+                    with self.subTest(base=base, field=field, value=value):
+                        completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
+                                                   env={**env, **base, field: value})
+                        self.assertNotEqual(completed.returncode, 0)
+        for lane in ("POLICY_RESULT", "DOMAIN_LINUX_RESULT", "PLAYBACK_PYTHON_RESULT",
+                     "CHECKS_RESULT", "RELEASE_RESULT"):
             with self.subTest(lane=lane):
                 completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                           env={**env, "RUST_NEEDED": "false", "RUST_RESULT": "skipped", lane: "failure"})
+                                           env={**env, lane: "failure"})
                 self.assertNotEqual(completed.returncode, 0)
 
 

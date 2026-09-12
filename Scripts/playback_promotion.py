@@ -25,7 +25,7 @@ ASSETS = (
     "NOTICE",
     "THIRD_PARTY_NOTICES.md",
 )
-REQUIRED_JOBS = ("Source policies",)
+REQUIRED_JOBS = ("Source policies", "Playback script checks")
 PRODUCER_STEPS = ("Run Rust checks", "Build candidate playback XCFramework", "Upload candidate playback artifact")
 
 

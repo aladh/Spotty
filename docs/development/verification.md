@@ -57,29 +57,37 @@ tools. A differing source input digest produces a pin-freshness warning without 
 or replacing the independently released engine. Checks do not sign in or initiate playback. See the
 [enforcement inventory](../architecture/enforcement.md) for coverage.
 
-CI uses one macOS job for conditional Rust verification/candidate production, then Swift Debug
-checks and the Release distribution compile. Debug and Release share one SwiftPM cache under a
+CI uses exactly one macOS runner job for conditional compiled Rust verification/candidate production,
+then Swift Debug checks and the Release distribution compile. The portable Python playback checks run
+in a separate Linux job, in parallel with source policies and the Linux domain build, and the macOS
+job requires all three Linux results before it starts. Debug and Release share one SwiftPM cache under a
 combined key; separate configuration directories remain inside `.build`. CI restores source timestamps
 only when tracked compiler input contents match the manifest saved with that build cache; changed and
 new inputs keep checkout timestamps. Rust verification disables incremental products and keeps line-table
 debug information to reduce cache transfer without changing assertions or test coverage. Release
 caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust compiler tools are blocked
-before Swift runs. A separate `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
+before Swift runs. The `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
 in a Swift container; `Package.swift` declares only those two targets off macOS, so an AppKit,
 SwiftUI, AVFoundation, or playback-FFI import in the domain fails to compile there. Main requires
-`Source policies`, `Linux domain`, and `macOS checks`. The final macOS step validates each phase
-outcome, including the explicit decision required to skip Rust.
+`Source policies`, `Playback script checks`, `Linux domain`, and `macOS checks`. The final macOS step
+validates every prerequisite and local phase outcome, including the explicit decision required to skip
+compiled Rust. Swift Debug checks have a 15-minute step watchdog so a wedge releases the scarce runner
+well before the candidate-capable job's 120-minute ceiling. The five-minute macOS target applies to
+ordinary non-candidate PRs; candidate-producing runs are an explicit exception because the required
+source-built XCFramework alone can exceed that budget.
 
 CI skips macOS for PRs limited to documentation, including nested `AGENTS.md` files. The Linux
-source-policy and domain jobs still run; neither is conditional. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or
+source-policy, playback-script, and domain jobs still run; none is conditional. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or
 documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
 runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
 requires Rust; a base without macOS classification keeps macOS enabled. Detection errors fail CI. Skipped Rust steps are accepted only after an
 explicit successful app-only decision. When Rust is selected, CI caches pinned cbindgen by version
-and runner image/architecture, verifies its version before reuse, and runs header regeneration and
-the Python playback checks once in the Rust scope. App-only PRs skip those source-engine checks only
-because changes to engine, shared-header, CI, script, license, and unknown paths select Rust through
-the trusted base policy. See [CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
+and runner image/architecture, verifies its version before reuse, and runs header regeneration plus
+the compiled Rust checks once on macOS. CI's internal `rust-compiled` scope omits only the Python suite
+already completed by `Playback script checks`; the public full and Rust scopes retain that suite.
+App-only PRs skip the compiled source-engine checks only because changes to engine, shared-header, CI,
+script, license, and unknown paths select Rust through the trusted base policy. See
+[CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
 header. `--check` verifies reproducibility; set `SPOTTY_CBINDGEN` if the pinned tool is not on `PATH`.

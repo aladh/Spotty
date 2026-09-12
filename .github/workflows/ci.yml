@@ -108,10 +108,32 @@ jobs:
         id: domain_tests
         run: swift test --filter SpottyDomainTests
 
+  # These source-level playback checks are portable Python and do not need an expensive macOS
+  # runner. Keep them independent so they overlap the Linux domain build and source policies.
+  playback_python:
+    name: Playback script checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install playback script dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes zsh
+          zsh --version
+
+      - name: Run playback script checks
+        run: python3 -B -m unittest discover -s Scripts -p 'test_playback_*.py'
+
   macos:
     name: macOS checks
-    needs: [policy, domain_linux]
-    if: needs.policy.outputs.macos_needed == 'true'
+    needs: [policy, domain_linux, playback_python]
+    if: always() && needs.policy.outputs.macos_needed == 'true'
     runs-on: macos-26
     timeout-minutes: 120
     env:
@@ -176,7 +198,7 @@ jobs:
       - name: Run Rust checks
         id: rust
         if: needs.policy.outputs.rust_needed == 'true'
-        run: SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
+        run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh
 
       - name: Cache Rust release build products
         if: steps.inputs.outputs.candidate_needed == 'true'
@@ -197,6 +219,7 @@ jobs:
         run: python3 Scripts/ci_source_mtimes.py save --scope rust
 
       - name: Build candidate playback XCFramework
+        id: candidate_build
         env:
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         if: steps.inputs.outputs.candidate_needed == 'true'
@@ -226,6 +249,7 @@ jobs:
           (cd "$framework_path" && zip -X -q -r "$candidate_root/SpottyPlaybackCore-notices.zip" Notices)
 
       - name: Upload candidate playback artifact
+        id: candidate_upload
         if: steps.inputs.outputs.candidate_needed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -283,6 +307,7 @@ jobs:
 
       - name: Run checks
         id: debug
+        timeout-minutes: 15
         env:
           SPOTTY_CHECK_REPEATS: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
         run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
@@ -308,18 +333,22 @@ jobs:
         env:
           POLICY_RESULT: ${{ needs.policy.result }}
           DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}
+          PLAYBACK_PYTHON_RESULT: ${{ needs.playback_python.result }}
           RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
           RUST_RESULT: ${{ steps.rust.outcome }}
+          CANDIDATE_SELECTION_RESULT: ${{ steps.inputs.outcome }}
+          CANDIDATE_NEEDED: ${{ steps.inputs.outputs.candidate_needed }}
+          CANDIDATE_BUILD_RESULT: ${{ steps.candidate_build.outcome }}
+          CANDIDATE_UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}
           CHECKS_RESULT: ${{ steps.debug.outcome }}
           RELEASE_RESULT: ${{ steps.release.outcome }}
         run: |
           test "$POLICY_RESULT" = success
           test "$DOMAIN_LINUX_RESULT" = success
-          if [[ "$RUST_NEEDED" == true ]]; then
-            test "$RUST_RESULT" = success
-          else
-            test "$RUST_NEEDED" = false
-            test "$RUST_RESULT" = skipped
-          fi
+          test "$PLAYBACK_PYTHON_RESULT" = success
+          case "$RUST_NEEDED:$RUST_RESULT:$CANDIDATE_SELECTION_RESULT:$CANDIDATE_NEEDED:$CANDIDATE_BUILD_RESULT:$CANDIDATE_UPLOAD_RESULT" in
+            true:success:success:true:success:success|true:success:success:false:skipped:skipped|false:skipped:skipped::skipped:skipped) ;;
+            *) echo "Rust or candidate results disagree with verification selection" >&2; exit 1 ;;
+          esac
           test "$CHECKS_RESULT" = success
           test "$RELEASE_RESULT" = success

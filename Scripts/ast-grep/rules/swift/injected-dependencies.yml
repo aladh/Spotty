@@ -8,6 +8,9 @@ files:
 - Sources/Spotty/RootView.swift
 - Sources/Spotty/Spotify/**/*Store*.swift
 - Sources/Spotty/Spotify/**/PlaylistMutationController.swift
+- Sources/SpottySessionRuntime/**/*Store*.swift
+- Sources/SpottySessionRuntime/**/PlaybackSessionRuntime*.swift
+- Sources/SpottySessionRuntime/**/PlaylistMutationController.swift
 rule:
   any:
   - matches: swift-symbol

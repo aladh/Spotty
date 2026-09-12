@@ -1,6 +1,6 @@
 import Foundation
 
-public enum PlaybackSessionPhase: Equatable, Sendable {
+public enum PlaybackSessionPhase: Equatable, Sendable, Codable {
     case signedOut
     case authorizing
     case connecting
@@ -9,7 +9,7 @@ public enum PlaybackSessionPhase: Equatable, Sendable {
     case failed(String)
 }
 
-public struct PlaybackDevice: Equatable, Sendable {
+public struct PlaybackDevice: Equatable, Sendable, Codable {
     public let id: String
     public let name: String
     public let type: String
@@ -23,7 +23,7 @@ public struct PlaybackDevice: Equatable, Sendable {
     }
 }
 
-public enum PlaybackOwner: Equatable, Sendable {
+public enum PlaybackOwner: Equatable, Sendable, Codable {
     case none
     case local(PlaybackDevice)
     case remote(PlaybackDevice)

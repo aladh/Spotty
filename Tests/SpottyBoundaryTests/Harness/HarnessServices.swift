@@ -1,6 +1,9 @@
 import Foundation
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 // MARK: - Remote playback
 
@@ -663,8 +666,9 @@ final class HarnessAudioOutput: AudioOutputPreparing, @unchecked Sendable {
 /// The default catalog. Every read is unavailable, which is what a check that is not about the
 /// catalog wants; the capability-gated reads keep throwing `CatalogProviderCapabilityError` so a
 /// harness catalog is indistinguishable from a provider without those capabilities.
-final class HarnessCatalog: CatalogProviding, @unchecked Sendable {
+final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unchecked Sendable {
     private struct Storage {
+        var entityQueries: (any CatalogEntityQueryProviding)?
         var onSearchTracks: (@Sendable (String, Int) async throws -> [PathfinderTrack])?
         var onSearchAlbums: (@Sendable (String, Int) async throws -> [PathfinderAlbum])?
         var onSearchArtists: (@Sendable (String, Int) async throws -> [PathfinderArtist])?
@@ -676,9 +680,13 @@ final class HarnessCatalog: CatalogProviding, @unchecked Sendable {
         var onLibraryArtists: (@Sendable () async throws -> [PathfinderArtist])?
         var onLibraryTracks: (@Sendable () async throws -> [PathfinderLibraryTrackItem])?
         var onProfile: (@Sendable () async throws -> PathfinderProfile)?
+        var onPlaylistSnapshot: (@Sendable (String) async throws -> CatalogPlaylistSnapshot)?
         var onPlaylist: (@Sendable (String) async throws -> PathfinderPlaylistUnion)?
+        var onAlbumSnapshot: (@Sendable (String) async throws -> CatalogAlbumSnapshot)?
         var onAlbum: (@Sendable (String) async throws -> PathfinderAlbumUnion)?
+        var onArtistSnapshot: (@Sendable (String) async throws -> CatalogArtistSnapshot)?
         var onArtist: (@Sendable (String) async throws -> PathfinderArtistUnion)?
+        var onArtistDiscographySnapshot: (@Sendable (String) async throws -> CatalogArtistSnapshot)?
         var onArtistDiscography: (@Sendable (String) async throws -> PathfinderArtistUnion)?
     }
 
@@ -695,6 +703,12 @@ final class HarnessCatalog: CatalogProviding, @unchecked Sendable {
     }
 
     // MARK: Configuration
+
+    /// Inert by default, preserving callers that do not opt into retained entity queries.
+    var entityQueries: (any CatalogEntityQueryProviding)? {
+        get { withStorage { $0.entityQueries } }
+        set { withStorage { $0.entityQueries = newValue } }
+    }
 
     var onSearchTracks: (@Sendable (String, Int) async throws -> [PathfinderTrack])? {
         get { withStorage { $0.onSearchTracks } }
@@ -751,9 +765,21 @@ final class HarnessCatalog: CatalogProviding, @unchecked Sendable {
         set { withStorage { $0.onProfile = newValue } }
     }
 
+    /// Supplies a domain snapshot directly; older wire fixture overrides remain supported.
+    var onPlaylistSnapshot: (@Sendable (String) async throws -> CatalogPlaylistSnapshot)? {
+        get { withStorage { $0.onPlaylistSnapshot } }
+        set { withStorage { $0.onPlaylistSnapshot = newValue } }
+    }
+
     var onPlaylist: (@Sendable (String) async throws -> PathfinderPlaylistUnion)? {
         get { withStorage { $0.onPlaylist } }
         set { withStorage { $0.onPlaylist = newValue } }
+    }
+
+    /// Supplies a domain snapshot directly; older wire fixture overrides remain supported.
+    var onAlbumSnapshot: (@Sendable (String) async throws -> CatalogAlbumSnapshot)? {
+        get { withStorage { $0.onAlbumSnapshot } }
+        set { withStorage { $0.onAlbumSnapshot = newValue } }
     }
 
     var onAlbum: (@Sendable (String) async throws -> PathfinderAlbumUnion)? {
@@ -761,9 +787,21 @@ final class HarnessCatalog: CatalogProviding, @unchecked Sendable {
         set { withStorage { $0.onAlbum = newValue } }
     }
 
+    /// Supplies a domain snapshot directly; older wire fixture overrides remain supported.
+    var onArtistSnapshot: (@Sendable (String) async throws -> CatalogArtistSnapshot)? {
+        get { withStorage { $0.onArtistSnapshot } }
+        set { withStorage { $0.onArtistSnapshot = newValue } }
+    }
+
     var onArtist: (@Sendable (String) async throws -> PathfinderArtistUnion)? {
         get { withStorage { $0.onArtist } }
         set { withStorage { $0.onArtist = newValue } }
+    }
+
+    /// Supplies a domain snapshot directly; older wire fixture overrides remain supported.
+    var onArtistDiscographySnapshot: (@Sendable (String) async throws -> CatalogArtistSnapshot)? {
+        get { withStorage { $0.onArtistDiscographySnapshot } }
+        set { withStorage { $0.onArtistDiscographySnapshot = newValue } }
     }
 
     var onArtistDiscography: (@Sendable (String) async throws -> PathfinderArtistUnion)? {
@@ -790,34 +828,34 @@ final class HarnessCatalog: CatalogProviding, @unchecked Sendable {
 
     // MARK: CatalogProviding
 
-    func searchTracks(_ term: String, limit: Int) async throws -> [PathfinderTrack] {
+    func searchTracks(_ term: String, limit: Int) async throws -> [CatalogTrack] {
         counters.record("searchTracks")
         guard let override = onSearchTracks else { throw HarnessFailure.unavailable }
-        return try await override(term, limit)
+        return try await override(term, limit).compactMap(CatalogMapping.searchTrack(from:))
     }
 
-    func searchAlbums(_ term: String, limit: Int) async throws -> [PathfinderAlbum] {
+    func searchAlbums(_ term: String, limit: Int) async throws -> [CatalogItem] {
         counters.record("searchAlbums")
         guard let override = onSearchAlbums else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(term, limit)
+        return try await override(term, limit).compactMap(CatalogMapping.item(from:))
     }
 
-    func searchArtists(_ term: String, limit: Int) async throws -> [PathfinderArtist] {
+    func searchArtists(_ term: String, limit: Int) async throws -> [CatalogItem] {
         counters.record("searchArtists")
         guard let override = onSearchArtists else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(term, limit)
+        return try await override(term, limit).compactMap(CatalogMapping.item(from:))
     }
 
-    func searchPlaylists(_ term: String, limit: Int) async throws -> [PathfinderPlaylist] {
+    func searchPlaylists(_ term: String, limit: Int) async throws -> [CatalogItem] {
         counters.record("searchPlaylists")
         guard let override = onSearchPlaylists else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(term, limit)
+        return try await override(term, limit).compactMap(CatalogMapping.item(from:))
     }
 
-    func home() async throws -> PathfinderHome {
+    func home() async throws -> CatalogHomeSnapshot {
         counters.record("home")
         guard let override = onHome else { throw HarnessFailure.unavailable }
-        return try await override()
+        return CatalogMapping.home(try await override())
     }
 
     func libraryPlaylists() async throws -> [PathfinderPlaylist] {
@@ -835,53 +873,77 @@ final class HarnessCatalog: CatalogProviding, @unchecked Sendable {
             .map(PlaylistLibraryNode.init(playlist:))
     }
 
-    func libraryAlbums() async throws -> [PathfinderAlbum] {
+    func libraryAlbums() async throws -> [CatalogItem] {
         counters.record("libraryAlbums")
         guard let override = onLibraryAlbums else { throw HarnessFailure.unavailable }
-        return try await override()
+        return try await override().compactMap(CatalogMapping.item(from:))
     }
 
-    func libraryArtists() async throws -> [PathfinderArtist] {
+    func libraryArtists() async throws -> [CatalogItem] {
         counters.record("libraryArtists")
         guard let override = onLibraryArtists else { throw HarnessFailure.unavailable }
-        return try await override()
+        return try await override().compactMap(CatalogMapping.item(from:))
     }
 
-    func libraryTracks() async throws -> [PathfinderLibraryTrackItem] {
+    func libraryTracks() async throws -> [CatalogTrack] {
         counters.record("libraryTracks")
         guard let override = onLibraryTracks else { throw HarnessFailure.unavailable }
-        return try await override()
+        return try await override().compactMap(CatalogMapping.track(from:))
     }
 
-    func profile() async throws -> PathfinderProfile {
+    func profile() async throws -> CatalogProfileSnapshot {
         counters.record("profile")
         guard let override = onProfile else { throw HarnessFailure.unavailable }
-        return try await override()
+        return CatalogMapping.profile(try await override())
     }
 
-    func playlist(id: String) async throws -> PathfinderPlaylistUnion {
+    func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         counters.record("playlist")
+        if let override = onPlaylistSnapshot { return try await override(id) }
         guard let override = onPlaylist else { throw HarnessFailure.unavailable }
-        return try await override(id)
+        return CatalogMapping.playlist(try await override(id))
     }
 
-    func album(id: String) async throws -> PathfinderAlbumUnion {
+    func album(id: String) async throws -> CatalogAlbumSnapshot {
         counters.record("album")
+        if let override = onAlbumSnapshot { return try await override(id) }
         guard let override = onAlbum else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(id)
+        return CatalogMapping.album(try await override(id))
     }
 
-    func artist(id: String) async throws -> PathfinderArtistUnion {
+    func artist(id: String) async throws -> CatalogArtistSnapshot {
         counters.record("artist")
+        if let override = onArtistSnapshot { return try await override(id) }
         guard let override = onArtist else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(id)
+        return CatalogMapping.artist(try await override(id))
     }
 
-    func artistDiscography(id: String) async throws -> PathfinderArtistUnion {
+    func artistDiscography(id: String) async throws -> CatalogArtistSnapshot {
         counters.record("artistDiscography")
+        if let override = onArtistDiscographySnapshot { return try await override(id) }
         guard let override = onArtistDiscography else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(id)
+        return CatalogMapping.artist(try await override(id))
     }
+    func subscribeCatalogEntities(_ uris: Set<String>) async throws -> CatalogEntitySubscription {
+        guard let entityQueries else { throw CatalogEntityQueryFailure.unavailable }
+        return try await entityQueries.subscribeCatalogEntities(uris)
+    }
+
+    func catalogEntityPage(
+        _ token: CatalogEntitySubscriptionToken, revision: UInt64, offset: Int, limit: Int
+    ) async throws -> CatalogEntityPage {
+        guard let entityQueries else { throw CatalogEntityQueryFailure.unavailable }
+        return try await entityQueries.catalogEntityPage(token, revision: revision, offset: offset, limit: limit)
+    }
+
+    func acknowledgeCatalogEntities(_ token: CatalogEntitySubscriptionToken, revision: UInt64) async {
+        await entityQueries?.acknowledgeCatalogEntities(token, revision: revision)
+    }
+
+    func unsubscribeCatalogEntities(_ token: CatalogEntitySubscriptionToken) async {
+        await entityQueries?.unsubscribeCatalogEntities(token)
+    }
+
 }
 
 /// Track attributes that resolve to nothing unless a check scripts them.

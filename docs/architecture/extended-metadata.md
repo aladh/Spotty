@@ -12,7 +12,7 @@ JavaScript for `BPM`, `camelotKey`, and `AUDIO_ATTRIBUTES_V2`. Executable string
 
 ## Wire shape
 
-[TrackAttributes.swift](../../Sources/Spotty/Spotify/TrackAttributes.swift) owns the endpoint,
+[TrackAttributes.swift](../../Sources/SpottyGateway/TrackAttributes.swift) owns the endpoint,
 request/response encoding, and display conversion. Consult that codec rather than maintaining a
 second schema here. The maintenance-sensitive protocol facts are:
 
@@ -33,5 +33,5 @@ queue occurrence. Keep work bounded. Missing attributes and failures
 are not durable negative results; a later load may retry them.
 
 [CatalogMetadataRepository](../../Sources/Spotty/Spotify/CatalogMetadataRepository.swift) owns
-batching and caching; [SpotifyCredentials](../../Sources/Spotty/Spotify/SpotifyCredentials.swift)
+batching and caching; [SpotifyCredentials](../../Sources/SpottyGateway/SpotifyCredentials.swift)
 owns signing and retry policy.

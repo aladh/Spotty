@@ -3,19 +3,23 @@ set -euo pipefail
 
 # Compile-only access-control contract for the testable SpottyCore module. The fixtures are never
 # linked or run: the compiler must accept reads of the store snapshot/projections and reject each
-# attempted write. Keep this next to the C-header compiler contract rather than making a source
-# spelling snapshot of PlaybackStore's implementation.
+# attempted write. Independent desktop probes also reject concrete credential, gateway, and
+# engine types accidentally re-exported by the runtime. Keep these compiler contracts instead
+# of making a source spelling snapshot of PlaybackStore's implementation.
 project_root="${0:A:h:h}"
 fixtures_root="$project_root/Tests/Compiler/PlaybackStoreAccess"
 positive_fixture="$fixtures_root/positive.swift"
 negative_fixture="$fixtures_root/negative.swift"
+desktop_negative_fixture="$project_root/Tests/Compiler/DesktopBoundary/negative.swift"
+desktop_capability_fixture="$project_root/Tests/Compiler/DesktopBoundary/capabilities.swift"
 
 if (( $# > 1 )); then
     print -u2 "usage: $0 [SWIFT_BUILD_BIN_PATH]"
     exit 2
 fi
-if [[ ! -f "$positive_fixture" || ! -f "$negative_fixture" ]]; then
-    print -u2 "PlaybackStore compiler access fixtures are missing"
+if [[ ! -f "$positive_fixture" || ! -f "$negative_fixture" || ! -f "$desktop_negative_fixture" \
+    || ! -f "$desktop_capability_fixture" ]]; then
+    print -u2 "Desktop compiler access fixtures are missing"
     exit 1
 fi
 if ! command -v swift >/dev/null 2>&1; then
@@ -142,3 +146,50 @@ for flag in "${negative_flags[@]}"; do
 done
 
 print "PlaybackStore compiler access contract passed: positive reads and ${#negative_flags} access-control negatives"
+
+# First compile the same desktop import with no selected negative. A missing module or broken
+# dependency must never be mistaken for evidence that its concrete implementation is hidden.
+package_arguments=("${swift_arguments[@]}" -package-name spotty)
+"$swiftc_path" "${package_arguments[@]}" "$desktop_negative_fixture"
+desktop_negative_flags=("${(@f)$(awk '/^[[:space:]]*#(if|elseif) NEG_[A-Z_]+$/ { print $2 }' "$desktop_negative_fixture")}")
+if (( ${#desktop_negative_flags} == 0 )) || [[ -z "${desktop_negative_flags[1]}" ]]; then
+    print -u2 "Desktop compiler fixture contains no negative probes"
+    exit 1
+fi
+for flag in "${desktop_negative_flags[@]}"; do
+    negative_log="$module_cache/$flag.err"
+    if "$swiftc_path" "${package_arguments[@]}" "-D$flag" "$desktop_negative_fixture" \
+        > /dev/null 2> "$negative_log"; then
+        print -u2 "negative $flag desktop boundary probe unexpectedly compiled"
+        exit 1
+    fi
+    if ! rg -q "cannot find '[A-Za-z]+' in scope" "$negative_log"; then
+        print -u2 "negative $flag desktop boundary probe failed for an unexpected reason"
+        cat "$negative_log" >&2
+        exit 1
+    fi
+done
+print "Desktop compiler boundary passed: ${#desktop_negative_flags} concrete implementation negatives"
+
+# Also check inferred member types through the shipping desktop's package access. Import Runtime
+# normally: test-only @testable access to that module would intentionally reopen internal owners.
+"$swiftc_path" "${package_arguments[@]}" "$desktop_capability_fixture"
+capability_flags=("${(@f)$(awk '/^[[:space:]]*#(if|elseif) NEG_[A-Z_]+$/ { print $2 }' "$desktop_capability_fixture")}")
+if (( ${#capability_flags} == 0 )) || [[ -z "${capability_flags[1]}" ]]; then
+    print -u2 "Desktop capability fixture contains no negative probes"
+    exit 1
+fi
+for flag in "${capability_flags[@]}"; do
+    negative_log="$module_cache/$flag.err"
+    if "$swiftc_path" "${package_arguments[@]}" "-D$flag" "$desktop_capability_fixture" \
+        > /dev/null 2> "$negative_log"; then
+        print -u2 "negative $flag desktop capability probe unexpectedly compiled"
+        exit 1
+    fi
+    if ! rg -q "is inaccessible due to '(internal|private|fileprivate)' protection level|setter is inaccessible" "$negative_log"; then
+        print -u2 "negative $flag desktop capability probe failed for an unexpected reason"
+        cat "$negative_log" >&2
+        exit 1
+    fi
+done
+print "Desktop compiler capabilities passed: supported ports/actions and ${#capability_flags} inaccessible implementation members"

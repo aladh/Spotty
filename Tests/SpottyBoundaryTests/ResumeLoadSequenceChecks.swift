@@ -2,6 +2,7 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
 
 /// `ResumeLoadSequence` policy for both callers. Store-level capture and the reconnect
 /// trigger live in the command-failure and workflow suites.

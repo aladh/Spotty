@@ -8,6 +8,7 @@
 
 import SpottyDomain
 import Foundation
+import SpottyRuntimeContracts
 
 @MainActor
 @Observable
@@ -54,6 +55,7 @@ final class PlaylistMutationController {
     }
 
     func isOpenPlaylistEditable(_ item: CatalogItem) -> Bool {
+        guard playlistStore.canEditLoadedContent else { return false }
         let ownerURI =
             playlistStore.loadedURI == item.uri
             ? (playlistStore.ownerURI ?? item.ownerURI)
@@ -64,7 +66,8 @@ final class PlaylistMutationController {
         )
     }
 
-    func addTracks(_ tracks: [CatalogTrack], to playlist: CatalogItem) {
+    func addTracks(_ tracks: [CatalogTrack], to playlist: CatalogItem, accountEpoch: UInt64? = nil) {
+        guard accountEpoch == nil || accountEpoch == session.accountEpoch else { return }
         let uris = PlaylistMutationSelection.addURIs(from: tracks)
         guard
             PlaylistMutationSelection.canAdd(
@@ -81,8 +84,10 @@ final class PlaylistMutationController {
             return
         }
 
-        startMutation { handle in
-            try await self.mutations.addToPlaylist(playlistId: playlistID, trackUris: uris)
+        startMutation(playlist: playlist) { handle in
+            try await self.mutations.addToPlaylist(
+                playlistId: playlistID, trackUris: uris,
+                context: PlaylistMutationContext(accountEpoch: handle.sessionSnapshot.accountEpoch))
             await self.finishSuccessfulWrite(
                 handle,
                 playlist: playlist,
@@ -91,7 +96,8 @@ final class PlaylistMutationController {
         }
     }
 
-    func removeOccurrences(selectedIDs: Set<String>, from playlist: CatalogItem) {
+    func removeOccurrences(selectedIDs: Set<String>, from playlist: CatalogItem, accountEpoch: UInt64? = nil) {
+        guard accountEpoch == nil || accountEpoch == session.accountEpoch else { return }
         guard isOpenPlaylistEditable(playlist) else { return }
         let selected = PlaylistMutationSelection.orderedTracks(
             selectedIDs: selectedIDs,
@@ -115,8 +121,10 @@ final class PlaylistMutationController {
             return
         }
 
-        startMutation { handle in
-            try await self.mutations.removeFromPlaylist(playlistId: playlistID, uids: uids)
+        startMutation(playlist: playlist) { handle in
+            try await self.mutations.removeFromPlaylist(
+                playlistId: playlistID, uids: uids,
+                context: PlaylistMutationContext(accountEpoch: handle.sessionSnapshot.accountEpoch))
             await self.finishSuccessfulWrite(
                 handle,
                 playlist: playlist,
@@ -125,13 +133,22 @@ final class PlaylistMutationController {
         }
     }
 
-    private func startMutation(_ work: @escaping @MainActor (Flight.Handle) async throws -> Void) {
+    private func startMutation(
+        playlist: CatalogItem, _ work: @escaping @MainActor (Flight.Handle) async throws -> Void
+    ) {
         let handle = flight.begin(.unit)
         flight.start(handle) { [weak self] in
             guard let self else { return }
             do {
                 try await work(handle)
             } catch {
+                // A lost response or cancellation can follow a committed write. Retire the
+                // previous route authority even when a newer intent owns error presentation.
+                if error as? PlaylistMutationFailure != .rejected,
+                    self.flight.isCurrent(handle, policy: .sessionOnly)
+                {
+                    self.playlistStore.invalidateRetainedPlaylist(playlist.uri)
+                }
                 // Reporting a failure is a latest-intent decision, so it uses the strict gate.
                 guard self.flight.isCurrent(handle, policy: .strict) else { return }
                 self.reportFailure(error)
@@ -149,6 +166,7 @@ final class PlaylistMutationController {
         // requestID and Task.isCancelled are latest-intent gates, not session validity, so this
         // uses the flight's `.sessionOnly` publish policy.
         guard flight.isCurrent(handle) else { return }
+        playlistStore.invalidateRetainedPlaylist(playlist.uri)
         await reconcileIfOpen(playlist)
         guard flight.isCurrent(handle) else { return }
         feedback.success(message)
@@ -161,7 +179,7 @@ final class PlaylistMutationController {
 
     private func reportFailure(_ error: Error) {
         if isCancellation(error) { return }
-        if let apiError = error as? PartnerAPIError, case .mutationRejected = apiError {
+        if error as? PlaylistMutationFailure == .rejected {
             feedback.failure("Spotify couldn’t change that playlist.")
             return
         }

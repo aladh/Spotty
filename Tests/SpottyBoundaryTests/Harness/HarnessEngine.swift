@@ -1,6 +1,7 @@
 import Foundation
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
 
 /// The default local engine for boundary checks.
 ///

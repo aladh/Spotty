@@ -2,6 +2,8 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 /// Gates `HarnessCatalog.searchTracks` so a check can park and release admitted queries one at a
 /// time, mirroring the pre-harness `GatedSearchCatalog` actor.

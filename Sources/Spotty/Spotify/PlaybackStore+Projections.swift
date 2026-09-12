@@ -6,6 +6,7 @@
 //
 
 import SpottyDomain
+import SpottyRuntimeContracts
 import Foundation
 
 extension PlaybackStore {
@@ -54,7 +55,7 @@ extension PlaybackStore {
     /// Connect is account-wide: another device playing is still live playback Spotty can control.
     var showsPauseControl: Bool { hasCurrentTrack && isPlaying }
     var canStartPlayback: Bool {
-        isConnected && !isTearingDown && terminationGate.allowsCommands && !isPlaybackCommandPending
+        isConnected && !isTearingDown && allowsCommands && !isPlaybackCommandPending
     }
     var canTogglePlayback: Bool { canStartPlayback && hasCurrentTrack }
     var canSkipTrack: Bool { canStartPlayback && hasCurrentTrack }
@@ -123,7 +124,7 @@ extension PlaybackStore {
     }
 }
 
-struct RemotePlaybackBannerPresentation: Equatable {
+struct RemotePlaybackBannerPresentation: Equatable, Sendable {
     let device: ConnectDevice
     let isPlaying: Bool
 }
@@ -147,7 +148,7 @@ func remotePlaybackBannerPresentation(
 }
 
 /// Display facts without source watermarks, pending-operation bookkeeping or timing samples.
-struct PlaybackSemanticProjection: Equatable {
+struct PlaybackSemanticProjection: Equatable, Sendable {
     let accountEpoch: UInt64
     let engineEpoch: UInt64
     let session: PlaybackSessionPhase

@@ -91,9 +91,11 @@ Swift formatting:
 ./Scripts/format-swift.sh --write
 ```
 
-Tests live in `Tests/SpottyDomainTests/` and `Tests/SpottyBoundaryTests/` (ordinary SwiftPM test
-targets) and `Tests/BrowsingHarness/Checks` (the `SpottyBrowsingHarnessTests` target, which
-`Package.swift` includes only when `SPOTTY_BUILD_BROWSING_HARNESS=1` is set; `check.sh` sets it).
+The domain and boundary suites retain the existing policy and injected-workflow corpus. Separate
+SwiftPM targets exercise session runtime, gateway admission, catalog storage, and the non-shipping
+XPC transport; [Package.swift](../../Package.swift) owns the complete target list. The full gate
+runs every target in full. `Tests/BrowsingHarness/Checks` provides the `SpottyBrowsingHarnessTests` target, which
+`Package.swift` includes only when `SPOTTY_BUILD_BROWSING_HARNESS=1` is set; `check.sh` sets it.
 `Tests/ABI`, `Tests/Compiler`, and `Tests/SourcePolicy` hold fixtures read by scripts rather than
 test targets. Discover test names with `swift test list` (add `SPOTTY_BUILD_BROWSING_HARNESS=1` to
 include the harness target), then filter for focused iteration:
@@ -137,10 +139,21 @@ Run the isolated demo under its [standing authorization](../product/safe-testing
 ```
 
 For interactive browsing without the automated workload, use `./script/build_and_run.sh --demo`.
-Its default [Demo scenario](../../Tests/BrowsingHarness/demo.json) has 28 playlists: 20 top-level
+For an optimized synthetic measurement, use:
+
+```bash
+./Scripts/browse-synthetic.sh --optimized Tests/BrowsingHarness/queue-rendering.json
+```
+
+The optimized mode uses Release optimization with testability and measurement instrumentation
+explicitly enabled for the non-shipping harness. It still uses synthetic engine/audio dependencies;
+it is not a measurement of production audio or a normal distribution binary. Compare the same
+optimized mode, scenario, window, and display conditions. Historical Debug samples are not a matched
+before/after baseline. See [runtime acceptance](runtime-acceptance.md) for evidence and proof limits.
+The interactive [Demo scenario](../../Tests/BrowsingHarness/demo.json) has 28 playlists: 20 top-level
 rows and two folders containing four playlists each, so the sidebar scrolls. Explicit scenario
 paths and profiling retain their declared fixture size.
-Both commands build an isolated Debug-only Spotty demo with the normal window, root view,
+The default commands build an isolated Debug Spotty demo with the normal window, root view,
 navigation, commands, and lifecycle.
 It never launches or terminates the live Spotty app. The [version-1 scenario](../../Tests/BrowsingHarness/scenario.json)
 defines two playlists, six [AI-generated covers](../../Tests/BrowsingHarness/Support/Artwork/prompts.json)
@@ -148,8 +161,9 @@ repeated across distinct artwork URLs, repeated visits, and a fixed viewing cade
 scenario path to change the bounded workload; `mode: "signed-out"` exercises the real signed-out
 root view. Invalid scenarios fail closed. The version-2 playback scenario below extends this foundation; search and playlist mutation remain outside its scope.
 
-The demo injects all environment ports from one synthetic owner. Artwork loads from local fixture
-files through `AsyncImage`. A separately signed app sandbox denies socket access, which
+The demo injects all environment ports from one synthetic owner. Its artwork provider reads local
+fixture files through the same bounded pipeline, with file access explicitly enabled only for the
+synthetic provider. A separately signed app sandbox denies socket access, which
 the workload verifies before browsing. No live auth, Keychain, engine, or audio-device dependency
 is constructed. The demo uses the same Apple Development certificate selection as Spotty and the stable
 `dev.spotty.demo` identity at `.build/Spotty Demo.app`, preserving macOS permissions across rebuilds.
@@ -163,8 +177,9 @@ The report records the scenario, commit/diff identity, machine/OS context, windo
 checkpoint RSS and physical footprint, cumulative CPU time, store loading time, scroll positions,
 catalog request counts, fixture size, and demo-container cache footprint. Repeat the same scenario on
 the same machine/configuration and compare several runs; Debug timings and synthetic source bytes
-do not measure live network latency or Release performance. First visits are cold-process samples, with potentially warm framework disk caches;
-later cycles show reuse within that process. Framework scheduling and measured timings can vary.
+do not measure live network latency or production audio performance. First visits are cold-process
+samples; later cycles show reuse within that process. Source-file reads can still benefit from the
+operating system's filesystem cache. Framework scheduling and measured timings can vary.
 A verified network sandbox, zero mutation attempts, and a completed report are acceptance checks, not performance budgets.
 
 `check.sh` runs the harness's headless fixture, port, and read-only browsing checks. The normal

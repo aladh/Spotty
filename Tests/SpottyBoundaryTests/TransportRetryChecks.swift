@@ -2,6 +2,9 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Test("Transport Retry")
 @MainActor

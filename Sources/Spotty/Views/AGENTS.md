@@ -18,4 +18,6 @@ and the affected [surface contract](../../../docs/product/README.md). Keep suppo
   selection, disabled state, truncation, and narrow/window-resize behavior within the authorized
   acceptance scope.
 - Views render state and invoke narrow actions; asynchronous orchestration belongs to the stores.
-  Artwork uses SwiftUI `AsyncImage`. Changes beyond framework caching need measured evidence.
+  Artwork and header tint use the shared account-stamped provider from
+  [ADR 009](../../../docs/architecture/adrs/ADR-009-account-catalog-retention.md); do not start an
+  independent network or image-decode pipeline in a view.

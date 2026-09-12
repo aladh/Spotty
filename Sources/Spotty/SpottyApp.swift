@@ -1,5 +1,6 @@
 import AppKit
 import OSLog
+import SpottySessionRuntime
 import SwiftUI
 
 enum AppDisplayName {
@@ -133,7 +134,12 @@ struct SpottyApp: App {
     @State private var updater = AppUpdater()
 
     init() {
-        let environment = PlaybackEnvironment.live
+        let environment = PlaybackEnvironment.live(
+            openAuthorizationURL: { url in
+                await MainActor.run { NSWorkspace.shared.open(url) }
+            },
+            lifecycle: MacSystemLifecycleEvents.shared
+        )
         let feedback = TransientFeedbackPresenter(clock: environment.clock)
         _feedback = State(initialValue: feedback)
         _player = State(initialValue: PlaybackStore(environment: environment, feedback: feedback))

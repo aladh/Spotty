@@ -2,6 +2,8 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 private let fixtureURI = "spotify:track:6rqhFgbbKwnb9MLmUQDhG6"
 private let otherFixtureURI = "spotify:track:0000000000000000000001"

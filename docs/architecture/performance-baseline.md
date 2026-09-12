@@ -5,7 +5,10 @@
 ## Current status
 
 The 2026-09-10 measurements below were taken when `Package.swift` pinned `playback-v0.1.4`.
-It now pins `playback-v0.1.5` (release 0.2.5), which has not been re-measured.
+They do not measure the headless runtime, persistent catalog, or direct AppKit dense surfaces.
+The current engine selection is owned by [Package.swift](../../Package.swift); compare new results
+using their recorded source and engine identities, not this historical pin. No current optimized
+rendering or input-latency result is established by the records below.
 
 ## Historical measured baseline (2026-08-23)
 

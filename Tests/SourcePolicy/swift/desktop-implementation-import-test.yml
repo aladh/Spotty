@@ -1,0 +1,16 @@
+---
+id: desktop-implementation-import
+valid:
+- import SpottyRuntimeContracts
+- import SpottySessionRuntime
+- import SpottyDomain
+- import SpottyDiagnostics
+- "// import SpottyGateway"
+- let name = "SpottyEngineAdapter"
+invalid:
+- import SpottyGateway
+- import SpottyCatalogStorage
+- import SpottyEngineAdapter
+- import SpottyPlaybackCore
+- '@_exported import SpottyEngineAdapter'
+- import class SpottyEngineAdapter.RustPlaybackEngine

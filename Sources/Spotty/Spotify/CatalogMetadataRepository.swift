@@ -29,6 +29,11 @@ final class CatalogMetadataRepository {
 
     private(set) var trackAttributes: [String: TrackAttributes] = [:]
     private(set) var trackAttributesRevision: UInt64 = 0
+    /// Changes only when the effective genuine browsing labels exported to the runtime change.
+    /// Playback publications must not feed themselves back as higher-priority browsing input.
+    @ObservationIgnored private(set) var runtimeTracksRevision: UInt64 = 0
+
+    private static let runtimeTrackSources: [TrackSource] = [.search, .playlist, .album, .library]
 
     @ObservationIgnored private let contentObservation = ObservationRegistrar()
     @ObservationIgnored private let attributesProvider: any TrackAttributesProviding
@@ -126,7 +131,18 @@ final class CatalogMetadataRepository {
         publishItems(updated, affectedURIs: Set(items.map(\.uri)))
     }
 
-    /// Higher-value catalog sources win over provisional queue metadata.
+    /// Genuine browsing input only. Runtime-owned queue and Now Playing publications are never
+    /// re-exported as browsing authority. Callers use runtimeTracksRevision to avoid rebuilding an
+    /// unchanged library during playback timing updates.
+    var runtimeTracks: [String: CatalogTrack] {
+        guard contentEpoch == session.accountEpoch else { return [:] }
+        var result: [String: CatalogTrack] = [:]
+        for source in Self.runtimeTrackSources {
+            result.merge(tracksBySource[source] ?? [:]) { _, higherPriority in higherPriority }
+        }
+        return result
+    }
+
     func knownTrack(for uri: String) -> CatalogTrack? {
         self[track: uri]
     }
@@ -282,10 +298,14 @@ final class CatalogMetadataRepository {
         let changedURIs = affectedURIs.filter {
             Self.track(for: $0, in: tracksBySource) != Self.track(for: $0, in: updated)
         }
+        let changedRuntimeTracks = affectedURIs.contains {
+            Self.runtimeTrack(for: $0, in: tracksBySource) != Self.runtimeTrack(for: $0, in: updated)
+        }
         // Announce changes before committing the whole source snapshot so each batch remains
         // atomic to readers. Hidden source updates still commit, but do not wake unchanged lookups.
         for uri in changedURIs { contentObservation.willSet(self, keyPath: \.[track: uri]) }
         tracksBySource = updated
+        if changedRuntimeTracks { runtimeTracksRevision &+= 1 }
         for uri in changedURIs { contentObservation.didSet(self, keyPath: \.[track: uri]) }
     }
 
@@ -324,6 +344,16 @@ final class CatalogMetadataRepository {
     ) -> CatalogTrack? {
         for candidate in TrackSource.allCases.reversed() where candidate != source {
             if let track = tracks[candidate]?[uri] { return track }
+        }
+        return nil
+    }
+
+    private static func runtimeTrack(
+        for uri: String,
+        in tracks: [TrackSource: [String: CatalogTrack]]
+    ) -> CatalogTrack? {
+        for source in runtimeTrackSources.reversed() {
+            if let track = tracks[source]?[uri] { return track }
         }
         return nil
     }

@@ -1,0 +1,17 @@
+---
+id: desktop-implementation-import
+language: Swift
+severity: error
+message: Desktop presentation uses the runtime contract; concrete gateway, catalog storage,
+  and engine modules belong behind the session runtime.
+files:
+- Sources/Spotty/**/*.swift
+- Sources/SpottyApp/**/*.swift
+note: SwiftPM's transitive module search can expose an undeclared dependency. This
+  import rule closes that lexical gap; compiler probes also check accidental re-exports.
+rule:
+  kind: import_declaration
+  has:
+    stopBy: end
+    matches: swift-symbol
+    regex: "^(SpottyGateway|SpottyCatalogStorage|SpottyEngineAdapter|SpottyPlaybackCore)$"

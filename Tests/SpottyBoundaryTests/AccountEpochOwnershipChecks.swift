@@ -2,6 +2,7 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
 
 @Suite("Account Epoch Ownership")
 struct AccountEpochOwnershipTests {

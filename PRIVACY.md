@@ -34,8 +34,23 @@ Updates require the user to choose installation.
 - Local preferences (`UserDefaults`) also retain a random installation/device identifier and
   playback preferences, including shuffle history. The playback inspector's open/closed state and
   selected panel instead use SwiftUI `@SceneStorage`, not `UserDefaults`.
-- Artwork loads through SwiftUI `AsyncImage`. macOS frameworks manage any image and response
-  caching; Spotty does not impose its own artwork cache limits or purge it on window close.
+- Previously fetched playlist and album browsing metadata is retained in an account-partitioned
+  SQLite catalog under `~/Library/Application Support/Spotty/Catalog/`. Partition names are
+  derived from the account identifier; hashing a directory name does not anonymize its contents.
+  Private directory and file permissions limit access to the macOS user, but the catalog is not
+  encrypted and other processes running as that user can read it. The cache has explicit entity,
+  collection, record, and database-size bounds. It stores typed track/item labels, artwork URLs,
+  ordered browsing occurrences, collection metadata, and freshness—not OAuth grants, raw service
+  responses, artwork bytes, or audio. A current live profile must verify the account before that
+  process reads its partition; a saved partition cannot authorize sign-in or playlist edits.
+- Completed playlist, album, and artist pages also have bounded in-memory snapshots. Window-local
+  search, selection, sort, and scroll state remain in memory and clear when the account changes;
+  navigation is not restored across launches.
+- Artwork uses a shared account-scoped in-memory pipeline. Source image bytes, size-limited
+  thumbnails, decoded pixels, and header tint reuse bounded memory; Spotty does not keep an artwork
+  disk cache. Network image loads use an ephemeral HTTPS session without shared cookies,
+  credentials, or response caching. Account retirement cancels image work and clears retained
+  bytes; late results from that lifetime cannot populate the replacement account's cache.
 - Spotify/librespot session credentials may be cached in
   `~/Library/Application Support/Spotty/credentials` so the playback device can reconnect. Retired
   cache locations are deleted without being imported.
@@ -59,9 +74,13 @@ exports, raw service responses, or unrelated system logs to an issue.
 
 Use **Spotty → Sign Out** to clear the active Spotty grant, the local playback session, cached
 streaming credentials, and Spotify authentication cookies from the shared `URLSession` cookie
-store used by the token flow. Cookies for other domains are left in place. macOS application
-preferences, caches, or diagnostic files may remain until removed through normal macOS file
-management. Revoking the app's Spotify desktop access from the Spotify account is an additional way to
+store used by the token flow. It also fences catalog access and removes retained account catalog
+content and SQLite sidecars. If catalog removal fails, that content remains inaccessible to the
+runtime and the failure is reported; filesystem cleanup may still be needed. Empty ownership-lock
+files and directories can remain. This is logical deletion, not guaranteed forensic erasure.
+Cookies for other domains are left in place. Ordinary app termination retains the catalog for a
+later verified session. macOS application preferences, framework caches from older builds, or
+diagnostic files may remain until removed through normal macOS file management. Revoking the app's Spotify desktop access from the Spotify account is an additional way to
 invalidate previously issued credentials.
 
 ## Service terms

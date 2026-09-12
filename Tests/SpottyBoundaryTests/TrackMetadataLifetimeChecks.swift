@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 @testable import SpottyCore
+import SpottyRuntimeContracts
+@testable import SpottySessionRuntime
 
 /// Gates `HarnessRemote.onMetadata` so a check can track multiple concurrent metadata requests
 /// for the same URI independently and complete or fail each by its own request id, mirroring the

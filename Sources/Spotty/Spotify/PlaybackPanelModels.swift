@@ -43,6 +43,10 @@ final class PlaybackHistoryStore {
         )
     }
 
+    func replaceEntries(_ entries: [HistoryEntry]) {
+        if self.entries != entries { self.entries = entries }
+    }
+
     func reset() {
         entries = []
     }

@@ -12,7 +12,7 @@ func readPlaybackStoreAccess(_ store: PlaybackStore) {
     _ = store.state
     _ = store.requiresReauthentication
     _ = store.accountEpoch
-    _ = store.playbackLifetime
+    _ = store.engineGeneration
     _ = store.phase
     _ = store.trackURI
     _ = store.trackTitle

@@ -1,0 +1,20 @@
+---
+id: headless-runtime-import
+language: Swift
+severity: error
+message: Headless runtime, contract, transport, gateway and storage targets must not
+  import desktop views or observation frameworks; native presentation belongs in SpottyCore.
+files:
+- Sources/SpottyRuntimeContracts/**/*.swift
+- Sources/SpottySessionRuntime/**/*.swift
+- Sources/SpottySessionTransport/**/*.swift
+- Sources/SpottyGateway/**/*.swift
+- Sources/SpottyCatalogStorage/**/*.swift
+note: These macOS targets can see SDK frameworks without a package dependency. This
+  checks explicit framework imports, not executor behavior or type aliases.
+rule:
+  kind: import_declaration
+  has:
+    stopBy: end
+    matches: swift-symbol
+    regex: "^(AppKit|SwiftUI|Observation|UIKit)$"

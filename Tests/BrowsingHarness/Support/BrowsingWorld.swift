@@ -1,6 +1,10 @@
 import Foundation
 import SpottyDomain
+import SpottyRuntimeContracts
 @testable import SpottyCore
+import SpottyEngineAdapter
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
 
 /// One lock owns every mutable port value, including the synchronous engine boundary.
 /// Playback scenarios delegate to one synthetic authority; browsing remains read-only.
@@ -37,7 +41,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
         PlaybackEnvironment(
             remote: self, local: self, webQueue: self, account: self, audioOutput: self,
             preferences: self, lifecycle: self, clock: self, catalog: self,
-            playlistMutations: self, trackAttributes: self
+            playlistMutations: self, trackAttributes: self, artwork: ArtworkPipeline(allowFileURLs: true)
         )
     }
 
@@ -157,10 +161,10 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
         }
     }
 
-    func home() async throws -> PathfinderHome { record("home"); return fixtures.home }
-    func libraryPlaylists() async throws -> [PathfinderPlaylist] { record("library"); return fixtures.playlists }
+    func home() async throws -> CatalogHomeSnapshot { record("home"); return CatalogMapping.home(fixtures.home) }
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
-        let nodes = try await libraryPlaylists().compactMap(CatalogMapping.item(from:))
+        record("library")
+        let nodes = fixtures.playlists.compactMap(CatalogMapping.item(from:))
             .map(PlaylistLibraryNode.init(playlist:))
         guard scenario.expandedLibrary == true else { return nodes }
         let folders = BrowsingFixtures.folderNames.enumerated().map { index, name in
@@ -172,20 +176,18 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
         return folders + Array(nodes.prefix(BrowsingFixtures.topLevelPlaylistCount))
     }
 
-    func profile() async throws -> PathfinderProfile {
-        PathfinderProfile(
-            username: "synthetic", name: BrowsingFixtures.listenerName(at: 0),
-            uri: "spotify:user:synthetic", avatar: nil)
+    func profile() async throws -> CatalogProfileSnapshot {
+        CatalogProfileSnapshot(name: BrowsingFixtures.listenerName(at: 0), uri: "spotify:user:synthetic")
     }
-    func playlist(id: String) async throws -> PathfinderPlaylistUnion {
+    func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         record("playlist.\(id)")
         guard let result = fixtures.details[id] else { throw BrowsingFailure.unsupportedAction }
-        return result
+        return CatalogMapping.playlist(result)
     }
-    func libraryAlbums() async throws -> [PathfinderAlbum] { [] }
-    func libraryArtists() async throws -> [PathfinderArtist] { [] }
-    func libraryTracks() async throws -> [PathfinderLibraryTrackItem] { [] }
-    func searchTracks(_: String, limit _: Int) async throws -> [PathfinderTrack] { [] }
+    func libraryAlbums() async throws -> [CatalogItem] { [] }
+    func libraryArtists() async throws -> [CatalogItem] { [] }
+    func libraryTracks() async throws -> [CatalogTrack] { [] }
+    func searchTracks(_: String, limit _: Int) async throws -> [CatalogTrack] { [] }
     func attributes(for _: [String]) async throws -> [String: TrackAttributes] { [:] }
     func addToPlaylist(playlistId _: String, trackUris _: [String]) async throws { throw rejectMutation() }
     func removeFromPlaylist(playlistId _: String, uids _: [String]) async throws { throw rejectMutation() }

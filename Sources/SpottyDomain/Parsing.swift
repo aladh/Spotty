@@ -18,6 +18,8 @@ public enum Pagination {
         case pageLimitReached
         /// The next offset repeats or does not move forward, so another fetch would not progress.
         case offsetDidNotAdvance
+        /// A page ended before the collection's reported total was reached.
+        case incompleteCollection
 
         public var errorDescription: String? {
             switch self {
@@ -25,6 +27,8 @@ public enum Pagination {
                 "Spotify pagination exceeded the request limit"
             case .offsetDidNotAdvance:
                 "Spotify pagination did not advance"
+            case .incompleteCollection:
+                "Spotify returned an incomplete collection"
             }
         }
     }
@@ -70,6 +74,9 @@ public enum Pagination {
             Pagination.nextOffset(offset: $0, pageEntryCount: $1, totalCount: $2)
         }
     ) -> Decision {
+        if pageEntryCount == 0, let totalCount, offset < totalCount {
+            return .failed(.incompleteCollection)
+        }
         guard let next = nextOffset(offset, pageEntryCount, totalCount) else {
             return .finished
         }

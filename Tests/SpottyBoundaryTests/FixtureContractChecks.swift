@@ -1,6 +1,8 @@
 import Testing
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Fixture Contract")
 struct FixtureContractTests {

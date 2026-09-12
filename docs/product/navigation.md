@@ -6,6 +6,23 @@
 
 - New windows start on Home with search unfocused. Navigation selection is not restored across
   launches. Playlists open from the sidebar; there is no separate playlist grid destination.
+- Revisit a retained playlist, album, or artist page within the same account to restore its
+  completed content immediately. Playlist search, table sort, occurrence selection, and scroll
+  position belong to that route; artist pages retain their visible release anchor. Filtering
+  still clears hidden selections, and removed occurrences do not regain selection. Account
+  changes clear navigation history and all retained interaction state. Bounded retention can
+  evict older routes; an evicted route loads normally.
+- Track metadata learned while browsing a playlist or album updates matching tracks in active
+  and retained playlist and album pages. This preserves duplicate occurrences, track order, and
+  route interaction state; refreshed labels do not make saved collection content current.
+- Opening a `spotify:` resource URI or an `https://open.spotify.com` link delivered to Spotty
+  opens the matching playlist, album, or artist page. Links navigate without starting playback.
+  Unsupported resources, malformed addresses, and lookalike hosts leave navigation unchanged.
+- Complete saved playlist and album results can remain useful after an offline, timeout, or
+  throttled read once the current process has verified the matching Spotify account. Saved
+  content is labelled as possibly out of date, including while refreshing. An account or
+  credential failure must not expose another account's content or silently turn a failed
+  authorization into cached success. This does not provide offline sign-in or downloaded music.
 - The main window has a native, resizable sidebar and inspector. The sidebar begins near 208 points and the
   inspector near 280; their ranges are 180–260 and 260–360 points respectively. The library stays visible; a native
   command can show or hide the inspector.

@@ -12,7 +12,7 @@ filesystem protection in place of Keychain's per-app access controls.
 ## Decision
 
 Store the complete OAuth grant in a private Application Support directory through
-[KeymasterFileStore](../../../Sources/Spotty/Spotify/KeymasterFileStore.swift). The directory uses
+[KeymasterFileStore](../../../Sources/SpottyGateway/KeymasterFileStore.swift). The directory uses
 0700 permissions and the file uses 0600. Bound reads, reject symlinks and nonregular files, and
 publish replacements atomically, syncing the file and containing directory. A directory lock
 serializes store operations across processes, and a fixed staging file is reclaimed after a crash. Keep the existing serialized persistence worker, rotation ordering,

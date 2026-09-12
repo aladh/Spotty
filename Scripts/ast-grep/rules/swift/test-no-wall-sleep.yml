@@ -5,8 +5,7 @@ severity: error
 message: Use HarnessClock or cooperative synchronization in deterministic tests; real
   sleeps belong in the interactive measurement harness.
 files:
-- Tests/SpottyBoundaryTests/**/*.swift
-- Tests/SpottyDomainTests/**/*.swift
+- Tests/Spotty*Tests/**/*.swift
 - Tests/BrowsingHarness/Checks/**/*.swift
 rule:
   any:

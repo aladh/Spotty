@@ -11,9 +11,10 @@ This target is the only one that depends on the `SpottyPlaybackCore` binary. Fol
   `AsyncStream.Continuation.yield` or `onTermination` while the fan-out lock is held.
 - PCM goes directly from the retained engine adapter to `AudioRenderer`, never observable UI state.
   Keep callbacks bounded and never block the Rust callback thread.
-- Depend only on `SpottyDomain` and the binary. Application state, catalog, auth, and presentation
-  policy belong in `SpottyCore`; pure policy belongs in `SpottyDomain`.
-- Anything `SpottyCore` uses must be `public` with an explicit initializer: it is a separate module,
-  and `@testable import SpottyCore` does not expose this target's internals.
+- Depend only on the binary, `SpottyDomain`, shared `SpottyRuntimeContracts`, and `SpottyDiagnostics`.
+  Session authority belongs in `SpottySessionRuntime`, private service adapters in `SpottyGateway`,
+  and presentation in `SpottyCore`; follow [ADR 008](../../docs/architecture/adrs/ADR-008-headless-session-runtime.md).
+- Ports used by `SpottySessionRuntime` cross a module boundary and need explicit visibility and
+  initializers. The desktop must not import the engine adapter to bypass the runtime.
 - Logging calls still need [privacy review](../../PRIVACY.md): centralized output does not make
   dynamic fields safe to publish.

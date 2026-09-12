@@ -18,8 +18,8 @@ func rejectPlaybackStoreWrite(_ store: PlaybackStore) {
         store.requiresReauthentication = store.requiresReauthentication
     #elseif NEG_ACCOUNT_EPOCH
         store.accountEpoch = store.accountEpoch
-    #elseif NEG_PLAYBACK_LIFETIME
-        store.playbackLifetime = store.playbackLifetime
+    #elseif NEG_ENGINE_GENERATION
+        store.engineGeneration = store.engineGeneration
     #elseif NEG_PHASE
         store.phase = store.phase
     #elseif NEG_TRACK_URI

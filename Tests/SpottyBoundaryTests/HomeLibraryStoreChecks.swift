@@ -2,6 +2,8 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 /// Gates `HarnessCatalog.libraryPlaylists` so a check can park and release admitted requests one
 /// at a time, mirroring the pre-harness `GatedPlaylistCatalog` actor.

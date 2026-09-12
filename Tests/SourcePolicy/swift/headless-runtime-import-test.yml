@@ -1,0 +1,16 @@
+---
+id: headless-runtime-import
+valid:
+- import Foundation
+- import Dispatch
+- import CoreGraphics
+- import ImageIO
+- import SpottyDomain
+- "// import SwiftUI"
+invalid:
+- import AppKit
+- import SwiftUI
+- import Observation
+- import UIKit
+- '@_exported import SwiftUI'
+- import class AppKit.NSImage

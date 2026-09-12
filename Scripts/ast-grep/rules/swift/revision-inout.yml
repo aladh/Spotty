@@ -4,6 +4,7 @@ severity: 'error'
 message: 'Revision gates must not borrow store fields through lastRevision: inout.'
 files:
   - 'Sources/Spotty/Spotify/**/*.swift'
+  - 'Sources/SpottySessionRuntime/**/*.swift'
 rule:
   any:
     - kind: parameter

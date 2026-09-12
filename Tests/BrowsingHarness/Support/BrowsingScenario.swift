@@ -1,5 +1,8 @@
-#if !DEBUG
-    #error("The browsing harness requires Debug testability and must not ship.")
+#if !DEBUG && !SPOTTY_BROWSING_OPTIMIZED
+    #error("The browsing harness requires Debug or the isolated optimized Demo build with explicit testability.")
+#endif
+#if DEBUG && SPOTTY_BROWSING_OPTIMIZED
+    #error("The optimized Demo requires the Release configuration.")
 #endif
 
 import AppKit
@@ -7,6 +10,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 @testable import SpottyCore
+@testable import SpottyGateway
 
 /// Version one retains browsing compatibility; version two adds isolated playback scenarios.
 struct BrowsingScenario: Codable, Equatable, Sendable {

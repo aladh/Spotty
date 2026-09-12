@@ -1,5 +1,6 @@
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
 
 struct QueueHydrationMeasurement: Codable {
     let wave: Int

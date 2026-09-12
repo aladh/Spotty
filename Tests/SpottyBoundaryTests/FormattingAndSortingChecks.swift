@@ -7,6 +7,8 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Formatting")
 struct FormattingTests {

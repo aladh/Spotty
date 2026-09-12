@@ -109,12 +109,49 @@ private func playbackTarget() -> Target {
         ],
         targets: [
             playbackSelection,
-            // The only target that may depend on the playback binary. Everything that names a C
-            // symbol, a Rust snapshot, or the audio renderer lives here; SpottyCore reaches it
-            // through `Sources/Spotty/EngineAdapterExports.swift` and cannot reach past it.
+            .target(name: "SpottyDiagnostics", path: "Sources/SpottyDiagnostics"),
+            .target(name: "SpottyRuntimeContracts", dependencies: ["SpottyDomain"]),
+            .target(name: "SpottySessionTransport", dependencies: ["SpottyRuntimeContracts"]),
+            .testTarget(
+                name: "SpottySessionTransportTests",
+                dependencies: ["SpottySessionTransport", "SpottyRuntimeContracts", "SpottyDomain"]
+            ),
+            .target(
+                name: "SpottyGateway",
+                dependencies: ["SpottyDomain", "SpottyRuntimeContracts", "SpottyDiagnostics"]
+            ),
+            .testTarget(
+                name: "SpottyGatewayTests",
+                dependencies: ["SpottyGateway", "SpottyRuntimeContracts", "SpottyDomain"]
+            ),
+            .target(
+                name: "SpottySessionRuntime",
+                dependencies: [
+                    "SpottyDomain", "SpottyRuntimeContracts", "SpottyGateway", "SpottyCatalogStorage",
+                    "SpottyEngineAdapter", "SpottyDiagnostics",
+                ]
+            ),
+            .testTarget(
+                name: "SpottySessionRuntimeTests",
+                dependencies: [
+                    "SpottySessionRuntime", "SpottyRuntimeContracts", "SpottyDomain", "SpottyCatalogStorage",
+                ]
+            ),
+            .target(
+                name: "SpottyCatalogStorage",
+                dependencies: ["SpottyDomain"],
+                linkerSettings: [.linkedLibrary("sqlite3")]
+            ),
+            .testTarget(
+                name: "SpottyCatalogStorageTests",
+                dependencies: ["SpottyCatalogStorage", "SpottyDomain"],
+                linkerSettings: [.linkedLibrary("sqlite3")]
+            ),
+            // The production owner of the playback binary, C symbols, Rust snapshots and audio
+            // renderer. The headless runtime consumes this adapter; desktop code cannot reach it.
             .target(
                 name: "SpottyEngineAdapter",
-                dependencies: ["SpottyDomain", "SpottyPlaybackCore"],
+                dependencies: ["SpottyDomain", "SpottyPlaybackCore", "SpottyDiagnostics", "SpottyRuntimeContracts"],
                 path: "Sources/SpottyEngineAdapter",
                 exclude: ["AGENTS.md"],
                 linkerSettings: [
@@ -127,7 +164,7 @@ private func playbackTarget() -> Target {
             .target(
                 name: "SpottyCore",
                 dependencies: [
-                    "SpottyDomain", "SpottyEngineAdapter",
+                    "SpottyDomain", "SpottyRuntimeContracts", "SpottySessionRuntime", "SpottyDiagnostics",
                     .product(name: "Sparkle", package: "Sparkle"),
                 ],
                 path: "Sources/Spotty",
@@ -135,12 +172,6 @@ private func playbackTarget() -> Target {
                     "AGENTS.md",
                     "Spotify/AGENTS.md",
                     "Views/AGENTS.md",
-                ],
-                linkerSettings: [
-                    .linkedFramework("SystemConfiguration"),
-                    .linkedFramework("Security"),
-                    .linkedFramework("CoreFoundation"),
-                    .linkedFramework("AVFoundation"),
                 ]
             ),
             .executableTarget(
@@ -166,21 +197,27 @@ private func playbackTarget() -> Target {
             // snapshot conversions. Production dependency direction is unaffected.
             .testTarget(
                 name: "SpottyBoundaryTests",
-                dependencies: ["SpottyCore", "SpottyEngineAdapter", "SpottyPlaybackCore"],
+                dependencies: [
+                    "SpottyCore", "SpottyEngineAdapter", "SpottyPlaybackCore", "SpottyGateway",
+                    "SpottySessionRuntime", "SpottyRuntimeContracts",
+                ],
                 path: "Tests/SpottyBoundaryTests",
                 resources: [.copy("Fixtures")]
             ),
         ]
     )
 
-    // An opt-in, non-shipping app can inspect internal production views through Debug testability.
+    // An opt-in, non-shipping app inspects production views through explicitly enabled testability.
     // The ordinary package graph (including distribution builds) contains no harness or fixtures.
     if ProcessInfo.processInfo.environment["SPOTTY_BUILD_BROWSING_HARNESS"] == "1" {
         package.products.append(.executable(name: "SpottyBrowsingHarness", targets: ["SpottyBrowsingHarness"]))
         package.targets += [
             .target(
                 name: "SpottyBrowsingSupport",
-                dependencies: ["SpottyCore"],
+                dependencies: [
+                    "SpottyCore", "SpottySessionRuntime", "SpottyEngineAdapter", "SpottyRuntimeContracts",
+                    "SpottyGateway",
+                ],
                 path: "Tests/BrowsingHarness/Support",
                 resources: [.copy("Artwork")]
             ),
@@ -194,7 +231,7 @@ private func playbackTarget() -> Target {
             ),
             .testTarget(
                 name: "SpottyBrowsingHarnessTests",
-                dependencies: ["SpottyBrowsingSupport", "SpottyCore"],
+                dependencies: ["SpottyBrowsingSupport", "SpottyCore", "SpottyGateway"],
                 path: "Tests/BrowsingHarness/Checks"
             ),
         ]

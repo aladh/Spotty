@@ -26,12 +26,14 @@
 Generated headers do not replace signature/layout probes or memory-ownership review. Published
 consumers validate their selected artifact; the Rust lane validates the evolving producer ABI.
 
-The narrow C adapter boundary is a package-graph fact, not a source convention: `SpottyEngineAdapter` is the only
-target that depends on the `SpottyPlaybackCore` binary, and `PlaybackCore` is internal to it, so no
-other target can name a C symbol or reach the adapter's C surface even by adding an import. Widening
-that boundary requires editing [Package.swift](../../../Package.swift), which is a reviewable
-dependency change rather than a one-line import. `SpottyCore` re-exports the adapter once, in
-`Sources/Spotty/EngineAdapterExports.swift`.
+`SpottyEngineAdapter` is the only production target with a direct dependency on the
+`SpottyPlaybackCore` binary; non-shipping boundary tests declare their own dependency for ABI checks.
+Its `PlaybackCore` implementation is internal. SwiftPM can make transitive modules visible to the
+compiler, so the [desktop import policy](source-checks.md) also forbids importing the adapter and
+binary, while compiler probes reject accidental re-exports and inferred implementation access.
+[Package.swift](../../../Package.swift) owns direct dependency changes. `SpottySessionRuntime` consumes typed adapter ports;
+`SpottyCore` consumes runtime contracts and presentation publications without re-exporting the
+engine adapter. [ADR 008](../adrs/ADR-008-headless-session-runtime.md) owns this separation.
 
 ## CI and release workflow
 

@@ -6,7 +6,7 @@
 import Foundation
 
 /// One playable row in a track list.
-public struct CatalogTrack: Identifiable, Equatable, Sendable {
+public struct CatalogTrack: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public let uri: String
     public let title: String
@@ -15,6 +15,9 @@ public struct CatalogTrack: Identifiable, Equatable, Sendable {
     public let duration: TimeInterval
     public let artworkURL: URL?
     public let addedAt: Date?
+    /// A server-provided playlist occurrence identifier. Display identity is never mutation
+    /// authority: missing or ambiguous server occurrences remain browseable but not removable.
+    public let occurrenceUID: String?
     public let artists: [CatalogItem]
     public let albumItem: CatalogItem?
 
@@ -28,7 +31,8 @@ public struct CatalogTrack: Identifiable, Equatable, Sendable {
         artworkURL: URL?,
         addedAt: Date?,
         artists: [CatalogItem] = [],
-        albumItem: CatalogItem? = nil
+        albumItem: CatalogItem? = nil,
+        occurrenceUID: String? = nil
     ) {
         self.id = id
         self.uri = uri
@@ -38,6 +42,7 @@ public struct CatalogTrack: Identifiable, Equatable, Sendable {
         self.duration = duration
         self.artworkURL = artworkURL
         self.addedAt = addedAt
+        self.occurrenceUID = occurrenceUID
         self.artists = artists
         self.albumItem = albumItem
     }
@@ -47,8 +52,8 @@ public struct CatalogTrack: Identifiable, Equatable, Sendable {
 }
 
 /// One card in the home shelves or a library grid.
-public struct CatalogItem: Identifiable, Equatable, Sendable {
-    public enum Kind: String, Equatable, Sendable {
+public struct CatalogItem: Identifiable, Equatable, Codable, Sendable {
+    public enum Kind: String, Equatable, Codable, Sendable {
         case album = "Album"
         case artist = "Artist"
         case playlist = "Playlist"
@@ -86,7 +91,7 @@ public struct CatalogItem: Identifiable, Equatable, Sendable {
 }
 
 /// One shelf on the home page.
-public struct CatalogSection: Identifiable, Sendable {
+public struct CatalogSection: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public let title: String
     public let items: [CatalogItem]

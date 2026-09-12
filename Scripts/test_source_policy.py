@@ -64,7 +64,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
         # narrow C access within that target; Linux compilation owns unavailable domain imports.
         cases = [
             ("Sources/SpottyEngineAdapter/PlaybackCore.swift", "import SpottyPlaybackCore", set()),
-            ("Sources/Spotty/Spotify/Other.swift", "import SpottyPlaybackCore", set()),
+            ("Sources/Spotty/Spotify/Other.swift", "import SpottyPlaybackCore", {"desktop-implementation-import"}),
             ("Sources/Spotty/Spotify/Other.swift", "PlaybackCore.start()", set()),
             ("Sources/SpottyDomain/Example.swift", "import AppKit", set()),
             ("Sources/Spotty/Spotify/SearchStore.swift", "Module.PlaybackCore.start()", set()),
@@ -123,6 +123,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("docs/example.yml", "uses: actions/checkout@main", set()),
             (".github/workflows/ci.yml", "env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}", {"ci-published-engine"}),
             ("Scripts/compile-release-spotty.sh", "cargo build", {"app-script-rust-free"}),
+            ("Scripts/check-session-scenarios.sh", "cargo build", {"app-script-rust-free"}),
             ("Scripts/package-app.sh", "tool='cbindgen'", {"app-script-rust-free", "development-signing-input"}),
             ("Backend/spotty-playback/build-xcframework.sh", "cargo build", set()),
             ("Sources/Spotty/Example.swift", "let catalog = MockCatalog()", {"retired-mock-symbols"}),
@@ -139,20 +140,24 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/Spotty/RootView.swift", "view.onDrop(of: types, perform: drop)", {"unsupported-drag-ui"}),
             ("Sources/Spotty/RootView.swift", "let state: PlaybackState", {"view-projection-boundary"}),
             ("Sources/Spotty/Views/Example.swift", "PathfinderAddVariables()", {"view-projection-boundary"}),
-            ("Sources/Spotty/Spotify/PathfinderPlaylist.swift", "PathfinderAddVariables()", set()),
+            ("Sources/SpottyGateway/PathfinderPlaylist.swift", "PathfinderAddVariables()", set()),
             ("Sources/Spotty/Views/Nested/Example.swift", "NSCache<NSString, NSImage>()", {"artwork-framework-cache"}),
+            ("Sources/Spotty/Views/ArtworkDominantColor.swift", "URLSession.shared.data(from: url)", {"artwork-framework-cache"}),
+            ("Sources/Spotty/Views/RemoteArtwork.swift", "AsyncImage(url: url)", {"artwork-framework-cache"}),
+            ("Sources/SpottySessionRuntime/ArtworkSourceLoader.swift", "URLSession(configuration: config)", set()),
+            ("Sources/SpottySessionRuntime/ArtworkDecoder.swift", "CGImageSourceCreateThumbnailAtIndex(source, 0, options)", set()),
             ("Sources/Spotty/RootView.swift", '@AppStorage("panel") var panel = 0', {"view-scene-storage"}),
             ("Sources/Spotty/Models/NewModel.swift", "let catalog: any CatalogProviding", {"model-dependencies"}),
             ("Sources/Spotty/Spotify/CatalogStore.swift", "let catalog: any CatalogProviding", set()),
             ("Sources/SpottyDomain/NewPolicy.swift", "UserDefaults.standard", {"domain-no-io"}),
             ("Sources/SpottyDomain/NewPolicy.swift", "Task { await work() }", {"domain-no-io"}),
-            ("Sources/Spotty/Spotify/SpotifyRetryTiming.swift", "try await Task.sleep(for: .seconds(1))", set()),
-            ("Sources/Spotty/Spotify/KeymasterFileStore.swift", "SecItemDelete(query)", {"retired-keychain-api"}),
+            ("Sources/SpottyGateway/SpotifyRetryTiming.swift", "try await Task.sleep(for: .seconds(1))", set()),
+            ("Sources/SpottyGateway/KeymasterFileStore.swift", "SecItemDelete(query)", {"retired-keychain-api"}),
             ("Tests/SpottyBoundaryTests/NewChecks.swift", "Security.SecItemDelete(query)", {"retired-keychain-api"}),
             ("Sources/Spotty/New.swift", "Swift.print(token)", {"logging-owner"}),
             ("Sources/Spotty/New.swift", "FileHandle.standardError.write(Data())", {"logging-owner"}),
-            ("Sources/SpottyEngineAdapter/DebugLog.swift", "Logger(subsystem: name, category: name)", set()),
-            ("Sources/SpottyEngineAdapter/DebugLog.swift", "FileHandle.standardError.write(Data())", set()),
+            ("Sources/SpottyDiagnostics/DebugLog.swift", "Logger(subsystem: name, category: name)", set()),
+            ("Sources/SpottyDiagnostics/DebugLog.swift", "FileHandle.standardError.write(Data())", set()),
             ("Tests/SpottyBoundaryTests/NewChecks.swift", "print(result)", set()),
             ("Sources/Spotty/New.swift", "import Testing", {"production-test-code"}),
             ("Tests/SpottyDomainTests/NewChecks.swift", "import Testing", set()),
@@ -202,6 +207,63 @@ class SourcePolicyRoutingTests(unittest.TestCase):
         for path, source, expected in cases:
             with self.subTest(path=path, source=source):
                 self.assertEqual(self.scan(path, source), expected)
+
+    def test_extracted_session_owners_keep_their_policies(self):
+        cases = [
+            ("Sources/SpottySessionRuntime/AccountStore.swift", "PartnerAPI()", {"injected-dependencies"}),
+            ("Sources/SpottySessionRuntime/PlaybackSessionRuntime+Queue.swift", "RustPlaybackEngine.shared", {"injected-dependencies"}),
+            ("Sources/SpottySessionRuntime/Nested/BrandNewStore.swift", "KeymasterSession.shared", {"injected-dependencies"}),
+            ("Sources/SpottySessionRuntime/PlaybackEnvironment.swift", "PartnerAPI()", set()),
+            ("Sources/SpottyGateway/PartnerAPI.swift", "KeymasterSession.shared", set()),
+            ("Sources/SpottySessionRuntime/New.swift", "func accept(lastRevision: inout UInt64) {}", {"revision-inout"}),
+            ("Sources/SpottySessionRuntime/New.swift", "func accept(lastRevision: UInt64) {}", set()),
+            ("Sources/SpottyGateway/New.swift", "func accept(lastRevision: inout UInt64) {}", set()),
+            ("Sources/SpottyEngineAdapter/DebugLog.swift", "Logger(subsystem: name, category: name)", {"logging-owner"}),
+            ("Sources/SpottyGateway/DebugLog.swift", "FileHandle.standardError.write(Data())", {"logging-owner"}),
+            ("Sources/SpottyDiagnostics/New.swift", "Logger(subsystem: name, category: name)", {"logging-owner"}),
+        ]
+        for path, source, expected in cases:
+            with self.subTest(path=path, source=source):
+                self.assertEqual(self.scan(path, source), expected)
+
+    def test_desktop_cannot_import_concrete_runtime_implementations(self):
+        for module in ("SpottyGateway", "SpottyCatalogStorage", "SpottyEngineAdapter", "SpottyPlaybackCore"):
+            source = f"import {module}"
+            for path in ("Sources/Spotty/EngineAdapterExports.swift", "Sources/Spotty/Nested/New.swift",
+                         "Sources/SpottyApp/New.swift"):
+                with self.subTest(module=module, path=path):
+                    self.assertEqual(self.scan(path, source), {"desktop-implementation-import"})
+            for path in ("Sources/SpottySessionRuntime/New.swift", "Tests/SpottyBoundaryTests/New.swift"):
+                with self.subTest(module=module, path=path):
+                    self.assertEqual(self.scan(path, source), set())
+        for module in ("SpottyRuntimeContracts", "SpottyDomain", "SpottyDiagnostics", "SpottySessionRuntime"):
+            with self.subTest(module=module):
+                self.assertEqual(self.scan("Sources/Spotty/New.swift", f"import {module}"), set())
+
+    def test_headless_targets_cannot_import_presentation_frameworks(self):
+        for target in ("SpottyRuntimeContracts", "SpottySessionRuntime", "SpottySessionTransport",
+                       "SpottyGateway", "SpottyCatalogStorage"):
+            for module in ("AppKit", "SwiftUI", "Observation", "UIKit"):
+                with self.subTest(target=target, module=module):
+                    self.assertEqual(self.scan(f"Sources/{target}/Nested/New.swift", f"import {module}"),
+                                     {"headless-runtime-import"})
+            for module in ("Foundation", "Dispatch", "CoreGraphics", "ImageIO", "SpottyDomain"):
+                with self.subTest(target=target, module=module):
+                    self.assertEqual(self.scan(f"Sources/{target}/New.swift", f"import {module}"), set())
+        for path in ("Sources/Spotty/Views/New.swift", "Tests/SpottySessionRuntimeTests/New.swift"):
+            self.assertEqual(self.scan(path, "import SwiftUI"), set())
+
+    def test_new_behavior_targets_keep_deterministic_and_isolated_dependencies(self):
+        for target in ("SpottyCatalogStorageTests", "SpottySessionTransportTests",
+                       "SpottySessionRuntimeTests", "SpottyGatewayTests", "SpottyFutureTests"):
+            path = f"Tests/{target}/Nested/New.swift"
+            with self.subTest(target=target):
+                self.assertEqual(self.scan(path, "try await Task.sleep(for: .seconds(1))"),
+                                 {"test-no-wall-sleep"})
+                self.assertEqual(self.scan(path, "await Task.yield()"), set())
+                self.assertEqual(self.scan(path, "RustPlaybackEngine.shared"),
+                                 {"test-live-dependencies"})
+                self.assertEqual(self.scan(path, 'UserDefaults(suiteName: "isolated")'), set())
 
     def test_signing_statements_cannot_be_replaced_with_comments(self):
         cases = [

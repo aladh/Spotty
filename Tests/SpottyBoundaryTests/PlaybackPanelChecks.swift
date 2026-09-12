@@ -6,6 +6,9 @@ import Testing
 
 import Foundation
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 import struct SpottyDomain.QueueProtocolTrack
 
 @Suite("Playback Panel")
@@ -196,16 +199,16 @@ struct PlaybackPanelTests {
 
         do {
             do {
-                let encoded = try JSONEncoder().encode(SpotifyConnectCommand.seek(to: 12_345))
+                let encoded = try JSONEncoder().encode(SpotifyConnectWireCommand(.seek(to: 12_345)))
                 let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
                 #expect((object?["endpoint"] as? String) == ("seek_to"), "seek endpoint is encoded")
                 #expect((object?["value"] as? Int) == (12_345), "seek position is encoded")
 
-                let shuffle = try JSONEncoder().encode(SpotifyConnectCommand.shuffle(true))
+                let shuffle = try JSONEncoder().encode(SpotifyConnectWireCommand(.shuffle(true)))
                 let shuffleObject = try JSONSerialization.jsonObject(with: shuffle) as? [String: Any]
                 #expect((shuffleObject?["value"] as? Bool) == (true), "shuffle boolean is encoded")
 
-                let add = try JSONEncoder().encode(SpotifyConnectCommand.addToQueue("spotify:track:abc"))
+                let add = try JSONEncoder().encode(SpotifyConnectWireCommand(.addToQueue("spotify:track:abc")))
                 let addObject = try JSONSerialization.jsonObject(with: add) as? [String: Any]
                 let track = addObject?["track"] as? [String: Any]
                 #expect((addObject?["endpoint"] as? String) == ("add_to_queue"), "queue endpoint is encoded")
@@ -213,10 +216,12 @@ struct PlaybackPanelTests {
                 #expect((addObject?["next_tracks"]) == nil, "add_to_queue does not encode next_tracks")
 
                 let setQueue = try JSONEncoder().encode(
-                    SpotifyConnectCommand.setQueue(
-                        next: [QueueProtocolTrack(uri: "spotify:track:keep", uid: "q0", provider: "queue")],
-                        prev: [QueueProtocolTrack(uri: "spotify:track:prev", uid: "p0", provider: "context")],
-                        queueRevision: "rev-1"
+                    SpotifyConnectWireCommand(
+                        .setQueue(
+                            next: [QueueProtocolTrack(uri: "spotify:track:keep", uid: "q0", provider: "queue")],
+                            prev: [QueueProtocolTrack(uri: "spotify:track:prev", uid: "p0", provider: "context")],
+                            queueRevision: "rev-1"
+                        )
                     )
                 )
                 let setObject = try JSONSerialization.jsonObject(with: setQueue) as? [String: Any]

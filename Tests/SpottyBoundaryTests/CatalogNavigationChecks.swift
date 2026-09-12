@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Catalog Navigation")
 struct CatalogNavigationTests {

@@ -2,6 +2,9 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+import SpottyRuntimeContracts
+@testable import SpottyEngineAdapter
 
 private enum RepeatCheckFailure: Error { case boom }
 

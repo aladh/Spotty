@@ -14,6 +14,10 @@ engine replacement without making the application depend on librespot internals.
 The adapter is its own SwiftPM target, `SpottyEngineAdapter`: it alone depends on the
 `SpottyPlaybackCore` binary, and `PlaybackCore` is internal to it. Containment is therefore a
 package-graph fact the compiler enforces, not a convention a new import could quietly break.
+`SpottySessionRuntime` consumes its typed ports; the adapter may also depend on portable domain
+values, shared runtime contracts, and diagnostics. The desktop presentation target does not
+import the engine adapter or binary. [ADR 008](ADR-008-headless-session-runtime.md) owns runtime
+isolation and the choice to keep the production engine and renderer in the app process.
 
 [ADR 005](ADR-005-retain-librespot.md) owns engine choice and revisit conditions;
 [ADR 006](ADR-006-prebuilt-playback-engine.md) owns binary distribution. Replaceability does not

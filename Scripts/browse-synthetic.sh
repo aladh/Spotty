@@ -7,16 +7,18 @@ source "$project_root/Scripts/embed-sparkle.sh"
 cd "$project_root"
 automated=true
 profile=false
+optimized=false
 while (( $# > 0 )); do
     case "$1" in
         --profile) profile=true ;;
         --interactive) automated=false ;;
+        --optimized) optimized=true ;;
         *) break ;;
     esac
     shift
 done
 if (( $# > 1 )); then
-    print -u2 "Usage: $0 [--profile] [--interactive] [scenario.json]"
+    print -u2 "Usage: $0 [--optimized] [--profile] [--interactive] [scenario.json]"
     exit 2
 fi
 default_scenario="$project_root/Tests/BrowsingHarness/scenario.json"
@@ -37,11 +39,22 @@ if [[ -z "$signing_identity" ]]; then
     signing_identity="$identities"
 fi
 
-SPOTTY_BUILD_BROWSING_HARNESS=1 swift build --disable-sandbox --configuration debug \
-    --product SpottyBrowsingHarness "${spotty_swiftc_warnings_as_errors[@]}"
-binary_dir="$(SPOTTY_BUILD_BROWSING_HARNESS=1 swift build --disable-sandbox --configuration debug --show-bin-path)"
 mkdir -p "$project_root/.build/browsing-runs"
 run_root="$(mktemp -d "$project_root/.build/browsing-runs/run.XXXXXXXX")"
+configuration=debug
+scratch="$project_root/.build"
+build_arguments=(--disable-sandbox --sdk "$SDKROOT" --configuration debug)
+if [[ "$optimized" == true ]]; then
+    configuration=release
+    scratch="$project_root/.build/browsing-optimized"
+    # Only the opt-in Demo build gets testability. Keep these artifacts outside shipping builds.
+    build_arguments=(--disable-sandbox --sdk "$SDKROOT" --configuration release --scratch-path "$scratch"
+        -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED)
+fi
+python3 "$project_root/Scripts/browsing_provenance.py" snapshot "$project_root" "$run_root"
+SPOTTY_BUILD_BROWSING_HARNESS=1 swift build "${build_arguments[@]}" \
+    --product SpottyBrowsingHarness "${spotty_swiftc_warnings_as_errors[@]}"
+binary_dir="$(SPOTTY_BUILD_BROWSING_HARNESS=1 swift build "${build_arguments[@]}" --show-bin-path)"
 app="$run_root/Spotty Demo.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary_dir/SpottyBrowsingHarness" "$app/Contents/MacOS/SpottyDemo"
@@ -55,12 +68,9 @@ cp "$scenario" "$app/Contents/Resources/scenario.json"
 
 # A stable developer identity preserves macOS permissions; demo state is separate from live Spotty.
 # Only this run's artifacts are writable outside its sandbox container; sockets remain denied.
-python3 - "$run_root" "$app" "$automated" "$profile" <<'PY'
-import hashlib
-import json
+python3 - "$run_root" "$app" <<'PY'
 from pathlib import Path
 import plistlib
-import subprocess
 import sys
 
 root, app = map(Path, sys.argv[1:3])
@@ -76,15 +86,11 @@ plist = {
     "com.apple.security.app-sandbox": True,
     "com.apple.security.temporary-exception.files.absolute-path.read-write": [str(root) + "/"],
 }))
-launch = {
-    "runRoot": str(root), "automated": sys.argv[3] == "true",
-    "waitForProfiler": sys.argv[4] == "true",
-    "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-    "diffSHA256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD", "--"])).hexdigest(),
-}
-(app / "Contents/Resources/launch.json").write_text(json.dumps(launch))
 PY
-spotty_embed_sparkle "$app" "$signing_identity" --timestamp=none
+python3 "$project_root/Scripts/browsing_provenance.py" launch "$project_root" "$run_root" \
+    --scratch "$scratch" --app "$app" --configuration "$configuration" \
+    --automated "$automated" --profile "$profile"
+spotty_embed_sparkle "$app" "$signing_identity" --scratch-path "$scratch" --timestamp=none
 /usr/bin/codesign --force --options runtime --timestamp=none --sign "$signing_identity" --entitlements "$run_root/entitlements.plist" "$app"
 /usr/bin/codesign --verify --strict "$app"
 /usr/bin/codesign --verify --strict -R '=anchor apple generic' "$app"

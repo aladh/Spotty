@@ -2,12 +2,19 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+import SpottyRuntimeContracts
+@testable import SpottyEngineAdapter
+@testable import SpottySessionRuntime
 
 @Suite("Playback Dispatch Routing")
 struct PlaybackDispatchRoutingTests {
-    @MainActor
-    private final class DispatchMarker {
-        var reached = false
+    private final class DispatchMarker: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        var reached: Bool {
+            get { lock.withLock { value } }
+            set { lock.withLock { value = newValue } }
+        }
     }
 
     @MainActor
@@ -599,9 +606,14 @@ struct PlaybackCommandFailureTests {
         await cancelled.restore()
         receiveReadyEngine(cancelled)
         #expect((cancelled.phase) == (.ready), "a granted account restores to ready before cancelled recovery")
-        cancelled.recoverEngineAfterCommandFailure()
-        let recoverySettlement = cancelled.effects.settlement(of: .engineRecovery)
-        cancelled.effects.cancel(.engineRecovery)
+        let recoverySettlement = cancelled.withRuntime { runtime in
+            // Place cancellation before the runtime yields, rather than relying on MainActor
+            // preventing a separate runtime executor from starting the recovery effect.
+            runtime.recoverEngineAfterCommandFailure()
+            let settlement = runtime.effects.settlement(of: .engineRecovery)
+            runtime.effects.cancel(.engineRecovery)
+            return settlement
+        }
         await recoverySettlement?.wait()
         #expect((cancelledEngine.forceReconnectCount) == (0), "cancelled engine recovery never reaches the engine")
         await cancelled.shutdownForTermination()
@@ -699,8 +711,9 @@ struct PlaybackCommandFailureTests {
             action,
             expecting: false,
             local: .pause,
-            remote: .pause
-        ) { rejectionCompletions.append($0) }
+            remote: .pause,
+            completion: { rejectionCompletions.append($0) }
+        )
         await expectEventually { !rejectionCompletions.isEmpty }
         #expect((rejectionCompletions) == ([false]), "remote rejection completion")
         #expect((rejectionStore.transientCommandError) == (action), "remote rejection uses the action notice")
@@ -713,8 +726,9 @@ struct PlaybackCommandFailureTests {
             action,
             expecting: false,
             local: .pause,
-            remote: .pause
-        ) { cancelCompletions.append($0) }
+            remote: .pause,
+            completion: { cancelCompletions.append($0) }
+        )
         let pendingReady = await waitUntil { cancelStore.state.pendingCommands[.transport] != nil }
         #expect((pendingReady) == true, "remote command is pending before cancellation")
         let cancelReached = await waitUntil { sleeping.sendCount == 1 }
@@ -1015,6 +1029,10 @@ struct PlaybackCommandFailureTests {
         #expect((trackSwitchPending) == true, "seek is pending before a same-engine track switch")
         let sendStarted = await waitUntil { trackSwitchRemote.sendCount == 1 }
         #expect((sendStarted) == true, "the seek has reached the remote client before the track switch")
+        let trackSwitchStoreSettlement = trackSwitchStore.state.pendingCommands[.seek].flatMap {
+            trackSwitchStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(trackSwitchStoreSettlement != nil, "the parked command has an exact completion to await")
         let trackBTiming = PlaybackTiming(position: 0, duration: 180, anchoredAt: clockNow)
         _ = trackSwitchStore.send(
             .enginePlayback(
@@ -1034,7 +1052,7 @@ struct PlaybackCommandFailureTests {
             (trackSwitchStore.state.pendingCommands[.seek]) == nil, "a track switch clears the old pending seek")
         let afterTrackSwitch = trackSwitchStore.state
         trackSwitchRemote.completePark(success: false)
-        for _ in 0..<50 { await Task.yield() }
+        await trackSwitchStoreSettlement?.wait()
         #expect(
             (trackSwitchStore.state.timing) == (afterTrackSwitch.timing),
             "a rejected finish after a track switch leaves timing unchanged")
@@ -1298,6 +1316,10 @@ struct PlaybackCommandFailureTests {
         supersedeStore.play(track: trackB)
         await expectEventually { supersedeStore.state.pendingCommands[.transport] != nil }
         await expectEventually { supersedeRemote.sendCount == 1 }
+        let supersedeStoreSettlement = supersedeStore.state.pendingCommands[.transport].flatMap {
+            supersedeStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(supersedeStoreSettlement != nil, "the parked command has an exact completion to await")
         let trackCTiming = PlaybackTiming(position: 8, duration: 240, anchoredAt: clockNow)
         sendEnginePlayback(
             supersedeStore,
@@ -1310,7 +1332,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (supersedeStore.state.pendingCommands[.transport]) == nil, "an unrelated C snapshot clears B rollback")
         supersedeRemote.completePark(success: false)
-        for _ in 0..<50 { await Task.yield() }
+        await supersedeStoreSettlement?.wait()
         #expect(
             (supersedeStore.state.currentTrack?.uri) == ("spotify:track:c"), "C supersession then failure leaves C")
         #expect((supersedeStore.state.timing) == (trackCTiming), "C supersession then failure keeps C timing")
@@ -1331,6 +1353,10 @@ struct PlaybackCommandFailureTests {
         nilStore.play(track: trackB)
         await expectEventually { nilStore.state.pendingCommands[.transport] != nil }
         await expectEventually { nilRemote.sendCount == 1 }
+        let nilStoreSettlement = nilStore.state.pendingCommands[.transport].flatMap {
+            nilStore.effects.settlement(of: .command($0.id))
+        }
+        #expect(nilStoreSettlement != nil, "the parked command has an exact completion to await")
         sendEnginePlayback(
             nilStore,
             uri: nil,
@@ -1340,7 +1366,7 @@ struct PlaybackCommandFailureTests {
         )
         #expect((nilStore.state.currentTrack) == nil, "a nil snapshot clears the optimistic track")
         nilRemote.completePark(success: false)
-        for _ in 0..<50 { await Task.yield() }
+        await nilStoreSettlement?.wait()
         #expect((nilStore.state.currentTrack) == nil, "nil supersession then failure stays cleared")
         #expect(
             (!nilStore.history.entries.contains { $0.uri == trackB.uri }) == true,
@@ -1753,7 +1779,10 @@ struct PlaybackCommandFailureTests {
             (confirmedCommandID.flatMap { confirmStore.state.transportCommandResolutions[$0] })
                 == (Optional(PlaybackTransportCommandResolution.confirmed)),
             "an authoritative off snapshot records shuffle confirmation")
+        let confirmedSettlement = confirmedCommandID.flatMap { confirmStore.effects.settlement(of: .command($0)) }
+        #expect(confirmedSettlement != nil, "the confirmed shuffle still owns its in-flight effect")
         confirmRemote.completePark(success: false)
+        await confirmedSettlement?.wait()
         await expectEventually { confirmPrefs.shuffleWrites == [false] }
         #expect((confirmStore.state.options.shuffle) == (false), "confirmed off then failure keeps off")
         #expect((confirmStore.transientCommandError) == nil, "confirmed off then failure has no command notice")
@@ -2313,6 +2342,10 @@ struct PlaybackCommandFailureTests {
         staleStore.transferPlayback(to: speakerB)
         let stalePending = await waitUntil { staleStore.state.pendingCommands[.transfer] != nil }
         #expect((stalePending) == true, "transfer is pending before an engine-epoch bump")
+        #expect(await waitUntil { staleGate.enteredCount == 1 }, "the stale transfer is in flight before replacement")
+        let staleSettlement = staleStore.state.pendingCommands[.transfer].flatMap {
+            staleStore.effects.settlement(of: .command($0.id))
+        }
         _ = staleStore.send(
             .engineConnection(EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
             source: .engineConnection,
@@ -2321,6 +2354,9 @@ struct PlaybackCommandFailureTests {
         )
         #expect(
             (staleStore.state.pendingCommands[.transfer]) == nil, "an engine-epoch bump drops the pending transfer")
+        #expect(staleStore.state.owner == .none, "replacement ownership is visible before old engine work returns")
+        staleGate.finish(with: .error)
+        await staleSettlement?.wait()
         #expect(
             (staleStore.state.owner != ownerA) == true, "an engine-epoch bump does not restore A through rollback")
         #expect(

@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
 
 @Suite("PCM Write Space")
 struct PCMWriteSpaceTests {

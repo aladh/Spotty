@@ -1,6 +1,8 @@
 import Foundation
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 /// Fixed instants shared by every boundary fake. A single epoch keeps anchored timings comparable
 /// across checks that mix a store, a feedback presenter, and a clock.

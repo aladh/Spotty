@@ -2,6 +2,9 @@ import Foundation
 import Testing
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 /// Gates `HarnessWebQueue.onQueue` so a check can track multiple concurrent Web Player flights
 /// independently and fail or complete each one by its own request id, mirroring the pre-harness
@@ -99,7 +102,7 @@ struct QueueRefreshConvergenceTests {
             metadata: TrackMetadataService(remote: remote), clock: clock)
         await service.reset(accountEpoch: 1)
         let uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"]
-        var updates: [ProvenanceQueueSnapshot] = []
+        let updates = RuntimeCallbackRecorder<ProvenanceQueueSnapshot>()
         let refresh = Task {
             await service.refresh(
                 fallbackEntries: uris.enumerated().map {
@@ -108,22 +111,22 @@ struct QueueRefreshConvergenceTests {
                 onUpdate: { updates.append($0) })
         }
         #expect(await waitUntil { remote.requestedURIs.count == 3 })
-        #expect(updates.count == 1, "order appears before enrichment")
+        #expect(updates.snapshot.count == 1, "order appears before enrichment")
         remote.completeMetadata(for: uris[0])
         remote.completeMetadata(for: uris[1])
         #expect(await waitUntil { await service.refreshDiagnostics.metadataResults == 2 })
         #expect(await waitUntil { clock.waiterCount == 1 })
-        #expect(updates.count == 1, "a burst does not publish per track")
+        #expect(updates.snapshot.count == 1, "a burst does not publish per track")
         clock.releaseAll()
-        #expect(await waitUntil { updates.count == 2 })
-        #expect(Set(updates.last?.tracks.map(\.uri) ?? []) == Set(uris.prefix(2)))
+        #expect(await waitUntil { updates.snapshot.count == 2 })
+        #expect(Set(updates.snapshot.last?.tracks.map(\.uri) ?? []) == Set(uris.prefix(2)))
         remote.completeMetadata(for: uris[2])
         #expect(await waitUntil { await service.refreshDiagnostics.metadataResults == 3 })
         #expect(await waitUntil { clock.waiterCount == 1 })
         clock.releaseAll()
         let result = await refresh.value
         #expect(result?.tracks.count == 3)
-        #expect(updates.count == 3)
+        #expect(updates.snapshot.count == 3)
         #expect(clock.requestedSleeps == [0.05, 0.05])
     }
 
@@ -137,11 +140,11 @@ struct QueueRefreshConvergenceTests {
             metadata: TrackMetadataService(remote: remote), clock: clock)
         await service.reset(accountEpoch: 1)
         let uri = "spotify:track:old-account"
-        var updates = 0
+        let updates = HarnessCounters()
         let refresh = Task {
             await service.refresh(
                 fallbackEntries: [QueueEntry(uri: uri, provider: "connect")],
-                currentTrackURI: "spotify:track:current", accountEpoch: 1, onUpdate: { _ in updates += 1 })
+                currentTrackURI: "spotify:track:current", accountEpoch: 1, onUpdate: { _ in updates.record("update") })
         }
         #expect(await waitUntil { remote.requestedURIs.count == 1 })
         remote.completeMetadata(for: uri)
@@ -149,7 +152,7 @@ struct QueueRefreshConvergenceTests {
         await service.reset(accountEpoch: 2)
         #expect(await refresh.value == nil)
         #expect(await waitUntil { clock.waiterCount == 0 })
-        #expect(updates == 1, "old metadata never publishes after reset")
+        #expect(updates.count("update") == 1, "old metadata never publishes after reset")
     }
 
     @Test
@@ -235,14 +238,14 @@ struct QueueRefreshConvergenceTests {
         )
         await service.reset(accountEpoch: 1)
 
-        var firstUpdates = 0
-        var secondUpdates = 0
+        let firstUpdates = HarnessCounters()
+        let secondUpdates = HarnessCounters()
         let first = Task {
             await service.refresh(
                 fallbackEntries: [],
                 currentTrackURI: "spotify:track:current",
                 accountEpoch: 1,
-                onUpdate: { _ in firstUpdates += 1 }
+                onUpdate: { _ in firstUpdates.record("update") }
             )
         }
         #expect(await waitUntil { web.requestCount == 1 })
@@ -251,7 +254,7 @@ struct QueueRefreshConvergenceTests {
                 fallbackEntries: [],
                 currentTrackURI: "spotify:track:current",
                 accountEpoch: 1,
-                onUpdate: { _ in secondUpdates += 1 }
+                onUpdate: { _ in secondUpdates.record("update") }
             )
         }
         #expect(await waitUntil { await service.refreshSubscriberCount == 2 })
@@ -262,8 +265,8 @@ struct QueueRefreshConvergenceTests {
         let secondResult = await second.value
         #expect(firstResult?.entries.map(\.uri) == ["spotify:track:joined"])
         #expect(secondResult?.entries.map(\.uri) == ["spotify:track:joined"])
-        #expect(firstUpdates == 1, "the first subscriber receives the shared publication")
-        #expect(secondUpdates == 1, "the joining subscriber receives the shared publication")
+        #expect(firstUpdates.count("update") == 1, "the first subscriber receives the shared publication")
+        #expect(secondUpdates.count("update") == 1, "the joining subscriber receives the shared publication")
     }
 
     @Test
@@ -276,14 +279,14 @@ struct QueueRefreshConvergenceTests {
         )
         await service.reset(accountEpoch: 1)
 
-        var cancelledUpdates = 0
+        let cancelledUpdates = HarnessCounters()
         var cancelledSettled = false
         let cancelled = Task {
             let result = await service.refresh(
                 fallbackEntries: [],
                 currentTrackURI: "spotify:track:current",
                 accountEpoch: 1,
-                onUpdate: { _ in cancelledUpdates += 1 }
+                onUpdate: { _ in cancelledUpdates.record("update") }
             )
             cancelledSettled = true
             return result
@@ -305,7 +308,7 @@ struct QueueRefreshConvergenceTests {
         web.complete(with: [queueRefreshTrack("spotify:track:rejoined")])
         #expect((await cancelled.value) == nil, "the cancelled caller cannot adopt the result")
         #expect((await joined.value)?.entries.map(\.uri) == ["spotify:track:rejoined"])
-        #expect(cancelledUpdates == 0, "a removed subscriber cannot publish after an await")
+        #expect(cancelledUpdates.count("update") == 0, "a removed subscriber cannot publish after an await")
     }
 
     @Test

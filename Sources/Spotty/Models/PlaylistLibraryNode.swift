@@ -1,31 +1,6 @@
 import SpottyDomain
 
-/// Server-ordered playlist library, retaining folders separately from playable catalog items.
-struct PlaylistLibraryNode: Identifiable, Equatable, Sendable {
-    let id: String
-    let title: String
-    let playlist: CatalogItem?
-    let children: [PlaylistLibraryNode]?
-
-    init(playlist: CatalogItem) {
-        id = playlist.uri
-        title = playlist.title
-        self.playlist = playlist
-        children = nil
-    }
-
-    init(folderURI: String, title: String, children: [PlaylistLibraryNode]) {
-        id = folderURI
-        self.title = title
-        playlist = nil
-        self.children = children
-    }
-
-    var playlists: [CatalogItem] {
-        if let playlist { return [playlist] }
-        return (children ?? []).flatMap(\.playlists)
-    }
-
+extension PlaylistLibraryNode {
     var folderSummary: String {
         let playlistCount = children?.filter { $0.playlist != nil }.count ?? 0
         let folderCount = children?.filter { $0.children != nil }.count ?? 0

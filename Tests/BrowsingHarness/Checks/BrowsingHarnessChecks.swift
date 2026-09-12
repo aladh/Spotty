@@ -4,12 +4,27 @@ import ImageIO
 import Testing
 @testable import SpottyBrowsingSupport
 @testable import SpottyCore
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
 
 @Suite("Synthetic browsing", .serialized)
 @MainActor
 struct BrowsingHarnessTests {
     private func scenario() -> BrowsingScenario {
         BrowsingScenario(trackCount: 30, artworkCount: 2, artworkPixels: 64, cycles: 1)
+    }
+
+    @Test
+    func remotePlayUsesSemanticTrackSelection() throws {
+        let playback = SyntheticPlayback()
+        try playback.send(.play(uri: "spotify:playlist:synthetic1", trackIndex: 7), to: SyntheticPlayback.remoteID)
+        #expect(playback.queueSnapshot().track?.uri == "spotify:track:synthetic1x7")
+        try playback.send(.play(uri: "spotify:track:synthetic0x3"), to: SyntheticPlayback.remoteID)
+        #expect(playback.queueSnapshot().track?.uri == "spotify:track:synthetic0x3")
+        try playback.send(
+            .play(trackURIs: ["spotify:track:synthetic0x5", "spotify:track:synthetic0x6"]),
+            to: SyntheticPlayback.remoteID)
+        #expect(playback.queueSnapshot().track?.uri == "spotify:track:synthetic0x5")
     }
 
     @Test
@@ -87,7 +102,7 @@ struct BrowsingHarnessTests {
             environment.local as AnyObject, environment.remote as AnyObject,
             environment.webQueue as AnyObject, environment.audioOutput as AnyObject,
             environment.preferences as AnyObject, environment.lifecycle as AnyObject,
-            environment.clock as AnyObject, environment.playlistMutations as AnyObject,
+            environment.clock as AnyObject,
             environment.trackAttributes as AnyObject,
         ] {
             let isWorld = port === world
@@ -106,8 +121,9 @@ struct BrowsingHarnessTests {
             #expect(player.catalog.playlistStore.loadedURI == item.uri)
             #expect(player.catalog.playlistStore.error == nil)
         }
-        #expect(world.snapshot().requests["playlist.synthetic0"] == 2)
-        #expect(world.snapshot().requests["playlist.synthetic1"] == 2)
+        let playlistReads = world.snapshot().requests
+        #expect(playlistReads["playlist.synthetic0"] == 1, "plain revisits reuse the retained first playlist")
+        #expect(playlistReads["playlist.synthetic1"] == 1, "plain revisits reuse the retained second playlist")
         #expect(world.snapshot().mutationAttempts == 0)
         await player.shutdownForTermination()
         #expect(player.accountStore.phase == .signedOut)
@@ -152,20 +168,17 @@ struct BrowsingHarnessTests {
     }
 
     @Test
-    func scrollLookupUsesPlaylistObserverInsteadOfDocumentHeight() {
+    func scrollLookupUsesOwnedTrackContainerInsteadOfDocumentHeight() {
         let root = NSView()
         let sidebar = NSScrollView()
         sidebar.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 10_000))
-        let playlist = NSScrollView()
-        playlist.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 1_000))
-        playlist.documentView?.addSubview(PlaylistScrollObserver.ObserverView())
+        let playlist = NativeTrackTableContainer(variant: .playlist)
         root.addSubview(sidebar)
         root.addSubview(playlist)
-        #expect(BrowsingRun.findPlaylistScrollView(in: root) === playlist)
-        playlist.documentView?.subviews.forEach { $0.removeFromSuperview() }
-        #expect(BrowsingRun.findPlaylistScrollView(in: root, retaining: playlist) === playlist)
+        #expect(BrowsingRun.findPlaylistScrollView(in: root) === playlist.scrollView)
+        #expect(BrowsingRun.findPlaylistScrollView(in: root, retaining: playlist.scrollView) === playlist.scrollView)
         playlist.removeFromSuperview()
-        #expect(BrowsingRun.findPlaylistScrollView(in: root, retaining: playlist) == nil)
+        #expect(BrowsingRun.findPlaylistScrollView(in: root, retaining: playlist.scrollView) == nil)
         #expect(BrowsingRun.findPlaylistScrollView(in: root) == nil)
     }
 

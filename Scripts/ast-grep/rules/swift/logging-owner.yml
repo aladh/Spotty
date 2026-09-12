@@ -6,7 +6,7 @@ message: Use SpottyLog/debugLog; logging backends and standard output/error belo
 files:
 - Sources/**/*.swift
 ignores:
-- Sources/SpottyEngineAdapter/DebugLog.swift
+- Sources/SpottyDiagnostics/DebugLog.swift
 note: Centralized output does not prove payloads are privacy-safe. Review dynamic
   fields under PRIVACY.md.
 rule:

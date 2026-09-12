@@ -177,8 +177,8 @@ for (( run = 1; run <= repeat_count; run++ )); do
     swift test "${domain_test_arguments[@]}"
 done
 
-# Concrete codecs/parsers and injected coordinator/queue workflows compile against the real app
-# core in a separate debug test target because it uses `@testable import SpottyCore`. The shipping
+# Concrete codecs/parsers, persistence, transport, and injected session/queue workflows compile
+# against their real owners in debug test targets because they use `@testable` imports. The shipping
 # Spotty and pure-domain tests above still honor a requested release configuration without enabling
 # testability in production code.
 boundary_test_arguments=(
@@ -186,7 +186,7 @@ boundary_test_arguments=(
     --no-parallel
     --package-path "$project_root"
     --configuration debug
-    --filter SpottyBoundaryTests
+    --filter 'Spotty(Boundary|CatalogStorage|SessionTransport|SessionRuntime|Gateway)Tests'
     "${spotty_swiftc_warnings_as_errors[@]}"
 )
 for (( run = 1; run <= repeat_count; run++ )); do
@@ -211,13 +211,16 @@ fi
 # from quietly returning: a source target would put deterministic checks back on the shipping
 # module's input path and make the domain/boundary split harder to inspect.
 if find "$project_root/Sources" -type d \( -name SpottyChecks -o -name DeferredBoundaryChecks \) -print -quit | rg -q .; then
-    print -u2 "Swift tests must live under Tests/SpottyDomainTests and Tests/SpottyBoundaryTests"
+    print -u2 "Swift tests must live under conventional Tests/ directories"
     exit 1
 fi
-if [[ ! -d "$project_root/Tests/SpottyDomainTests" || ! -d "$project_root/Tests/SpottyBoundaryTests" ]]; then
-    print -u2 "Conventional Swift test directories are missing"
-    exit 1
-fi
+for test_target in SpottyDomainTests SpottyBoundaryTests SpottyCatalogStorageTests \
+    SpottySessionTransportTests SpottySessionRuntimeTests SpottyGatewayTests; do
+    if [[ ! -d "$project_root/Tests/$test_target" ]]; then
+        print -u2 "Conventional Swift test directory is missing: Tests/$test_target"
+        exit 1
+    fi
+done
 
 
 # Public-repository hygiene. Generated bundles, archives, diagnostics, and finder metadata must

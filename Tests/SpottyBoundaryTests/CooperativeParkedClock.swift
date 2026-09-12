@@ -1,5 +1,6 @@
 import Foundation
 @testable import SpottyCore
+import SpottyRuntimeContracts
 
 /// Test-only clock that parks until `releaseAll()`. Cooperative cancellation
 /// throws `CancellationError` and must not leave a waiter registered if the

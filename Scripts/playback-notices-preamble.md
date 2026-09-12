@@ -2,7 +2,7 @@
 
 ## Spotifly playback bridge and authentication support
 
-Portions of `Backend/spotty-playback` and `Sources/Spotty/Spotify` are adapted from
+Portions of `Backend/spotty-playback`, `Sources/Spotty/Spotify`, and `Sources/SpottyGateway` are adapted from
 [Spotifly](https://github.com/ralph/Spotifly), commit
 `35991ac25a04aa14f8839d88f46129da6c6b59c0`. The Connect command and metadata request shapes are
 adapted from commit `bcb522675e9657599faa007c531c2159e506246f`.

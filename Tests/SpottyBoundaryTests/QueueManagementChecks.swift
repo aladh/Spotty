@@ -2,6 +2,10 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
+@testable import SpottyEngineAdapter
+@testable import SpottySessionRuntime
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 private func isolatedQueueService(
     hook: (any QueueServiceHook)? = nil
@@ -46,7 +50,12 @@ private func seedRemoteOwner(_ player: PlaybackStore) {
 
 @MainActor
 private func seedLocalOwner(_ player: PlaybackStore) {
-    seedReady(player)
+    player.withRuntime { seedLocalOwner($0) }
+}
+
+@SessionRuntimeActor
+private func seedLocalOwner(_ player: PlaybackSessionRuntime) {
+    _ = player.send(.session(.ready), source: .account)
     _ = player.send(
         .owner(.local(PlaybackDevice(id: "mac", name: "Mac", type: "computer", isActive: true))),
         source: .command
@@ -336,7 +345,7 @@ struct QueueManagementTests {
                     ],
                     queueRevision: "rev-9"
                 )
-                let encoded = try JSONEncoder().encode(command)
+                let encoded = try JSONEncoder().encode(SpotifyConnectWireCommand(command))
                 let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
                 #expect((object?["endpoint"] as? String) == ("set_queue"), "set_queue endpoint is encoded")
                 #expect((object?["queue_revision"] as? String) == ("rev-9"), "set_queue revision is encoded")
@@ -437,12 +446,18 @@ struct QueueManagementTests {
         #expect((await waitUntil { parked.sendCount == 1 }) == true, "the first add is in flight")
         await seedAuthoritativeQueue(player)
         let removalID = player.queueNextEntries[0].id
-        player.removeUpcomingQueueOccurrences(selectedIDs: [removalID])
-        let replacement = player.effects.settlement(of: .queueReplacement)
+        let replacement = player.withRuntime { runtime in
+            runtime.removeUpcomingQueueOccurrences(selectedIDs: [removalID])
+            let settlement = runtime.effects.settlement(of: .queueReplacement)
+            // A suspended remote request leaves its actor reentrant. Invalidate the replacement
+            // in this admission turn, before its effect can dispatch through that same actor.
+            seedLocalOwner(runtime)
+            return settlement
+        }
         #expect(replacement != nil, "the replacement is admitted before handoff")
-        seedLocalOwner(player)
         parked.completePark(success: true)
         await replacement?.wait()
+        player.withRuntime { _ in }
         #expect((parked.sendCount) == (1), "stale set_queue is never dispatched after handoff")
         #expect((player.queueReplacementToken) == nil, "stale replacement releases its token")
         #expect((feedback.message) == nil, "stale replacement does not report feedback")
@@ -935,7 +950,7 @@ struct QueueManagementTests {
         await teardown.restore()
         seedRemoteOwner(teardown)
         let teardownMirror = teardown.engineGeneration
-        teardown.isTearingDown = true
+        teardown.withRuntime { $0.isTearingDown = true }
         teardown.receive(
             connectQueueEnvelope(
                 sequence: 1,
@@ -981,7 +996,7 @@ struct QueueManagementTests {
             (await waitUntil { await hook.connectAcceptIsParked() }) == true,
             "connect accept parked after actor hop")
         player.accountStore.advanceEpoch()
-        player.engineGeneration &+= 1
+        player.withRuntime { $0.engineGeneration &+= 1 }
         player.queueMutation = nil
         await hook.resumeConnectAccept()
         await yieldPasses()
@@ -999,7 +1014,7 @@ struct QueueManagementTests {
             )
         )
         #expect((await waitUntil { await hook.connectAcceptIsParked() }) == true, "teardown accept parked")
-        player.isTearingDown = true
+        player.withRuntime { $0.isTearingDown = true }
         player.queueMutation = nil
         player.effects.cancelAccountScoped()
         await yieldPasses(20)
@@ -1120,7 +1135,7 @@ struct QueueManagementTests {
             (await waitUntil { await epochHook.committedReplacementIsParked() }) == true,
             "committed replacement parked after the actor hop")
         epochPlayer.accountStore.advanceEpoch()
-        epochPlayer.engineGeneration &+= 1
+        epochPlayer.withRuntime { $0.engineGeneration &+= 1 }
         epochPlayer.queueMutation = nil
         await epochHook.resumeCommittedReplacement()
         await yieldPasses()

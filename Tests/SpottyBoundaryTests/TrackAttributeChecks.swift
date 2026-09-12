@@ -6,6 +6,8 @@ import Testing
 
 import Foundation
 @testable import SpottyCore
+@testable import SpottyGateway
+import SpottyRuntimeContracts
 
 @Suite("Track Attribute")
 struct TrackAttributeTests {

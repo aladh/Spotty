@@ -13,12 +13,17 @@ struct AlbumDetailView: View {
     let metadata: CatalogMetadataRepository
     let playback: CatalogPlaybackAccess
     var playlistActions: TrackPlaylistActions? = nil
+    let interactionState: CatalogRouteInteractionState
+
+    private var displayedItem: CatalogItem {
+        store.item?.uri == item.uri ? (store.item ?? item) : item
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailHeroBackground(artworkURL: item.artworkURL) {
+            DetailHeroBackground(artworkURL: displayedItem.artworkURL) {
                 VStack(spacing: 0) {
-                    MediaDetailHeader(item: item, detail: store.releaseDate)
+                    MediaDetailHeader(item: displayedItem, detail: store.releaseDate)
                     DetailActionRow(
                         canPlay: playback.canStartPlayback,
                         playAccessibilityLabel: "Play",
@@ -29,6 +34,9 @@ struct AlbumDetailView: View {
                 }
             }
             CatalogTableDivider()
+            if store.isShowingCachedContent {
+                CachedCatalogNotice(isRefreshing: store.isLoading)
+            }
             CatalogContentState(
                 isLoading: store.isLoading, isEmpty: store.tracks.isEmpty, error: store.error,
                 loadingLabel: "Loading album", errorTitle: "Couldn't load album",
@@ -40,11 +48,12 @@ struct AlbumDetailView: View {
                     tracks: store.trackCollection,
                     metadata: metadata,
                     playback: playback,
-                    playlistActions: playlistActions
+                    playlistActions: playlistActions,
+                    interactionState: interactionState
                 )
             }
         }
-        .navigationTitle(item.title)
+        .navigationTitle(displayedItem.title)
         .task(
             id: MediaDetailLoadIdentity(
                 uri: item.uri,
@@ -52,7 +61,6 @@ struct AlbumDetailView: View {
                 isConnected: playback.isConnected
             )
         ) {
-            guard playback.isConnected else { return }
             await store.load(item)
         }
     }
@@ -63,12 +71,17 @@ struct ArtistDetailView: View {
     let store: ArtistDetailStore
     let playback: CatalogPlaybackAccess
     let onSelect: (CatalogItem) -> Void
+    @Bindable var interactionState: CatalogRouteInteractionState
+
+    private var displayedItem: CatalogItem {
+        store.item?.uri == item.uri ? (store.item ?? item) : item
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailHeroBackground(artworkURL: item.artworkURL) {
+            DetailHeroBackground(artworkURL: displayedItem.artworkURL) {
                 VStack(spacing: 0) {
-                    MediaDetailHeader(item: item)
+                    MediaDetailHeader(item: displayedItem)
                     DetailActionRow(
                         canPlay: playback.canStartPlayback,
                         playAccessibilityLabel: "Play",
@@ -79,6 +92,9 @@ struct ArtistDetailView: View {
                 }
             }
             CatalogTableDivider()
+            if store.isShowingCachedContent {
+                CachedCatalogNotice(isRefreshing: store.isLoading)
+            }
             CatalogContentState(
                 isLoading: store.isLoading, isEmpty: store.releases.isEmpty, error: store.error,
                 loadingLabel: "Loading artist", errorTitle: "Couldn't load artist",
@@ -98,11 +114,14 @@ struct ArtistDetailView: View {
                             MediaCard(item: release, playback: playback) { onSelect(release) }
                         }
                     }
+                    .scrollTargetLayout()
                     .padding(CatalogLayout.contentPadding)
                 }
+                .scrollPosition(id: $interactionState.visibleItemID, anchor: .top)
+                .id(item.uri)
             }
         }
-        .navigationTitle(item.title)
+        .navigationTitle(displayedItem.title)
         .task(
             id: MediaDetailLoadIdentity(
                 uri: item.uri,
@@ -110,7 +129,6 @@ struct ArtistDetailView: View {
                 isConnected: playback.isConnected
             )
         ) {
-            guard playback.isConnected else { return }
             await store.load(item)
         }
     }

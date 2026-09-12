@@ -55,13 +55,19 @@ class RustSelectionTests(unittest.TestCase):
     def test_app_pin_tests_assets_and_docs_skip_rust(self):
         for name in ("Sources/Spotty/View.swift", "Sources/SpottyApp/main.swift",
                      "Sources/SpottyDomain/Model.swift", "Sources/SpottyEngineAdapter/Adapter.swift",
+                     "Sources/SpottyRuntimeContracts/Values.swift", "Sources/SpottySessionRuntime/Runtime.swift",
+                     "Sources/SpottySessionTransport/Transport.swift", "Sources/SpottyGateway/Gateway.swift",
+                     "Sources/SpottyCatalogStorage/Storage.swift", "Sources/SpottyDiagnostics/DebugLog.swift",
                      "Tests/SpottyBoundaryTests/Example.swift",
+                     "Tests/SpottyCatalogStorageTests/Example.swift", "Tests/SpottySessionTransportTests/Example.swift",
+                     "Tests/SpottySessionRuntimeTests/Example.swift", "Tests/SpottyGatewayTests/Example.swift",
                      "Tests/SpottyDomainTests/Example.swift", "Package.swift", "Package.resolved",
                      "Assets/icon.png", "Packaging/Info.plist", "docs/development/guide.md", "README.md",
                      ".swift-format", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md"):
             self.write(name)
         self.commit()
-        self.assertFalse(verification_needed("pull_request", self.base, self.root)["rust_needed"])
+        self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                         {"rust_needed": False, "macos_needed": True})
 
     def test_documentation_and_nested_agent_guidance_skip_both_toolchains(self):
         for name in ("AGENTS.md", "Tests/AGENTS.md", "Sources/SpottyPlaybackCore/AGENTS.md",
@@ -112,6 +118,9 @@ class RustSelectionTests(unittest.TestCase):
                      "Backend/spotty-playback/Cargo.lock", "Sources/SpottyPlaybackCore/include/new.h",
                      "rust-toolchain.toml", ".github/workflows/ci.yml", "Scripts/check.sh",
                      "Scripts/test_playback_header.py", "Tests/ABI/example.txt", "LICENSE",
+                     "Scripts/check-session-scenarios.sh", "Scripts/browsing_provenance.py",
+                     "Scripts/test_playback_browsing_provenance.py", "Scripts/test_playback_session_scenarios.py",
+                     "Scripts/browse-synthetic.sh",
                      "NOTICE", "THIRD_PARTY_NOTICES.md", "new-build-input", ".cargo/config.toml"):
             with self.subTest(name=name):
                 self.write(name)

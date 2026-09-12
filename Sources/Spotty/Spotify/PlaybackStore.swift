@@ -1,633 +1,278 @@
-import AppKit
-import SpottyDomain
 import Foundation
 import Observation
-import OSLog
+import SpottyDomain
+import SpottyRuntimeContracts
+import SpottySessionRuntime
 
-/// The small playback projection catalog rows need. It deliberately excludes timing so position
-/// samples do not invalidate the rows that only draw current-track and transport state.
-struct CurrentTrackIndicator: Equatable, Sendable {
-    let trackURI: String?
-    let isPlaying: Bool
+typealias CurrentTrackIndicator = SpottySessionRuntime.CurrentTrackIndicator
+typealias CatalogPlaybackAvailability = SpottySessionRuntime.CatalogPlaybackAvailability
 
-    init(trackURI: String? = nil, isPlaying: Bool = false) {
-        self.trackURI = trackURI
-        self.isPlaying = isPlaying
-    }
-
-    init(state: PlaybackState) {
-        let uri = state.currentTrack?.uri
-        self.init(trackURI: uri?.isEmpty == false ? uri : nil, isPlaying: state.transport == .playing)
-    }
-}
-
-/// Coarse catalog-facing capabilities derived from the reducer snapshot. Keeping these facts
-/// separate from `state` lets catalog ancestors observe connection and command transitions without
-/// subscribing to high-frequency timing changes.
-struct CatalogPlaybackAvailability: Equatable, Sendable {
-    let isConnected: Bool
-    let hasPendingPlaybackCommand: Bool
-
-    init(state: PlaybackState) {
-        isConnected = state.session == .ready
-        hasPendingPlaybackCommand = state.pendingCommands.keys.contains { $0 != .queue }
-    }
-}
-
-/// State that can make a queued transport command target a different lifetime or destination.
-/// High-frequency timing and metadata publications intentionally do not participate.
-struct PlaybackDispatchContext: Equatable, Sendable {
-    let lifetime: PlaybackLifetime
-    let route: ConnectCommandRoute
-    let localDeviceID: String?
-    let defaultLocalDeviceID: String?
-    let session: PlaybackSessionPhase
-}
-
+/// MainActor owns observation and native interaction. Playback/account authority and all command
+/// effects live in PlaybackSessionRuntime on its dedicated transition executor.
 @MainActor
 @Observable
 final class PlaybackStore {
     typealias Phase = PlaybackSessionPhase
 
+    @ObservationIgnored let runtime: PlaybackSessionRuntime
     @ObservationIgnored private(set) var state = PlaybackState(accountEpoch: 1)
-    /// Equatable publications derived only from accepted reducer state. Source revisions and
-    /// timing anchors cannot invalidate semantic, device or queue observers.
     private(set) var semantic = PlaybackSemanticProjection(state: PlaybackState(accountEpoch: 1))
     private(set) var timeline = PlaybackTiming(anchoredAt: .distantPast)
     private(set) var playbackDuration: TimeInterval = 0
     private(set) var presentedQueueEntries: [QueueEntry] = []
     private(set) var presentedDevices: [ConnectDevice] = []
     private(set) var presentedLocalDeviceID: String?
-    /// Coarse track/transport observation for catalog rows. Timing changes never rewrite this
-    /// value, so its observers only wake when the current track or playing state changes.
     private(set) var currentTrackIndicator = CurrentTrackIndicator()
-    /// Accepted playing context for sidebar rows; timing ticks do not invalidate every row.
     private(set) var playingContextURI: String?
-    /// Coarse connection and command capability observation for catalog ancestors. This is a
-    /// projection of accepted reducer state, not a second state owner.
-    private(set) var catalogPlaybackAvailability = CatalogPlaybackAvailability(
-        state: PlaybackState(accountEpoch: 1)
-    )
-
-    /// A typed engine credential rejection keeps the independent Keymaster grant intact while
-    /// making the next account action an explicit browser reauthorization.
+    private(set) var catalogPlaybackAvailability = CatalogPlaybackAvailability(state: PlaybackState(accountEpoch: 1))
     private(set) var requiresReauthentication = false
-
-    /// Catalog state lives in its own observable store; views that only draw
-    /// catalog data can depend on it without observing playback at all.
+    private(set) var accountEpoch: UInt64 = 1
+    private(set) var engineGeneration: UInt64 = 0
+    private(set) var queueInspectorOrderingVersion: UInt64 = 0
+    private(set) var isTearingDown = false
+    private(set) var allowsCommands = true
+    let thisDeviceName = "This Mac"
     let catalog: CatalogStore
     let history = PlaybackHistoryStore()
-    @ObservationIgnored let environment: PlaybackEnvironment
-    /// App-composed mutation-feedback owner. Queue and playlist mutations
-    /// report through this presenter rather than `PlaybackState.notice`.
     @ObservationIgnored let feedback: TransientFeedbackPresenter
-    @ObservationIgnored let metadataService: TrackMetadataService
-    @ObservationIgnored let coordinator: PlaybackCoordinator
-    @ObservationIgnored let queueService: QueueService
-    @ObservationIgnored let accountStore: AccountStore
+    @ObservationIgnored let artworkProvider: any ArtworkProviding
     @ObservationIgnored let catalogSession: CatalogSessionAvailability
-    /// Read-only projection of `AccountStore.epoch`. Do not increment or assign this value.
-    var accountEpoch: UInt64 { accountStore.epoch }
-    /// Swift-owned local display name. The engine no longer sends a hardcoded `device_name`.
-    let thisDeviceName = "This Mac"
-    @ObservationIgnored var lastRemoteDeviceID: String?
-    /// The first Connect snapshot describes state that predates this process. It seeds the UI,
-    /// but must not be counted as something the listener just played in this Spotty session.
-    @ObservationIgnored var hasReceivedPlaybackSnapshot = false
-    @ObservationIgnored let effects = PlaybackEffectRegistry()
-    /// Observable while session teardown is active so native commands update their availability.
-    /// The same gate rejects queued engine events while the old session is being cleared.
-    var isTearingDown = false
-    /// The single teardown owner. `AccountStore` contributes primitives; it does not coalesce.
-    @ObservationIgnored let teardown = SessionTeardownController()
-    @ObservationIgnored var terminationGate = PlaybackTerminationGate()
-    /// Process-lifetime subscriptions start only after SwiftUI reaches the durable restore
-    /// boundary. `SpottyApp` values may be initialized speculatively, so `init` must not subscribe.
-    @ObservationIgnored var hasStartedLifetimeEffects = false
-    @ObservationIgnored var lastEngineEventSequence: UInt64 = 0
-    @ObservationIgnored var engineGeneration: UInt64 = 0
-    /// Engine session generation whose reconnect rehydration Swift has already issued. The
-    /// engine republishes `resume_pending` on every snapshot inside its window; one load
-    /// sequence per rebuilt session is the contract.
-    @ObservationIgnored var rehydratedSessionGeneration: UInt64?
-    /// Whether the latest accepted connection snapshot still describes an open engine
-    /// rehydration window (`resumePending` with `spircReady` clear). Read again immediately
-    /// before a queued rehydration executes, so a window that closed while the coordinator
-    /// was busy does not get a late load.
-    @ObservationIgnored var engineRehydrationWindowOpen = false
-    /// One immutable stamp for playback-scoped work. This projects the two existing
-    /// lifecycle owners without becoming a third writable counter.
-    var playbackLifetime: PlaybackLifetime {
-        PlaybackLifetime(accountEpoch: accountEpoch, engineGeneration: engineGeneration)
-    }
-    /// MainActor watermark for Connect *callback* identity. Distinct from
-    /// `state.sourceRevisions[.engineQueue]`, which tracks provenance snapshots after merge.
-    @ObservationIgnored var connectQueueCallback = ConnectQueueCallbackWatermark()
-    /// Inspector-facing version advanced only after a changed Connect URI ordering commits.
-    /// Refresh-produced queue projections must never write it or restart their own hydration.
-    var queueInspectorOrderingVersion: UInt64 = 0
-    @ObservationIgnored var shuffleHistoryCache: [String: TimeInterval] = [:]
-    /// Connect protocol queue used for `set_queue`. This is a MainActor projection of
-    /// `QueueService`'s mutation snapshot, updated only after accepted Connect intake or a
-    /// committed replacement. Web inspector refresh must not write it.
-    @ObservationIgnored var queueMutation: QueueMutationSnapshot?
-    /// Lifetime token for one in-flight Connect `set_queue` replacement. Not a source revision.
-    /// A finished request clears only its own token so teardown cannot drop a newer session gate.
-    @ObservationIgnored var queueReplacementToken: UUID?
-    /// Queued command permits are invalidated synchronously when a publication changes the
-    /// command destination or playback lifetime while a pending command still owns that route.
-    /// Claimed permits remain valid for in-flight work; late confirmations/supersessions with no
-    /// pending slot preserve the already-admitted operation and make its outcome inert instead.
-    @ObservationIgnored private var playbackDispatchPermits:
-        [(permit: PlaybackDispatchPermit, commandID: UUID?, intentID: UUID?)] = []
+    @ObservationIgnored private var subscription: Task<Void, Never>?
+    @ObservationIgnored private var lastRevision: UInt64 = 0
+    @ObservationIgnored private var lastFeedbackRevision: UInt64 = 0
+    @ObservationIgnored private var isApplying = false
+    @ObservationIgnored private var lastMetadata: [CatalogTrack] = []
+    @ObservationIgnored private var lastCatalogInputRevision: UInt64?
+    @ObservationIgnored private var lastCatalogInputEpoch: UInt64?
 
-    @ObservationIgnored let preferenceWriter: PlaybackPreferenceWriter
+    deinit { subscription?.cancel() }
 
-    init(
-        environment: PlaybackEnvironment = .live,
-        feedback: TransientFeedbackPresenter
-    ) {
-        self.environment = environment
-        preferenceWriter = PlaybackPreferenceWriter(preferences: environment.preferences)
-        timeline = state.timing
+    init(environment: PlaybackEnvironment, feedback: TransientFeedbackPresenter) {
         self.feedback = feedback
-        let metadataService = TrackMetadataService(remote: environment.remote)
-        self.metadataService = metadataService
-        let coordinator = PlaybackCoordinator(
-            local: environment.local,
-            remote: environment.remote,
-            metadataService: metadataService
-        )
-        self.coordinator = coordinator
-        queueService = QueueService(
-            webQueue: environment.webQueue,
-            metadata: metadataService,
-            clock: environment.clock,
-            hook: environment.queueServiceHook
-        )
-        accountStore = AccountStore(environment: environment, coordinator: coordinator)
-        let catalogSession = CatalogSessionAvailability(accountEpoch: accountStore.epoch, isAvailable: false)
-        self.catalogSession = catalogSession
+        artworkProvider = environment.artwork
+        runtime = SessionRuntimeActor.sync { PlaybackSessionRuntime(environment: environment) }
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: false)
+        catalogSession = session
         catalog = CatalogStore(
-            provider: environment.catalog,
-            attributesProvider: environment.trackAttributes,
-            playlistMutations: environment.playlistMutations,
-            session: catalogSession,
-            clock: environment.clock,
-            feedback: feedback
-        )
-        accountStore.onPhaseChange = { [weak self] phase in
-            guard let self else { return }
-            self.catalogSession.update(
-                accountEpoch: self.accountEpoch,
-                isAvailable: phase == .ready
-            )
-            // A successful initialization return can beat consumption of its engine callbacks.
-            // Catalog/auth readiness does not publish command readiness before local identity and
-            // connection facts have reached the reducer. Only accepted engine observations do.
-            if phase != .ready {
-                self.send(.session(phase), source: .account)
+            provider: environment.catalog, attributesProvider: environment.trackAttributes,
+            playlistMutations: environment.playlistMutations, session: session,
+            clock: environment.clock, feedback: feedback)
+        let runtime = self.runtime
+        SessionRuntimeActor.sync {
+            runtime.setCatalogLoader { [weak self] in await self?.loadCatalog() }
+        }
+        apply(SessionRuntimeActor.sync { runtime.presentation() })
+        installPresentationSubscription()
+    }
+
+    private func loadCatalog() async {
+        let runtime = runtime
+        apply(SessionRuntimeActor.sync { runtime.presentation() })
+        await catalog.homeLibrary.load()
+        synchronizeCatalogMetadata()
+    }
+
+    /// A bounded synchronous mailbox entrance is retained for local admission and deterministic
+    /// scenarios. Every operation runs off MainActor and returns before any I/O worker settles.
+    @discardableResult
+    func withRuntime<Value: Sendable>(
+        _ operation: @SessionRuntimeActor (PlaybackSessionRuntime) -> Value
+    ) -> Value {
+        synchronizeCatalogMetadata()
+        let runtime = runtime
+        let result = SessionRuntimeActor.sync {
+            let result = operation(runtime)
+            runtime.publish()
+            return result
+        }
+        apply(SessionRuntimeActor.sync { runtime.presentation() })
+        return result
+    }
+
+    /// A rendered action belongs to the account/lifetime the desktop displayed. The runtime can
+    /// advance before MainActor consumes its next snapshot, so validate that stamp at admission.
+    private func performRuntimeCommand(
+        checksPlaybackLifetime: Bool = true,
+        reportsStale: Bool = true,
+        _ operation: @SessionRuntimeActor (PlaybackSessionRuntime) -> Void
+    ) {
+        let epoch = accountEpoch
+        let generation = engineGeneration
+        let route = commandRoute
+        synchronizeCatalogMetadata()
+        let runtime = runtime
+        let accepted = SessionRuntimeActor.sync {
+            guard runtime.accountEpoch == epoch else { return false }
+            if checksPlaybackLifetime {
+                guard runtime.engineGeneration == generation, runtime.commandRoute == route else { return false }
             }
+            operation(runtime)
+            runtime.publish()
+            return true
         }
-        accountStore.onReauthenticationChange = { [weak self] required in
-            guard let self else { return }
-            self.requiresReauthentication = required
+        apply(SessionRuntimeActor.sync { runtime.presentation() })
+        if !accepted, reportsStale {
+            feedback.informational("The playback session changed. Try again.")
         }
-        accountStore.onReady = { [weak self] in
-            guard let self else { return }
-            // Catalog work belongs to the account lifetime only; an engine rebuild must not
-            // cancel or skip a library load for the same signed-in account.
-            let lifetime = self.playbackLifetime
-            self.effects.run(.catalogLoad) { [weak self] in
-                guard let self, self.stillCurrent(lifetime, scope: .account) else { return }
-                await self.catalog.homeLibrary.load()
+    }
+
+    private func synchronizeCatalogMetadata() {
+        guard !isApplying, catalogSession.snapshot.isAvailable else { return }
+        let epoch = accountEpoch
+        let revision = catalog.metadata.runtimeTracksRevision
+        guard revision != lastCatalogInputRevision || epoch != lastCatalogInputEpoch else { return }
+        let tracks = Array(catalog.metadata.runtimeTracks.values)
+        let runtime = runtime
+        if SessionRuntimeActor.sync({ runtime.acceptCatalogMetadata(tracks, accountEpoch: epoch) }) {
+            lastCatalogInputRevision = revision
+            lastCatalogInputEpoch = epoch
+        }
+    }
+
+    private func installPresentationSubscription() {
+        if subscription == nil {
+            let runtime = runtime
+            let stream = SessionRuntimeActor.sync { runtime.presentations() }
+            subscription = Task { [weak self] in
+                for await value in stream {
+                    guard !Task.isCancelled, let self else { return }
+                    self.apply(value)
+                }
             }
         }
     }
 
     func startLifetimeEffectsIfNeeded() {
-        guard !hasStartedLifetimeEffects else { return }
-        hasStartedLifetimeEffects = true
-        // Create each stream before account restoration can initialize the engine. The
-        // subscription is therefore installed synchronously even though consumption is a task.
-        let engineEvents = environment.local.events()
-        let grantRevocations = environment.account.revocations()
-        let lifecycleEvents = environment.lifecycle.events()
-        // These three are process-lifetime subscriptions, not account-scoped work: they must keep
-        // delivering across account replacement, so they deliberately do not use `stillCurrent`.
-        effects.run(.engineEvents) { [weak self] in
-            for await envelope in engineEvents {
-                guard !Task.isCancelled, let self else { return }
-                self.receive(envelope)
+        installPresentationSubscription()
+        withRuntime { $0.startLifetimeEffectsIfNeeded() }
+    }
+
+    private func apply(_ value: RuntimePresentation) {
+        guard value.revision >= lastRevision else { return }
+        isApplying = true
+        defer { isApplying = false }
+        lastRevision = value.revision
+        let changedAccount = accountEpoch != value.accountEpoch
+        accountEpoch = value.accountEpoch
+        catalogSession.update(accountEpoch: value.accountEpoch, isAvailable: value.catalogAvailable)
+        if changedAccount {
+            catalog.reset()
+            history.reset()
+            lastMetadata = []
+            lastCatalogInputRevision = nil
+            lastCatalogInputEpoch = nil
+        }
+        let previousState = state
+        state = value.state
+        let nextSemantic = PlaybackSemanticProjection(state: value.state)
+        if semantic != nextSemantic { semantic = nextSemantic }
+        if timeline != value.state.timing { timeline = value.state.timing }
+        if playbackDuration != value.state.timing.duration { playbackDuration = value.state.timing.duration }
+        if engineGeneration != value.engineGeneration { engineGeneration = value.engineGeneration }
+        if queueInspectorOrderingVersion != value.queueInspectorOrderingVersion {
+            queueInspectorOrderingVersion = value.queueInspectorOrderingVersion
+        }
+        if requiresReauthentication != value.requiresReauthentication {
+            requiresReauthentication = value.requiresReauthentication
+        }
+        if isTearingDown != value.isTearingDown { isTearingDown = value.isTearingDown }
+        if allowsCommands != value.allowsCommands { allowsCommands = value.allowsCommands }
+        if previousState.queue.entries != value.state.queue.entries {
+            let queue = QueueEntry.uniquelyIdentified(
+                value.state.queue.entries.map {
+                    QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
+                })
+            if presentedQueueEntries != queue { presentedQueueEntries = queue }
+        }
+        if previousState.devices.devices != value.state.devices.devices {
+            let devices = value.state.devices.devices.map {
+                ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
+            }
+            if presentedDevices != devices { presentedDevices = devices }
+        }
+        if presentedLocalDeviceID != value.state.devices.localDeviceID {
+            presentedLocalDeviceID = value.state.devices.localDeviceID
+        }
+        let indicator = CurrentTrackIndicator(state: value.state)
+        if currentTrackIndicator != indicator { currentTrackIndicator = indicator }
+        let availability = CatalogPlaybackAvailability(state: value.state)
+        if catalogPlaybackAvailability != availability { catalogPlaybackAvailability = availability }
+        let context =
+            availability.isConnected && value.state.transport == .playing ? value.state.playbackContextURI : nil
+        if playingContextURI != context { playingContextURI = context }
+        history.replaceEntries(value.history)
+        if value.catalogAvailable, lastMetadata != value.metadata {
+            lastMetadata = value.metadata
+            catalog.metadata.replaceTracks(value.metadata, from: .queue)
+        }
+        if let message = value.feedback, message.revision > lastFeedbackRevision {
+            lastFeedbackRevision = message.revision
+            switch message.kind {
+            case .success: feedback.success(message.text)
+            case .informational: feedback.informational(message.text)
+            case .failure: feedback.failure(message.text)
+            case .dismiss: feedback.dismiss()
             }
         }
-        effects.run(.grantRevocations) { [weak self] in
-            for await _ in grantRevocations {
-                guard !Task.isCancelled else { return }
-                await self?.handleGrantRevocation()
-            }
-        }
-        effects.run(.lifecycle) { [weak self] in
-            for await event in lifecycleEvents {
-                guard !Task.isCancelled, let self else { return }
-                await self.receive(event)
-            }
-        }
-        effects.run(.queueServiceBootstrap) { [weak self] in
-            guard let self else { return }
-            await self.queueService.reset(accountEpoch: self.accountEpoch)
-        }
-        effects.run(.preferencesRestore) { [weak self, environment] in
-            guard let self else { return }
-            // Preferences belong to the account lifetime; an engine rebuild is irrelevant here.
-            let lifetime = self.playbackLifetime
-            let shuffleEnabled = await environment.preferences.shuffleEnabled()
-            guard self.stillCurrent(lifetime, scope: .account) else { return }
-            self.setShuffleEnabled(shuffleEnabled)
-            let lastRemoteDeviceID = await environment.preferences.lastRemoteDeviceID()
-            guard self.stillCurrent(lifetime, scope: .account) else { return }
-            self.lastRemoteDeviceID = lastRemoteDeviceID
-            let shuffleHistory = await environment.preferences.shuffleHistory()
-            guard self.stillCurrent(lifetime, scope: .account) else { return }
-            self.shuffleHistoryCache = shuffleHistory
-        }
     }
 
-    /// macOS suspends the process on sleep and sockets die underneath it; without this the
-    /// first play after waking would fail until the user manually reconnected.
-    ///
-    /// The backend's `forceReconnect` captures the playing track and position before tearing
-    /// down and restores them through its own reconnection loop, so playback resumes where it
-    /// was. The backend also self-reports disconnections; this covers the case where it does
-    /// not notice — a clean sleep can look, to it, like nothing happened at all.
-    private func receive(_ event: SystemLifecycleEvent) async {
-        guard isConnected else { return }
-        switch event {
-        case .willSleep:
-            _ = await coordinator.disconnect()
-        case .didWake:
-            statusTextFallbackAfterWake()
-            _ = await coordinator.forceReconnect()
-        }
+    func restore() async {
+        startLifetimeEffectsIfNeeded()
+        let epoch = accountEpoch
+        _ = await runtime.restore(expectedAccountEpoch: epoch)
+        withRuntime { _ in }
     }
 
-    /// Tells the listener what is happening instead of leaving the stale "Playing" label up
-    /// while the backend rebuilds its session.
-    private func statusTextFallbackAfterWake() {
-        guard showsPauseControl else { return }
-        showTransientCommandError("Restoring playback after sleep…")
+    func connect() { performRuntimeCommand(checksPlaybackLifetime: false) { $0.connect() } }
+    func reauthorize() { performRuntimeCommand(checksPlaybackLifetime: false) { $0.reauthorize() } }
+    func cancelConnect() { performRuntimeCommand(checksPlaybackLifetime: false) { $0.cancelConnect() } }
+    func logout() async {
+        let epoch = accountEpoch
+        _ = await runtime.logout(expectedAccountEpoch: epoch)
+        withRuntime { _ in }
+    }
+    func shutdownForTermination() async {
+        await runtime.shutdownForTermination()
+        withRuntime { _ in }
+        subscription?.cancel()
+        subscription = nil
     }
 
-    /// The only mutation entrance for the atomic playback snapshot.
-    /// Engine callbacks pass their payload `sessionGeneration` as `engineEpoch`. Asynchronous
-    /// outcomes pass the account and engine identity captured when the work started so
-    /// `PlaybackReducer` rejects stale results. Unstamped events use `accountEpoch` (the
-    /// `AccountStore.epoch` projection) and `engineGeneration`, which mirrors `state.engineEpoch`
-    /// after `reduce`. Reducer-owned `state.accountEpoch` is accepted snapshot state, not a
-    /// second imperative lifecycle owner. Omitted `receivedAt` is the orchestration clock;
-    /// engine intake passes the fan-out receipt time, which stays distinct from source revisions.
-    @discardableResult
-    func send(
-        _ event: PlaybackEvent,
-        source: PlaybackEventSource,
-        revision: UInt64? = nil,
-        engineEpoch: UInt64? = nil,
-        accountEpoch: UInt64? = nil,
-        receivedAt: Date? = nil
-    ) -> Bool {
-        reduce(
-            event,
-            source: source,
-            revision: revision,
-            engineEpoch: engineEpoch,
-            accountEpoch: accountEpoch,
-            receivedAt: receivedAt
-        ).accepted
+    func play(uri: String) { performRuntimeCommand { $0.play(uri: uri) } }
+    func play(track: CatalogTrack) { performRuntimeCommand { $0.play(track: track) } }
+    func playPlaylist(_ item: CatalogItem) {
+        let tracks = catalog.playlistStore.tracks
+        let uri = catalog.playlistStore.loadedURI
+        performRuntimeCommand { $0.playPlaylist(item, tracks: tracks, loadedURI: uri) }
     }
-
-    /// Same mutation entrance as `send`, but returns what the reducer accepted and changed so
-    /// post-acceptance side effects are driven by the reduction instead of a state diff.
-    @discardableResult
-    func reduce(
-        _ event: PlaybackEvent,
-        source: PlaybackEventSource,
-        revision: UInt64? = nil,
-        engineEpoch: UInt64? = nil,
-        accountEpoch: UInt64? = nil,
-        receivedAt: Date? = nil
-    ) -> PlaybackReduction {
-        let stampedAccountEpoch = accountEpoch ?? self.accountEpoch
-        let stampedEngineEpoch = engineEpoch ?? engineGeneration
-        let previousDispatchContext = playbackDispatchContext(
-            state: state,
-            accountEpoch: self.accountEpoch,
-            engineGeneration: engineGeneration
-        )
-        let lifetimeStampChanged =
-            stampedAccountEpoch != self.accountEpoch || stampedEngineEpoch != engineGeneration
-        if case let .commandTimedOut(id) = event {
-            // Linearize expiry against dispatch before consuming its final receipt.
-            for entry in playbackDispatchPermits where entry.intentID == id { entry.permit.invalidate() }
-        }
-        var next = state
-        for entry in playbackDispatchPermits {
-            if let id = entry.intentID, let date = entry.permit.takeDispatchReceipt() {
-                _ = PlaybackReducer.reduce(
-                    &next,
-                    envelope: PlaybackEventEnvelope(
-                        accountEpoch: self.accountEpoch, engineEpoch: engineGeneration,
-                        source: .command, receivedAt: date, event: .commandDispatched(id: id, at: date)))
-            }
-        }
-        playbackDispatchPermits.removeAll { $0.permit.canDiscard }
-        let receiptState = next
-        let reduction = PlaybackReducer.apply(
-            &next,
-            envelope: PlaybackEventEnvelope(
-                accountEpoch: stampedAccountEpoch,
-                engineEpoch: stampedEngineEpoch,
-                source: source,
-                revision: revision,
-                receivedAt: receivedAt ?? environment.clock.now(),
-                event: event
-            )
-        )
-        if reduction.accepted {
-            let nextDispatchContext = playbackDispatchContext(
-                state: next,
-                accountEpoch: stampedAccountEpoch,
-                engineGeneration: next.engineEpoch
-            )
-            if lifetimeStampChanged || previousDispatchContext != nextDispatchContext {
-                invalidatePlaybackDispatchPermits()
-            } else {
-                let pendingIDs = Set(next.pendingCommands.values.map(\.id))
-                for entry in playbackDispatchPermits {
-                    if let intentID = entry.intentID,
-                        next.intents.first(where: { $0.command.id == intentID })?.outcome.isTerminal == true
-                    {
-                        entry.permit.invalidate()
-                    }
-                    if let commandID = entry.commandID, !pendingIDs.contains(commandID) {
-                        entry.permit.invalidate()
-                    }
-                }
-            }
-            // A timed-out intent keeps its own deadline bookkeeping; every other terminal
-            // outcome releases the deadline effect it no longer needs.
-            let settledIntentIDs = reduction.settledIntents.filter { $0.outcome != .timedOut }.map(\.id)
-            let confirmedTracks = reduction.confirmedPlayTrackURIs
-            let queueEntriesChanged = reduction.queueEntriesChanged
-            let devicesChanged = reduction.devicesChanged
-            state = next
-            let nextSemantic = PlaybackSemanticProjection(state: next)
-            if semantic != nextSemantic { semantic = nextSemantic }
-            if timeline != next.timing { timeline = next.timing }
-            if playbackDuration != next.timing.duration { playbackDuration = next.timing.duration }
-            if queueEntriesChanged {
-                let nextQueue = QueueEntry.uniquelyIdentified(
-                    next.queue.entries.map {
-                        QueueEntry(uri: $0.uri, provider: $0.provider, occurrence: $0.occurrence, uid: $0.uid)
-                    })
-                if presentedQueueEntries != nextQueue { presentedQueueEntries = nextQueue }
-            }
-            if devicesChanged {
-                let nextDevices = next.devices.devices.map {
-                    ConnectDevice(id: $0.id, name: $0.name, type: $0.type, isActive: $0.isActive)
-                }
-                if presentedDevices != nextDevices { presentedDevices = nextDevices }
-            }
-            if presentedLocalDeviceID != next.devices.localDeviceID {
-                presentedLocalDeviceID = next.devices.localDeviceID
-            }
-            for uri in confirmedTracks { recordPlayed(uri) }
-            for id in settledIntentIDs where queueReplacementToken != id { effects.cancel(.commandDeadline(id)) }
-            engineGeneration = next.engineEpoch
-            let nextIndicator = CurrentTrackIndicator(state: next)
-            if currentTrackIndicator != nextIndicator {
-                currentTrackIndicator = nextIndicator
-            }
-            let nextAvailability = CatalogPlaybackAvailability(state: next)
-            if catalogPlaybackAvailability != nextAvailability {
-                catalogPlaybackAvailability = nextAvailability
-            }
-            let nextPlayingContext =
-                nextAvailability.isConnected && next.transport == .playing
-                ? next.playbackContextURI : nil
-            if playingContextURI != nextPlayingContext {
-                playingContextURI = nextPlayingContext
-            }
-            return reduction
-        }
-        // A rejected incoming event cannot discard a separately accepted dispatch receipt.
-        if state != receiptState { state = receiptState }
-        SpottyLog.playback.debug(
-            "Rejected event; source=\(String(describing: source), privacy: .public); account=\(stampedAccountEpoch, privacy: .public); engine=\(stampedEngineEpoch, privacy: .public); revision=\(String(describing: revision), privacy: .public)"
-        )
-        return .rejected
+    func togglePlayback() { performRuntimeCommand { $0.togglePlayback() } }
+    func next() { performRuntimeCommand { $0.next() } }
+    func previous() { performRuntimeCommand { $0.previous() } }
+    func seek(to fraction: Double) { performRuntimeCommand { $0.seek(to: fraction) } }
+    func toggleShuffle() { performRuntimeCommand { $0.toggleShuffle() } }
+    func cycleRepeat() { performRuntimeCommand { $0.cycleRepeat() } }
+    func transferPlayback(to device: ConnectDevice) { performRuntimeCommand { $0.transferPlayback(to: device) } }
+    func addToQueue(uris: [String]) { performRuntimeCommand { $0.addToQueue(uris: uris) } }
+    func removeUpcomingQueueOccurrences(selectedIDs: Set<String>) {
+        performRuntimeCommand { $0.removeUpcomingQueueOccurrences(selectedIDs: selectedIDs) }
     }
-
-    /// Stamps playback-scoped work with the exact lifetime captured before suspension.
-    /// The reducer envelope remains scalar because account and engine have independent
-    /// semantics there; command call sites cannot accidentally mix captures from two lifetimes.
-    @discardableResult
-    func send(
-        _ event: PlaybackEvent,
-        source: PlaybackEventSource,
-        revision: UInt64? = nil,
-        playbackLifetime: PlaybackLifetime,
-        receivedAt: Date? = nil
-    ) -> Bool {
-        send(
-            event,
-            source: source,
-            revision: revision,
-            engineEpoch: playbackLifetime.engineGeneration,
-            accountEpoch: playbackLifetime.accountEpoch,
-            receivedAt: receivedAt
-        )
+    func canRemoveUpcomingQueue(selectedIDs: Set<String>) -> Bool {
+        let runtime = runtime
+        return SessionRuntimeActor.sync { runtime.canRemoveUpcomingQueue(selectedIDs: selectedIDs) }
     }
-
-    @discardableResult
-    func setPresentation(
-        track: CurrentTrack?,
-        transport: PlaybackTransportState? = nil,
-        timing: PlaybackTiming? = nil,
-        source: PlaybackEventSource = .user,
-        accountEpoch: UInt64? = nil,
-        engineEpoch: UInt64? = nil
-    ) -> Bool {
-        send(
-            .presentation(
-                PlaybackPresentationSnapshot(
-                    currentTrack: track,
-                    transport: transport ?? state.transport,
-                    timing: timing ?? state.timing
-                )),
-            source: source,
-            engineEpoch: engineEpoch,
-            accountEpoch: accountEpoch
-        )
+    func refreshQueue() {
+        performRuntimeCommand(checksPlaybackLifetime: false, reportsStale: false) { $0.refreshQueue() }
     }
-
-    @discardableResult
-    func setTrackMetadata(
-        uri: String,
-        title: String?,
-        artist: String?,
-        artworkURL: URL?,
-        duration: TimeInterval,
-        provenance: MetadataProvenance,
-        accountEpoch: UInt64? = nil,
-        engineEpoch: UInt64? = nil
-    ) -> Bool {
-        send(
-            .trackMetadata(
-                PlaybackTrackMetadata(
-                    uri: uri,
-                    title: title,
-                    artist: artist,
-                    artworkURL: artworkURL,
-                    duration: duration,
-                    source: provenance
-                )),
-            source: .metadata,
-            engineEpoch: engineEpoch,
-            accountEpoch: accountEpoch
-        )
+    func refreshQueueSnapshot() {
+        performRuntimeCommand(checksPlaybackLifetime: false, reportsStale: false) { $0.refreshQueueSnapshot() }
     }
-
-    @discardableResult
-    func setTiming(
-        position: TimeInterval,
-        duration: TimeInterval? = nil,
-        anchoredAt: Date? = nil,
-        accountEpoch: UInt64? = nil,
-        engineEpoch: UInt64? = nil
-    ) -> Bool {
-        send(
-            .timing(
-                position: position,
-                duration: duration ?? self.duration,
-                anchoredAt: anchoredAt ?? environment.clock.now()
-            ),
-            source: .user,
-            engineEpoch: engineEpoch,
-            accountEpoch: accountEpoch
-        )
+    func cancelQueueRefresh() {
+        performRuntimeCommand(checksPlaybackLifetime: false, reportsStale: false) { $0.cancelQueueRefresh() }
     }
-
-    func setShuffleEnabled(_ enabled: Bool) {
-        var options = state.options
-        options.shuffle = enabled
-        send(.options(options), source: .user)
+    func refreshPosition() {
+        performRuntimeCommand(checksPlaybackLifetime: false, reportsStale: false) { $0.refreshPosition() }
     }
-
-    func setRepeatMode(_ mode: RepeatMode) {
-        setRepeat(mode: mode, flags: mode.flags)
-    }
-
-    func setRepeat(mode: RepeatMode, flags: RepeatFlags) {
-        var options = state.options
-        options.repeatMode = mode
-        options.repeatFlags = flags
-        send(.options(options), source: .user)
-    }
-
-    @discardableResult
-    func setNotice(_ message: String?) -> UUID? {
-        let notice = message.map { PlaybackNotice(message: $0) }
-        guard send(.notice(notice), source: .user) else { return nil }
-        return notice?.id
-    }
-
     func dismissPlaybackNotice(id: UUID) {
-        guard state.notice?.id == id else { return }
-        _ = send(.notice(nil), source: .user)
-    }
-
-    /// Creates a queued-command permit only after optimistic admission has published its pending
-    /// identity. The route predicate is checked on MainActor before the coordinator claims the
-    /// permit; route/lifetime publications invalidate the permit synchronously in `send`.
-    func makePlaybackDispatchPermit(
-        commandID: UUID? = nil,
-        intentID: UUID? = nil,
-        ifStillWanted: @escaping @MainActor @Sendable () -> Bool
-    ) -> PlaybackDispatchPermit? {
-        // Preserve claim receipts until the next reducer publication consumes them.
-        playbackDispatchPermits.removeAll { $0.permit.canDiscard }
-        if let commandID, !state.pendingCommands.values.contains(where: { $0.id == commandID }) {
-            return nil
-        }
-        if let intentID, state.intents.first(where: { $0.command.id == intentID })?.outcome.isTerminal != false {
-            return nil
-        }
-        let permit = PlaybackDispatchPermit(clock: environment.clock)
-        playbackDispatchPermits.append((permit, commandID, intentID ?? commandID))
-        guard ifStillWanted() else {
-            permit.invalidate()
-            return nil
-        }
-        return permit
-    }
-
-    /// Invalidates only permits that have not crossed the irreversible dispatch boundary. The
-    /// permit itself linearizes a concurrent claim against this MainActor publication hook.
-    func invalidatePlaybackDispatchPermits() {
-        for entry in playbackDispatchPermits {
-            entry.permit.invalidate()
-        }
-        // A claim racing with invalidation remains retained until its receipt is consumed.
-        playbackDispatchPermits.removeAll { $0.permit.canDiscard }
-    }
-
-    private func playbackDispatchContext(
-        state: PlaybackState,
-        accountEpoch: UInt64,
-        engineGeneration: UInt64
-    ) -> PlaybackDispatchContext {
-        let rawRoute = connectCommandRoute(
-            owner: state.owner,
-            localDeviceID: state.devices.localDeviceID
-        )
-        // A transport command's own optimistic `.playing` state temporarily hides the idle
-        // default-local projection. Keep that intentional target stable so publishing
-        // `commandStarted` does not cancel another command merely because the projection changed.
-        let isOptimisticIdleLocalPlay =
-            (rawRoute == .local || rawRoute == .needsDeviceSelection)
-            && state.session == .ready
-            && state.devices.localDeviceID?.isEmpty == false
-            && state.pendingCommands[.transport]?.expectedTransport == .playing
-            && (state.owner == .none || state.owner == .uncertain(nil))
-        let route = isOptimisticIdleLocalPlay ? .local : rawRoute
-        // A local command's effective destination is this local Connect identity. Keep that
-        // identity stable when an idle candidate (`.none`/`.uncertain(nil)`) becomes confirmed
-        // `.local`; ownership certainty changes, but the command is still headed to the same Mac.
-        // Remote routes retain their exact source/target identity through `route`.
-        let defaultLocalDeviceID =
-            route == .local
-            ? state.devices.localDeviceID
-            : ConnectDeviceProjection.defaultLocalDevice(in: state)?.id
-        return PlaybackDispatchContext(
-            lifetime: PlaybackLifetime(
-                accountEpoch: accountEpoch,
-                engineGeneration: engineGeneration
-            ),
-            route: route,
-            localDeviceID: state.devices.localDeviceID,
-            defaultLocalDeviceID: defaultLocalDeviceID,
-            session: state.session
-        )
-    }
-}
-
-nonisolated enum LiveSpotifyError: LocalizedError {
-    case streamingAuthorization(Int32)
-
-    var errorDescription: String? {
-        switch self {
-        case let .streamingAuthorization(code):
-            "Spotify playback authorization failed (\(code))"
-        }
+        performRuntimeCommand(checksPlaybackLifetime: false) { $0.dismissPlaybackNotice(id: id) }
     }
 }

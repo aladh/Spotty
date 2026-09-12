@@ -424,38 +424,40 @@ func testTransportRetry() async {
         #expect((thrown.callCount) == (3), "a terminal bearer throw does not add a request")
         #expect((tokens.callCount) == (3), "a terminal bearer throw does not fetch another credential")
 
-        let parkedTokens = CredentialSequence(values: ["park-a", "park-b", "park-c", "park-d"])
-        let parkedClients = CredentialSequence(values: ["park-client-a", "park-client-b", "park-client-c"])
-        let parkedAccess = ParkUntilCancelledInvalidator()
-        let parked = ScriptedRetryTransport(steps: [
+        let cancellationTokens = CredentialSequence(values: ["cancel-a", "cancel-b", "cancel-c", "cancel-d"])
+        let cancellationClients = CredentialSequence(values: [
+            "cancel-client-a", "cancel-client-b", "cancel-client-c",
+        ])
+        let cancellationAccess = CancellationThrowingInvalidator()
+        let cancellation = ScriptedRetryTransport(steps: [
             .http(status: 503),
             .http(status: 503),
             .http(status: 401),
             .http(status: 200, body: profileBody),
         ])
-        // Keep this parked cancellation probe off MainActor for the same reason as the retry
-        // backoff probe above. The bounded start check also guarantees cleanup on a regression.
-        let task = Task.detached {
-            try await PartnerAPI(
-                accessToken: { parkedTokens.next() },
-                clientToken: { parkedClients.next() },
-                invalidateAccessToken: { try await parkedAccess.park($0) },
+        // Inject cancellation at the terminal invalidator boundary without scheduling another
+        // parked task. The backoff probe above separately covers external task cancellation.
+        var propagatedCancellation = false
+        do {
+            _ = try await PartnerAPI(
+                accessToken: { cancellationTokens.next() },
+                clientToken: { cancellationClients.next() },
+                invalidateAccessToken: { try await cancellationAccess.invalidate($0) },
                 invalidateClientToken: { _ in },
-                transport: parked.send,
+                transport: cancellation.send,
                 retryTiming: .immediate
             ).profile()
+        } catch is CancellationError {
+            propagatedCancellation = true
+        } catch {
+            #expect((false) == true, "terminal invalidation preserves CancellationError, got \(error)")
         }
-        let cancelledDuringInvalidation = await cancelOnceParked(
-            task,
-            latch: parkedAccess.cancellationLatch,
-            label: "terminal invalidation cancellation"
-        )
         #expect(
-            (cancelledDuringInvalidation) == true,
-            "cancellation during terminal invalidation surfaces CancellationError")
-        #expect((parked.callCount) == (3), "cancellation during terminal invalidation does not add a request")
-        #expect((parkedAccess.values) == (["park-c"]), "cancellation still named the final bearer")
-        #expect((parkedTokens.callCount) == (3), "cancellation does not fetch another credential")
+            (propagatedCancellation) == true,
+            "CancellationError from terminal invalidation propagates")
+        #expect((cancellation.callCount) == (3), "terminal invalidation cancellation does not add a request")
+        #expect((cancellationAccess.values) == (["cancel-c"]), "cancellation still names the final bearer")
+        #expect((cancellationTokens.callCount) == (3), "cancellation does not fetch another credential")
     }
 
     do {
@@ -780,18 +782,17 @@ private actor RecordingInvalidator {
     }
 }
 
-private final class ParkUntilCancelledInvalidator: @unchecked Sendable {
+private final class CancellationThrowingInvalidator: @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [String] = []
-    let cancellationLatch = CancellationLatch()
 
     var values: [String] {
         lock.withLock { recorded }
     }
 
-    func park(_ value: String) async throws {
+    func invalidate(_ value: String) async throws {
         lock.withLock { recorded.append(value) }
-        try await cancellationLatch.park()
+        throw CancellationError()
     }
 }
 

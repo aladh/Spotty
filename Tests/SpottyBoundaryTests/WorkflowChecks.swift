@@ -343,13 +343,14 @@ struct WorkflowTests {
             )
         }
 
-        while remote.requestedURIs.count < 8 { await Task.yield() }
+        await expectEventually { remote.parkedMetadataRequestCount >= 8 }
         #expect(
             (updates.snapshot.first?.entries.count) == (12),
             "queue ordering is published before network hydration completes"
         )
         #expect((updates.snapshot.first?.tracks.count) == (2), "cached metadata is included in the first update")
-        #expect((remote.maximumActiveMetadataRequests) == (8), "metadata concurrency is bounded")
+        #expect((remote.parkedMetadataRequestCount) == (8), "all admitted metadata requests are held")
+        #expect((remote.maximumActiveMetadataRequests) == (8), "metadata concurrency reaches its bound")
 
         let initiallyRequested = remote.requestedURIs
         if let first = initiallyRequested.first { remote.completeMetadata(for: first) }

@@ -94,6 +94,7 @@ final class HarnessRemote: RemotePlaybackClient, @unchecked Sendable {
     var requestedURI: String? { requestedURIs.last }
     var activeMetadataRequests: Int { withStorage { $0.activeMetadataRequests } }
     var maximumActiveMetadataRequests: Int { withStorage { $0.maximumActiveMetadataRequests } }
+    var parkedMetadataRequestCount: Int { withStorage { $0.metadataParks.count } }
     var parkedSendCount: Int { withStorage { $0.sendParks.count } }
 
     /// Releases the oldest parked send.

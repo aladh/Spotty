@@ -842,7 +842,8 @@ struct PlaybackEventOutcomeTests {
                 (await waitUntil { payloadStore.state.engineEpoch == payloadGeneration }) == true,
                 "decoded payload generation stamps reducer state before playback catches up")
             #expect(
-                (payloadStore.engineGeneration) == (payloadGeneration), "decoded payload generation stamps presentation"
+                (await waitUntil { payloadStore.engineGeneration == payloadGeneration }) == true,
+                "decoded payload generation stamps presentation"
             )
             #expect(
                 (payloadStore.state.currentTrack?.title) == ("Now"),

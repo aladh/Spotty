@@ -88,11 +88,16 @@ Preserve these distinctions when changing the boundary:
 - Observed user resume carries the displayed track, context, paused position, and engine generation
   as an expectation. An idle join validates against ordered protocol observations; an active local
   player uses its loaded track and current position with track-scoped protocol context. An idle
-  local join restores the Connect session paused, then requires matching local
-  player evidence before sending Play. It preserves the transferred queue and options; it never
+  local join restores the Connect session paused, then requires completed queue restoration,
+  protocol ownership, and matching local player evidence before sending Play. It preserves the
+  observed queue occurrences and options even when the resolved playlist has changed; it never
   loads a playlist or another track as a fallback. Changed or unavailable evidence returns the
   resume-mismatch result. Concurrent resumes return a separate retryable busy result. Restoration
-  and Playing confirmation have separate five- and two-second budgets. Legacy resume and sticky load targets remain available for reconnect
+  and Playing confirmation have separate five- and two-second budgets. Success requires a fresh
+  protocol observation naming this device and the expected playing track/context/position as well
+  as a new local Playing event. A failed confirmation pauses the same local track if this generation
+  still owns it. Local timing samples and a successful command return alone cannot confirm a resume
+  or advance its presentation. Legacy resume and sticky load targets remain available for reconnect
   rehydration until consumers adopt the observed-resume entry point.
 
 ## Standing constraints

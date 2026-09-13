@@ -195,7 +195,8 @@ private struct EnvelopeGenerator {
                 shuffle: expectedShuffle ?? fallbackShuffle,
                 repeatMode: nil,
                 repeatFlags: expectedRepeat,
-                contextURI: nextBool(&rng) ? pick(modelTrackURIs, &rng) : nil
+                contextURI: nextBool(&rng) ? pick(modelTrackURIs, &rng) : nil,
+                isActiveDevice: nextBool(&rng)
             )
         }
         return EnginePlaybackSnapshot(
@@ -207,7 +208,8 @@ private struct EnvelopeGenerator {
             shuffle: nextBool(&rng) ? nextBool(&rng) : nil,
             repeatMode: nextBool(&rng) ? pick(modelRepeatModes, &rng) : nil,
             repeatFlags: nextBool(&rng) ? pick(modelRepeatFlags, &rng) : nil,
-            contextURI: nextBool(&rng) ? pick(modelTrackURIs, &rng) : nil
+            contextURI: nextBool(&rng) ? pick(modelTrackURIs, &rng) : nil,
+            isActiveDevice: nextBool(&rng)
         )
     }
 
@@ -818,10 +820,12 @@ private func transientNoticePreservesResumeBlock(
 private func resumeConfirmationRequiresContext(
     pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope
 ) -> String? {
-    guard case let .enginePlayback(snapshot) = envelope.event, snapshot.contextURI == nil else { return nil }
+    guard case let .enginePlayback(snapshot) = envelope.event,
+        snapshot.contextURI == nil || !snapshot.isActiveDevice
+    else { return nil }
     for intent in post.intents where intent.command.resumeTarget != nil && intent.outcome == .observedConfirmed {
         if pre.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed {
-            return "a sample without context confirmed a resume"
+            return "a sample without protocol context and active ownership confirmed a resume"
         }
     }
     return nil

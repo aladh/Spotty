@@ -58,8 +58,9 @@
   device invokes the existing explicit transfer action and keeps the sidebar open.
 
 - With no current track, Play is disabled. Pause appears only for observed playing state.
-- A pending resume keeps its current track, context and position through an intermediate empty
-  activation observation. A stale or unavailable resume shows a persistent notice asking the user
+- A pending resume keeps its current track, context, position and playback modes through local
+  loading/timing samples and intermediate empty activation observations until Spotify confirms
+  playback. A stale, unavailable or unconfirmed resume stays paused and shows a persistent notice asking the user
   to choose a track or playlist; the stale Play control is disabled while the notice remains.
   Choosing new playback clears that notice. The active playlist remains green while paused in the
   sidebar and matching Home cards; disconnecting or clearing the current track clears the indicator.

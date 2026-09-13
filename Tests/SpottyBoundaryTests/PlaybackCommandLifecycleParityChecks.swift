@@ -421,6 +421,16 @@ struct PlaybackCommandLifecycleParityTests {
         } else {
             player.play(uri: "spotify:track:new")
         }
+        #expect(await waitUntil { local.executeCount == 1 })
+        if resume {
+            #expect(player.state.pendingCommands[.transport] != nil)
+            _ = player.send(
+                .enginePlayback(
+                    EnginePlaybackSnapshot(
+                        transport: .playing, trackURI: lifecycleTrackA.uri, timing: lifecycleTiming,
+                        contextURI: "", isActiveDevice: true)),
+                source: .enginePlayback, revision: 2)
+        }
         let finished = await waitUntil {
             local.executeCount == 1 && player.state.pendingCommands[.transport] == nil
         }

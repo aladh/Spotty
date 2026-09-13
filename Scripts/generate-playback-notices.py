@@ -446,7 +446,7 @@ def collect_package(
         revision = source_revision_from_source(source)
         record["git_revision"] = revision
     elif kind == "path":
-        retained = {"librespot-core": "core", "librespot-playback": "playback"}
+        retained = {"librespot-core": "core", "librespot-connect": "connect", "librespot-playback": "playback"}
         directory = retained.get(package["name"])
         expected = ROOT / "Backend/spotty-playback/vendor/librespot" / (directory or "") / "Cargo.toml"
         if directory is None or Path(package["manifest_path"]).resolve() != expected.resolve():

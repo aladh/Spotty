@@ -688,6 +688,7 @@ pub(crate) fn apply_cluster(generation: u64, origin: ClusterOrigin, cluster: Clu
             engine.connection.is_active_device = is_active_device;
             engine.observed_resume.remote_owner =
                 !cluster.active_device_id.is_empty() && !is_active_device;
+            engine.observed_resume.protocol_player = cluster.player_state.clone().into_option();
             changed
         })
     }) else {

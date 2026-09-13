@@ -47,6 +47,7 @@ public struct PlaybackIntent: Equatable, Sendable {
         switch envelope.event {
         case let .enginePlayback(snapshot) where envelope.source == .enginePlayback:
             guard command.kind != .queue, command.kind != .transfer else { return }
+            if command.resumeTarget != nil, snapshot.contextURI == nil, !snapshot.trackUnavailable { return }
             let uri = snapshot.trackURI.flatMap { $0.isEmpty ? nil : $0 }
             if command.resumeTarget != nil && uri == nil { return }
             if command.kind == .navigation, command.expectedTrack == nil {
@@ -67,10 +68,13 @@ public struct PlaybackIntent: Equatable, Sendable {
             }
             if snapshot.trackUnavailable { settle(.rejected, at: envelope.receivedAt); return }
             if let target = command.resumeTarget {
-                guard abs(snapshot.timing.position - Double(target.positionMS) / 1_000) <= 1 else { return }
-                // Local transport samples can omit context. They still update playback truth,
-                // but cannot prove the complete resume target before the engine returns.
-                guard let context = snapshot.contextURI else { return }
+                let targetPosition = Double(target.positionMS) / 1_000
+                let elapsed = max(0, envelope.receivedAt.timeIntervalSince(dispatchedAt))
+                guard snapshot.timing.position >= targetPosition - 1,
+                    snapshot.timing.position <= targetPosition + elapsed + 1
+                else { return }
+                // A local player event is not evidence that Spotify accepted this resume.
+                guard snapshot.isActiveDevice, let context = snapshot.contextURI else { return }
                 if (context.isEmpty ? nil : context) != target.contextURI {
                     settle(.superseded, at: envelope.receivedAt)
                     return

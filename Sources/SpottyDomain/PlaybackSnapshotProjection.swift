@@ -84,7 +84,8 @@ public enum PlaybackSnapshotProjection: Sendable {
             shuffle: shuffle,
             repeatMode: RepeatMode(context: flags.context, track: flags.track),
             repeatFlags: flags,
-            contextURI: contextURI
+            contextURI: contextURI,
+            isActiveDevice: isActiveDevice
         )
     }
 }

@@ -138,8 +138,12 @@ public enum PlaybackReducer {
             {
                 return .rejected
             }
-            if shouldHoldOptimisticPlayTarget(incomingURI: incomingURI, in: candidate) {
-                if candidate.pendingCommands[.transport]?.resumeTarget == nil {
+            let holdsUnconfirmedResume =
+                snapshot.contextURI == nil && !snapshot.trackUnavailable
+                && (candidate.pendingCommands[.transport]?.resumeTarget != nil
+                    || candidate.notice?.kind == .resumeUnavailable)
+            if holdsUnconfirmedResume || shouldHoldOptimisticPlayTarget(incomingURI: incomingURI, in: candidate) {
+                if !holdsUnconfirmedResume, candidate.pendingCommands[.transport]?.resumeTarget == nil {
                     applyEnginePlaybackOptions(snapshot, in: &candidate)
                 }
             } else {
@@ -388,8 +392,13 @@ public enum PlaybackReducer {
             else { return .rejected }
             candidate.intents[index].settle(.timedOut, at: envelope.receivedAt)
             if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
-                // Unsent optimism is reversible. A dispatched request remains irrevocable.
-                if candidate.intents[index].dispatchedAt == nil {
+                // A resume retains confirmed presentation until Spotify accepts it. Timing out
+                // cannot turn an unconfirmed local player sample into playback authority.
+                if pair.value.resumeTarget != nil {
+                    candidate.notice = PlaybackNotice(
+                        message: PlaybackNotice.resumeUnavailableMessage, kind: .resumeUnavailable)
+                }
+                if candidate.intents[index].dispatchedAt == nil || pair.value.resumeTarget != nil {
                     restoreCommandPresentation(pair.value, in: &candidate, at: envelope.receivedAt)
                 }
                 candidate.pendingCommands[pair.key] = nil
@@ -401,7 +410,9 @@ public enum PlaybackReducer {
                 candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
             }
             if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
-                candidate.pendingCommands[pair.key] = nil
+                if !accepted || pair.value.resumeTarget == nil {
+                    candidate.pendingCommands[pair.key] = nil
+                }
                 candidate.transportCommandResolutions[id] = nil
                 if !accepted {
                     restoreCommandPresentation(pair.value, in: &candidate, at: envelope.receivedAt)
@@ -444,6 +455,10 @@ public enum PlaybackReducer {
                 candidate.intents[index].observe(envelope)
                 let intent = candidate.intents[index]
                 guard previous != intent.outcome else { continue }
+                if intent.command.resumeTarget != nil, intent.outcome == .superseded || intent.outcome == .rejected {
+                    candidate.notice = PlaybackNotice(
+                        message: PlaybackNotice.resumeUnavailableMessage, kind: .resumeUnavailable)
+                }
                 let resolution: PlaybackTransportCommandResolution?
                 switch intent.outcome {
                 case .observedConfirmed: resolution = .confirmed

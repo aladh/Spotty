@@ -28,6 +28,9 @@ impl ObservedResumeTarget {
 pub(crate) struct ObservedResumeState {
     revision: u64,
     observed: Option<ObservedResumeTarget>,
+    pub(crate) protocol_player: Option<PlayerState>,
+    protocol_active: bool,
+    protocol_playing: bool,
     pub(crate) local: Option<ObservedResumeTarget>,
     local_context_known: bool,
     pub(crate) remote_owner: bool,
@@ -41,6 +44,8 @@ pub(crate) fn record_resume_observation(stamp: SnapshotStamp, observation: &Play
                 return;
             }
             state.revision = stamp.revision;
+            state.protocol_active = observation.is_active_device;
+            state.protocol_playing = observation.is_playing && !observation.is_paused;
             // Only protocol observations reach this function. Empty context is an explicit
             // clear; never inherit another track's context or the reconnect sticky getter.
             let context_uri = observation
@@ -106,6 +111,28 @@ enum ResumeAction {
 }
 
 impl ObservedResumeState {
+    fn confirms_playing(
+        &self,
+        expected: &ObservedResumeTarget,
+        after_revision: u64,
+        elapsed_ms: u32,
+    ) -> bool {
+        self.revision > after_revision
+            && self.protocol_active
+            && self.protocol_playing
+            && !self.remote_owner
+            && self.observed.as_ref().is_some_and(|observed| {
+                observed.track_uri == expected.track_uri
+                    && observed.context_uri == expected.context_uri
+                    && observed.position_ms.saturating_add(1_000) >= expected.position_ms
+                    && observed.position_ms
+                        <= expected
+                            .position_ms
+                            .saturating_add(elapsed_ms)
+                            .saturating_add(1_000)
+            })
+    }
+
     fn action(
         &self,
         expected: &ObservedResumeTarget,
@@ -123,6 +150,9 @@ impl ObservedResumeState {
                 .is_some_and(|target| expected.matches(target))
         {
             return ResumeAction::Reject;
+        }
+        if transferred && !self.protocol_active {
+            return ResumeAction::Wait;
         }
         if local_active {
             if let Some(local) = &self.local {
@@ -206,25 +236,70 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
         return ERROR_RESUME_BUSY;
     }
     // Unlike the legacy resume guard, a retired call must not release a replacement's claim.
-    struct ObservedResumeGuard(u64);
+    struct ObservedResumeGuard {
+        generation: u64,
+        track_uri: String,
+        sent_play: bool,
+        succeeded: bool,
+    }
     impl Drop for ObservedResumeGuard {
         fn drop(&mut self) {
-            let _ = with_engine_owned(self.0, |engine| engine.release_resume());
+            let _ = with_current_generation_mutation(self.generation, || {
+                let _ = with_engine_owned(self.generation, |engine| {
+                    if self.sent_play
+                        && !self.succeeded
+                        && !engine.observed_resume.remote_owner
+                        && engine
+                            .observed_resume
+                            .local
+                            .as_ref()
+                            .is_some_and(|local| local.track_uri == self.track_uri)
+                    {
+                        if let Some(spirc) = engine.spirc.as_ref() {
+                            let _ = spirc.pause();
+                        }
+                    }
+                    engine.release_resume();
+                });
+            });
         }
     }
-    let _guard = ObservedResumeGuard(generation);
+    let mut guard = ObservedResumeGuard {
+        generation,
+        track_uri: expected.track_uri.clone(),
+        sent_play: false,
+        succeeded: false,
+    };
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     let mut transferred = false;
+    let mut restoration: Option<tokio::sync::oneshot::Receiver<()>> = None;
+    let mut restored = false;
     loop {
+        if let Some(receiver) = restoration.as_mut() {
+            match receiver.try_recv() {
+                Ok(()) => {
+                    restored = true;
+                    restoration = None;
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    return ERROR_RESUME_MISMATCH;
+                }
+            }
+        }
         // Check the generation and evidence at the channel-send boundary. No callback or
         // blocking work occurs while this gate or the engine lock is held.
         let step = with_current_generation_mutation(generation, || {
             with_engine_owned(generation, |engine| {
-                let action = engine.observed_resume.action(
-                    &expected,
-                    engine.connection.is_active_device,
-                    transferred,
-                );
+                let action = if transferred && !restored {
+                    ResumeAction::Wait
+                } else {
+                    engine.observed_resume.action(
+                        &expected,
+                        engine.connection.is_active_device,
+                        transferred,
+                    )
+                };
                 let Some(spirc) = engine.spirc.as_ref() else {
                     return Err(ERROR_NOT_CONNECTED);
                 };
@@ -233,26 +308,51 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
                         // Evidence from a previous local load cannot acknowledge this transfer.
                         engine.observed_resume.local = None;
                         engine.observed_resume.local_context_known = false;
-                        spirc.transfer(Some(TransferRequest {
-                            transfer_options: TransferOptions {
-                                restore_paused: Some("pause".to_owned()),
-                                ..Default::default()
-                            },
-                        }))
+                        let Some(snapshot) = engine.observed_resume.protocol_player.clone() else {
+                            return Err(ERROR_RESUME_MISMATCH);
+                        };
+                        spirc
+                            .transfer_observed(
+                                TransferRequest {
+                                    transfer_options: TransferOptions {
+                                        restore_paused: Some("pause".to_owned()),
+                                        ..Default::default()
+                                    },
+                                },
+                                snapshot,
+                            )
+                            .map(Some)
                     }
-                    ResumeAction::Play => spirc.play(),
-                    ResumeAction::Wait => return Ok((action, engine.playing_event())),
+                    ResumeAction::Play => spirc.play().map(|_| None),
+                    ResumeAction::Wait => {
+                        return Ok((
+                            action,
+                            engine.playing_event(),
+                            engine.observed_resume.revision,
+                            None,
+                        ))
+                    }
                     ResumeAction::Reject => return Err(ERROR_RESUME_MISMATCH),
                 };
-                result.map_err(|_| ERROR_NEEDS_REINIT)?;
-                Ok((action, engine.playing_event()))
+                let restoration = result.map_err(|_| ERROR_NEEDS_REINIT)?;
+                Ok((
+                    action,
+                    engine.playing_event(),
+                    engine.observed_resume.revision,
+                    restoration,
+                ))
             })
             .unwrap_or(Err(ERROR_RESUME_MISMATCH))
         })
         .unwrap_or(Err(ERROR_RESUME_MISMATCH));
         match step {
-            Ok((ResumeAction::TransferPaused, _)) => transferred = true,
-            Ok((ResumeAction::Play, before)) => {
+            Ok((ResumeAction::TransferPaused, _, _, receiver)) => {
+                transferred = true;
+                restoration = receiver;
+            }
+            Ok((ResumeAction::Play, before, protocol_revision, _)) => {
+                guard.sent_play = true;
+                let play_started = std::time::Instant::now();
                 // Transfer and Playing confirmation have independent budgets. The complete
                 // call remains below the app's eight-second command deadline.
                 let playing_deadline = std::time::Instant::now() + Duration::from_secs(2);
@@ -262,16 +362,23 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
                         stamp.generation == generation
                             && stamp.sequence > before.sequence
                             && engine.connection.is_active_device
+                            && engine.observed_resume.confirms_playing(
+                                &expected,
+                                protocol_revision,
+                                play_started.elapsed().as_millis() as u32,
+                            )
                             && !engine.observed_resume.remote_owner
                             && engine.observed_resume.local_context_known
-                            && engine
-                                .observed_resume
-                                .local
-                                .as_ref()
-                                .is_some_and(|target| expected.matches(target))
+                            && engine.observed_resume.local.as_ref().is_some_and(|target| {
+                                target.track_uri == expected.track_uri
+                                    && target.context_uri == expected.context_uri
+                            })
                     });
                     match observed {
-                        Ok(true) => return 0,
+                        Ok(true) => {
+                            guard.succeeded = true;
+                            return 0;
+                        }
                         Err(_) => return ERROR_RESUME_MISMATCH,
                         _ => std::thread::sleep(PLAYING_EVENT_POLL_INTERVAL),
                     }
@@ -357,6 +464,7 @@ mod tests {
         assert_eq!(state.action(&expected, true, true), ResumeAction::Wait);
         state.local = Some(expected.clone());
         state.local_context_known = true;
+        state.protocol_active = true;
         assert_eq!(state.action(&expected, true, true), ResumeAction::Play);
         assert_eq!(state.action(&expected, true, false), ResumeAction::Play);
         // Local pause/seek timing can advance without a corresponding cluster snapshot.
@@ -445,6 +553,7 @@ mod tests {
                 observed: Some(wrong.clone()),
                 local: Some(wrong),
                 local_context_known: true,
+                protocol_active: true,
                 ..Default::default()
             };
             assert_eq!(state.action(&expected, false, false), ResumeAction::Reject);
@@ -462,5 +571,42 @@ mod tests {
             ObservedResumeState::default().action(&expected, false, false),
             ResumeAction::Reject
         );
+    }
+
+    #[test]
+    fn local_playing_without_new_protocol_ownership_cannot_confirm_resume() {
+        let expected = target("current", 152_000);
+        let mut state = ObservedResumeState {
+            revision: 10,
+            observed: Some(expected.clone()),
+            local: Some(expected.clone()),
+            local_context_known: true,
+            ..Default::default()
+        };
+        assert!(!state.confirms_playing(&expected, 10, 500));
+        state.protocol_active = true;
+        state.protocol_playing = true;
+        assert!(
+            !state.confirms_playing(&expected, 10, 500),
+            "pre-dispatch protocol state is not confirmation"
+        );
+        state.revision = 11;
+        assert!(state.confirms_playing(&expected, 10, 500));
+        state.observed.as_mut().unwrap().position_ms -= 1_500;
+        assert!(
+            !state.confirms_playing(&expected, 10, 1_500),
+            "elapsed time cannot authorize a backwards jump"
+        );
+        state.observed = Some(expected.clone());
+        state.observed.as_mut().unwrap().position_ms += 1_500;
+        assert!(
+            state.confirms_playing(&expected, 10, 1_500),
+            "confirmation includes elapsed playback time"
+        );
+        state.observed.as_mut().unwrap().track_uri = target("wrong", 0).track_uri;
+        assert!(!state.confirms_playing(&expected, 10, 1_500));
+        state.observed = Some(expected.clone());
+        state.remote_owner = true;
+        assert!(!state.confirms_playing(&expected, 10, 500));
     }
 }

@@ -3,6 +3,7 @@ import Foundation
 /// One authoritative engine playback sample. Keeping its transport, identity, timing, and
 /// options together prevents the UI from observing combinations that never existed upstream.
 public struct EnginePlaybackSnapshot: Equatable, Sendable {
+    public let isActiveDevice: Bool
     public let transport: PlaybackTransportState
     public let trackURI: String?
     /// Nil means this sample does not carry context; an empty string clears it.
@@ -25,8 +26,10 @@ public struct EnginePlaybackSnapshot: Equatable, Sendable {
         shuffle: Bool? = nil,
         repeatMode: RepeatMode? = nil,
         repeatFlags: RepeatFlags? = nil,
-        contextURI: String? = nil
+        contextURI: String? = nil,
+        isActiveDevice: Bool = false
     ) {
+        self.isActiveDevice = isActiveDevice
         self.transport = transport
         self.trackURI = trackURI
         self.contextURI = contextURI

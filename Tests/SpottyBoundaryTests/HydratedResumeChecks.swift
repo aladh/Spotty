@@ -94,6 +94,8 @@ struct HydratedResumeTests {
         player.receive(
             playback(revision: 4, uri: track, playing: true, carriesContext: false), revision: 4, receivedAt: now)
         #expect(player.state.intents.last?.outcome == .dispatched, "omitted context is not resume confirmation")
+        #expect(player.state.transport == .paused, "local audio cannot establish Spotify playback authority")
+        #expect(player.position == 152 && player.isShuffleEnabled && player.repeatMode == .context)
         player.receive(playback(revision: 5, uri: track, playing: true), revision: 5, receivedAt: now)
         #expect(player.state.intents.last?.outcome == .observedConfirmed)
         #expect(player.trackURI == track && player.position == 152)
@@ -190,4 +192,71 @@ struct HydratedResumeTests {
         #expect(!player.canTogglePlayback)
         await player.shutdownForTermination()
     }
+
+    @Test func unconfirmedResumeTimesOutWithoutPublishingLocalProgressOrAdvancement() async {
+        let engine = HarnessEngine(position: 152_000)
+        let gate = HarnessEngineGate(result: .ok)
+        engine.onExecute = { _ in gate.enter() }
+        let clock = HarnessClock.parked(now: now)
+        let player = await hydratedPlayer(engine: engine, clock: clock)
+        await expectEventually { player.canTogglePlayback && player.queueNextEntries.count == 1 }
+        let originalQueue = player.queueNextEntries
+        player.togglePlayback()
+        await expectEventually { gate.hasStarted && clock.requestedSleeps.contains(8) }
+        gate.finish(with: .ok)
+        await expectEventually { player.state.intents.last?.outcome == .sent }
+        #expect(player.state.pendingCommands[.transport] != nil)
+
+        player.receive(
+            playback(revision: 2, uri: track, playing: true, positionMS: 155_000, carriesContext: false),
+            revision: 2, receivedAt: now.addingTimeInterval(3))
+        #expect(player.state.transport == .paused && player.position == 152)
+        clock.advance(seconds: 8)
+        clock.releaseAll()
+        await expectEventually {
+            player.state.intents.last?.outcome == .timedOut && player.playbackNotice?.kind == .resumeUnavailable
+        }
+        #expect(player.playbackNotice?.kind == .resumeUnavailable)
+        #expect(player.state.transport == .paused && player.position == 152)
+        #expect(player.isShuffleEnabled && player.repeatMode == .context)
+        #expect(player.queueNextEntries == originalQueue)
+        #expect(!player.canTogglePlayback)
+
+        // An abandoned local player completing a track is still not Spotify session evidence.
+        player.receive(
+            playback(revision: 3, uri: "spotify:track:wrong", playing: true, positionMS: 0, carriesContext: false),
+            revision: 3, receivedAt: now.addingTimeInterval(9))
+        #expect(player.trackURI == track && player.state.transport == .paused && player.position == 152)
+        // Reconcile to a fresh server snapshot without rewriting the terminal timeout outcome.
+        player.receive(
+            playback(revision: 4, uri: track, playing: false), revision: 4, receivedAt: now.addingTimeInterval(10))
+        #expect(player.trackURI == track && player.state.transport == .paused && player.position == 152)
+        #expect(player.state.intents.last?.outcome == .timedOut)
+        await player.shutdownForTermination()
+    }
+
+    @Test func confirmedResumeAdvancesOnlyWithTheObservedQueue() async {
+        let engine = HarnessEngine(position: 152_000)
+        let gate = HarnessEngineGate(result: .ok)
+        engine.onExecute = { _ in gate.enter() }
+        let player = await hydratedPlayer(engine: engine)
+        await expectEventually { player.canTogglePlayback && player.queueNextEntries.count == 1 }
+        let nextURI = player.queueNextEntries[0].uri
+        player.togglePlayback()
+        await expectEventually { gate.hasStarted }
+        player.receive(
+            playback(revision: 2, uri: track, playing: true, carriesContext: false), revision: 2, receivedAt: now)
+        #expect(player.state.transport == .paused)
+        player.receive(playback(revision: 3, uri: track, playing: true), revision: 3, receivedAt: now)
+        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        gate.finish(with: .ok)
+        // These are the same protocol facts available to a second Connect client after natural end.
+        let crossClient = playback(revision: 4, uri: nextURI, playing: true, positionMS: 250)
+        player.receive(crossClient, revision: 4, receivedAt: now.addingTimeInterval(90))
+        #expect(player.trackURI == crossClient.trackURI && player.position == 0.25)
+        #expect(player.isShuffleEnabled && player.repeatMode == .context)
+        #expect(player.playbackNotice == nil)
+        await player.shutdownForTermination()
+    }
+
 }

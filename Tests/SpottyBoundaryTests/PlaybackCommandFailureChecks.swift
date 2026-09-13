@@ -2613,7 +2613,7 @@ struct PlaybackCommandFailureTests {
         )
         #expect((player.canTogglePlayback) == true, "paused local playback can resume")
         player.togglePlayback()
-        await expectEventually { player.state.pendingCommands[.transport] == nil }
+        await expectEventually { engine.operations.count == 1 }
 
         let plan: PlaybackResumeTarget?
         switch engine.operations.first {
@@ -2629,6 +2629,7 @@ struct PlaybackCommandFailureTests {
             (plan?.trackURI) == ("spotify:track:presentation"), "the engine must validate the displayed track")
         #expect((plan?.positionMS) == (50_000), "the engine must validate the displayed position")
         #expect(plan?.engineGeneration == player.engineGeneration)
+        #expect(player.state.pendingCommands[.transport] != nil, "a local return cannot confirm the displayed resume")
         await player.shutdownForTermination()
     }
 }

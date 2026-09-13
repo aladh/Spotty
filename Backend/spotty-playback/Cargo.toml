@@ -34,6 +34,7 @@ lto = true
 # Narrow retained patches; the remaining graph stays at the reviewed upstream revision.
 [patch."https://github.com/librespot-org/librespot"]
 librespot-core = { path = "vendor/librespot/core" }
+librespot-connect = { path = "vendor/librespot/connect" }
 librespot-playback = { path = "vendor/librespot/playback" }
 
 [dev-dependencies]

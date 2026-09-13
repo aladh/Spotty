@@ -120,5 +120,6 @@ End with `## Install`: list macOS, hardware, and account requirements; explain b
 when supported; name the versioned archive and checksum and give its verification command.
 Include the current signing/notarization status and the macOS first-launch instructions, with a
 link to the README at that release's tag; the "will not automatically trust" sentence applies from
-v0.2.1 onward. Use [v0.3.0](../releases/v0.3.0.md) as the plain-language template and update every
-version reference for the new release.
+v0.2.1 onward. Use [v0.2.3](../releases/v0.2.3.md) as the structural template and update every
+version reference for the new release; apply the audience test above independently rather than
+copying the wording of any past release.

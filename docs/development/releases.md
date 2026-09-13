@@ -60,7 +60,7 @@ session XPC helper; the XPC services embedded by Sparkle belong only to the upda
 An authorized `vX.Y.Z` tag must match `CFBundleShortVersionString` in `Packaging/Info.plist`. The
 [release workflow](../../.github/workflows/release.yml) runs `archive-app.sh`, which compiles,
 packages, and signs the accepted tagged commit without rerunning the PR and `main` test gates; the
-workflow first requires the tag commit to be on `main` with every required `main` check successful.
+workflow first requires the tag commit to be on `main` and its latest `main` CI run to be successful.
 It then computes the `.sha256` checksum and generates a signed Sparkle appcast. Before tagging,
 write the release notes in `docs/releases/vX.Y.Z.md`; the workflow publishes that file verbatim as a
 regular GitHub release. Until Developer ID and notarization credentials are configured,

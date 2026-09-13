@@ -20,9 +20,9 @@ public nonisolated struct PlaybackEngineResult: Equatable, Sendable {
     public var requiresReconnect: Bool { rawValue == -2 || rawValue == -3 }
 }
 
-/// One ordered resume-load sequence for user resume and reconnect rehydration.
+/// Legacy play-first resume and reconnect rehydration load sequence.
 ///
-/// User resume plays first and, on a non-reconnect failure, tries each target until one
+/// The legacy adapter plays first and, on a non-reconnect failure, tries each target until one
 /// lands. Reconnect rehydration passes no `play`: the engine has already activated and is
 /// holding readiness open, and inside that window a load returns as soon as it is queued, so
 /// the sequence stops at the first queued target exactly as the engine's own loop used to.

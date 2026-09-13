@@ -44,7 +44,7 @@ struct HomeView: View {
                     ForEach(Array(store.homeSections.enumerated()), id: \.element.id) { index, section in
                         switch homeSectionPresentation(at: index) {
                         case .quickAccess:
-                            QuickAccessShelf(section: section, onSelect: onSelect)
+                            QuickAccessShelf(section: section, playback: playback, onSelect: onSelect)
                         case .shelf:
                             MediaShelf(section: section, playback: playback, onSelect: onSelect)
                         }
@@ -61,6 +61,7 @@ struct HomeView: View {
 
 struct QuickAccessShelf: View {
     let section: CatalogSection
+    let playback: CatalogPlaybackAccess
     let onSelect: (CatalogItem) -> Void
 
     private let columns = [
@@ -74,7 +75,7 @@ struct QuickAccessShelf: View {
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                 ForEach(section.items.prefix(8)) { item in
-                    QuickAccessCard(item: item) { onSelect(item) }
+                    QuickAccessCard(item: item, playback: playback) { onSelect(item) }
                 }
             }
         }
@@ -83,6 +84,7 @@ struct QuickAccessShelf: View {
 
 private struct QuickAccessCard: View {
     let item: CatalogItem
+    let playback: CatalogPlaybackAccess
     let action: () -> Void
     @State private var isHovering = false
 
@@ -98,7 +100,9 @@ private struct QuickAccessCard: View {
 
                 Text(item.title)
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(SpottyPalette.textPrimary)
+                    .foregroundStyle(
+                        playback.isPlayingPlaylist(item.uri) ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary
+                    )
                     .lineLimit(2)
 
                 Spacer(minLength: 4)
@@ -168,7 +172,9 @@ struct MediaCard: View {
 
                 Text(item.title)
                     .font(.system(size: 16))
-                    .foregroundStyle(SpottyPalette.textPrimary)
+                    .foregroundStyle(
+                        playback.isPlayingPlaylist(item.uri) ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary
+                    )
                     .lineLimit(1)
 
                 Text(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)

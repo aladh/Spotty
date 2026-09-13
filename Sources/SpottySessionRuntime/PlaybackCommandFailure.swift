@@ -15,8 +15,10 @@ nonisolated enum PlaybackCommandFailure: Error, Equatable, Sendable {
     case remoteRejected
     /// The local engine returned an unrecognized result.
     case unavailable
+    case resumeMismatch
 
     static func from(engineResult: PlaybackEngineResult) -> Result<Void, PlaybackCommandFailure> {
+        if engineResult == .resumeMismatch { return .failure(.resumeMismatch) }
         if engineResult.isOK {
             return .success(())
         }

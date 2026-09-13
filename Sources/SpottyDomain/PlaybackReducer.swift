@@ -300,6 +300,7 @@ public enum PlaybackReducer {
                 latestAuthoritativeTiming: nil,
                 expectedTrack: command.expectedTrack,
                 expectedTrackURI: command.expectedTrackURI,
+                resumeTarget: command.resumeTarget,
                 rollbackPresentation: command.rollbackPresentation
                     ?? (command.expectedTrack == nil
                         ? nil
@@ -340,11 +341,16 @@ public enum PlaybackReducer {
                 }
                 candidate.currentTrack = expectedTrack
             }
-            if let expected = command.expectedTransport {
+            if command.resumeTarget == nil, let expected = command.expectedTransport {
                 candidate.transport = expected
             }
-            if let expected = command.expectedTiming {
+            if command.resumeTarget == nil, let expected = command.expectedTiming {
                 candidate.timing = expected
+            }
+            if command.expectedTransport == .playing, command.resumeTarget == nil,
+                candidate.notice?.kind == .resumeUnavailable
+            {
+                candidate.notice = nil
             }
             if let expectedShuffle = command.expectedShuffle {
                 candidate.options.shuffle = expectedShuffle
@@ -466,6 +472,7 @@ public enum PlaybackReducer {
         }
         let confirmedPlayTrackURIs = candidate.intents.compactMap { intent -> String? in
             guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,
+                intent.command.resumeTarget == nil,
                 preState.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed
             else { return nil }
             return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
@@ -570,6 +577,12 @@ public enum PlaybackReducer {
             let targetURI = playbackTrackURI(pending.expectedTrack?.uri ?? pending.expectedTrackURI)
         {
             let incoming = playbackTrackURI(incomingTrackURI)
+            if pending.resumeTarget != nil {
+                // Paused transfer is real playback truth. Intent observation owns resume
+                // confirmation, including track, context and position checks.
+                state.transport = transport
+                return
+            }
             if incoming != targetURI {
                 state.transport = pending.expectedTransport ?? transport
                 return
@@ -609,6 +622,7 @@ public enum PlaybackReducer {
             let targetURI = playbackTrackURI(pending.expectedTrack?.uri ?? pending.expectedTrackURI)
         else { return false }
         let incoming = playbackTrackURI(incomingURI)
+        if pending.resumeTarget != nil && incoming == nil { return true }
         let rollbackURI = playbackTrackURI(
             pending.rollbackPresentation?.currentTrack?.uri
                 ?? state.intents.first(where: { $0.command.id == pending.id })?.baselineTrackURI)

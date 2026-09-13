@@ -272,7 +272,7 @@ struct PlaybackEventOutcomeTests {
         #expect(access.isPlayingPlaylist("spotify:playlist:remote"))
         #expect(!access.isPlayingPlaylist("spotify:playlist:first"))
         observe("spotify:playlist:remote", playing: false, local: false, revision: 3)
-        #expect(!access.isPlayingPlaylist("spotify:playlist:remote"))
+        #expect(access.isPlayingPlaylist("spotify:playlist:remote"), "paused playback retains its active context")
         observe("spotify:playlist:remote", playing: true, local: false, revision: 4)
         // Local transport samples omit context; absence preserves the accepted context.
         observe(nil, playing: true, local: true, revision: 5)

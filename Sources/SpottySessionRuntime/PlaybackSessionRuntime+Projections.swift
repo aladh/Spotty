@@ -58,7 +58,9 @@ package extension PlaybackSessionRuntime {
     var canStartPlayback: Bool {
         isConnected && !isTearingDown && terminationGate.allowsCommands && !isPlaybackCommandPending
     }
-    var canTogglePlayback: Bool { canStartPlayback && hasCurrentTrack }
+    var canTogglePlayback: Bool {
+        canStartPlayback && hasCurrentTrack && (isPlaying || playbackNotice?.kind != .resumeUnavailable)
+    }
     var canSkipTrack: Bool { canStartPlayback && hasCurrentTrack }
 
     func displayedPosition(at date: Date) -> TimeInterval {

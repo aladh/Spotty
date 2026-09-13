@@ -63,6 +63,7 @@ extension PlaybackSessionRuntime {
             expectedTiming: expectedTiming,
             expectedTrack: expectedTrack,
             observedTrackURI: observationTrackURI(for: operation),
+            resumeTarget: observedResumeTarget(for: operation),
             expectedShuffle: expectedShuffle,
             expectedRepeatFlags: expectedRepeatFlags,
             expectedOwner: expectedOwner,
@@ -287,10 +288,16 @@ extension PlaybackSessionRuntime {
         }
     }
 
+    private func observedResumeTarget(for operation: LocalPlaybackOperation) -> PlaybackResumeTarget? {
+        if case let .resumeObserved(target) = operation { return target }
+        return nil
+    }
+
     private func observationTrackURI(for operation: LocalPlaybackOperation) -> String? {
         switch operation {
         case let .playURI(uri): uri.hasPrefix("spotify:track:") ? uri : nil
         case let .playTracks(uris): uris.first
+        case let .resumeObserved(target): target.trackURI
         default: nil
         }
     }
@@ -305,6 +312,7 @@ extension PlaybackSessionRuntime {
         expectedTiming: PlaybackTiming?,
         expectedTrack: CurrentTrack?,
         observedTrackURI: String? = nil,
+        resumeTarget: PlaybackResumeTarget? = nil,
         expectedShuffle: Bool?,
         expectedRepeatFlags: RepeatFlags?,
         expectedOwner: PlaybackOwner?,
@@ -332,6 +340,7 @@ extension PlaybackSessionRuntime {
                     expectedTiming: expectedTiming,
                     expectedTrack: expectedTrack,
                     expectedTrackURI: observedTrackURI,
+                    resumeTarget: resumeTarget,
                     expectedShuffle: expectedShuffle,
                     expectedRepeatFlags: expectedRepeatFlags,
                     expectedOwner: expectedOwner,
@@ -511,7 +520,10 @@ extension PlaybackSessionRuntime {
         case let .failure(failure):
             succeeded = false
             requiresReconnect = failure == .reconnectRequired
-            notice = PlaybackNotice(message: action)
+            notice =
+                failure == .resumeMismatch
+                ? PlaybackNotice(message: PlaybackNotice.resumeUnavailableMessage, kind: .resumeUnavailable)
+                : PlaybackNotice(message: action)
         }
         let capturedResolution = state.transportCommandResolutions[commandID]
         let finished = send(
@@ -543,13 +555,23 @@ extension PlaybackSessionRuntime {
             recoverEngineAfterCommandFailure()
         case let .reportFailure(reconnect):
             if let notice {
-                showTransientCommandError(notice.message)
+                if notice.kind == .resumeUnavailable {
+                    send(.notice(notice), source: .command, playbackLifetime: capturedLifetime)
+                } else {
+                    showTransientCommandError(notice.message)
+                }
             }
             completion(false)
             if reconnect {
                 recoverEngineAfterCommandFailure()
             }
         case .inert:
+            if let notice, notice.kind == .resumeUnavailable,
+                state.intents.last?.command.id == commandID,
+                stillCurrent(capturedLifetime, requiresConnection: true)
+            {
+                send(.notice(notice), source: .command, playbackLifetime: capturedLifetime)
+            }
             break
         }
     }

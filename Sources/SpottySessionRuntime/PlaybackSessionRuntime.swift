@@ -433,7 +433,7 @@ package final class PlaybackSessionRuntime: Sendable {
                 catalogPlaybackAvailability = nextAvailability
             }
             let nextPlayingContext =
-                nextAvailability.isConnected && next.transport == .playing
+                nextAvailability.isConnected && next.currentTrack != nil && next.transport != .stopped
                 ? next.playbackContextURI : nil
             if playingContextURI != nextPlayingContext {
                 playingContextURI = nextPlayingContext

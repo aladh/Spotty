@@ -426,9 +426,16 @@ struct PlaybackCommandLifecycleParityTests {
         }
         #expect(finished)
         #expect(player.transientCommandError == nil)
-        let expectedURI: String? =
-            resume && hasResumeContext ? nil : (resume ? lifecycleTrackA.uri : "spotify:track:new")
+        let expectedURI: String? = resume ? nil : "spotify:track:new"
         #expect(playedURI(local) == expectedURI)
+        if resume {
+            if case let .resumeObserved(target) = local.operations.first {
+                #expect(target.trackURI == lifecycleTrackA.uri)
+                #expect(target.positionMS == UInt32(lifecycleTiming.position * 1_000))
+            } else {
+                Issue.record("Idle resume must validate the displayed snapshot")
+            }
+        }
         #expect(remote.sendCount == 0)
         await player.shutdownForTermination()
         #expect(player.defaultLocalPlaybackDevice == nil)

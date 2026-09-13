@@ -48,6 +48,7 @@ public struct PlaybackIntent: Equatable, Sendable {
         case let .enginePlayback(snapshot) where envelope.source == .enginePlayback:
             guard command.kind != .queue, command.kind != .transfer else { return }
             let uri = snapshot.trackURI.flatMap { $0.isEmpty ? nil : $0 }
+            if command.resumeTarget != nil && uri == nil { return }
             if command.kind == .navigation, command.expectedTrack == nil {
                 guard let uri, let baselineTrackURI, !snapshot.trackUnavailable else { return }
                 if uri != baselineTrackURI || baselinePosition.map({ snapshot.timing.position + 1 < $0 }) == true {
@@ -65,6 +66,13 @@ public struct PlaybackIntent: Equatable, Sendable {
                 return
             }
             if snapshot.trackUnavailable { settle(.rejected, at: envelope.receivedAt); return }
+            if let target = command.resumeTarget {
+                guard abs(snapshot.timing.position - Double(target.positionMS) / 1_000) <= 1 else { return }
+                if let context = snapshot.contextURI, (context.isEmpty ? nil : context) != target.contextURI {
+                    settle(.superseded, at: envelope.receivedAt)
+                    return
+                }
+            }
             if let transport = command.expectedTransport, snapshot.transport != transport { return }
             if let shuffle = command.expectedShuffle, snapshot.shuffle != shuffle { return }
             if let flags = command.expectedRepeatFlags, snapshot.repeatFlags != flags {

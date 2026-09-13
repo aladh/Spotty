@@ -57,9 +57,6 @@ pub(crate) fn record_resume_observation(stamp: SnapshotStamp, observation: &Play
                 if local.track_uri == protocol.track_uri {
                     local.context_uri = protocol.context_uri.clone();
                     state.local_context_known = true;
-                } else {
-                    state.local = None;
-                    state.local_context_known = false;
                 }
             }
             state.observed = target;
@@ -201,7 +198,10 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
     if let Err(error) = require_session_connected() {
         return error;
     }
-    let claimed = with_engine_owned(generation, |engine| engine.claim_resume()).unwrap_or(false);
+    let claimed = match with_engine_owned(generation, |engine| engine.claim_resume()) {
+        Ok(claimed) => claimed,
+        Err(_) => return ERROR_RESUME_MISMATCH,
+    };
     if !claimed {
         return ERROR_RESUME_BUSY;
     }
@@ -406,10 +406,17 @@ mod tests {
             with_engine(|engine| engine.observed_resume.action(&expected, true, true)),
             ResumeAction::Wait
         );
+        // A later delivery can still contain the previous protocol track. It must not erase
+        // actual local readiness; the matching protocol context can arrive after this push.
+        record_resume_observation(
+            stamp(3),
+            &playback_observation_from_player_state(&protocol, true),
+        );
+        assert!(with_engine(|engine| engine.observed_resume.local.is_some()));
         protocol.track.mut_or_insert_default().uri = expected.track_uri.clone();
         protocol.context_uri.clear();
         record_resume_observation(
-            stamp(3),
+            stamp(4),
             &playback_observation_from_player_state(&protocol, true),
         );
         assert_eq!(

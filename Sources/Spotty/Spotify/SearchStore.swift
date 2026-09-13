@@ -140,7 +140,6 @@ final class SearchStore {
             guard flight.isCurrent(handle) else { return }
             trackCollection.replace(values)
             metadata.replaceTracks(values, from: .search)
-            metadata.loadTrackAttributes(for: values)
         }
     }
 

@@ -23,10 +23,7 @@ struct PlaybackPanelTests {
         // so the bar's metadata must come from the loaded catalog.
         do {
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let metadata = CatalogMetadataRepository(
-                attributesProvider: TrackAttributesAPI(),
-                session: session
-            )
+            let metadata = CatalogMetadataRepository(session: session)
             metadata.replaceTracks(
                 [
                     CatalogTrack(

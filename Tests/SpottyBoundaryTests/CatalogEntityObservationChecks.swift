@@ -27,7 +27,7 @@ struct CatalogEntityObservationTests {
             return CatalogAlbumSnapshot(tracks: [enriched], releaseDate: "2026")
         }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
         let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
         await playlist.load(item("first", kind: .playlist))
@@ -85,7 +85,7 @@ struct CatalogEntityObservationTests {
         let changed = original.map { track($0.uri, title: "Changed") }
         provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: original, releaseDate: "2026") }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         let store = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
         await store.load(item("album", kind: .album))
         #expect(await waitUntil { await queries.activeQueryCount == 1 })
@@ -141,7 +141,7 @@ struct CatalogEntityObservationTests {
         }
         provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [original], releaseDate: "2026") }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
         let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
         let selected = item("first", kind: kind)
@@ -221,7 +221,7 @@ struct CatalogEntityObservationTests {
     }
 
     private func makePlaylist(_ provider: HarnessCatalog, session: CatalogSessionAvailability) -> PlaylistStore {
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         return PlaylistStore(provider: provider, metadata: metadata, session: session)
     }
 

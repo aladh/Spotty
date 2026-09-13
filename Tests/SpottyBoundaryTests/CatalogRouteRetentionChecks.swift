@@ -115,7 +115,7 @@ struct CatalogRouteRetentionTests {
             CatalogArtistSnapshot(name: nil, releases: [Self.item(id, kind: .album)])
         }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
         let artist = ArtistDetailStore(provider: provider, session: session)
         await album.load(item("first", kind: .album))
@@ -242,7 +242,7 @@ struct CatalogRouteRetentionTests {
     }
 
     private func makePlaylistStore(_ provider: HarnessCatalog, session: CatalogSessionAvailability) -> PlaylistStore {
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         return PlaylistStore(provider: provider, metadata: metadata, session: session)
     }
 

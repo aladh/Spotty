@@ -6,7 +6,6 @@ import SpottySessionRuntime
 // must not provide a route around the concrete-module import restriction.
 func readDesktopCatalogPorts(_ environment: PlaybackEnvironment) {
     _ = environment.catalog
-    _ = environment.trackAttributes
     _ = environment.playlistMutations
     _ = environment.artwork
     _ = environment.clock

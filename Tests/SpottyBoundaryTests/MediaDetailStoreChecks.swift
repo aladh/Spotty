@@ -220,10 +220,9 @@ private func artistItem(_ id: String, uri: String? = nil) -> CatalogItem {
 @MainActor
 private func makeAlbumStore(
     provider: HarnessCatalog,
-    session: CatalogSessionAvailability,
-    attributes: HarnessTrackAttributes = HarnessTrackAttributes()
+    session: CatalogSessionAvailability
 ) -> (AlbumDetailStore, CatalogMetadataRepository) {
-    let metadata = CatalogMetadataRepository(attributesProvider: attributes, session: session)
+    let metadata = CatalogMetadataRepository(session: session)
     return (AlbumDetailStore(provider: provider, metadata: metadata, session: session), metadata)
 }
 
@@ -599,8 +598,7 @@ struct MediaDetailStoreTests {
             let (provider, gate) = makeGatedAlbumCatalog()
             defer { Task { await gate.close() } }
             let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let attributes = HarnessTrackAttributes()
-            let (store, metadata) = makeAlbumStore(provider: provider, session: session, attributes: attributes)
+            let (store, metadata) = makeAlbumStore(provider: provider, session: session)
 
             let stale = Task { await store.load(firstAlbumItem) }
             try await requireEventually {
@@ -615,7 +613,6 @@ struct MediaDetailStoreTests {
             await stale.value
             #expect(
                 (metadata.knownTrack(for: "spotify:track:first")) == nil, "a stale album success does not cache tracks")
-            #expect((attributes.requestCount) == (0), "a stale album success does not start attribute enrichment")
 
             await gate.completeNext(.album(secondAlbumValue))
             await current.value
@@ -625,12 +622,6 @@ struct MediaDetailStoreTests {
             #expect(
                 (metadata.knownTrack(for: "spotify:track:first")) == nil,
                 "the current album does not keep stale album metadata")
-            #expect(
-                (await waitUntil { attributes.requestCount == 1 }) == true,
-                "the current album starts attribute enrichment")
-            #expect(
-                (attributes.requests.flatMap { $0 }) == (["spotify:track:second"]),
-                "attribute enrichment uses the current album tracks")
         }
 
         do {

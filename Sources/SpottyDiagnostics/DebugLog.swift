@@ -30,7 +30,7 @@ public nonisolated enum SpottyLog {
         case "KeymasterAuth", "ClientToken": authentication
         case "AudioRenderer": audio
         case "QueueService": queue
-        case "CatalogMetadataRepository", "PartnerAPI", "TrackAttributesAPI": catalog
+        case "PartnerAPI": catalog
         default: playback
         }
     }

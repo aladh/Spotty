@@ -162,7 +162,6 @@ package nonisolated struct PlaybackEnvironment: Sendable {
     package let catalog: any CatalogProviding
     package let playlistMutations: any PlaylistMutating
     let playlistMutationAdmission: PlaylistMutationAdmission
-    package let trackAttributes: any TrackAttributesProviding
     let queueServiceHook: (any QueueServiceHook)?
     let catalogCacheLifecycle: (any CatalogCacheLifecycle)?
 
@@ -180,7 +179,6 @@ package nonisolated struct PlaybackEnvironment: Sendable {
         clock: any PlaybackClock,
         catalog: any CatalogProviding,
         playlistMutations: any PlaylistMutating,
-        trackAttributes: any TrackAttributesProviding,
         queueServiceHook: (any QueueServiceHook)? = nil,
         catalogCacheLifecycle: (any CatalogCacheLifecycle)? = nil,
         artwork: any ArtworkProviding = UnavailableArtworkProvider()
@@ -198,7 +196,6 @@ package nonisolated struct PlaybackEnvironment: Sendable {
         let mutationAdmission = PlaylistMutationAdmission()
         playlistMutationAdmission = mutationAdmission
         self.playlistMutations = AccountScopedPlaylistMutations(source: playlistMutations, admission: mutationAdmission)
-        self.trackAttributes = trackAttributes
         self.queueServiceHook = queueServiceHook
         self.catalogCacheLifecycle = catalogCacheLifecycle
     }
@@ -222,7 +219,6 @@ package nonisolated struct PlaybackEnvironment: Sendable {
             clock: SystemPlaybackClock(),
             catalog: catalog,
             playlistMutations: services.playlistMutations,
-            trackAttributes: services.trackAttributes,
             catalogCacheLifecycle: catalog,
             artwork: ArtworkPipeline()
         )

@@ -8,7 +8,7 @@ import SpottyEngineAdapter
 
 /// One lock owns every mutable port value, including the synchronous engine boundary.
 /// Playback scenarios delegate to one synthetic authority; browsing remains read-only.
-final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, TrackAttributesProviding,
+final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating,
     RemotePlaybackClient, LocalPlaybackEngine, WebQueueClient, AudioOutputPreparing,
     PlaybackPreferences, SystemLifecycleEvents, PlaybackClock, @unchecked Sendable
 {
@@ -41,7 +41,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
         PlaybackEnvironment(
             remote: self, local: self, webQueue: self, account: self, audioOutput: self,
             preferences: self, lifecycle: self, clock: self, catalog: self,
-            playlistMutations: self, trackAttributes: self, artwork: ArtworkPipeline(allowFileURLs: true)
+            playlistMutations: self, artwork: ArtworkPipeline(allowFileURLs: true)
         )
     }
 
@@ -188,7 +188,6 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating, T
     func libraryArtists() async throws -> [CatalogItem] { [] }
     func libraryTracks() async throws -> [CatalogTrack] { [] }
     func searchTracks(_: String, limit _: Int) async throws -> [CatalogTrack] { [] }
-    func attributes(for _: [String]) async throws -> [String: TrackAttributes] { [:] }
     func addToPlaylist(playlistId _: String, trackUris _: [String]) async throws { throw rejectMutation() }
     func removeFromPlaylist(playlistId _: String, uids _: [String]) async throws { throw rejectMutation() }
 }

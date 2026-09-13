@@ -10,7 +10,6 @@ private struct MediaDetailLoadIdentity: Equatable {
 struct AlbumDetailView: View {
     let item: CatalogItem
     let store: AlbumDetailStore
-    let metadata: CatalogMetadataRepository
     let playback: CatalogPlaybackAccess
     var playlistActions: TrackPlaylistActions? = nil
     let interactionState: CatalogRouteInteractionState
@@ -46,7 +45,6 @@ struct AlbumDetailView: View {
             } content: {
                 TrackTable(
                     tracks: store.trackCollection,
-                    metadata: metadata,
                     playback: playback,
                     playlistActions: playlistActions,
                     interactionState: interactionState

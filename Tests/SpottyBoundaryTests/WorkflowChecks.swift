@@ -421,10 +421,7 @@ struct WorkflowTests {
     @MainActor
     func catalogMetadataRetainsQueueTracksAcrossSectionReplacement() async {
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let metadata = CatalogMetadataRepository(
-            attributesProvider: HarnessTrackAttributes(),
-            session: session
-        )
+        let metadata = CatalogMetadataRepository(session: session)
         let queued = workflowTrack("spotify:track:queued")
         let unrelated = workflowTrack("spotify:track:unrelated")
 
@@ -455,10 +452,7 @@ struct WorkflowTests {
         provider.onLibraryAlbums = { [gate] in await gate.parkAlbums() }
         provider.onLibraryArtists = { [gate] in await gate.parkArtists() }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let metadata = CatalogMetadataRepository(
-            attributesProvider: HarnessTrackAttributes(),
-            session: session
-        )
+        let metadata = CatalogMetadataRepository(session: session)
         let store = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
 
         let albums = Task { await store.loadAlbums() }
@@ -525,10 +519,7 @@ struct WorkflowTests {
             )
         }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let metadata = CatalogMetadataRepository(
-            attributesProvider: HarnessTrackAttributes(),
-            session: session
-        )
+        let metadata = CatalogMetadataRepository(session: session)
         let albumStore = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
         let artistStore = ArtistDetailStore(provider: provider, session: session)
         let album = CatalogItem(

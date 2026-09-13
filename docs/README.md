@@ -31,4 +31,3 @@ contracts and records.
 - [Engine contracts](architecture/engine-contract.md): lifecycle guarantees, FFI, and boundary constraints.
 - [Performance baseline](architecture/performance-baseline.md): historical measurements and size reporting.
 - [Enforcement inventory](architecture/enforcement.md): rule owners and verification coverage.
-- [Extended metadata](architecture/extended-metadata.md): private protocol discovery and maintenance notes.

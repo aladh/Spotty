@@ -7,9 +7,6 @@ enum NativeTrackColumn: String, CaseIterable {
     case artist
     case album
     case dateAdded
-    case popularity
-    case bpm
-    case key
     case duration
 
     var title: String {
@@ -19,9 +16,6 @@ enum NativeTrackColumn: String, CaseIterable {
         case .artist: "Artist"
         case .album: "Album"
         case .dateAdded: "Date added"
-        case .popularity: "Popularity"
-        case .bpm: "BPM"
-        case .key: "Key"
         case .duration: "Time"
         }
     }
@@ -33,16 +27,13 @@ enum NativeTrackColumn: String, CaseIterable {
         case .artist: KeyPathComparator(\TrackTableRow.artist)
         case .album: KeyPathComparator(\TrackTableRow.album)
         case .dateAdded: KeyPathComparator(\TrackTableRow.dateAddedSortValue)
-        case .popularity: KeyPathComparator(\TrackTableRow.popularitySortValue)
-        case .bpm: KeyPathComparator(\TrackTableRow.bpmSortValue)
-        case .key: KeyPathComparator(\TrackTableRow.keySortValue)
         case .duration: KeyPathComparator(\TrackTableRow.duration)
         }
     }
 
     static func columns(for variant: TrackTableVariant) -> [Self] {
         switch variant {
-        case .catalog: [.title, .artist, .album, .popularity, .bpm, .key, .duration]
+        case .catalog: [.title, .artist, .album, .duration]
         case .playlist: [.index, .title, .album, .dateAdded, .duration]
         }
     }
@@ -58,7 +49,6 @@ struct NativeTrackCell: View {
     let variant: TrackTableVariant
     let isSelected: Bool
     let playback: CatalogPlaybackAccess
-    let metadata: CatalogMetadataRepository
     let searchQuery: String
     let onSelect: ((CatalogItem) -> Void)?
 
@@ -103,19 +93,6 @@ struct NativeTrackCell: View {
             }
         case .dateAdded:
             Text(formatPlaylistDateAdded(row.track.addedAt))
-                .foregroundStyle(SpottyPalette.dataText)
-        case .popularity:
-            Text(metadata.trackAttributes[row.track.uri]?.popularity.map(String.init) ?? "—")
-                .foregroundStyle(SpottyPalette.dataText)
-        case .bpm:
-            let text = metadata.trackAttributes[row.track.uri]?.bpm.map(String.init) ?? "—"
-            Text(text)
-                .monospacedDigit()
-                .foregroundStyle(SpottyPalette.dataText)
-                .accessibilityLabel("BPM")
-                .accessibilityValue(text)
-        case .key:
-            Text(metadata.trackAttributes[row.track.uri]?.key ?? "—")
                 .foregroundStyle(SpottyPalette.dataText)
         case .duration:
             Text(

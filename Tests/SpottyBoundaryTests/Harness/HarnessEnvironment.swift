@@ -24,7 +24,6 @@ enum HarnessEnvironment {
         clock: any PlaybackClock = HarnessClock.sticky(),
         catalog: any CatalogProviding = HarnessCatalog(),
         playlistMutations: any PlaylistMutating = HarnessPlaylistMutations(),
-        trackAttributes: any TrackAttributesProviding = HarnessTrackAttributes(),
         queueServiceHook: (any QueueServiceHook)? = nil
     ) -> PlaybackEnvironment {
         PlaybackEnvironment(
@@ -38,7 +37,6 @@ enum HarnessEnvironment {
             clock: clock,
             catalog: catalog,
             playlistMutations: playlistMutations,
-            trackAttributes: trackAttributes,
             queueServiceHook: queueServiceHook
         )
     }

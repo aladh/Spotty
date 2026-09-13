@@ -29,8 +29,7 @@
   Playlist row durations round each track to the nearest second for display, and the hero's total
   sums those same rounded per-track seconds. Totals of at least one hour use `hr`/`min` units;
   player and progress formatting retain their existing floor-to-second behavior.
-  Shared search, library, and album tables retain their separate Artist, Popularity, BPM, Key, and
-  Time columns.
+  Shared search, library, and album tables retain their separate Artist and Time columns.
 - Playlist tables initially show newest Date Added first, matching Spotify's Recently added view.
   Rows have a 56-point minimum height, no row separators, and a quiet 36-point header with a
   clock for Duration and a green sort indicator. Aligned header buttons handle local sorting; rows retain native table selection and context menus, with neutral-gray selection highlights with native active/inactive behavior and rounded neutral-gray hover backgrounds on unselected rows. This local display projection never changes source order. Clicking **Date Added** sorts directly and reverses on the next click through native sorting; it never opens a

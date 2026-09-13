@@ -203,7 +203,6 @@ final class HomeLibraryStore {
                 case let .tracks(tracks):
                     likedTrackCollection.replace(tracks)
                     self.metadata.replaceTracks(tracks, from: .library)
-                    self.metadata.loadTrackAttributes(for: tracks)
                 }
                 self.succeed(section, handle: handle)
             } catch {

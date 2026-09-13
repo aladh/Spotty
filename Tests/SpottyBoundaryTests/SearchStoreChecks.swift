@@ -64,10 +64,7 @@ private func makeStore(
     session: CatalogSessionAvailability,
     clock: any PlaybackClock
 ) -> SearchStore {
-    let metadata = CatalogMetadataRepository(
-        attributesProvider: HarnessTrackAttributes(),
-        session: session
-    )
+    let metadata = CatalogMetadataRepository(session: session)
     return SearchStore(provider: provider, metadata: metadata, session: session, clock: clock)
 }
 

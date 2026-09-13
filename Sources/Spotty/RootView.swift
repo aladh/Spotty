@@ -122,7 +122,6 @@ struct RootView: View {
                 PlaylistDetailView(
                     item: item,
                     store: catalog.playlistStore,
-                    metadata: catalog.metadata,
                     playback: catalogPlayback,
                     playlistActions: playlistActions(removingFrom: item),
                     onSelect: select,
@@ -143,7 +142,6 @@ struct RootView: View {
                 AlbumDetailView(
                     item: item,
                     store: catalog.albumStore,
-                    metadata: catalog.metadata,
                     playback: catalogPlayback,
                     playlistActions: playlistActions(),
                     interactionState: navigation.interactionState(for: uri)
@@ -174,7 +172,6 @@ struct RootView: View {
         case .search:
             SearchView(
                 store: catalog.searchStore,
-                metadata: catalog.metadata,
                 playback: catalogPlayback,
                 searchText: Bindable(navigation).searchText,
                 onSelect: select,
@@ -187,7 +184,6 @@ struct RootView: View {
                     ? "Saved to your Spotify library"
                     : "Connect Spotify to load your saved tracks",
                 tracks: catalog.homeLibrary.likedTrackCollection,
-                metadata: catalog.metadata,
                 playback: catalogPlayback,
                 reloadError: catalog.homeLibrary.error(for: .likedTracks),
                 reload: { await catalog.homeLibrary.loadLikedTracks(force: true) },

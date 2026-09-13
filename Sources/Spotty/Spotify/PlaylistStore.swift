@@ -185,7 +185,6 @@ final class PlaylistStore {
             isShowingCachedContent = !freshness.isCurrent
             retainCurrent()
             metadata.replaceTracks(tracks, from: .playlist)
-            metadata.loadTrackAttributes(for: tracks)
         } catch {
             guard flight.shouldReport(error, for: handle), loadedURI == handle.key else { return }
             self.error = CatalogErrorPresentation.message(for: error)

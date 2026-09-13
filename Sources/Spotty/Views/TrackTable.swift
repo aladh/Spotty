@@ -19,7 +19,6 @@ enum TrackTableVariant: Equatable {
 /// Selection and sorting stay in presentation state; AppKit owns control tracking and scrolling.
 struct TrackTable: View {
     let tracks: CatalogTrackCollection
-    let metadata: CatalogMetadataRepository
     let playback: CatalogPlaybackAccess
     let variant: TrackTableVariant
     let searchQuery: String
@@ -34,7 +33,6 @@ struct TrackTable: View {
 
     init(
         tracks: CatalogTrackCollection,
-        metadata: CatalogMetadataRepository,
         playback: CatalogPlaybackAccess,
         variant: TrackTableVariant = .catalog,
         searchQuery: String = "",
@@ -45,7 +43,6 @@ struct TrackTable: View {
         interactionState: CatalogRouteInteractionState? = nil
     ) {
         self.tracks = tracks
-        self.metadata = metadata
         self.playback = playback
         self.variant = variant
         self.searchQuery = searchQuery
@@ -64,7 +61,7 @@ struct TrackTable: View {
         // SwiftUI body, including immediate menu actions after a native selection change.
         let _ = interaction.selection
         NativeTrackTable(
-            rows: visibleRows, variant: variant, playback: playback, metadata: metadata,
+            rows: visibleRows, variant: variant, playback: playback,
             searchQuery: searchQuery,
             selection: Binding(get: { interaction.selection }, set: { interaction.selection = $0 }),
             sortOrder: Binding(get: { interaction.sortOrder }, set: { interaction.sortOrder = $0 }),
@@ -75,8 +72,6 @@ struct TrackTable: View {
         .onChange(of: displayInputs, initial: true) { oldInputs, newInputs in
             _ = displayCache.update(
                 tracks,
-                sortValues: metadata.trackTableSortValues,
-                sortValuesRevision: metadata.trackAttributesRevision,
                 sortOrder: newInputs.sortOrder
             )
             let search = PlaylistSearch(newInputs.searchQuery)
@@ -102,7 +97,6 @@ struct TrackTable: View {
     private var displayInputs: TrackTableDisplayInputs {
         TrackTableDisplayInputs(
             version: tracks.version,
-            sortValuesRevision: interaction.sortOrder.usesTrackAttributes ? metadata.trackAttributesRevision : 0,
             sortOrder: interaction.sortOrder,
             searchQuery: searchQuery
         )
@@ -111,7 +105,6 @@ struct TrackTable: View {
 
 private struct TrackTableDisplayInputs: Equatable {
     var version: UUID
-    var sortValuesRevision: UInt64
     var sortOrder: [KeyPathComparator<TrackTableRow>]
     var searchQuery: String
 }

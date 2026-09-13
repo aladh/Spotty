@@ -9,7 +9,6 @@ struct NativeTrackTable: NSViewRepresentable {
     let rows: [TrackTableRow]
     let variant: TrackTableVariant
     let playback: CatalogPlaybackAccess
-    let metadata: CatalogMetadataRepository
     let searchQuery: String
     @Binding var selection: Set<CatalogTrack.ID>
     @Binding var sortOrder: [KeyPathComparator<TrackTableRow>]
@@ -128,7 +127,7 @@ struct NativeTrackTable: NSViewRepresentable {
                 NativeTrackCell(
                     row: displayedRows[row], column: column, position: row + 1, total: displayedRows.count,
                     variant: content.variant, isSelected: content.selection.contains(displayedRows[row].id),
-                    playback: content.playback, metadata: content.metadata, searchQuery: content.searchQuery,
+                    playback: content.playback, searchQuery: content.searchQuery,
                     onSelect: content.onSelect
                 )
                 .environment(\.artworkAccess, content.artworkAccess)

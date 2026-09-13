@@ -25,17 +25,13 @@ final class CatalogStore {
 
     init(
         provider: any CatalogProviding,
-        attributesProvider: any TrackAttributesProviding,
         playlistMutations: any PlaylistMutating,
         session: CatalogSessionAvailability,
         clock: any PlaybackClock,
         feedback: TransientFeedbackPresenter
     ) {
         self.session = session
-        let metadata = CatalogMetadataRepository(
-            attributesProvider: attributesProvider,
-            session: session
-        )
+        let metadata = CatalogMetadataRepository(session: session)
         self.metadata = metadata
         homeLibrary = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
         searchStore = SearchStore(provider: provider, metadata: metadata, session: session, clock: clock)

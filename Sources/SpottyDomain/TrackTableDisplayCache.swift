@@ -7,8 +7,7 @@ import Foundation
 
 /// Cached projection of catalog rows for a native `Table` sort order.
 ///
-/// Recompute when the collection version, SwiftUI comparators, or attributes used by the active
-/// sort change.
+/// Recompute when the collection version or SwiftUI comparators change.
 public struct TrackTableDisplayCache: Sendable {
     public private(set) var rows: [TrackTableRow]
     /// One-based display positions keyed by the immutable source occurrence offset.
@@ -18,21 +17,16 @@ public struct TrackTableDisplayCache: Sendable {
     /// without scanning the displayed rows for every cell.
     private var displayPositions: [Int: Int]
     private var version: UUID
-    private var sortValuesRevision: UInt64
     private var sortOrder: [KeyPathComparator<TrackTableRow>]
 
     public init(
         _ collection: CatalogTrackCollection = CatalogTrackCollection(),
-        sortValues: [String: TrackTableSortValues] = [:],
-        sortValuesRevision: UInt64 = 0,
         sortOrder: [KeyPathComparator<TrackTableRow>] = []
     ) {
         version = collection.version
-        self.sortValuesRevision = sortValuesRevision
         self.sortOrder = sortOrder
         rows = Self.projected(
             tracks: collection.tracks,
-            sortValues: sortValues,
             sortOrder: sortOrder
         )
         displayPositions = Self.displayPositions(for: rows)
@@ -42,22 +36,15 @@ public struct TrackTableDisplayCache: Sendable {
     @discardableResult
     public mutating func update(
         _ collection: CatalogTrackCollection,
-        sortValues: [String: TrackTableSortValues] = [:],
-        sortValuesRevision: UInt64 = 0,
         sortOrder: [KeyPathComparator<TrackTableRow>]
     ) -> Bool {
-        let attributesChanged =
-            sortOrder.usesTrackAttributes
-            && self.sortValuesRevision != sortValuesRevision
-        guard version != collection.version || self.sortOrder != sortOrder || attributesChanged else {
+        guard version != collection.version || self.sortOrder != sortOrder else {
             return false
         }
         version = collection.version
-        self.sortValuesRevision = sortValuesRevision
         self.sortOrder = sortOrder
         rows = Self.projected(
             tracks: collection.tracks,
-            sortValues: sortValues,
             sortOrder: sortOrder
         )
         displayPositions = Self.displayPositions(for: rows)
@@ -81,11 +68,10 @@ public struct TrackTableDisplayCache: Sendable {
 
     private static func projected(
         tracks: [CatalogTrack],
-        sortValues: [String: TrackTableSortValues],
         sortOrder: [KeyPathComparator<TrackTableRow>]
     ) -> [TrackTableRow] {
         let rows = tracks.enumerated().map { index, track in
-            TrackTableRow(track: track, sortValues: sortValues[track.uri], sourceIndex: index)
+            TrackTableRow(track: track, sourceIndex: index)
         }
         guard !sortOrder.isEmpty else { return rows }
         // The standard library does not promise a stable sort. Source offset is the final
@@ -114,33 +100,6 @@ public struct TrackTableDisplayCache: Sendable {
         _ rhs: TrackTableRow,
         using comparator: KeyPathComparator<TrackTableRow>
     ) -> ComparisonResult {
-        if comparator.isPopularity {
-            return compareOptional(
-                lhs.popularitySortValue,
-                isPresent: lhs.hasPopularity,
-                rhs.popularitySortValue,
-                isPresent: rhs.hasPopularity,
-                order: comparator.order
-            )
-        }
-        if comparator.isBPM {
-            return compareOptional(
-                lhs.bpmSortValue,
-                isPresent: lhs.hasBPM,
-                rhs.bpmSortValue,
-                isPresent: rhs.hasBPM,
-                order: comparator.order
-            )
-        }
-        if comparator.isKey {
-            return compareOptional(
-                lhs.keySortValue,
-                isPresent: lhs.hasKey,
-                rhs.keySortValue,
-                isPresent: rhs.hasKey,
-                order: comparator.order
-            )
-        }
         if comparator.isDateAdded {
             return compareOptional(lhs.track.addedAt, rhs.track.addedAt, order: comparator.order)
         }
@@ -160,24 +119,6 @@ public struct TrackTableDisplayCache: Sendable {
         case (.some, .none): return .orderedAscending
         case (.none, .some): return .orderedDescending
         case (.none, .none): return .orderedSame
-        }
-    }
-
-    private static func compareOptional<Value: Comparable>(
-        _ lhs: Value,
-        isPresent lhsIsPresent: Bool,
-        _ rhs: Value,
-        isPresent rhsIsPresent: Bool,
-        order: SortOrder
-    ) -> ComparisonResult {
-        switch (lhsIsPresent, rhsIsPresent) {
-        case (true, true):
-            if lhs == rhs { return .orderedSame }
-            let ascending: ComparisonResult = lhs < rhs ? .orderedAscending : .orderedDescending
-            return order == .forward ? ascending : ascending.reversed
-        case (true, false): return .orderedAscending
-        case (false, true): return .orderedDescending
-        case (false, false): return .orderedSame
         }
     }
 }

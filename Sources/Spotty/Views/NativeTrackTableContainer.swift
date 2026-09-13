@@ -115,7 +115,7 @@ final class NativeTrackTableContainer: NSView {
         let viewportWidth = scrollView.contentSize.width
         let inset: CGFloat = variant == .playlist ? 24 : 8
         let indexWidth = max(24, CGFloat(String(max(1, rowCount)).count) * 9)
-        let minimumWidth: CGFloat = variant == .playlist ? 576 + indexWidth : 534
+        let minimumWidth: CGFloat = variant == .playlist ? 576 + indexWidth : 388
         let customWidth = catalogColumnWidths?.reduce(0, +) ?? 0
         let proposedWidth = max(minimumWidth, viewportWidth - inset * 2, customWidth)
         configuringColumns = true
@@ -213,8 +213,8 @@ final class NativeTrackTableContainer: NSView {
             return [index + 24, flexible / 2 + 16, flexible / 4 + 16, flexible / 4 + 16, 104]
         }
         if let catalogColumnWidths { return catalogColumnWidths }
-        let flexible = max(344, tableWidth - 190)
-        return [flexible * 0.46, flexible * 0.26, flexible * 0.28, 64, 44, 38, 44]
+        let flexible = max(344, tableWidth - 44)
+        return [flexible * 0.46, flexible * 0.26, flexible * 0.28, 44]
     }
 }
 

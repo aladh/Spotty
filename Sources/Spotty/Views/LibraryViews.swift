@@ -9,7 +9,6 @@ private struct SearchLoadIdentity: Equatable {
 
 struct SearchView: View {
     let store: SearchStore
-    let metadata: CatalogMetadataRepository
     let playback: CatalogPlaybackAccess
     @Binding var searchText: String
     let onSelect: (CatalogItem) -> Void
@@ -79,7 +78,6 @@ struct SearchView: View {
                                     Text("Tracks").font(.system(size: 24, weight: .bold))
                                     TrackTable(
                                         tracks: store.trackCollection,
-                                        metadata: metadata,
                                         playback: playback,
                                         playlistActions: playlistActions
                                     )
@@ -177,7 +175,6 @@ struct TrackCollectionView: View {
     let title: String
     let subtitle: String
     let tracks: CatalogTrackCollection
-    let metadata: CatalogMetadataRepository
     let playback: CatalogPlaybackAccess
     var reloadError: String? = nil
     var reload: () async -> Void = {}
@@ -212,7 +209,6 @@ struct TrackCollectionView: View {
             } content: {
                 TrackTable(
                     tracks: tracks,
-                    metadata: metadata,
                     playback: playback,
                     playlistActions: playlistActions
                 )

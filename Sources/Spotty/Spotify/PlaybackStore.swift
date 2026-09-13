@@ -56,8 +56,7 @@ final class PlaybackStore {
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: false)
         catalogSession = session
         catalog = CatalogStore(
-            provider: environment.catalog, attributesProvider: environment.trackAttributes,
-            playlistMutations: environment.playlistMutations, session: session,
+            provider: environment.catalog, playlistMutations: environment.playlistMutations, session: session,
             clock: environment.clock, feedback: feedback)
         let runtime = self.runtime
         SessionRuntimeActor.sync {

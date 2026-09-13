@@ -316,7 +316,7 @@ impl ContextResolver {
         }
 
         let active_ctx = state.get_context(state.active_context);
-        let res = if let Some(transfer_state) = transfer_state.take() {
+        let res = if let Some(transfer_state) = transfer_state.as_ref() {
             state.finish_transfer(transfer_state)
         } else if state.shuffling_context() && next.update == ContextType::Default {
             state.shuffle_new()
@@ -339,6 +339,9 @@ impl ContextResolver {
             return false;
         }
 
+        // A failed finish must stay a transfer when later contexts arrive. Consuming it
+        // early lets ordinary context setup falsely acknowledge the restoration receipt.
+        *transfer_state = None;
         state.update_restrictions();
         state.update_queue_revision();
 

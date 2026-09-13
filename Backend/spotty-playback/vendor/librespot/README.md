@@ -17,7 +17,8 @@ Changes from that source:
   acknowledge its own inbound transfer before the HTTP request expires. An observed transfer
   validates the paused track/context/position, retains the protocol's occurrence order and modes,
   and signals readiness only after context restoration finishes. Failed setup cannot signal
-  readiness; replacement loads and disconnects cancel its receipt. Resolving a changed playlist
+  readiness or consume the pending transfer; an abandoned receipt cannot claim a later inbound
+  transfer. Replacement loads and disconnects cancel its receipt. Resolving a changed playlist
   establishes later queue refill without replacing the transferred current track or queue.
 - Own-device cluster echoes do not schedule another state publication. The upstream refresh for
   other devices remains; the echo regression prevents a notify loop from starving restoration

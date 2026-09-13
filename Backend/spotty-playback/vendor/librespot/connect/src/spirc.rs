@@ -1159,8 +1159,9 @@ impl SpircTask {
             }
             // modification and update of the connect_state
             Transfer(transfer) => {
-                let snapshot = self.transfer_snapshot.take();
-                self.handle_transfer(transfer.data.expect("by condition checked"), snapshot)?;
+                let transfer = transfer.data.expect("by condition checked");
+                let snapshot = self.take_observed_transfer(&transfer)?;
+                self.handle_transfer(transfer, snapshot)?;
                 return self.notify().await;
             }
             Play(mut play) => {
@@ -1257,15 +1258,20 @@ impl SpircTask {
         Ok(())
     }
 
-    fn handle_transfer(
+    fn take_observed_transfer(
         &mut self,
-        mut transfer: TransferState,
-        observed: Option<ObservedTransfer>,
-    ) -> Result<(), Error> {
+        transfer: &TransferState,
+    ) -> Result<Option<ObservedTransfer>, Error> {
+        // A timed-out caller no longer owns the next inbound transfer. In particular, its
+        // abandoned snapshot must not reject a later transfer from another Spotify client.
+        let observed = self
+            .transfer_snapshot
+            .take()
+            .filter(|observed| !observed.restored.is_closed());
         if let Some(observed) = observed.as_ref() {
             // A newer transfer must never inherit another session's retained queue.
             let snapshot = &observed.snapshot;
-            let track = self.connect_state.current_track_from_transfer(&transfer)?;
+            let track = self.connect_state.current_track_from_transfer(transfer)?;
             let context = transfer
                 .current_session
                 .context
@@ -1286,6 +1292,14 @@ impl SpircTask {
                 return Err(Error::failed_precondition("observed transfer changed"));
             }
         }
+        Ok(observed)
+    }
+
+    fn handle_transfer(
+        &mut self,
+        mut transfer: TransferState,
+        observed: Option<ObservedTransfer>,
+    ) -> Result<(), Error> {
         self.transfer_state = None;
         self.transfer_restored = None;
         self.context_resolver.clear();
@@ -1402,7 +1416,7 @@ impl SpircTask {
                 }
                 Ok(ctx) => {
                     if self.transfer_restored.is_some() {
-                        self.connect_state.finish_transfer(transfer)?;
+                        self.connect_state.finish_transfer(&transfer)?;
                     } else {
                         let idx = ConnectState::find_index_in_context(ctx, |pt| {
                             self.connect_state.current_track(|t| pt.uri == t.uri)

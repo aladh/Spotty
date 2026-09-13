@@ -158,3 +158,119 @@ async fn spotty_observed_transfer_waits_for_context_and_cancellation_closes_the_
         Err(oneshot::error::TryRecvError::Closed)
     ));
 }
+
+#[tokio::test]
+async fn spotty_expired_resume_does_not_claim_a_later_inbound_transfer() {
+    use crate::protocol::{context_track::ContextTrack, playback::Playback};
+    let mut task = task();
+    let context = "spotify:playlist:fixture";
+    let snapshot = PlayerState {
+        context_uri: context.into(),
+        track: MessageField::some(ProvidedTrack {
+            uri: "spotify:track:0000000000000000000001".into(),
+            ..Default::default()
+        }),
+        position_as_of_timestamp: 152_000,
+        ..Default::default()
+    };
+    let incoming = TransferState {
+        current_session: MessageField::some(crate::protocol::session::Session {
+            context: MessageField::some(Context {
+                uri: Some(context.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+        playback: MessageField::some(Playback {
+            current_track: MessageField::some(ContextTrack {
+                uri: Some("spotify:track:0000000000000000000002".into()),
+                ..Default::default()
+            }),
+            is_paused: Some(false),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let (sender, receiver) = oneshot::channel();
+    task.transfer_snapshot = Some(ObservedTransfer {
+        snapshot: snapshot.clone(),
+        restored: sender,
+    });
+    drop(receiver); // The observed-resume deadline expired before Dealer delivered a transfer.
+    assert!(task.take_observed_transfer(&incoming).unwrap().is_none());
+    assert!(task.transfer_snapshot.is_none());
+
+    // A live resume still rejects conflicting evidence and closes its waiting receipt.
+    let (sender, mut receiver) = oneshot::channel();
+    task.transfer_snapshot = Some(ObservedTransfer {
+        snapshot,
+        restored: sender,
+    });
+    assert!(task.take_observed_transfer(&incoming).is_err());
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(oneshot::error::TryRecvError::Closed)
+    ));
+}
+
+#[tokio::test]
+async fn spotty_failed_finish_retains_transfer_until_later_context_restores_the_queue() {
+    use crate::protocol::context_track::ContextTrack;
+    let mut task = task();
+    let mut current = ProvidedTrack {
+        uri: "spotify:track:0000000000000000000001".into(),
+        provider: "autoplay".into(),
+        ..Default::default()
+    };
+    current
+        .metadata
+        .insert("autoplay.is_autoplay".into(), "true".into());
+    let next = ProvidedTrack {
+        uri: "spotify:track:0000000000000000000002".into(),
+        provider: "autoplay".into(),
+        ..Default::default()
+    };
+    task.connect_state.begin_observed_transfer(PlayerState {
+        track: MessageField::some(current.clone()),
+        next_tracks: vec![next.clone()],
+        ..Default::default()
+    });
+    task.transfer_state = Some(TransferState::default());
+    let (sender, mut restored) = oneshot::channel();
+    task.transfer_restored = Some(sender);
+    let context = "spotify:playlist:fixture";
+    for kind in [ContextType::Default, ContextType::Autoplay] {
+        task.context_resolver.add(ResolveContext::from_uri(
+            context,
+            &current.uri,
+            kind,
+            ContextAction::Replace,
+        ));
+    }
+    let changed_context = || Context {
+        uri: Some(context.into()),
+        pages: vec![ContextPage {
+            tracks: vec![ContextTrack {
+                uri: Some("spotify:track:0000000000000000000003".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    // Default context resolves first, but finishing needs the absent autoplay context.
+    assert!(!task.handle_next_context(Ok(changed_context())));
+    assert!(task.transfer_state.is_some());
+    assert!(matches!(
+        restored.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    ));
+
+    // The later context must finish the retained transfer, not acknowledge ordinary setup
+    // that replaces the observed occurrence and queue with this changed playlist's first item.
+    assert!(task.handle_next_context(Ok(changed_context())));
+    assert!(task.transfer_state.is_none());
+    assert_eq!(restored.try_recv(), Ok(()));
+    assert_eq!(task.connect_state.player().track.as_ref(), Some(&current));
+    assert_eq!(task.connect_state.player().next_tracks, vec![next]);
+}

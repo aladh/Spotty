@@ -143,9 +143,9 @@ impl ConnectState {
     }
 
     /// completes the transfer, loading the queue and updating metadata
-    pub fn finish_transfer(&mut self, transfer: TransferState) -> Result<(), Error> {
+    pub fn finish_transfer(&mut self, transfer: &TransferState) -> Result<(), Error> {
         let track = match self.player().track.as_ref() {
-            None => self.current_track_from_transfer(&transfer)?,
+            None => self.current_track_from_transfer(transfer)?,
             Some(track) => track.clone(),
         };
 

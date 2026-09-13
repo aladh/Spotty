@@ -78,7 +78,7 @@ async fn spotty_hydration_transfer_resolution_end_and_cross_client_snapshot_agre
         )
         .unwrap();
     assert_eq!(state.player().next_tracks, snapshot.next_tracks);
-    state.finish_transfer(transfer).unwrap();
+    state.finish_transfer(&transfer).unwrap();
     state.set_status(&SpircPlayStatus::Playing {
         nominal_start_time: 0,
         preloading_of_next_track_triggered: false,

@@ -245,6 +245,7 @@ fn apply_player_event_locked(
                 "PlayerEvent::Playing: logical track {} at {}ms",
                 track_uri, position_ms
             );
+            record_local_resume_position(event_listener_generation, &track_uri, position_ms);
             set_current_track_uri(track_uri);
             // The only transition that makes the engine report playing; it publishes the
             // Playing stamp in the same lock acquisition, so a waiter cannot see the flag
@@ -284,6 +285,7 @@ fn apply_player_event_locked(
                 "PlayerEvent::Paused: logical track {} at {}ms",
                 track_uri, position_ms
             );
+            record_local_resume_position(event_listener_generation, &track_uri, position_ms);
             set_current_track_uri(track_uri);
             clear_engine_playing();
             // Still active when paused - just not playing
@@ -298,13 +300,16 @@ fn apply_player_event_locked(
             }
         }
         PlayerEvent::PositionChanged { position_ms, .. } => {
+            update_local_resume_position(event_listener_generation, position_ms);
             // Periodic position update (every 200ms)
             update_position(position_ms);
         }
         PlayerEvent::Seeked { position_ms, .. } => {
+            update_local_resume_position(event_listener_generation, position_ms);
             update_position(position_ms);
         }
         PlayerEvent::PositionCorrection { position_ms, .. } => {
+            update_local_resume_position(event_listener_generation, position_ms);
             debug!(
                 "[WAKE +{}ms] PositionCorrection event: {}ms",
                 elapsed_since_wake_ms(),
@@ -315,6 +320,9 @@ fn apply_player_event_locked(
         PlayerEvent::Stopped {
             play_request_id, ..
         } => {
+            let _ = with_engine_owned(event_listener_generation, |engine| {
+                engine.observed_resume.local = None;
+            });
             request_state.stopped_or_ended(play_request_id);
             // Deliberately does not touch active-device state: playback
             // stopping is not the same as losing the active Connect role.
@@ -410,6 +418,9 @@ fn apply_player_event_locked(
             if !request_state.loading(play_request_id, track_uri_str.clone()) {
                 return;
             }
+            let _ = with_engine_owned(event_listener_generation, |engine| {
+                engine.observed_resume.local = None;
+            });
 
             // Both, together. The position and the track URI are read as a
             // pair — a resume load seeks `POSITION_MS` within

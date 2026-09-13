@@ -85,12 +85,20 @@ Preserve these distinctions when changing the boundary:
   playable file is accepted; transient key errors do not acquire this classification.
 - A null cached queue snapshot means no cluster observation has arrived, not an empty queue. That
   cache can recover from a provisional empty replacement but is not another app-facing store.
+- Observed user resume carries the displayed track, context, paused position, and engine generation
+  as an expectation. The engine validates it against its ordered protocol observations before
+  dispatch. An idle local join restores the Connect session paused, then requires matching local
+  player evidence before sending Play. It preserves the transferred queue and options; it never
+  loads a playlist or another track as a fallback. Changed or unavailable evidence returns the
+  resume-mismatch result. Legacy resume and sticky load targets remain available for reconnect
+  rehydration until consumers adopt the observed-resume entry point.
 
 ## Standing constraints
 
 Keep PCM, sessions, Spirc, streaming, decryption, and decoding in the retained engine under
 [ADR 005](adrs/ADR-005-retain-librespot.md). Swift owns resume target order; do not widen the legacy
-resume export or use presentation snapshots as resume identity. Reconnect backoff stays local to
+resume export. User resume expectations must be checked against engine observations, never treated
+as proof that the local player has loaded the displayed track. Reconnect backoff stays local to
 its loop; connection presentation must not acquire duplicate device-name, retry-counter, timestamp,
 or session-identity state. New protocol or ownership boundaries require an explicit architectural
 decision, not another engine or state machine alongside the existing one.

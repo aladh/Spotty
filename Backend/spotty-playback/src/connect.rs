@@ -683,6 +683,10 @@ pub(crate) fn apply_cluster(generation: u64, origin: ClusterOrigin, cluster: Clu
     // aggregate callback below must be the first delivery for this cluster, so Swift cannot see
     // a connection transition separated from the devices/playback/queue facts that caused it.
     let active_changed = store_active_device(is_active_device);
+    let _ = with_engine_owned(generation, |engine| {
+        engine.observed_resume.remote_owner =
+            !cluster.active_device_id.is_empty() && !is_active_device;
+    });
     if !cluster_generation_current(generation) {
         return;
     }

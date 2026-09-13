@@ -376,6 +376,17 @@ void spotty_playback_register_queue_callback(QueueCallback callback);
 // `resume_pending`.
 SpottyPlaybackResult spotty_playback_resume(void);
 
+// Resume exactly the displayed protocol track at its paused position in this generation.
+//
+// Cold joins restore the Connect session paused, preserving its context, queue and options.
+// Play is sent only after local player evidence matches the requested track/context/position.
+// A missing, changed or timed-out snapshot returns -5 without loading a fallback track.
+// Strings are borrowed for this call and copied before dispatch; null context means no context.
+SpottyPlaybackResult spotty_playback_resume_observed(const char *track_uri,
+                                                     SpottyNullableCString context_uri,
+                                                     uint32_t position_ms,
+                                                     uint64_t session_generation);
+
 // Seeks to the given position in milliseconds.
 // Returns 0 on success, -1 on error, -2 if channel closed (needs reinit).
 SpottyPlaybackResult spotty_playback_seek(uint32_t position_ms);

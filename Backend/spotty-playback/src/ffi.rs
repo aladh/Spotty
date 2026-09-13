@@ -248,6 +248,7 @@ pub(crate) fn send_playback_snapshot(
     stamp: SnapshotStamp,
     observation: &PlaybackObservation,
 ) {
+    record_resume_observation(stamp, observation);
     let track_uri = optional_callback_c_string(Some(observation.track_uri.as_str()));
     let context_uri = observation
         .context_uri
@@ -385,6 +386,9 @@ pub(crate) fn send_connect_cluster_state(
         last_error: snapshot_c_ptr(&connection_last_error),
     };
 
+    if let Some(playback) = playback {
+        record_resume_observation(stamp, playback);
+    }
     let playback_track =
         playback.and_then(|value| optional_callback_c_string(Some(value.track_uri.as_str())));
     let playback_context =

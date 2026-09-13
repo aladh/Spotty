@@ -175,7 +175,7 @@ public enum QueueAddFeedbackPolicy: Sendable {
     }
 }
 
-/// librespot a1b66d3 `Spirc` publishes `add_to_queue` and `clear_queue`, but not
+/// librespot 939dc5e `Spirc` publishes `add_to_queue` and `clear_queue`, but not
 /// selected-occurrence removal. Incoming dealer `SetQueue` is handled internally
 /// (`connect_state.handle_set_queue`) and is not a public local command.
 /// Routing HTTP `set_queue` to the local device is unproven without a live Connect mutation
@@ -184,7 +184,7 @@ public enum QueueAddFeedbackPolicy: Sendable {
 public enum LocalQueueReplacementCapability: Sendable {
     public static let isSupported = false
     public static let evidence = """
-        librespot Spirc at a1b66d3c8a14e55a9572a9e17467150dca618c9a exposes add_to_queue, \
+        librespot Spirc at 939dc5ee9d833e1980f9495241219d9d4868a061 exposes add_to_queue, \
         clear_queue, load, play/pause, skip, shuffle, repeat, transfer, activate, and disconnect. \
         SetQueueCommand is \
         inbound-only (spirc.rs handle of dealer SetQueue). Device is_restricted in Spotty's cluster \

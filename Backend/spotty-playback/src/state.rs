@@ -848,7 +848,7 @@ pub(crate) struct QueueItem {
 }
 
 /// Unfiltered Connect queue row used for `set_queue` replacement.
-/// Fields match `ProvidedTrack` in player.proto at librespot a1b66d3, except
+/// Fields match `ProvidedTrack` in player.proto at librespot 939dc5e, except
 /// `disallow_setting_modes` / `disallow_signals` maps which are omitted when empty
 /// (no evidence they appear on queue rows in official `set_queue` JSON).
 #[derive(Clone, Debug, PartialEq, Eq)]

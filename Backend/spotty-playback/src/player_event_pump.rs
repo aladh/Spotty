@@ -345,6 +345,9 @@ fn apply_player_event_locked(
             track_id,
             play_request_id,
         } => {
+            let _ = with_engine_owned(event_listener_generation, |engine| {
+                engine.observed_resume.local = None;
+            });
             request_state.stopped_or_ended(play_request_id);
             // Logged with the position it ended at: a natural end and a
             // stream that stopped early are otherwise indistinguishable in
@@ -1050,38 +1053,46 @@ mod player_event_pump_policy {
         let _guard = lock_lifecycle_test_globals();
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
         let track_id = synthetic_track();
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let mut request_state = PlayerRequestState::default();
 
         set_engine_playing_for_test(true);
-        apply_current_generation_event(
+        apply_player_event(
             PlayerEvent::Paused {
                 play_request_id: 1,
                 track_id: track_id.clone(),
                 position_ms: 800,
             },
-            1,
+            generation,
+            &mut request_state,
         );
         assert!(!engine_is_playing());
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 800);
+        assert!(with_engine(|engine| engine.observed_resume.local.is_some()));
 
         set_engine_playing_for_test(true);
-        apply_current_generation_event(
+        apply_player_event(
             PlayerEvent::Stopped {
                 play_request_id: 1,
                 track_id: track_id.clone(),
             },
-            1,
+            generation,
+            &mut request_state,
         );
         assert!(!engine_is_playing());
 
-        set_engine_playing_for_test(true);
-        apply_current_generation_event(
+        apply_player_event(playing_event(1_250), generation, &mut request_state);
+        assert!(with_engine(|engine| engine.observed_resume.local.is_some()));
+        apply_player_event(
             PlayerEvent::EndOfTrack {
                 play_request_id: 1,
                 track_id,
             },
-            1,
+            generation,
+            &mut request_state,
         );
         assert!(!engine_is_playing());
+        assert!(with_engine(|engine| engine.observed_resume.local.is_none()));
     }
 
     #[test]

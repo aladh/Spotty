@@ -248,7 +248,6 @@ pub(crate) fn send_playback_snapshot(
     stamp: SnapshotStamp,
     observation: &PlaybackObservation,
 ) {
-    record_resume_observation(stamp, observation);
     let track_uri = optional_callback_c_string(Some(observation.track_uri.as_str()));
     let context_uri = observation
         .context_uri

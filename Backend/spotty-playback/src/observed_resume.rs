@@ -4,6 +4,8 @@ use librespot_core::spclient::TransferRequest;
 
 /// The requested resume no longer agrees with the observed session. Never retry it as a load.
 pub(crate) const ERROR_RESUME_MISMATCH: i32 = -5;
+/// Another resume owns the command slot. The caller may retry after it settles.
+pub(crate) const ERROR_RESUME_BUSY: i32 = -6;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ObservedResumeTarget {
@@ -27,6 +29,7 @@ pub(crate) struct ObservedResumeState {
     revision: u64,
     observed: Option<ObservedResumeTarget>,
     pub(crate) local: Option<ObservedResumeTarget>,
+    local_context_known: bool,
     pub(crate) remote_owner: bool,
 }
 
@@ -38,22 +41,11 @@ pub(crate) fn record_resume_observation(stamp: SnapshotStamp, observation: &Play
                 return;
             }
             state.revision = stamp.revision;
+            // Only protocol observations reach this function. Empty context is an explicit
+            // clear; never inherit another track's context or the reconnect sticky getter.
             let context_uri = observation
                 .context_uri
                 .clone()
-                .or_else(|| {
-                    state
-                        .local
-                        .as_ref()
-                        .filter(|target| target.track_uri == observation.track_uri)
-                        .and_then(|target| target.context_uri.clone())
-                })
-                .or_else(|| {
-                    state
-                        .observed
-                        .as_ref()
-                        .and_then(|target| target.context_uri.clone())
-                })
                 .filter(|uri| !uri.is_empty());
             let target = (!observation.track_uri.is_empty() && !observation.track_unavailable)
                 .then(|| ObservedResumeTarget {
@@ -61,6 +53,15 @@ pub(crate) fn record_resume_observation(stamp: SnapshotStamp, observation: &Play
                     context_uri,
                     position_ms: observation.position_ms.clamp(0, u32::MAX as i64) as u32,
                 });
+            if let (Some(local), Some(protocol)) = (&mut state.local, &target) {
+                if local.track_uri == protocol.track_uri {
+                    local.context_uri = protocol.context_uri.clone();
+                    state.local_context_known = true;
+                } else {
+                    state.local = None;
+                    state.local_context_known = false;
+                }
+            }
             state.observed = target;
         });
 }
@@ -68,15 +69,24 @@ pub(crate) fn record_resume_observation(stamp: SnapshotStamp, observation: &Play
 /// Only real Playing/Paused events establish a loaded local track. Command acknowledgements,
 /// cluster callbacks and Loading events cannot authorize the final Play.
 pub(crate) fn record_local_resume_position(generation: u64, track_uri: &str, position_ms: u32) {
-    let context_uri = CURRENT_CONTEXT_URI
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clone()
-        .filter(|uri| !uri.is_empty());
     let _ = with_engine_owned(generation, |engine| {
-        engine.observed_resume.local = Some(ObservedResumeTarget {
+        let state = &mut engine.observed_resume;
+        let context = state
+            .observed
+            .as_ref()
+            .filter(|target| target.track_uri == track_uri)
+            .map(|target| target.context_uri.clone())
+            .or_else(|| {
+                state
+                    .local
+                    .as_ref()
+                    .filter(|target| state.local_context_known && target.track_uri == track_uri)
+                    .map(|target| target.context_uri.clone())
+            });
+        state.local_context_known = context.is_some();
+        state.local = Some(ObservedResumeTarget {
             track_uri: track_uri.to_owned(),
-            context_uri,
+            context_uri: context.flatten(),
             position_ms,
         });
     });
@@ -109,6 +119,7 @@ impl ObservedResumeState {
             return ResumeAction::Reject;
         }
         if !transferred
+            && !local_active
             && !self
                 .observed
                 .as_ref()
@@ -118,6 +129,13 @@ impl ObservedResumeState {
         }
         if local_active {
             if let Some(local) = &self.local {
+                if !self.local_context_known {
+                    return if transferred {
+                        ResumeAction::Wait
+                    } else {
+                        ResumeAction::Reject
+                    };
+                }
                 return if expected.matches(local) {
                     ResumeAction::Play
                 } else {
@@ -151,6 +169,7 @@ impl ObservedResumeState {
 /// Cold joins restore the Connect session paused, preserving its context, queue and options.
 /// Play is sent only after local player evidence matches the requested track/context/position.
 /// A missing, changed or timed-out snapshot returns -5 without loading a fallback track.
+/// A concurrent resume returns -6 (busy); serialize commands and retry after it settles.
 /// Strings are borrowed for this call and copied before dispatch; null context means no context.
 #[no_mangle]
 pub extern "C" fn spotty_playback_resume_observed(
@@ -184,7 +203,7 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
     }
     let claimed = with_engine_owned(generation, |engine| engine.claim_resume()).unwrap_or(false);
     if !claimed {
-        return ERROR_RESUME_MISMATCH;
+        return ERROR_RESUME_BUSY;
     }
     // Unlike the legacy resume guard, a retired call must not release a replacement's claim.
     struct ObservedResumeGuard(u64);
@@ -210,12 +229,17 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
                     return Err(ERROR_NOT_CONNECTED);
                 };
                 let result = match action {
-                    ResumeAction::TransferPaused => spirc.transfer(Some(TransferRequest {
-                        transfer_options: TransferOptions {
-                            restore_paused: Some("pause".to_owned()),
-                            ..Default::default()
-                        },
-                    })),
+                    ResumeAction::TransferPaused => {
+                        // Evidence from a previous local load cannot acknowledge this transfer.
+                        engine.observed_resume.local = None;
+                        engine.observed_resume.local_context_known = false;
+                        spirc.transfer(Some(TransferRequest {
+                            transfer_options: TransferOptions {
+                                restore_paused: Some("pause".to_owned()),
+                                ..Default::default()
+                            },
+                        }))
+                    }
                     ResumeAction::Play => spirc.play(),
                     ResumeAction::Wait => return Ok((action, engine.playing_event())),
                     ResumeAction::Reject => return Err(ERROR_RESUME_MISMATCH),
@@ -229,15 +253,22 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
         match step {
             Ok((ResumeAction::TransferPaused, _)) => transferred = true,
             Ok((ResumeAction::Play, before)) => {
-                while std::time::Instant::now() < deadline {
+                // Transfer and Playing confirmation have independent budgets. The complete
+                // call remains below the app's eight-second command deadline.
+                let playing_deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while std::time::Instant::now() < playing_deadline {
                     let observed = with_engine_owned(generation, |engine| {
                         let stamp = engine.playing_event();
                         stamp.generation == generation
                             && stamp.sequence > before.sequence
-                            && engine.observed_resume.local.as_ref().is_some_and(|target| {
-                                target.track_uri == expected.track_uri
-                                    && target.context_uri == expected.context_uri
-                            })
+                            && engine.connection.is_active_device
+                            && !engine.observed_resume.remote_owner
+                            && engine.observed_resume.local_context_known
+                            && engine
+                                .observed_resume
+                                .local
+                                .as_ref()
+                                .is_some_and(|target| expected.matches(target))
                     });
                     match observed {
                         Ok(true) => return 0,
@@ -325,8 +356,71 @@ mod tests {
         assert_eq!(state.action(&expected, false, true), ResumeAction::Wait);
         assert_eq!(state.action(&expected, true, true), ResumeAction::Wait);
         state.local = Some(expected.clone());
+        state.local_context_known = true;
         assert_eq!(state.action(&expected, true, true), ResumeAction::Play);
         assert_eq!(state.action(&expected, true, false), ResumeAction::Play);
+        // Local pause/seek timing can advance without a corresponding cluster snapshot.
+        state.observed.as_mut().unwrap().position_ms = 0;
+        assert_eq!(state.action(&expected, true, false), ResumeAction::Play);
+    }
+
+    #[test]
+    fn local_delivery_cannot_replace_protocol_evidence_or_inherit_another_context() {
+        let _guard = lock_lifecycle_test_globals();
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let saved = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
+        let mut protocol = PlayerState {
+            context_uri: "spotify:playlist:fixture".into(),
+            position_as_of_timestamp: 152_000,
+            ..Default::default()
+        };
+        protocol.track = protobuf::MessageField::some(ProvidedTrack {
+            uri: "spotify:track:current".into(),
+            ..Default::default()
+        });
+        let stamp = |revision| SnapshotStamp {
+            revision,
+            session_generation: generation,
+        };
+        record_resume_observation(
+            stamp(1),
+            &playback_observation_from_player_state(&protocol, false),
+        );
+        let mut local = playback_observation_from_player_state(&protocol, true);
+        local.track_uri = "spotify:track:different".into();
+        local.context_uri = None;
+        extern "C" fn ignore_snapshot(_: *const SpottyPlaybackSnapshot) {}
+        send_playback_snapshot(ignore_snapshot, stamp(2), &local);
+        assert_eq!(
+            with_engine(|engine| engine.observed_resume.observed.clone()),
+            Some(target("current", 152_000))
+        );
+
+        // A local event arriving before the new protocol track has unknown context and waits.
+        record_local_resume_position(generation, "spotify:track:different", 152_000);
+        let expected = ObservedResumeTarget {
+            context_uri: None,
+            ..target("different", 152_000)
+        };
+        assert_eq!(
+            with_engine(|engine| engine.observed_resume.action(&expected, true, true)),
+            ResumeAction::Wait
+        );
+        protocol.track.mut_or_insert_default().uri = expected.track_uri.clone();
+        protocol.context_uri.clear();
+        record_resume_observation(
+            stamp(3),
+            &playback_observation_from_player_state(&protocol, true),
+        );
+        assert_eq!(
+            with_engine(|engine| engine.observed_resume.action(&expected, true, true)),
+            ResumeAction::Play
+        );
+        assert_eq!(
+            with_engine(|engine| engine.observed_resume.observed.clone()),
+            Some(expected)
+        );
+        with_engine(|engine| engine.observed_resume = saved);
     }
 
     #[test]
@@ -343,6 +437,7 @@ mod tests {
             let state = ObservedResumeState {
                 observed: Some(wrong.clone()),
                 local: Some(wrong),
+                local_context_known: true,
                 ..Default::default()
             };
             assert_eq!(state.action(&expected, false, false), ResumeAction::Reject);
@@ -351,6 +446,7 @@ mod tests {
         let state = ObservedResumeState {
             observed: Some(expected.clone()),
             local: Some(expected.clone()),
+            local_context_known: true,
             remote_owner: true,
             ..Default::default()
         };

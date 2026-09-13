@@ -86,11 +86,13 @@ Preserve these distinctions when changing the boundary:
 - A null cached queue snapshot means no cluster observation has arrived, not an empty queue. That
   cache can recover from a provisional empty replacement but is not another app-facing store.
 - Observed user resume carries the displayed track, context, paused position, and engine generation
-  as an expectation. The engine validates it against its ordered protocol observations before
-  dispatch. An idle local join restores the Connect session paused, then requires matching local
+  as an expectation. An idle join validates against ordered protocol observations; an active local
+  player uses its loaded track and current position with track-scoped protocol context. An idle
+  local join restores the Connect session paused, then requires matching local
   player evidence before sending Play. It preserves the transferred queue and options; it never
   loads a playlist or another track as a fallback. Changed or unavailable evidence returns the
-  resume-mismatch result. Legacy resume and sticky load targets remain available for reconnect
+  resume-mismatch result. Concurrent resumes return a separate retryable busy result. Restoration
+  and Playing confirmation have separate five- and two-second budgets. Legacy resume and sticky load targets remain available for reconnect
   rehydration until consumers adopt the observed-resume entry point.
 
 ## Standing constraints

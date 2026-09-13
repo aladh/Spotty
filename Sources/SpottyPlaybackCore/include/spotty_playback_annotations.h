@@ -57,6 +57,8 @@ typedef enum __attribute__((enum_extensibility(open))) SpottyPlaybackResult : in
     SpottyPlaybackResultCredentialsRejected = -4,
     /* The observed resume target changed or could not be restored; do not load a fallback. */
     SpottyPlaybackResultResumeMismatch = -5,
+    /* Another resume is in progress; retry after it settles without loading a fallback. */
+    SpottyPlaybackResultResumeBusy = -6,
 } SpottyPlaybackResult;
 
 /* Audio playback control event, delivered to AudioControlCallback. */

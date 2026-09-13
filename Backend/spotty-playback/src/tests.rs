@@ -1099,6 +1099,7 @@ int main(void) {
     printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultSessionNotConnected|%d\n", (int)SpottyPlaybackResultSessionNotConnected);
     printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultCredentialsRejected|%d\n", (int)SpottyPlaybackResultCredentialsRejected);
     printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultResumeMismatch|%d\n", (int)SpottyPlaybackResultResumeMismatch);
+    printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultResumeBusy|%d\n", (int)SpottyPlaybackResultResumeBusy);
 
     EMIT_TYPE(SpottyPlaybackAudioControlEvent);
     printf("enum|SpottyPlaybackAudioControlEvent|value|SpottyPlaybackAudioControlEventStop|%d\n", (int)SpottyPlaybackAudioControlEventStop);
@@ -1320,6 +1321,7 @@ int main(void) {
             ERROR_CREDENTIALS_REJECTED,
         ),
         ("SpottyPlaybackResultResumeMismatch", ERROR_RESUME_MISMATCH),
+        ("SpottyPlaybackResultResumeBusy", ERROR_RESUME_BUSY),
     ] {
         rust_values.insert(
             format!("enum|SpottyPlaybackResult|value|{name}"),

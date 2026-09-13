@@ -381,6 +381,7 @@ SpottyPlaybackResult spotty_playback_resume(void);
 // Cold joins restore the Connect session paused, preserving its context, queue and options.
 // Play is sent only after local player evidence matches the requested track/context/position.
 // A missing, changed or timed-out snapshot returns -5 without loading a fallback track.
+// A concurrent resume returns -6 (busy); serialize commands and retry after it settles.
 // Strings are borrowed for this call and copied before dispatch; null context means no context.
 SpottyPlaybackResult spotty_playback_resume_observed(const char *track_uri,
                                                      SpottyNullableCString context_uri,

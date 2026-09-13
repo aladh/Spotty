@@ -49,6 +49,7 @@ pub(crate) fn send_playback_state_with_callback(
         observation.repeat_context
     );
 
+    record_resume_observation(stamp, &observation);
     send_playback_snapshot(callback, stamp, &observation);
 }
 

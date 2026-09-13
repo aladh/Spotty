@@ -245,6 +245,7 @@ fn apply_player_event_locked(
                 "PlayerEvent::Playing: logical track {} at {}ms",
                 track_uri, position_ms
             );
+            record_local_resume_position(event_listener_generation, &track_uri, position_ms);
             set_current_track_uri(track_uri);
             // The only transition that makes the engine report playing; it publishes the
             // Playing stamp in the same lock acquisition, so a waiter cannot see the flag
@@ -284,6 +285,7 @@ fn apply_player_event_locked(
                 "PlayerEvent::Paused: logical track {} at {}ms",
                 track_uri, position_ms
             );
+            record_local_resume_position(event_listener_generation, &track_uri, position_ms);
             set_current_track_uri(track_uri);
             clear_engine_playing();
             // Still active when paused - just not playing
@@ -298,13 +300,16 @@ fn apply_player_event_locked(
             }
         }
         PlayerEvent::PositionChanged { position_ms, .. } => {
+            update_local_resume_position(event_listener_generation, position_ms);
             // Periodic position update (every 200ms)
             update_position(position_ms);
         }
         PlayerEvent::Seeked { position_ms, .. } => {
+            update_local_resume_position(event_listener_generation, position_ms);
             update_position(position_ms);
         }
         PlayerEvent::PositionCorrection { position_ms, .. } => {
+            update_local_resume_position(event_listener_generation, position_ms);
             debug!(
                 "[WAKE +{}ms] PositionCorrection event: {}ms",
                 elapsed_since_wake_ms(),
@@ -315,6 +320,9 @@ fn apply_player_event_locked(
         PlayerEvent::Stopped {
             play_request_id, ..
         } => {
+            let _ = with_engine_owned(event_listener_generation, |engine| {
+                engine.observed_resume.local = None;
+            });
             request_state.stopped_or_ended(play_request_id);
             // Deliberately does not touch active-device state: playback
             // stopping is not the same as losing the active Connect role.
@@ -337,6 +345,9 @@ fn apply_player_event_locked(
             track_id,
             play_request_id,
         } => {
+            let _ = with_engine_owned(event_listener_generation, |engine| {
+                engine.observed_resume.local = None;
+            });
             request_state.stopped_or_ended(play_request_id);
             // Logged with the position it ended at: a natural end and a
             // stream that stopped early are otherwise indistinguishable in
@@ -410,6 +421,9 @@ fn apply_player_event_locked(
             if !request_state.loading(play_request_id, track_uri_str.clone()) {
                 return;
             }
+            let _ = with_engine_owned(event_listener_generation, |engine| {
+                engine.observed_resume.local = None;
+            });
 
             // Both, together. The position and the track URI are read as a
             // pair — a resume load seeks `POSITION_MS` within
@@ -1039,38 +1053,46 @@ mod player_event_pump_policy {
         let _guard = lock_lifecycle_test_globals();
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
         let track_id = synthetic_track();
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let mut request_state = PlayerRequestState::default();
 
         set_engine_playing_for_test(true);
-        apply_current_generation_event(
+        apply_player_event(
             PlayerEvent::Paused {
                 play_request_id: 1,
                 track_id: track_id.clone(),
                 position_ms: 800,
             },
-            1,
+            generation,
+            &mut request_state,
         );
         assert!(!engine_is_playing());
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 800);
+        assert!(with_engine(|engine| engine.observed_resume.local.is_some()));
 
         set_engine_playing_for_test(true);
-        apply_current_generation_event(
+        apply_player_event(
             PlayerEvent::Stopped {
                 play_request_id: 1,
                 track_id: track_id.clone(),
             },
-            1,
+            generation,
+            &mut request_state,
         );
         assert!(!engine_is_playing());
 
-        set_engine_playing_for_test(true);
-        apply_current_generation_event(
+        apply_player_event(playing_event(1_250), generation, &mut request_state);
+        assert!(with_engine(|engine| engine.observed_resume.local.is_some()));
+        apply_player_event(
             PlayerEvent::EndOfTrack {
                 play_request_id: 1,
                 track_id,
             },
-            1,
+            generation,
+            &mut request_state,
         );
         assert!(!engine_is_playing());
+        assert!(with_engine(|engine| engine.observed_resume.local.is_none()));
     }
 
     #[test]

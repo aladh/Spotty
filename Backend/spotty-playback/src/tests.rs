@@ -841,6 +841,11 @@ fn exported_c_function_signatures() -> Vec<ExportedCFunctionSignature> {
         "SpottyPlaybackResult (void)"
     );
     signature!(
+        spotty_playback_resume_observed,
+        extern "C" fn(*const c_char, SpottyNullableCString, u32, u64) -> i32,
+        "SpottyPlaybackResult (const char *, const char *, uint32_t, uint64_t)"
+    );
+    signature!(
         spotty_playback_seek,
         extern "C" fn(u32) -> i32,
         "SpottyPlaybackResult (uint32_t)"
@@ -921,7 +926,7 @@ fn parse_abi_signature_fixture(fixture: &str) -> Vec<ExportedCFunctionSignature>
 #[test]
 fn exported_c_function_signatures_are_stable() {
     let signatures = exported_c_function_signatures();
-    assert_eq!(signatures.len(), 37);
+    assert_eq!(signatures.len(), 38);
 }
 
 /// The checked-in C fixture is compared to the header by `Scripts/check.sh`; this Rust-side
@@ -1093,6 +1098,8 @@ int main(void) {
     printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultSessionDisconnected|%d\n", (int)SpottyPlaybackResultSessionDisconnected);
     printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultSessionNotConnected|%d\n", (int)SpottyPlaybackResultSessionNotConnected);
     printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultCredentialsRejected|%d\n", (int)SpottyPlaybackResultCredentialsRejected);
+    printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultResumeMismatch|%d\n", (int)SpottyPlaybackResultResumeMismatch);
+    printf("enum|SpottyPlaybackResult|value|SpottyPlaybackResultResumeBusy|%d\n", (int)SpottyPlaybackResultResumeBusy);
 
     EMIT_TYPE(SpottyPlaybackAudioControlEvent);
     printf("enum|SpottyPlaybackAudioControlEvent|value|SpottyPlaybackAudioControlEventStop|%d\n", (int)SpottyPlaybackAudioControlEventStop);
@@ -1313,6 +1320,8 @@ int main(void) {
             "SpottyPlaybackResultCredentialsRejected",
             ERROR_CREDENTIALS_REJECTED,
         ),
+        ("SpottyPlaybackResultResumeMismatch", ERROR_RESUME_MISMATCH),
+        ("SpottyPlaybackResultResumeBusy", ERROR_RESUME_BUSY),
     ] {
         rust_values.insert(
             format!("enum|SpottyPlaybackResult|value|{name}"),

@@ -123,6 +123,7 @@ pub(crate) struct EngineGeneration {
     /// covers overlapping C `spotty_playback_resume` calls. The playing flag does not cover the
     /// gap: it stays false until the first sequence actually produces audio.
     resuming: bool,
+    pub(crate) observed_resume: ObservedResumeState,
     pub(crate) shuffle: bool,
     pub(crate) repeat_track: bool,
     pub(crate) repeat_context: bool,
@@ -800,6 +801,8 @@ pub(crate) fn advance_session_generation() -> u64 {
         with_engine(|engine| {
             let invalidated = SESSION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
             engine.session_generation = invalidated;
+            engine.observed_resume = ObservedResumeState::default();
+            engine.release_resume();
             invalidated
         })
     })
@@ -815,6 +818,7 @@ pub(crate) fn set_session_generation_for_test(generation: u64) -> u64 {
         with_engine(|engine| {
             let previous = SESSION_GENERATION.swap(generation, Ordering::SeqCst);
             engine.session_generation = generation;
+            engine.observed_resume = ObservedResumeState::default();
             previous
         })
     })

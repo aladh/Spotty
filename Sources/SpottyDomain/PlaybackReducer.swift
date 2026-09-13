@@ -407,7 +407,9 @@ public enum PlaybackReducer {
                     restoreCommandPresentation(pair.value, in: &candidate, at: envelope.receivedAt)
                     // A rejected finish with no notice restores rollback without replacing an
                     // unrelated existing notice. Cancellation is one caller of that rule.
-                    if let notice {
+                    if let notice,
+                        notice.kind == .resumeUnavailable || candidate.notice?.kind != .resumeUnavailable
+                    {
                         candidate.notice = notice
                     }
                 } else {
@@ -425,6 +427,8 @@ public enum PlaybackReducer {
                 return .rejected
             }
         case let .notice(notice):
+            // A transient command error must not remove the persistent stale-resume block.
+            guard notice?.kind != .command || candidate.notice?.kind != .resumeUnavailable else { return .rejected }
             candidate.notice = notice
         }
 

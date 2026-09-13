@@ -68,7 +68,10 @@ public struct PlaybackIntent: Equatable, Sendable {
             if snapshot.trackUnavailable { settle(.rejected, at: envelope.receivedAt); return }
             if let target = command.resumeTarget {
                 guard abs(snapshot.timing.position - Double(target.positionMS) / 1_000) <= 1 else { return }
-                if let context = snapshot.contextURI, (context.isEmpty ? nil : context) != target.contextURI {
+                // Local transport samples can omit context. They still update playback truth,
+                // but cannot prove the complete resume target before the engine returns.
+                guard let context = snapshot.contextURI else { return }
+                if (context.isEmpty ? nil : context) != target.contextURI {
                     settle(.superseded, at: envelope.receivedAt)
                     return
                 }

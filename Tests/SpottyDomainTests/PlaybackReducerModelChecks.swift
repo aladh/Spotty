@@ -92,6 +92,12 @@ private struct EnvelopeGenerator {
 
     // MARK: Primitives
 
+    private mutating func randomNotice() -> PlaybackNotice? {
+        guard nextBool(&rng) else { return nil }
+        return PlaybackNotice(
+            message: "synthetic notice", kind: nextBool(&rng) ? .command : .resumeUnavailable)
+    }
+
     private mutating func nextRevision(for source: PlaybackEventSource) -> UInt64 {
         let counter = (revisions[source] ?? 0) &+ 1
         revisions[source] = counter
@@ -348,7 +354,7 @@ private struct EnvelopeGenerator {
             return .commandFinished(
                 id: referencedID(state),
                 accepted: nextBool(&rng),
-                notice: nextBool(&rng) ? PlaybackNotice(message: "synthetic failure") : nil
+                notice: randomNotice()
             )
         }
     }
@@ -420,7 +426,7 @@ private struct EnvelopeGenerator {
             return (.devices(randomDeviceSnapshot()), .engineDevices)
         default:
             return (
-                .notice(nextBool(&rng) ? PlaybackNotice(message: "synthetic notice") : nil), .user
+                .notice(randomNotice()), .user
             )
         }
     }
@@ -793,6 +799,34 @@ private func emptyResumeObservationPreservesIdentity(
     return nil
 }
 
+private func transientNoticePreservesResumeBlock(
+    pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope
+) -> String? {
+    guard pre.accountEpoch == post.accountEpoch, pre.engineEpoch == post.engineEpoch,
+        pre.notice?.kind == .resumeUnavailable
+    else { return nil }
+    switch envelope.event {
+    case let .notice(notice), let .commandFinished(_, _, notice):
+        if notice?.kind == .command, post.notice != pre.notice {
+            return "a transient error erased the persistent resume block"
+        }
+    default: break
+    }
+    return nil
+}
+
+private func resumeConfirmationRequiresContext(
+    pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope
+) -> String? {
+    guard case let .enginePlayback(snapshot) = envelope.event, snapshot.contextURI == nil else { return nil }
+    for intent in post.intents where intent.command.resumeTarget != nil && intent.outcome == .observedConfirmed {
+        if pre.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed {
+            return "a sample without context confirmed a resume"
+        }
+    }
+    return nil
+}
+
 private func firstViolation(
     pre: PlaybackState,
     post: PlaybackState,
@@ -822,6 +856,12 @@ private func firstViolation(
     if let violation = emptyResumeObservationPreservesIdentity(
         pre: pre, post: post, envelope: envelope, accepted: accepted)
     {
+        return violation
+    }
+    if let violation = transientNoticePreservesResumeBlock(pre: pre, post: post, envelope: envelope) {
+        return violation
+    }
+    if let violation = resumeConfirmationRequiresContext(pre: pre, post: post, envelope: envelope) {
         return violation
     }
     if let violation = pendingCoherence(post) { return violation }

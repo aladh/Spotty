@@ -37,7 +37,6 @@ if [[ -n "$distribution_identity" && -n "$development_identity" ]]; then
 fi
 
 export SPOTTY_BUILD_CONFIGURATION="$build_configuration"
-export SPOTTY_CHECK_SCOPE=swift
 
 if ! command -v xcrun >/dev/null 2>&1; then
     print -u2 "Native Spotty icon packaging requires xcrun from a full Xcode installation"
@@ -76,7 +75,11 @@ if [[ ! -s "$compiled_assets" ]]; then
     print -u2 "actool did not produce the native Spotty icon catalog: $compiled_assets"
     exit 1
 fi
-"$project_root/Scripts/check.sh"
+if [[ "$build_configuration" == release ]]; then
+    "$project_root/Scripts/compile-release-spotty.sh"
+else
+    SPOTTY_CHECK_SCOPE=swift "$project_root/Scripts/check.sh"
+fi
 
 selected_xcframework="$(spotty_playback_resolve_xcframework)"
 playback_slice="$(spotty_playback_slice_path "$selected_xcframework")"

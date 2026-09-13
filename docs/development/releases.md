@@ -24,8 +24,10 @@ Local packages are development artifacts:
 ./Scripts/validate-app.sh --local
 ```
 
-`archive-app.sh` delegates building and signing to `package-app.sh --release`, then archives the
-resulting app as `dist/Spotty-<version>.zip` with `ditto`. `SPOTTY_SIGNING_IDENTITY` selects the
+`archive-app.sh` delegates compile-only building and signing to `package-app.sh --release`, then
+archives the resulting app as `dist/Spotty-<version>.zip` with `ditto`. PR and `main` CI own test
+acceptance; the release lane compiles the accepted tagged commit without rerunning tests.
+`SPOTTY_SIGNING_IDENTITY` selects the
 signing identity. Unset, packaging falls back to the checkout-local self-signed identity.
 `SPOTTY_SIGNING_IDENTITY="-"` is an ad-hoc signature, used by
 [release.yml](../../.github/workflows/release.yml). For a hardened-runtime Developer ID archive,
@@ -56,9 +58,10 @@ session XPC helper; the XPC services embedded by Sparkle belong only to the upda
 ## Tagged releases
 
 An authorized `vX.Y.Z` tag must match `CFBundleShortVersionString` in `Packaging/Info.plist`. The
-[release workflow](../../.github/workflows/release.yml) runs `archive-app.sh`, which packages and
-signs after the Swift-scope `check.sh` run inside `package-app.sh` verifies the build; the workflow
-itself then computes the `.sha256` checksum and generates a signed Sparkle appcast. Before tagging,
+[release workflow](../../.github/workflows/release.yml) runs `archive-app.sh`, which compiles,
+packages, and signs the accepted tagged commit without rerunning the PR and `main` test gates; the
+workflow first requires the tag commit to be on `main` and its latest `main` CI run to be successful.
+It then computes the `.sha256` checksum and generates a signed Sparkle appcast. Before tagging,
 write the release notes in `docs/releases/vX.Y.Z.md`; the workflow publishes that file verbatim as a
 regular GitHub release. Until Developer ID and notarization credentials are configured,
 artifacts use hardened-runtime ad-hoc signing with the library-validation exception in

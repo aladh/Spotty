@@ -14,23 +14,35 @@ import SpottyRuntimeContracts
 private actor LateFailureWebQueueGate {
     private var nextRequestID = 0
     private var continuations: [Int: CheckedContinuation<[CatalogTrack], any Error>] = [:]
+    private var terminalRequests: Set<Int> = []
+
+    var pendingRequestIDs: Set<Int> { Set(continuations.keys) }
 
     func next() async throws -> [CatalogTrack] {
         nextRequestID += 1
         let requestID = nextRequestID
+        if terminalRequests.remove(requestID) != nil {
+            throw CancellationError()
+        }
         return try await withCheckedThrowingContinuation { continuation in
             continuations[requestID] = continuation
         }
     }
 
     func fail429(_ requestID: Int) {
-        continuations.removeValue(forKey: requestID)?.resume(
-            throwing: SpotifyWebPlayerAPIError.requestFailed(429)
-        )
+        guard let continuation = continuations.removeValue(forKey: requestID) else {
+            terminalRequests.insert(requestID)
+            return
+        }
+        continuation.resume(throwing: SpotifyWebPlayerAPIError.requestFailed(429))
     }
 
     func complete(_ requestID: Int, with tracks: [CatalogTrack]) {
-        continuations.removeValue(forKey: requestID)?.resume(returning: tracks)
+        guard let continuation = continuations.removeValue(forKey: requestID) else {
+            terminalRequests.insert(requestID)
+            return
+        }
+        continuation.resume(returning: tracks)
     }
 }
 
@@ -94,7 +106,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func metadataPublishesInBatchesAndFlushesWhileAnotherRequestIsStalled() async {
+    func metadataPublishesInBatchesAndFlushesWhileAnotherRequestIsStalled() async throws {
         let clock = CooperativeParkedClock()
         let remote = HarnessRemote(metadata: .park)
         let service = QueueService(
@@ -110,19 +122,25 @@ struct QueueRefreshConvergenceTests {
                 }, currentTrackURI: "spotify:track:current", accountEpoch: 1,
                 onUpdate: { updates.append($0) })
         }
-        #expect(await waitUntil { remote.requestedURIs.count == 3 })
+        defer {
+            refresh.cancel()
+            for uri in remote.parkedMetadataURIs { _ = remote.failMetadata(for: uri) }
+            clock.releaseAll()
+        }
+        try await requireEventually { remote.parkedMetadataURIs == Set(uris) }
+        #expect(remote.requestedURIs.count == 3)
         #expect(updates.snapshot.count == 1, "order appears before enrichment")
-        remote.completeMetadata(for: uris[0])
-        remote.completeMetadata(for: uris[1])
-        #expect(await waitUntil { await service.refreshDiagnostics.metadataResults == 2 })
-        #expect(await waitUntil { clock.waiterCount == 1 })
+        #expect(remote.completeMetadata(for: uris[0]))
+        #expect(remote.completeMetadata(for: uris[1]))
+        try await requireEventually { await service.refreshDiagnostics.metadataResults == 2 }
+        try await requireEventually { clock.waiterCount == 1 }
         #expect(updates.snapshot.count == 1, "a burst does not publish per track")
         clock.releaseAll()
         #expect(await waitUntil { updates.snapshot.count == 2 })
         #expect(Set(updates.snapshot.last?.tracks.map(\.uri) ?? []) == Set(uris.prefix(2)))
-        remote.completeMetadata(for: uris[2])
-        #expect(await waitUntil { await service.refreshDiagnostics.metadataResults == 3 })
-        #expect(await waitUntil { clock.waiterCount == 1 })
+        #expect(remote.completeMetadata(for: uris[2]))
+        try await requireEventually { await service.refreshDiagnostics.metadataResults == 3 }
+        try await requireEventually { clock.waiterCount == 1 }
         clock.releaseAll()
         let result = await refresh.value
         #expect(result?.tracks.count == 3)
@@ -132,7 +150,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func accountReplacementCancelsAnUnpublishedMetadataBatch() async {
+    func accountReplacementCancelsAnUnpublishedMetadataBatch() async throws {
         let clock = CooperativeParkedClock()
         let remote = HarnessRemote(metadata: .park)
         let service = QueueService(
@@ -146,9 +164,10 @@ struct QueueRefreshConvergenceTests {
                 fallbackEntries: [QueueEntry(uri: uri, provider: "connect")],
                 currentTrackURI: "spotify:track:current", accountEpoch: 1, onUpdate: { _ in updates.record("update") })
         }
-        #expect(await waitUntil { remote.parkedMetadataRequestCount == 1 })
-        remote.completeMetadata(for: uri)
-        #expect(await waitUntil { clock.waiterCount == 1 })
+        defer { refresh.cancel(); _ = remote.failMetadata(for: uri); clock.releaseAll() }
+        try await requireEventually { remote.parkedMetadataURIs.contains(uri) }
+        #expect(remote.completeMetadata(for: uri))
+        try await requireEventually { clock.waiterCount == 1 }
         await service.reset(accountEpoch: 2)
         #expect(await refresh.value == nil)
         #expect(await waitUntil { clock.waiterCount == 0 })
@@ -157,7 +176,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func webFallbackRetainsAlreadyKnownConnectMetadata() async {
+    func webFallbackRetainsAlreadyKnownConnectMetadata() async throws {
         let web = HarnessWebQueue(.park)
         let remote = HarnessRemote(metadata: .park)
         let service = QueueService(webQueue: web, metadata: TrackMetadataService(remote: remote))
@@ -168,7 +187,9 @@ struct QueueRefreshConvergenceTests {
         let first = Task {
             await service.refresh(fallbackEntries: [], currentTrackURI: context, accountEpoch: 1)
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer { first.cancel(); web.fail(); _ = remote.failMetadata(for: missing) }
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 1)
         web.complete(with: [queueRefreshTrack(known)])
         _ = await first.value
         _ = await service.acceptConnect(
@@ -181,11 +202,12 @@ struct QueueRefreshConvergenceTests {
         let second = Task {
             await service.refresh(fallbackEntries: [], currentTrackURI: context, accountEpoch: 1)
         }
-        #expect(await waitUntil { web.requestCount == 2 })
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 2)
         web.complete(with: [])
-        #expect(await waitUntil { remote.requestedURIs.contains(missing) })
+        try await requireEventually { remote.parkedMetadataURIs.contains(missing) }
         #expect(remote.requestedURIs == [missing])
-        remote.completeMetadata(for: missing)
+        #expect(remote.completeMetadata(for: missing))
         let result = await second.value
         #expect(result?.entries.map(\.uri) == [known, missing])
         #expect(Set(result?.tracks.map(\.uri) ?? []) == Set([known, missing]))
@@ -193,7 +215,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func changedFallbackReplacesTheSharedFlight() async {
+    func changedFallbackReplacesTheSharedFlight() async throws {
         let (web, gate) = makeLateFailureWebQueue()
         let service = QueueService(
             webQueue: web,
@@ -210,7 +232,15 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer {
+            first.cancel()
+            Task {
+                await gate.fail429(1)
+                await gate.fail429(2)
+            }
+        }
+        try await requireEventually { await gate.pendingRequestIDs.contains(1) }
+        #expect(web.requestCount == 1)
         let second = Task {
             await service.refresh(
                 fallbackEntries: [QueueEntry(uri: newURI, provider: "fallback", occurrence: 0)],
@@ -219,7 +249,9 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        #expect(await waitUntil { web.requestCount == 2 })
+        defer { second.cancel() }
+        try await requireEventually { await gate.pendingRequestIDs.contains(2) }
+        #expect(web.requestCount == 2)
         await gate.fail429(1)
         #expect(await first.value == nil)
         await gate.fail429(2)
@@ -230,7 +262,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func concurrentRefreshesJoinOneWebFlightAndPublishToBothSubscribers() async {
+    func concurrentRefreshesJoinOneWebFlightAndPublishToBothSubscribers() async throws {
         let web = HarnessWebQueue(.park)
         let service = QueueService(
             webQueue: web,
@@ -248,7 +280,9 @@ struct QueueRefreshConvergenceTests {
                 onUpdate: { _ in firstUpdates.record("update") }
             )
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer { first.cancel(); web.fail() }
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 1)
         let second = Task {
             await service.refresh(
                 fallbackEntries: [],
@@ -257,7 +291,7 @@ struct QueueRefreshConvergenceTests {
                 onUpdate: { _ in secondUpdates.record("update") }
             )
         }
-        #expect(await waitUntil { await service.refreshSubscriberCount == 2 })
+        try await requireEventually { await service.refreshSubscriberCount == 2 }
         #expect((web.requestCount) == 1, "concurrent callers share one Web queue request")
 
         web.complete(with: [queueRefreshTrack("spotify:track:joined")])
@@ -271,7 +305,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func cancelledSubscriberCanRejoinWithoutCancellingSharedFlight() async {
+    func cancelledSubscriberCanRejoinWithoutCancellingSharedFlight() async throws {
         let web = HarnessWebQueue(.park)
         let service = QueueService(
             webQueue: web,
@@ -291,7 +325,9 @@ struct QueueRefreshConvergenceTests {
             cancelledSettled = true
             return result
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer { cancelled.cancel(); web.fail() }
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 1)
         let joined = Task {
             await service.refresh(
                 fallbackEntries: [],
@@ -299,7 +335,7 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        #expect(await waitUntil { await service.refreshSubscriberCount == 2 })
+        try await requireEventually { await service.refreshSubscriberCount == 2 }
         cancelled.cancel()
         #expect(await waitUntil { cancelledSettled }, "cancellation settles before the shared Web request finishes")
         #expect(await waitUntil { await service.refreshSubscriberCount == 1 })
@@ -313,7 +349,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func connectOrderingDuringHydrationAddsOnlyNewURIsAndKeepsOrder() async {
+    func connectOrderingDuringHydrationAddsOnlyNewURIsAndKeepsOrder() async throws {
         let remote = HarnessRemote(metadata: .park)
         let service = QueueService(
             webQueue: HarnessWebQueue(.unavailable),
@@ -335,7 +371,11 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        #expect(await waitUntil { remote.requestedURIs.count == 2 })
+        defer {
+            refresh.cancel()
+            for uri in remote.parkedMetadataURIs { _ = remote.failMetadata(for: uri) }
+        }
+        try await requireEventually { remote.parkedMetadataURIs == Set([a, b]) }
         #expect(remote.requestedURIs.sorted() == [a, b], "duplicate fallback occurrences hydrate once")
 
         _ = await service.acceptConnect(
@@ -349,11 +389,11 @@ struct QueueRefreshConvergenceTests {
             sourceRevision: 1,
             contextURI: "spotify:track:current"
         )
-        remote.completeMetadata(for: a)
-        remote.completeMetadata(for: b)
-        #expect(await waitUntil { remote.requestedURIs.contains(c) })
+        #expect(remote.completeMetadata(for: a))
+        #expect(remote.completeMetadata(for: b))
+        try await requireEventually { remote.parkedMetadataURIs.contains(c) }
         #expect(remote.requestedURIs.filter { $0 == b }.count == 1)
-        remote.completeMetadata(for: c)
+        #expect(remote.completeMetadata(for: c))
 
         let result = await refresh.value
         #expect(result?.entries.map(\.uri) == [b, a, b, c], "Connect remains authoritative for order")
@@ -363,7 +403,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func connectOrderingArrivingDuringWebSuccessGetsHydratedBeforeFlightCompletes() async {
+    func connectOrderingArrivingDuringWebSuccessGetsHydratedBeforeFlightCompletes() async throws {
         let web = HarnessWebQueue(.park)
         let remote = HarnessRemote(metadata: .park)
         let service = QueueService(
@@ -378,7 +418,9 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer { refresh.cancel(); web.fail(); _ = remote.failMetadata() }
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 1)
         let connectURI = "spotify:track:connect-only"
         _ = await service.acceptConnect(
             [QueueEntry(uri: connectURI, provider: "connect", occurrence: 0)],
@@ -387,8 +429,8 @@ struct QueueRefreshConvergenceTests {
             contextURI: "spotify:track:current"
         )
         web.complete(with: [queueRefreshTrack("spotify:track:web-only")])
-        #expect(await waitUntil { remote.requestedURIs.contains(connectURI) })
-        remote.completeMetadata(for: connectURI)
+        try await requireEventually { remote.parkedMetadataURIs.contains(connectURI) }
+        #expect(remote.completeMetadata(for: connectURI))
 
         let result = await refresh.value
         #expect(result?.entries.map(\.uri) == [connectURI])
@@ -397,7 +439,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func resetAndContextChangeInvalidatePendingRefreshes() async {
+    func resetAndContextChangeInvalidatePendingRefreshes() async throws {
         let web = HarnessWebQueue(.park)
         let service = QueueService(
             webQueue: web,
@@ -412,7 +454,9 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer { oldAccount.cancel(); web.fail() }
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 1)
         await service.reset(accountEpoch: 2)
         #expect((await oldAccount.value) == nil, "reset invalidates the old account flight")
 
@@ -423,7 +467,9 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 2
             )
         }
-        #expect(await waitUntil { web.requestCount == 2 })
+        defer { oldContext.cancel() }
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 2)
         _ = await service.acceptConnect(
             [],
             accountEpoch: 2,
@@ -436,7 +482,7 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
-    func staleWebFailureCannotSetCooldownForTheReplacementAccount() async {
+    func staleWebFailureCannotSetCooldownForTheReplacementAccount() async throws {
         let (web, gate) = makeLateFailureWebQueue()
         let service = QueueService(
             webQueue: web,
@@ -450,7 +496,15 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 1
             )
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer {
+            oldAccount.cancel()
+            Task {
+                await gate.fail429(1)
+                await gate.fail429(2)
+            }
+        }
+        try await requireEventually { await gate.pendingRequestIDs.contains(1) }
+        #expect(web.requestCount == 1)
         await service.reset(accountEpoch: 2)
         await gate.fail429(1)
         #expect((await oldAccount.value) == nil)
@@ -462,7 +516,9 @@ struct QueueRefreshConvergenceTests {
                 accountEpoch: 2
             )
         }
-        #expect(await waitUntil { web.requestCount == 2 }, "the replacement account probes Web again")
+        defer { replacement.cancel() }
+        try await requireEventually { await gate.pendingRequestIDs.contains(2) }
+        #expect(web.requestCount == 2, "the replacement account probes Web again")
         await gate.complete(2, with: [queueRefreshTrack("spotify:track:fresh")])
         #expect((await replacement.value)?.entries.map(\.uri) == ["spotify:track:fresh"])
     }

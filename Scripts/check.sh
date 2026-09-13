@@ -29,6 +29,7 @@ fi
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
 if [[ "$check_scope" != rust && "$check_scope" != rust-compiled ]]; then
+    python3 -B -m unittest "$project_root/Scripts/test_swift_test_watchdog.py"
     "$project_root/Scripts/format-swift-self-test.sh"
     "$project_root/Scripts/format-swift.sh" --check
 fi
@@ -177,8 +178,26 @@ if ! [[ "$repeat_count" =~ '^[1-9][0-9]*$' ]] || (( repeat_count > 25 )); then
     print -u2 "SPOTTY_CHECK_REPEATS must be between 1 and 25"
     exit 2
 fi
+if [[ -n "${SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS:-}" ]]; then
+    swift_test_timeout="$SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS"
+elif [[ -n "${CI:-}" ]]; then
+    swift_test_timeout=300
+else
+    # Cold local compiles can legitimately exceed the warm CI test-invocation budget.
+    swift_test_timeout=1200
+fi
+if [[ -n "${RUNNER_TEMP:-}" ]]; then
+    swift_test_diagnostics="${SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR:-$RUNNER_TEMP/spotty-swift-test-diagnostics}"
+else
+    swift_test_diagnostics="${SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR:-${TMPDIR:-/tmp}/spotty-swift-test-diagnostics-$$}"
+fi
+mkdir -p "$swift_test_diagnostics"
 for (( run = 1; run <= repeat_count; run++ )); do
-    swift test "${domain_test_arguments[@]}"
+    python3 "$project_root/Scripts/swift_test_watchdog.py" \
+        --lane domain --repetition "$run" --timeout-seconds "$swift_test_timeout" \
+        --log-dir "$swift_test_diagnostics" \
+        --event-stream-path "$swift_test_diagnostics/domain-repeat-$run-events.jsonl" \
+        -- swift test "${domain_test_arguments[@]}"
 done
 
 # Concrete codecs/parsers, persistence, transport, and injected session/queue workflows compile
@@ -194,14 +213,21 @@ boundary_test_arguments=(
     "${spotty_swiftc_warnings_as_errors[@]}"
 )
 for (( run = 1; run <= repeat_count; run++ )); do
-    swift test "${boundary_test_arguments[@]}"
+    python3 "$project_root/Scripts/swift_test_watchdog.py" \
+        --lane boundary --repetition "$run" --timeout-seconds "$swift_test_timeout" \
+        --log-dir "$swift_test_diagnostics" \
+        --event-stream-path "$swift_test_diagnostics/boundary-repeat-$run-events.jsonl" \
+        -- swift test "${boundary_test_arguments[@]}"
 done
 
 # The opt-in browsing app is never part of the shipping graph. Its deterministic port/fixture
 # checks run headlessly; launching its real views remains an explicit local acceptance step.
-SPOTTY_BUILD_BROWSING_HARNESS=1 swift test --disable-sandbox --no-parallel \
-    --package-path "$project_root" --configuration debug --filter SpottyBrowsingHarnessTests \
-    "${spotty_swiftc_warnings_as_errors[@]}"
+SPOTTY_BUILD_BROWSING_HARNESS=1 python3 "$project_root/Scripts/swift_test_watchdog.py" \
+    --lane browsing --repetition 1 --timeout-seconds "$swift_test_timeout" \
+    --log-dir "$swift_test_diagnostics" \
+    --event-stream-path "$swift_test_diagnostics/browsing-repeat-1-events.jsonl" \
+    -- swift test --disable-sandbox --no-parallel --package-path "$project_root" \
+    --configuration debug --filter SpottyBrowsingHarnessTests "${spotty_swiftc_warnings_as_errors[@]}"
 
 # Check mutation access against the actual testable Debug module built by the boundary suite.
 "$project_root/Scripts/check-playback-projection-access.sh"

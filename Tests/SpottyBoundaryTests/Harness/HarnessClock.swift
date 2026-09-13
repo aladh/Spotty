@@ -26,6 +26,7 @@ final class HarnessClock: PlaybackClock, @unchecked Sendable {
         var requestedSleeps: [TimeInterval] = []
         var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
         var order: [UUID] = []
+        var releaseGeneration: UInt64 = 0
     }
 
     private let lock = NSLock()
@@ -92,6 +93,7 @@ final class HarnessClock: PlaybackClock, @unchecked Sendable {
     /// Resumes every parked sleeper.
     func releaseAll() {
         let parked = withStorage { storage -> [CheckedContinuation<Void, any Error>] in
+            storage.releaseGeneration &+= 1
             let pending = storage.order.compactMap { storage.waiters[$0] }
             storage.waiters.removeAll()
             storage.order.removeAll()
@@ -105,41 +107,57 @@ final class HarnessClock: PlaybackClock, @unchecked Sendable {
     func now() -> Date { withStorage { $0.now } }
 
     func sleep(seconds: TimeInterval) async throws {
-        let behavior = withStorage { storage -> SleepBehavior in
+        let (behavior, releaseGeneration) = withStorage { storage -> (SleepBehavior, UInt64) in
             storage.requestedSleeps.append(seconds)
-            return storage.behavior
+            return (storage.behavior, storage.releaseGeneration)
         }
         switch behavior {
         case .immediate:
             return
         case .parked:
-            try await park(cooperatively: true)
+            try await park(cooperatively: true, releaseGeneration: releaseGeneration)
         case .uncooperativelyParked:
-            try await park(cooperatively: false)
+            try await park(cooperatively: false, releaseGeneration: releaseGeneration)
         }
     }
 
-    private func park(cooperatively: Bool) async throws {
+    private func park(cooperatively: Bool, releaseGeneration: UInt64) async throws {
         let id = UUID()
         guard cooperatively else {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                withStorage { storage in
+                let released = withStorage { storage -> Bool in
+                    if storage.releaseGeneration != releaseGeneration { return true }
                     storage.waiters[id] = continuation
                     storage.order.append(id)
+                    return false
+                }
+                if released {
+                    continuation.resume()
                 }
             }
             return
         }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                let cancelled = withStorage { storage -> Bool in
-                    if Task.isCancelled { return true }
+                enum Registration {
+                    case parked
+                    case cancelled
+                    case released
+                }
+                let registration = withStorage { storage -> Registration in
+                    if Task.isCancelled { return .cancelled }
+                    if storage.releaseGeneration != releaseGeneration { return .released }
                     storage.waiters[id] = continuation
                     storage.order.append(id)
-                    return false
+                    return .parked
                 }
-                if cancelled {
+                switch registration {
+                case .parked:
+                    break
+                case .cancelled:
                     continuation.resume(throwing: CancellationError())
+                case .released:
+                    continuation.resume()
                 }
             }
         } onCancel: {

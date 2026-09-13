@@ -19,8 +19,12 @@ struct ArtworkPipelineTests {
         let large = Task {
             try await pipeline.artwork(for: ArtworkRequest(url: url, maximumPixelDimension: 256, accountEpoch: 1))
         }
-        #expect(await artworkWait { await loader.loadCount == 1 })
-        #expect(await artworkWait { await pipeline.statistics().pendingRequests == 2 })
+        defer {
+            small.cancel(); large.cancel()
+            Task { await loader.releaseAll() }
+        }
+        try await requireArtworkCondition { await loader.parkedLoadCount == 1 }
+        try await requireArtworkCondition { await pipeline.statistics().pendingRequests == 2 }
         await loader.releaseAll()
         let thumbnail = try await small.value
         let hero = try await large.value
@@ -74,7 +78,11 @@ struct ArtworkPipelineTests {
         let old = Task {
             try await pipeline.artwork(for: ArtworkRequest(url: url, maximumPixelDimension: 64, accountEpoch: 1))
         }
-        #expect(await artworkWait { await loader.loadCount == 1 })
+        defer {
+            old.cancel()
+            Task { await loader.releaseAll() }
+        }
+        try await requireArtworkCondition { await loader.parkedLoadCount == 1 }
         await pipeline.retire(accountEpoch: 1)
         await expectRetired(old)
         #expect(await pipeline.statistics().residentBytes == 0)
@@ -86,7 +94,15 @@ struct ArtworkPipelineTests {
         let current = Task {
             try await pipeline.artwork(for: ArtworkRequest(url: url, maximumPixelDimension: 64, accountEpoch: 2))
         }
-        #expect(await artworkWait { await loader.loadCount == 2 })
+        defer {
+            current.cancel()
+            Task { await loader.releaseAll() }
+        }
+        try await requireArtworkCondition {
+            let parked = await loader.parkedLoadCount
+            let loads = await loader.loadCount
+            return parked == 2 && loads == 2
+        }
         await loader.releaseAll()
         #expect(try await current.value.pixelWidth == 32)
         await pipeline.retire(accountEpoch: 1)
@@ -106,12 +122,17 @@ struct ArtworkPipelineTests {
             try await pipeline.artwork(
                 for: ArtworkRequest(url: artworkURL("first"), maximumPixelDimension: 64, accountEpoch: 7))
         }
-        #expect(await artworkWait { await loader.loadCount == 1 })
+        defer {
+            first.cancel()
+            Task { await loader.releaseAll() }
+        }
+        try await requireArtworkCondition { await loader.parkedLoadCount == 1 }
         let queued = Task {
             try await pipeline.artwork(
                 for: ArtworkRequest(url: artworkURL("queued"), maximumPixelDimension: 64, accountEpoch: 7))
         }
-        #expect(await artworkWait { await pipeline.statistics().pendingRequests == 2 })
+        defer { queued.cancel() }
+        try await requireArtworkCondition { await pipeline.statistics().pendingRequests == 2 }
         await #expect(throws: ArtworkFailure.overloaded) {
             try await pipeline.artwork(
                 for: ArtworkRequest(url: artworkURL("overflow"), maximumPixelDimension: 64, accountEpoch: 7))
@@ -154,6 +175,8 @@ private actor ArtworkFixtureLoader: ArtworkSourceLoading {
     var cancellationCount = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
+    var parkedLoadCount: Int { waiters.count }
+
     init(data: Data, suspended: Bool = false) { self.data = data; self.suspended = suspended }
     func load(_: URL) async -> Data {
         loadCount += 1
@@ -186,12 +209,22 @@ private func artworkFixture(width: Int, height: Int) throws -> Data {
 }
 
 private func artworkURL(_ name: String) -> URL { URL(string: "https://fixtures.invalid/\(name).png")! }
-private func artworkWait(_ predicate: () async -> Bool) async -> Bool {
-    for _ in 0..<10_000 {
-        if await predicate() { return true }
+private enum ArtworkWatchdogError: Error {
+    case timedOut
+}
+
+private func requireArtworkCondition(
+    timeout: Duration = .seconds(10),
+    _ predicate: () async -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now + timeout
+    while clock.now < deadline {
+        try Task.checkCancellation()
+        if await predicate() { return }
         await Task.yield()
     }
-    return false
+    throw ArtworkWatchdogError.timedOut
 }
 private func expectRetired(_ task: Task<ArtworkAsset, any Error>) async {
     do { _ = try await task.value; Issue.record("Retired artwork must never publish") } catch {

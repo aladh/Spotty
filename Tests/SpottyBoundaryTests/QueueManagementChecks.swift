@@ -197,47 +197,58 @@ private final class SplitQueueDeadlineClock: PlaybackClock, @unchecked Sendable 
 @Suite("Queue Management")
 struct QueueManagementTests {
     @Test @MainActor
-    func observationTimeoutDoesNotCancelRemainingBatchDispatch() async {
+    func observationTimeoutDoesNotCancelRemainingBatchDispatch() async throws {
         let clock = SplitQueueDeadlineClock()
         let remote = HarnessRemote(send: .park)
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(remote: remote, clock: clock),
             feedback: TransientFeedbackPresenter(clock: clock))
+        defer {
+            player.effects.cancelAccountScoped()
+            _ = remote.completePark(success: false)
+            clock.first.releaseAll()
+            clock.later.releaseAll()
+        }
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
         player.addToQueue(uris: ["spotify:track:a", "spotify:track:b", "spotify:track:c"])
-        #expect(await waitUntil { remote.sendCount == 1 })
+        try await requireEventually { remote.sendCount == 1 && remote.parkedSendCount == 1 }
         let firstID = player.state.intents.last!.command.id
         #expect(await waitUntil { clock.first.waiterCount == 1 })
         remote.completePark(success: true)
-        #expect(await waitUntil { remote.sendCount == 2 })
+        try await requireEventually { remote.sendCount == 2 && remote.parkedSendCount == 1 }
         let firstDeadline = player.effects.settlement(of: .commandDeadline(firstID))
         clock.first.releaseAll()
         await firstDeadline?.wait()
         #expect(player.state.intents.first?.outcome == .timedOut)
         remote.completePark(success: true)
-        #expect(await waitUntil { remote.sendCount == 3 })
+        try await requireEventually { remote.sendCount == 3 && remote.parkedSendCount == 1 }
         remote.completePark(success: true)
         #expect(await waitUntil { player.feedback.message?.text == "Queue requests sent for 3 songs" })
         await player.shutdownForTermination()
     }
 
     @Test @MainActor
-    func ambiguousEarlierAppendCannotDonateItsOccurrenceToAnOverlappingRequest() async {
+    func ambiguousEarlierAppendCannotDonateItsOccurrenceToAnOverlappingRequest() async throws {
         let clock = CooperativeParkedClock()
         let remote = HarnessRemote(send: .park)
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(remote: remote, clock: clock),
             feedback: TransientFeedbackPresenter(clock: clock))
+        defer {
+            player.effects.cancelAccountScoped()
+            _ = remote.completePark(success: false)
+            clock.releaseAll()
+        }
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
         let uri = "spotify:track:new"
         player.addToQueue(uris: [uri])
-        #expect(await waitUntil { remote.sendCount == 1 })
+        try await requireEventually { remote.sendCount == 1 && remote.parkedSendCount == 1 }
         player.addToQueue(uris: [uri])
         #expect(await waitUntil { player.state.intents.filter { $0.command.kind == .queue }.count == 2 })
         remote.completePark(success: false)
-        #expect(await waitUntil { remote.sendCount == 2 })
+        try await requireEventually { remote.sendCount == 2 && remote.parkedSendCount == 1 }
         var observed = player.state.queue
         observed.entries.append(PlaybackQueueItem(uri: uri, provider: "queue", uid: "ambiguous"))
         observed.revision += 1
@@ -251,16 +262,21 @@ struct QueueManagementTests {
     }
 
     @Test @MainActor
-    func confirmedRemovalCannotHoldAdmissionAfterItsDeadline() async {
+    func confirmedRemovalCannotHoldAdmissionAfterItsDeadline() async throws {
         let clock = CooperativeParkedClock()
         let remote = HarnessRemote(send: .park)
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(remote: remote, clock: clock),
             feedback: TransientFeedbackPresenter(clock: clock))
+        defer {
+            player.effects.cancelAccountScoped()
+            _ = remote.completePark(success: false)
+            clock.releaseAll()
+        }
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
         player.removeUpcomingQueueOccurrences(selectedIDs: [player.queueNextEntries[0].id])
-        #expect(await waitUntil { remote.sendCount == 1 })
+        try await requireEventually { remote.sendCount == 1 && remote.parkedSendCount == 1 }
         var observed = player.state.queue
         observed.entries.removeFirst()
         observed.revision += 1
@@ -276,13 +292,18 @@ struct QueueManagementTests {
     }
 
     @Test(arguments: [false, true]) @MainActor
-    func observedQueueChangeSurvivesLateTransportFailure(removal: Bool) async {
+    func observedQueueChangeSurvivesLateTransportFailure(removal: Bool) async throws {
         let clock = CooperativeParkedClock()
         let remote = HarnessRemote(send: .park)
         let feedback = TransientFeedbackPresenter(clock: clock)
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(remote: remote, clock: clock),
             feedback: feedback)
+        defer {
+            player.effects.cancelAccountScoped()
+            _ = remote.completePark(success: false)
+            clock.releaseAll()
+        }
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
         var observed = player.state.queue
@@ -294,7 +315,7 @@ struct QueueManagementTests {
             player.addToQueue(uris: [addedURI])
             observed.entries.append(PlaybackQueueItem(uri: addedURI, provider: "queue", uid: "added"))
         }
-        #expect(await waitUntil { remote.sendCount == 1 })
+        try await requireEventually { remote.sendCount == 1 && remote.parkedSendCount == 1 }
         observed.revision += 1
         observed.receivedAt = clock.now()
         #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
@@ -413,15 +434,21 @@ struct QueueManagementTests {
 
     @Test
     @MainActor
-    func handoffSkipsQueuedAddToQueueItems() async {
+    func handoffSkipsQueuedAddToQueueItems() async throws {
         let parked = HarnessRemote(send: .park)
-        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
+        let clock = HarnessClock.parked()
+        let feedback = TransientFeedbackPresenter(clock: clock, duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
+            environment: HarnessEnvironment.make(remote: parked, clock: clock),
             feedback: feedback)
+        defer {
+            player.effects.cancelAccountScoped()
+            _ = parked.completePark(success: false)
+            clock.releaseAll()
+        }
         seedRemoteOwner(player)
         player.addToQueue(uris: ["spotify:track:first", "spotify:track:second", "spotify:track:third"])
-        #expect((await waitUntil { parked.sendCount == 1 }) == true, "first add is in flight")
+        try await requireEventually { parked.sendCount == 1 && parked.parkedSendCount == 1 }
 
         // The first command has crossed the dispatch boundary. Handoff must invalidate only
         // the queued permits, so the remaining URIs are not sent to the old remote target.
@@ -435,15 +462,21 @@ struct QueueManagementTests {
 
     @Test
     @MainActor
-    func aReplacementIsAdmittedBeforeHandoffInvalidatesIt() async {
+    func aReplacementIsAdmittedBeforeHandoffInvalidatesIt() async throws {
         let parked = HarnessRemote(send: .park)
-        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
+        let clock = HarnessClock.parked()
+        let feedback = TransientFeedbackPresenter(clock: clock, duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
+            environment: HarnessEnvironment.make(remote: parked, clock: clock),
             feedback: feedback)
+        defer {
+            player.effects.cancelAccountScoped()
+            _ = parked.completePark(success: false)
+            clock.releaseAll()
+        }
         seedRemoteOwner(player)
         player.addToQueue(uris: ["spotify:track:blocking"])
-        #expect((await waitUntil { parked.sendCount == 1 }) == true, "the first add is in flight")
+        try await requireEventually { parked.sendCount == 1 && parked.parkedSendCount == 1 }
         await seedAuthoritativeQueue(player)
         let removalID = player.queueNextEntries[0].id
         let replacement = player.withRuntime { runtime in
@@ -604,7 +637,7 @@ struct QueueManagementTests {
 
     @Test
     @MainActor
-    func aRejectedSetQueueDoesNotRewritePresentation() async {
+    func aRejectedSetQueueDoesNotRewritePresentation() async throws {
         let failing = HarnessRemote(send: .fail)
         let failFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let rejected = PlaybackStore(
@@ -627,15 +660,20 @@ struct QueueManagementTests {
         let cancelled = PlaybackStore(
             environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: cancelFeedback)
+        defer {
+            cancelled.effects.cancelAccountScoped()
+            _ = parked.completePark(success: false)
+        }
         seedRemoteOwner(cancelled)
         await seedAuthoritativeQueue(cancelled)
         let cancelID = cancelled.queueNextEntries[0].id
         let cancelBefore = cancelled.queueNextEntries
         cancelled.removeUpcomingQueueOccurrences(selectedIDs: [cancelID])
-        #expect((await waitUntil { parked.sendCount == 1 }) == true, "cancelled removal started")
+        try await requireEventually { parked.sendCount == 1 && parked.parkedSendCount == 1 }
+        let cancelledReplacement = cancelled.effects.settlement(of: .queueReplacement)
         cancelled.effects.cancelAccountScoped()
-        parked.completePark(success: false)
-        await yieldPasses()
+        _ = parked.completePark(success: false)
+        await cancelledReplacement?.wait()
         #expect((cancelFeedback.message) == nil, "cancelled removal reports no mutation feedback")
         #expect((cancelled.queueNextEntries) == (cancelBefore), "cancelled removal does not locally edit")
         await cancelled.shutdownForTermination()
@@ -645,14 +683,19 @@ struct QueueManagementTests {
         let stale = PlaybackStore(
             environment: HarnessEnvironment.make(remote: staleRemote, clock: HarnessClock.parked()),
             feedback: staleFeedback)
+        defer {
+            stale.effects.cancelAccountScoped()
+            _ = staleRemote.completePark(success: false)
+        }
         seedRemoteOwner(stale)
         await seedAuthoritativeQueue(stale)
         let staleID = stale.queueNextEntries[0].id
         stale.removeUpcomingQueueOccurrences(selectedIDs: [staleID])
-        #expect((await waitUntil { staleRemote.sendCount == 1 }) == true, "stale-account removal started")
+        try await requireEventually { staleRemote.sendCount == 1 && staleRemote.parkedSendCount == 1 }
+        let staleReplacement = stale.effects.settlement(of: .queueReplacement)
         stale.accountStore.advanceEpoch()
-        staleRemote.completePark(success: true)
-        await yieldPasses()
+        #expect(staleRemote.completePark(success: true))
+        await staleReplacement?.wait()
         #expect((staleFeedback.message) == nil, "stale-account removal reports no mutation feedback")
         await stale.shutdownForTermination()
 
@@ -674,19 +717,23 @@ struct QueueManagementTests {
 
     @Test
     @MainActor
-    func aSecondInFlightRemovalDoesNotSendAnotherSetQueue() async {
+    func aSecondInFlightRemovalDoesNotSendAnotherSetQueue() async throws {
         let parked = HarnessRemote(send: .park)
         let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: feedback)
+        defer {
+            player.effects.cancelAccountScoped()
+            _ = parked.completePark(success: false)
+        }
         seedRemoteOwner(player)
         await seedAuthoritativeQueue(player)
         let firstID = player.queueNextEntries[0].id
         let secondID = player.queueNextEntries[1].id
         let before = player.queueNextEntries
         player.removeUpcomingQueueOccurrences(selectedIDs: [firstID])
-        #expect((await waitUntil { parked.sendCount == 1 }) == true, "first replacement started")
+        try await requireEventually { parked.sendCount == 1 && parked.parkedSendCount == 1 }
         #expect(
             (!player.canRemoveUpcomingQueue(selectedIDs: [secondID])) == true,
             "an in-flight replacement disables further removal")
@@ -1024,18 +1071,22 @@ struct QueueManagementTests {
 
     @Test
     @MainActor
-    func closingTheInspectorDoesNotCancelSetQueue() async {
+    func closingTheInspectorDoesNotCancelSetQueue() async throws {
         let parked = HarnessRemote(send: .park)
         let replacementFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let replacement = PlaybackStore(
             environment: HarnessEnvironment.make(remote: parked, clock: HarnessClock.parked()),
             feedback: replacementFeedback
         )
+        defer {
+            replacement.effects.cancelAccountScoped()
+            _ = parked.completePark(success: false)
+        }
         seedRemoteOwner(replacement)
         await seedAuthoritativeQueue(replacement)
         let removalID = replacement.queueNextEntries[0].id
         replacement.removeUpcomingQueueOccurrences(selectedIDs: [removalID])
-        #expect((await waitUntil { parked.sendCount == 1 }) == true, "parked replacement started")
+        try await requireEventually { parked.sendCount == 1 && parked.parkedSendCount == 1 }
         replacement.cancelQueueRefresh()
         await yieldPasses()
         #expect((parked.sendCount) == (1), "closing the inspector does not cancel set_queue")
@@ -1089,10 +1140,16 @@ struct QueueManagementTests {
                 queueServiceHook: teardownHook),
             feedback: teardownFeedback
         )
+        defer {
+            teardown.effects.cancelAccountScoped()
+            _ = teardownRemote.completePark(success: false)
+        }
         seedRemoteOwner(teardown)
         await seedAuthoritativeQueue(teardown)
         teardown.removeUpcomingQueueOccurrences(selectedIDs: [teardown.queueNextEntries[0].id])
-        #expect((await waitUntil { teardownRemote.sendCount == 1 }) == true, "teardown replacement started")
+        try await requireEventually {
+            teardownRemote.sendCount == 1 && teardownRemote.parkedSendCount == 1
+        }
         await teardownHook.parkNextConnectAccept()
         teardown.receive(
             connectQueueEnvelope(

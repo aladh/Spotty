@@ -413,14 +413,16 @@ struct PlaybackEventOutcomeTests {
 
     @Test
     @MainActor
-    func testPlaybackEventOutcome() async {
+    func testPlaybackEventOutcome() async throws {
         do {
             let successRemote = HarnessRemote(metadata: .park)
             let success = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: successRemote))
             startTrackResolution(success, uri: "spotify:track:success")
-            #expect(
-                (await waitUntil { successRemote.requestedURI == "spotify:track:success" }) == true,
-                "metadata lookup starts")
+            defer { _ = successRemote.failMetadata() }
+            try await requireEventually {
+                successRemote.parkedMetadataURIs.contains("spotify:track:success")
+            }
+            #expect(successRemote.requestedURI == "spotify:track:success", "metadata lookup starts")
             success.recordPlayed("spotify:track:success")
             let successfulMetadata = success.effects.settlement(of: .trackMetadata)
             successRemote.completeMetadata(title: "Resolved")
@@ -441,9 +443,10 @@ struct PlaybackEventOutcomeTests {
             let staleEngineRemote = HarnessRemote(metadata: .park)
             let staleEngine = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: staleEngineRemote))
             startTrackResolution(staleEngine, uri: "spotify:track:stale-engine")
-            #expect(
-                (await waitUntil { staleEngineRemote.requestedURI != nil }) == true,
-                "stale-engine metadata lookup starts")
+            defer { _ = staleEngineRemote.failMetadata() }
+            try await requireEventually {
+                staleEngineRemote.parkedMetadataURIs.contains("spotify:track:stale-engine")
+            }
             let staleEngineMetadata = staleEngine.effects.settlement(of: .trackMetadata)
             bumpEngine(staleEngine)
             staleEngineRemote.completeMetadata(title: "Late engine")
@@ -460,9 +463,10 @@ struct PlaybackEventOutcomeTests {
             let staleAccountRemote = HarnessRemote(metadata: .park)
             let staleAccount = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: staleAccountRemote))
             startTrackResolution(staleAccount, uri: "spotify:track:stale-account")
-            #expect(
-                (await waitUntil { staleAccountRemote.requestedURI != nil }) == true,
-                "stale-account metadata lookup starts")
+            defer { _ = staleAccountRemote.failMetadata() }
+            try await requireEventually {
+                staleAccountRemote.parkedMetadataURIs.contains("spotify:track:stale-account")
+            }
             staleAccount.recordPlayed("spotify:track:stale-account")
             let staleAccountMetadata = staleAccount.effects.settlement(of: .trackMetadata)
             staleAccount.accountStore.advanceEpoch()
@@ -485,9 +489,10 @@ struct PlaybackEventOutcomeTests {
             let cancelRemote = HarnessRemote(metadata: .park)
             let cancelled = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: cancelRemote))
             startTrackResolution(cancelled, uri: "spotify:track:cancelled")
-            #expect(
-                (await waitUntil { cancelRemote.requestedURI != nil }) == true, "cancelled metadata lookup starts"
-            )
+            defer { _ = cancelRemote.failMetadata() }
+            try await requireEventually {
+                cancelRemote.parkedMetadataURIs.contains("spotify:track:cancelled")
+            }
             cancelled.recordPlayed("spotify:track:cancelled")
             let cancelledMetadata = cancelled.effects.settlement(of: .trackMetadata)
             cancelled.effects.cancel(.trackMetadata)
@@ -505,9 +510,10 @@ struct PlaybackEventOutcomeTests {
             let rejectedRemote = HarnessRemote(metadata: .park)
             let rejected = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: rejectedRemote))
             startTrackResolution(rejected, uri: "spotify:track:original")
-            #expect(
-                (await waitUntil { rejectedRemote.requestedURI == "spotify:track:original" }) == true,
-                "reducer-rejection metadata lookup starts")
+            defer { _ = rejectedRemote.failMetadata() }
+            try await requireEventually {
+                rejectedRemote.parkedMetadataURIs.contains("spotify:track:original")
+            }
             rejected.recordPlayed("spotify:track:original")
             _ = rejected.send(
                 .presentation(

@@ -1,5 +1,9 @@
 import Testing
 
+enum SynchronizationPrerequisiteError: Error {
+    case timedOut
+}
+
 /// Test-only cooperative wait for concrete boundary checks.
 /// Polls on the MainActor with `Task.yield` until `condition` is true, the task is
 /// cancelled, or `timeout` elapses. The default ten-second deadline is a liveness watchdog, not a scheduling delay. A true
@@ -33,5 +37,20 @@ func expectEventually(
 ) async {
     if !(await waitUntil(timeout: timeout, condition)) {
         Issue.record("Synchronization prerequisite did not settle before the watchdog", sourceLocation: sourceLocation)
+    }
+}
+
+/// A synchronization prerequisite that callers must establish before releasing a gate or joining
+/// dependent work. Unlike `expectEventually`, failure stops the current test path so cleanup can
+/// cancel owned tasks and close its gates instead of awaiting work that was never admitted.
+@MainActor
+func requireEventually(
+    timeout: Duration = .seconds(10),
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ condition: @MainActor () async -> Bool
+) async throws {
+    guard await waitUntil(timeout: timeout, condition) else {
+        Issue.record("Synchronization prerequisite did not settle before the watchdog", sourceLocation: sourceLocation)
+        throw SynchronizationPrerequisiteError.timedOut
     }
 }

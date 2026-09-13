@@ -13,10 +13,16 @@ import SpottyRuntimeContracts
 private actor LateMetadataGate {
     private var continuations: [Int: CheckedContinuation<SpotifyConnectTrackMetadata, any Error>] = [:]
     private var nextRequestID = 0
+    private var cancelledBeforeRegistration: Set<Int> = []
+
+    var parkedRequestIDs: Set<Int> { Set(continuations.keys) }
 
     func request(for uri: String) async throws -> SpotifyConnectTrackMetadata {
         nextRequestID += 1
         let requestID = nextRequestID
+        if cancelledBeforeRegistration.remove(requestID) != nil {
+            throw CancellationError()
+        }
         return try await withCheckedThrowingContinuation { continuation in
             continuations[requestID] = continuation
         }
@@ -29,7 +35,11 @@ private actor LateMetadataGate {
     }
 
     func fail(_ requestID: Int) {
-        continuations.removeValue(forKey: requestID)?.resume(throwing: CancellationError())
+        guard let continuation = continuations.removeValue(forKey: requestID) else {
+            cancelledBeforeRegistration.insert(requestID)
+            return
+        }
+        continuation.resume(throwing: CancellationError())
     }
 }
 
@@ -50,10 +60,14 @@ struct TrackMetadataLifetimeTests {
         let uri = "spotify:track:replaced"
 
         let old = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { remote.requestedURIs.count == 1 })
+        defer { old.cancel(); replacementCleanup(gate, ids: [1, 2]) }
+        try await requireEventually { await gate.parkedRequestIDs.contains(1) }
+        #expect(remote.requestedURIs.count == 1)
         await service.reset()
         let replacement = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { remote.requestedURIs.count == 2 })
+        defer { replacement.cancel() }
+        try await requireEventually { await gate.parkedRequestIDs.contains(2) }
+        #expect(remote.requestedURIs.count == 2)
 
         await gate.complete(2, uri: uri, title: "Replacement")
         #expect((await replacement.value)?.title == "Replacement")
@@ -70,15 +84,25 @@ struct TrackMetadataLifetimeTests {
         let uri = "spotify:track:replaced-error"
 
         let old = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { remote.requestedURIs.count == 1 })
+        defer { old.cancel(); replacementCleanup(gate, ids: [1, 2]) }
+        try await requireEventually { await gate.parkedRequestIDs.contains(1) }
+        #expect(remote.requestedURIs.count == 1)
         await service.reset()
         let replacement = Task { try? await service.metadata(for: uri) }
-        #expect(await waitUntil { remote.requestedURIs.count == 2 })
+        defer { replacement.cancel() }
+        try await requireEventually { await gate.parkedRequestIDs.contains(2) }
+        #expect(remote.requestedURIs.count == 2)
 
         await gate.fail(1)
         #expect((await old.value) == nil)
         await gate.complete(2, uri: uri, title: "Replacement")
         #expect((await replacement.value)?.title == "Replacement")
         #expect((try await service.metadata(for: uri)).title == "Replacement")
+    }
+}
+
+private func replacementCleanup(_ gate: LateMetadataGate, ids: [Int]) {
+    Task {
+        for id in ids { await gate.fail(id) }
     }
 }

@@ -14,21 +14,30 @@ import SpottyRuntimeContracts
 private actor LibraryParkGate {
     private var albumContinuation: CheckedContinuation<[PathfinderAlbum], Never>?
     private var artistContinuation: CheckedContinuation<[PathfinderArtist], Never>?
+    private var albumsReleased = false
+    private var artistsReleased = false
+
+    var albumsAreParked: Bool { albumContinuation != nil }
+    var artistsAreParked: Bool { artistContinuation != nil }
 
     func parkAlbums() async -> [PathfinderAlbum] {
-        await withCheckedContinuation { albumContinuation = $0 }
+        guard !albumsReleased else { return [] }
+        return await withCheckedContinuation { albumContinuation = $0 }
     }
 
     func parkArtists() async -> [PathfinderArtist] {
-        await withCheckedContinuation { artistContinuation = $0 }
+        guard !artistsReleased else { return [] }
+        return await withCheckedContinuation { artistContinuation = $0 }
     }
 
     func completeAlbums() {
+        albumsReleased = true
         albumContinuation?.resume(returning: [])
         albumContinuation = nil
     }
 
     func completeArtists() {
+        artistsReleased = true
         artistContinuation?.resume(returning: [])
         artistContinuation = nil
     }
@@ -38,14 +47,16 @@ private actor LibraryParkGate {
 struct WorkflowTests {
     @Test
     @MainActor
-    func queueBootstrapKeepsConnectOrderingDuringWebFallback() async {
+    func queueBootstrapKeepsConnectOrderingDuringWebFallback() async throws {
         let web = HarnessWebQueue(.park)
         let service = QueueService(webQueue: web, metadata: TrackMetadataService(remote: HarnessRemote()))
         await service.reset(accountEpoch: 1)
         let refresh = Task {
             await service.refresh(fallbackEntries: [], currentTrackURI: "spotify:track:current", accountEpoch: 1)
         }
-        #expect(await waitUntil { web.requestCount == 1 })
+        defer { refresh.cancel(); web.fail() }
+        try await requireEventually { web.isParked }
+        #expect(web.requestCount == 1)
         let upcoming = QueueEntry(uri: "spotify:track:next", provider: "queue", occurrence: 0, uid: "next-occurrence")
         _ = await service.acceptConnect(
             [upcoming], accountEpoch: 1, sourceRevision: 1, contextURI: "spotify:track:current"
@@ -111,7 +122,7 @@ struct WorkflowTests {
 
     @Test
     @MainActor
-    func aResetRejectsOldAccountWebQueueResults() async {
+    func aResetRejectsOldAccountWebQueueResults() async throws {
         let webQueue = HarnessWebQueue(.park)
         let remote = HarnessRemote()
         let service = QueueService(
@@ -127,7 +138,9 @@ struct WorkflowTests {
                 accountEpoch: 7
             )
         }
-        while webQueue.requestCount == 0 { await Task.yield() }
+        defer { refresh.cancel(); webQueue.fail() }
+        try await requireEventually { webQueue.isParked }
+        #expect(webQueue.requestCount == 1)
 
         await service.reset(accountEpoch: 8)
         webQueue.complete(with: [workflowTrack("spotify:track:stale")])
@@ -322,7 +335,7 @@ struct WorkflowTests {
 
     @Test
     @MainActor
-    func metadataUpdatesIncludeCachedEntriesWithBoundedConcurrency() async {
+    func metadataUpdatesIncludeCachedEntriesWithBoundedConcurrency() async throws {
         let remote = HarnessRemote(metadata: .park)
         let metadata = TrackMetadataService(remote: remote)
         let service = QueueService(webQueue: HarnessWebQueue(), metadata: metadata)
@@ -343,7 +356,11 @@ struct WorkflowTests {
             )
         }
 
-        await expectEventually { remote.parkedMetadataRequestCount >= 8 }
+        defer {
+            refresh.cancel()
+            for uri in remote.parkedMetadataURIs { _ = remote.failMetadata(for: uri) }
+        }
+        try await requireEventually { remote.parkedMetadataRequestCount >= 8 }
         #expect(
             (updates.snapshot.first?.entries.count) == (12),
             "queue ordering is published before network hydration completes"
@@ -353,18 +370,24 @@ struct WorkflowTests {
         #expect((remote.maximumActiveMetadataRequests) == (8), "metadata concurrency reaches its bound")
 
         let initiallyRequested = remote.requestedURIs
-        if let first = initiallyRequested.first { remote.completeMetadata(for: first) }
-        while remote.requestedURIs.count < 9 { await Task.yield() }
+        if let first = initiallyRequested.first { #expect(remote.completeMetadata(for: first)) }
+        try await requireEventually {
+            !remote.parkedMetadataURIs.subtracting(initiallyRequested).isEmpty
+        }
         #expect(
             await waitUntil { updates.snapshot.contains { $0.tracks.count == 3 } },
             "a completed lookup publishes in a bounded batch while other requests remain pending")
 
         var completed: Set<String> = Set(initiallyRequested.prefix(1))
         while completed.count < expectedRequestedURIs.count {
-            for uri in remote.requestedURIs where completed.insert(uri).inserted {
-                remote.completeMetadata(for: uri)
+            try await requireEventually {
+                !remote.parkedMetadataURIs.subtracting(completed).isEmpty
             }
-            await Task.yield()
+            for uri in remote.parkedMetadataURIs where !completed.contains(uri) {
+                if remote.completeMetadata(for: uri) {
+                    completed.insert(uri)
+                }
+            }
         }
         let final = await refresh.value
         #expect((final?.tracks.count) == (12), "all queue metadata eventually hydrates")
@@ -374,15 +397,20 @@ struct WorkflowTests {
 
     @Test
     @MainActor
-    func concurrentMetadataConsumersShareOneRemoteLookup() async {
+    func concurrentMetadataConsumersShareOneRemoteLookup() async throws {
         let remote = HarnessRemote(metadata: .park)
         let metadata = TrackMetadataService(remote: remote)
         let uri = "spotify:track:shared"
         let first = Task { try? await metadata.metadata(for: uri) }
         let second = Task { try? await metadata.metadata(for: uri) }
-        while remote.requestedURIs.isEmpty { await Task.yield() }
+        defer {
+            first.cancel()
+            second.cancel()
+            _ = remote.failMetadata(for: uri)
+        }
+        try await requireEventually { remote.parkedMetadataURIs.contains(uri) }
         #expect((remote.requestedURIs.count) == (1), "concurrent consumers issue one remote lookup")
-        remote.completeMetadata(for: uri)
+        #expect(remote.completeMetadata(for: uri))
         let values = await [first.value, second.value]
         #expect((values.compactMap { $0 }.count) == (2), "both consumers receive the shared result")
         _ = try? await metadata.metadata(for: uri)
@@ -421,7 +449,7 @@ struct WorkflowTests {
 
     @Test
     @MainActor
-    func homeLibraryLoadsCoalesceDuplicateSectionRequests() async {
+    func homeLibraryLoadsCoalesceDuplicateSectionRequests() async throws {
         let provider = HarnessCatalog()
         let gate = LibraryParkGate()
         provider.onLibraryAlbums = { [gate] in await gate.parkAlbums() }
@@ -434,10 +462,21 @@ struct WorkflowTests {
         let store = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
 
         let albums = Task { await store.loadAlbums() }
-        while provider.libraryAlbumRequestCount == 0 { await Task.yield() }
+        defer {
+            albums.cancel()
+            Task {
+                await gate.completeAlbums()
+                await gate.completeArtists()
+            }
+        }
+        try await requireEventually { await gate.albumsAreParked }
         let albumFollower = Task { await store.loadAlbums() }
         let artists = Task { await store.loadArtists() }
-        while provider.libraryArtistRequestCount == 0 { await Task.yield() }
+        defer {
+            albumFollower.cancel()
+            artists.cancel()
+        }
+        try await requireEventually { await gate.artistsAreParked }
 
         #expect((provider.libraryAlbumRequestCount) == (1), "duplicate requests for one section coalesce")
 

@@ -24,10 +24,18 @@ For every changed Markdown file in the range under audit:
 5. **Clarity.** The change reads correctly in context: no contradiction with the surrounding
    paragraph or with another document that covers the same topic, no dangling reference to
    removed text, and heading levels that follow the file's structure.
+6. **Release-note audience.** For a new or changed `docs/releases/vX.Y.Z.md`, apply the audience
+   and content test in `docs/development/releases.md#release-note-format`. Read the notes on their
+   own, as a nontechnical Spotty listener will. Every summary and change bullet must describe an
+   observable effect in plain language. Internal-only work and unexplained implementation terms
+   are findings even when technically accurate; ask for the user outcome to be stated or for the
+   item to be omitted. This check applies only to regular Spotty app notes, not independently
+   published SpottyPlaybackCore releases.
 
 ## What not to report
 
-- Rewording for taste, sentence length, or word choice when the meaning is correct.
+- Rewording for taste, sentence length, or word choice when the meaning is correct and the text
+  satisfies any audience contract that applies to it.
 - Problems in lines the PR did not touch, unless the change broke them (for example a renamed
   heading that orphaned an anchor elsewhere).
 - Whether a product requirement should change. That belongs to the other reviewer; you check only

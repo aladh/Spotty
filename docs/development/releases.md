@@ -100,12 +100,26 @@ The key authenticates Spotty updates independently of Apple signing or notarizat
 Start each `docs/releases/vX.Y.Z.md` with one sentence summarizing the release. Follow with
 `## Fixes`, `## Improvements`, or `## What’s new` and concise user-facing bullets. An optional
 `## Known limitations` section and a behavior/migration-change section (for example v0.2.4's
-`## Session storage change`) may follow. Describe observable changes and relevant limits, avoiding
-internal implementation details.
+`## Session storage change`) may follow.
+
+Write for a listener who uses Spotty but does not develop software. Each summary and bullet must
+answer **what will I notice?** in plain language. Name the screen, control, action, or problem the
+listener recognizes; say when the change matters when that context is useful. Do not include work
+that has no observable user effect, such as refactors, dependency updates, test changes, internal
+architecture, or release-process changes. Mention an implementation detail only when the listener
+must understand it to act, assess a privacy or security consequence, or understand a known
+limitation.
+
+Before approval, read only the proposed notes (not the commits or PRs behind them) and check that a
+nontechnical listener can explain the benefit. Rewrite or omit terms such as *metadata*,
+*invalidation*, *runtime*, *session ownership*, *assertion*, *lifetime*, and *concurrency* unless the
+note explains a user-recognizable meaning. Engineering accuracy is necessary, but translating an
+implementation summary into user outcomes is part of writing the release notes.
 
 End with `## Install`: list macOS, hardware, and account requirements; explain built-in updates
 when supported; name the versioned archive and checksum and give its verification command.
 Include the current signing/notarization status and the macOS first-launch instructions, with a
 link to the README at that release's tag; the "will not automatically trust" sentence applies from
-v0.2.1 onward. Use [v0.2.5](../releases/v0.2.5.md) as the template and update every version
-reference for the new release.
+v0.2.1 onward. Use [v0.2.3](../releases/v0.2.3.md) as the structural template and update every
+version reference for the new release; apply the audience test above independently rather than
+copying the wording of any past release.

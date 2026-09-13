@@ -423,41 +423,6 @@ func testTransportRetry() async {
             "client token drops before the terminal bearer throw")
         #expect((thrown.callCount) == (3), "a terminal bearer throw does not add a request")
         #expect((tokens.callCount) == (3), "a terminal bearer throw does not fetch another credential")
-
-        let cancellationTokens = CredentialSequence(values: ["cancel-a", "cancel-b", "cancel-c", "cancel-d"])
-        let cancellationClients = CredentialSequence(values: [
-            "cancel-client-a", "cancel-client-b", "cancel-client-c",
-        ])
-        let cancellationAccess = CancellationThrowingInvalidator()
-        let cancellation = ScriptedRetryTransport(steps: [
-            .http(status: 503),
-            .http(status: 503),
-            .http(status: 401),
-            .http(status: 200, body: profileBody),
-        ])
-        // Inject cancellation at the terminal invalidator boundary without scheduling another
-        // parked task. The backoff probe above separately covers external task cancellation.
-        var propagatedCancellation = false
-        do {
-            _ = try await PartnerAPI(
-                accessToken: { cancellationTokens.next() },
-                clientToken: { cancellationClients.next() },
-                invalidateAccessToken: { try await cancellationAccess.invalidate($0) },
-                invalidateClientToken: { _ in },
-                transport: cancellation.send,
-                retryTiming: .immediate
-            ).profile()
-        } catch is CancellationError {
-            propagatedCancellation = true
-        } catch {
-            #expect((false) == true, "terminal invalidation preserves CancellationError, got \(error)")
-        }
-        #expect(
-            (propagatedCancellation) == true,
-            "CancellationError from terminal invalidation propagates")
-        #expect((cancellation.callCount) == (3), "terminal invalidation cancellation does not add a request")
-        #expect((cancellationAccess.values) == (["cancel-c"]), "cancellation still names the final bearer")
-        #expect((cancellationTokens.callCount) == (3), "cancellation does not fetch another credential")
     }
 
     do {
@@ -522,6 +487,45 @@ func testTransportRetry() async {
             (recovered?.entries.map(\.uid)) == (["uid-alpha", "uid-beta"]),
             "expired cooldown preserves Connect occurrence uids")
     }
+}
+
+@Test("Terminal invalidation cancellation propagates")
+@MainActor
+func terminalInvalidationCancellationPropagates() async {
+    let tokens = CredentialSequence(values: ["cancel-a", "cancel-b", "cancel-c", "cancel-d"])
+    let clients = CredentialSequence(values: [
+        "cancel-client-a", "cancel-client-b", "cancel-client-c",
+    ])
+    let invalidator = CancellationThrowingInvalidator()
+    let transport = ScriptedRetryTransport(steps: [
+        .http(status: 503),
+        .http(status: 503),
+        .http(status: 401),
+        .http(status: 200, body: profileBody),
+    ])
+    // Keep the cancellation probe in its own test task. Xcode 26.6 can strand this retry hop
+    // when it follows the large retry matrix, before the terminal invalidator is reached.
+    var propagatedCancellation = false
+    do {
+        _ = try await PartnerAPI(
+            accessToken: { tokens.next() },
+            clientToken: { clients.next() },
+            invalidateAccessToken: { try await invalidator.invalidate($0) },
+            invalidateClientToken: { _ in },
+            transport: transport.send,
+            retryTiming: .immediate
+        ).profile()
+    } catch is CancellationError {
+        propagatedCancellation = true
+    } catch {
+        #expect((false) == true, "terminal invalidation preserves CancellationError, got \(error)")
+    }
+    #expect(
+        (propagatedCancellation) == true,
+        "CancellationError from terminal invalidation propagates")
+    #expect((transport.callCount) == (3), "terminal invalidation cancellation does not add a request")
+    #expect((invalidator.values) == (["cancel-c"]), "cancellation still names the final bearer")
+    #expect((tokens.callCount) == (3), "cancellation does not fetch another credential")
 }
 
 @Test("Cancellation probe cleanup is bounded before parking")

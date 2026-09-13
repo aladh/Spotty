@@ -1,7 +1,7 @@
 # Retained librespot patches
 
 Only `core` and `playback` are retained from upstream revision
-`a1b66d3c8a14e55a9572a9e17467150dca618c9a` (MIT; see LICENSE). Cargo patches these
+`939dc5ee9d833e1980f9495241219d9d4868a061` (MIT; see LICENSE). Cargo patches these
 crates throughout the pinned dependency graph. Other librespot crates remain Git dependencies.
 
 Changes from that source:

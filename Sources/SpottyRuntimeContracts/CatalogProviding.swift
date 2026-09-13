@@ -111,22 +111,6 @@ public struct CatalogArtistSnapshot: Equatable, Codable, Sendable {
     ) { self.name = name; self.releases = releases; self.item = item; self.freshness = freshness }
 }
 
-/// Every attribute is optional: unavailable enrichment cannot remove playable tracks.
-public struct TrackAttributes: Equatable, Codable, Sendable {
-    public let popularity: Int?
-    public let bpm: Int?
-    public let key: String?
-    public init(popularity: Int?, bpm: Int?, key: String?) {
-        self.popularity = popularity
-        self.bpm = bpm
-        self.key = key
-    }
-}
-
-public protocol TrackAttributesProviding: Sendable {
-    func attributes(for uris: [String]) async throws -> [String: TrackAttributes]
-}
-
 public protocol PlaylistMutating: Sendable {
     func addToPlaylist(playlistId: String, trackUris: [String]) async throws
     func removeFromPlaylist(playlistId: String, uids: [String]) async throws

@@ -95,47 +95,8 @@ struct TrackTableDisplayCacheTests {
                 "artist then reverse title keeps comparator order")
 
             #expect(
-                (!cache.update(
-                    collection,
-                    sortValuesRevision: 1,
-                    sortOrder: artistThenReverseTitle
-                )) == true, "attribute revision is ignored for a title sort")
-
-            let popularityAscending = [KeyPathComparator(\TrackTableRow.popularitySortValue)]
-            let initialPopularity = [
-                alpha.uri: TrackTableSortValues(popularity: 80, bpm: nil, key: nil),
-                beta.uri: TrackTableSortValues(popularity: 20, bpm: nil, key: nil),
-            ]
-            #expect(
-                (cache.update(
-                    collection,
-                    sortValues: initialPopularity,
-                    sortValuesRevision: 1,
-                    sortOrder: popularityAscending
-                )) == true, "attribute-backed sort recomputes")
-            #expect(
-                (cache.rows.map(\.id)) == (["beta", "alpha", "gamma"]), "missing popularity follows present values")
-            let refreshedPopularity = [
-                alpha.uri: TrackTableSortValues(popularity: 10, bpm: nil, key: nil),
-                beta.uri: TrackTableSortValues(popularity: 90, bpm: nil, key: nil),
-                gamma.uri: TrackTableSortValues(popularity: 50, bpm: nil, key: nil),
-            ]
-            #expect(
-                (cache.update(
-                    collection,
-                    sortValues: refreshedPopularity,
-                    sortValuesRevision: 2,
-                    sortOrder: popularityAscending
-                )) == true, "new attribute revision re-sorts an active attribute column")
-            #expect(
-                (cache.rows.map(\.id)) == (["alpha", "gamma", "beta"]), "attribute arrival updates the active order")
-            #expect(
-                (!cache.update(
-                    collection,
-                    sortValues: initialPopularity,
-                    sortValuesRevision: 2,
-                    sortOrder: popularityAscending
-                )) == true, "unchanged attribute revision is a cache hit")
+                (!cache.update(collection, sortOrder: artistThenReverseTitle)) == true,
+                "an unchanged collection and sort order is a cache hit")
 
             var other = CatalogTrackCollection()
             other.replace([beta])

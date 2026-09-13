@@ -70,72 +70,22 @@ struct FormattingTests {
             )
         }
 
-        func sortValues(
-            popularity: Int? = nil,
-            bpm: Int? = nil,
-            key: String? = nil
-        ) -> TrackTableSortValues {
-            TrackTableSortValues(popularity: popularity, bpm: bpm, key: key)
-        }
-
         func sortedURIs(
             _ tracks: [CatalogTrack],
-            using comparator: KeyPathComparator<TrackTableRow>,
-            sortValues: [String: TrackTableSortValues] = [:],
+            using comparator: KeyPathComparator<TrackTableRow>
         ) -> [String] {
             let collection = CatalogTrackCollection(tracks: tracks)
             var cache = TrackTableDisplayCache(collection)
-            _ = cache.update(
-                collection,
-                sortValues: sortValues,
-                sortValuesRevision: 1,
-                sortOrder: [comparator]
-            )
+            _ = cache.update(collection, sortOrder: [comparator])
             return cache.rows.map(\.track.uri)
         }
 
         do {
             let short = track(uri: "short")
             let long = track(uri: "long", duration: 240)
-            let missing = track(uri: "missing")
-            let values = [
-                "short": sortValues(popularity: 10, bpm: 90, key: "2A"),
-                "long": sortValues(popularity: 80, bpm: 130, key: "10A"),
-            ]
-
-            #expect(
-                (sortedURIs(
-                    [long, short],
-                    using: KeyPathComparator(\TrackTableRow.popularitySortValue),
-                    sortValues: values
-                )) == (["short", "long"]), "popularity sorts ascending from displayed enrichment")
-            #expect(
-                (sortedURIs(
-                    [missing, short, long],
-                    using: KeyPathComparator(\TrackTableRow.bpmSortValue, order: .reverse),
-                    sortValues: values
-                )) == (["long", "short", "missing"]), "BPM reverses while missing enrichment stays last")
-            #expect(
-                (sortedURIs(
-                    [long, short],
-                    using: KeyPathComparator(\TrackTableRow.keySortValue),
-                    sortValues: values
-                )) == (["short", "long"]), "Camelot keys use numeric ordering")
             #expect(
                 (sortedURIs([long, short], using: KeyPathComparator(\TrackTableRow.duration))) == (["short", "long"]),
                 "time sorts by numeric duration")
-
-            let equalAttributes = [
-                "short": sortValues(popularity: 50),
-                "long": sortValues(popularity: 50),
-            ]
-            #expect(
-                (sortedURIs(
-                    [missing, long, short],
-                    using: KeyPathComparator(\TrackTableRow.popularitySortValue),
-                    sortValues: equalAttributes
-                )) == (["long", "short", "missing"]),
-                "missing values sort deterministically and equal values keep source order")
         }
     }
 }

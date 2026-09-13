@@ -998,51 +998,6 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
 
 }
 
-/// Track attributes that resolve to nothing unless a check scripts them.
-final class HarnessTrackAttributes: TrackAttributesProviding, @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedRequests: [[String]] = []
-    private var storedOnAttributes: (@Sendable ([String]) async throws -> [String: TrackAttributes])?
-
-    init(onAttributes: (@Sendable ([String]) async throws -> [String: TrackAttributes])? = nil) {
-        storedOnAttributes = onAttributes
-    }
-
-    var onAttributes: (@Sendable ([String]) async throws -> [String: TrackAttributes])? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return storedOnAttributes
-        }
-        set {
-            lock.lock()
-            storedOnAttributes = newValue
-            lock.unlock()
-        }
-    }
-
-    var requests: [[String]] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedRequests
-    }
-
-    var requestCount: Int { requests.count }
-
-    func attributes(for uris: [String]) async throws -> [String: TrackAttributes] {
-        let override = record(uris)
-        guard let override else { return [:] }
-        return try await override(uris)
-    }
-
-    private func record(_ uris: [String]) -> (@Sendable ([String]) async throws -> [String: TrackAttributes])? {
-        lock.lock()
-        defer { lock.unlock() }
-        storedRequests.append(uris)
-        return storedOnAttributes
-    }
-}
-
 /// Playlist writes that are unavailable unless a check scripts them, and that record every call.
 final class HarnessPlaylistMutations: PlaylistMutating, @unchecked Sendable {
     struct AddCall: Sendable, Equatable {

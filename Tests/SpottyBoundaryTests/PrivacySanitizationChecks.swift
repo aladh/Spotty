@@ -161,22 +161,6 @@ struct PrivacySanitizationTests {
                 #expect((false) == true, "forbidden queue failures throw SpotifyWebPlayerAPIError")
             }
 
-            let attributes = TrackAttributesAPI(
-                accessToken: { "fixture-access" },
-                clientToken: { "fixture-client" },
-                invalidateClientToken: { _ in },
-                transport: rejectedTransport(status: 500, body: Data(privacySentinel.utf8)),
-                retryTiming: .immediate
-            )
-            await expectFailure(
-                "track-attribute",
-                TrackAttributesAPIError.requestFailed(500),
-                description: "Spotify rejected the attribute request (HTTP 500)",
-                perform: {
-                    _ = try await attributes.attributes(for: ["spotify:track:6rqhFgbbKwnb9MLmUQDhG6"])
-                }
-            )
-
             let failedPhase = PlaybackSessionPhase.failed(
                 PartnerAPIError.requestFailed(503).errorDescription ?? privacySentinel
             )

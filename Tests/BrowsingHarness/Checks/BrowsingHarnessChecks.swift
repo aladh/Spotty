@@ -103,7 +103,6 @@ struct BrowsingHarnessTests {
             environment.webQueue as AnyObject, environment.audioOutput as AnyObject,
             environment.preferences as AnyObject, environment.lifecycle as AnyObject,
             environment.clock as AnyObject,
-            environment.trackAttributes as AnyObject,
         ] {
             let isWorld = port === world
             #expect(isWorld)

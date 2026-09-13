@@ -154,7 +154,6 @@ private func makeCatalog(
 ) -> CatalogStore {
     CatalogStore(
         provider: services,
-        attributesProvider: HarnessTrackAttributes(),
         playlistMutations: services,
         session: session,
         clock: SystemPlaybackClock(),

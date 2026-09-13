@@ -27,8 +27,7 @@ indication of affiliation.
   after Spotify confirms them.
 - **Browsing:** Home, Search, profile, Liked Songs, playlists, albums, and artists from the
   signed-in account.
-- **Track details:** sortable metadata, including Date added in playlists and Popularity, BPM,
-  and a Key column showing Camelot notation in shared catalog tables where applicable.
+- **Track details:** sortable metadata, including Date added in playlists.
 - **Playlist editing:** add selected tracks to an owned library playlist or remove selected
   occurrences from an open owned playlist, with success and failure feedback.
 - **macOS integration:** native navigation, tables, menus, inspector, keyboard commands, and

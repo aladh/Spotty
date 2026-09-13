@@ -10,7 +10,6 @@ private struct PlaylistLoadIdentity: Equatable {
 struct PlaylistDetailView: View {
     let item: CatalogItem
     let store: PlaylistStore
-    let metadata: CatalogMetadataRepository
     let playback: CatalogPlaybackAccess
     let playlistActions: TrackPlaylistActions
     let onSelect: (CatalogItem) -> Void
@@ -169,7 +168,6 @@ struct PlaylistDetailView: View {
                     }
                     TrackTable(
                         tracks: store.trackCollection,
-                        metadata: metadata,
                         playback: playback,
                         variant: .playlist,
                         searchQuery: interactionState.searchText,

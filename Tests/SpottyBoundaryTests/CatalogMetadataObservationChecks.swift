@@ -10,7 +10,7 @@ struct CatalogMetadataObservationTests {
     private let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
 
     private func makeMetadata() -> CatalogMetadataRepository {
-        CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        CatalogMetadataRepository(session: session)
     }
 
     private func observe(_ read: () -> Void) -> HarnessCounters {

@@ -67,10 +67,7 @@ private func makeStore(
     provider: HarnessCatalog,
     session: CatalogSessionAvailability
 ) -> HomeLibraryStore {
-    let metadata = CatalogMetadataRepository(
-        attributesProvider: HarnessTrackAttributes(),
-        session: session
-    )
+    let metadata = CatalogMetadataRepository(session: session)
     return HomeLibraryStore(provider: provider, metadata: metadata, session: session)
 }
 

@@ -107,10 +107,6 @@ struct NativeTrackTableChecks {
         let state = CatalogRouteInteractionState()
         let variant: TrackTableVariant
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make())
-        let metadata = CatalogMetadataRepository(
-            attributesProvider: HarnessTrackAttributes(),
-            session: CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        )
         let container: NativeTrackTableContainer
         var coordinator: NativeTrackTable.Coordinator!
         var actions: TrackPlaylistActions?
@@ -132,7 +128,7 @@ struct NativeTrackTableChecks {
         private func content(_ tracks: [CatalogTrack]) -> NativeTrackTable {
             NativeTrackTable(
                 rows: TrackTableDisplayCache(CatalogTrackCollection(tracks: tracks)).rows,
-                variant: variant, playback: CatalogPlaybackAccess(player: player), metadata: metadata,
+                variant: variant, playback: CatalogPlaybackAccess(player: player),
                 searchQuery: "",
                 selection: Binding(get: { [state] in state.selection }, set: { [state] in state.selection = $0 }),
                 sortOrder: Binding(get: { [state] in state.sortOrder }, set: { [state] in state.sortOrder = $0 }),

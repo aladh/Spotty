@@ -33,7 +33,7 @@ enum SpottyPalette {
     static let playerDisabledForeground = Color.secondary.opacity(0.55)
     static let playerButtonForeground = Color.black
     static let remotePlaybackForeground = Color(red: 0.025, green: 0.12, blue: 0.06)
-    /// Data columns (BPM, key, time signature, popularity, duration, relative times). Measures
+    /// Data columns (duration and relative times). Measures
     /// ≥4.5:1 against `catalogCanvas`, meeting WCAG AA for normal text.
     static let dataText = Color(white: 0.64)
     /// Spotify's #ffffff4d rail over black intentionally retains its subdued ~2.48:1 contrast.

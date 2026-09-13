@@ -123,7 +123,6 @@ final class AlbumDetailStore {
                     )
                     updateEntityObservation()
                     metadata.replaceTracks(tracks, from: .album)
-                    metadata.loadTrackAttributes(for: tracks)
                 } catch {
                     guard self.flight.shouldReport(error, for: handle), item?.uri == handle.key else { return }
                     self.error = CatalogErrorPresentation.message(for: error)

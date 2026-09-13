@@ -2,7 +2,7 @@
 //  CatalogMetadataRepository.swift
 //  Spotty
 //
-//  Session-scoped catalog lookup and track-attribute enrichment.
+//  Session-scoped catalog lookup.
 //
 
 import SpottyDomain
@@ -27,8 +27,6 @@ final class CatalogMetadataRepository {
         case search
     }
 
-    private(set) var trackAttributes: [String: TrackAttributes] = [:]
-    private(set) var trackAttributesRevision: UInt64 = 0
     /// Changes only when the effective genuine browsing labels exported to the runtime change.
     /// Playback publications must not feed themselves back as higher-priority browsing input.
     @ObservationIgnored private(set) var runtimeTracksRevision: UInt64 = 0
@@ -36,31 +34,17 @@ final class CatalogMetadataRepository {
     private static let runtimeTrackSources: [TrackSource] = [.search, .playlist, .album, .library]
 
     @ObservationIgnored private let contentObservation = ObservationRegistrar()
-    @ObservationIgnored private let attributesProvider: any TrackAttributesProviding
     @ObservationIgnored private let session: CatalogSessionAvailability
     @ObservationIgnored private var tracksBySource: [TrackSource: [String: CatalogTrack]] = [:]
     @ObservationIgnored private var retainedTrackURIsBySource: [TrackSource: Set<String>] = [:]
     @ObservationIgnored private var itemsBySource: [ItemSource: [String: CatalogItem]] = [:]
-    @ObservationIgnored private var requestsInFlight: Set<String> = []
-    @ObservationIgnored private var enrichmentTasks: [UUID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var requestScope: UInt64 = 0
-    @ObservationIgnored private var requestSessionRevision: UInt64 = 0
     @ObservationIgnored private var contentEpoch: UInt64 = 0
 
-    init(
-        attributesProvider: any TrackAttributesProviding,
-        session: CatalogSessionAvailability
-    ) {
-        self.attributesProvider = attributesProvider
+    init(session: CatalogSessionAvailability) {
         self.session = session
     }
 
     func reset() {
-        requestScope &+= 1
-        enrichmentTasks.values.forEach { $0.cancel() }
-        enrichmentTasks.removeAll(keepingCapacity: false)
-        requestsInFlight.removeAll(keepingCapacity: false)
-        requestSessionRevision = session.snapshot.revision
         clearContent(for: session.accountEpoch)
     }
 
@@ -176,103 +160,6 @@ final class CatalogMetadataRepository {
         return ("Unknown track", id)
     }
 
-    // MARK: - Track attribute enrichment
-
-    private static let batchSize = 100
-    private static let requestLimit = 1_000
-    private static let cacheLimit = 20_000
-
-    func loadTrackAttributes(for tracks: [CatalogTrack]) {
-        let sessionSnapshot = session.snapshot
-        guard sessionSnapshot.isAvailable else { return }
-        if requestSessionRevision != sessionSnapshot.revision {
-            requestScope &+= 1
-            enrichmentTasks.values.forEach { $0.cancel() }
-            enrichmentTasks.removeAll(keepingCapacity: false)
-            requestsInFlight.removeAll(keepingCapacity: false)
-            requestSessionRevision = sessionSnapshot.revision
-        }
-        let scope = requestScope
-        let excluded = Set(trackAttributes.keys).union(requestsInFlight)
-        let uris = Self.attributeURIsToRequest(
-            from: tracks,
-            excluding: excluded,
-            limit: Self.requestLimit
-        )
-        requestsInFlight.formUnion(uris)
-
-        for offset in stride(from: 0, to: uris.count, by: Self.batchSize) {
-            let batch = Array(uris[offset..<min(offset + Self.batchSize, uris.count)])
-            let taskID = UUID()
-            enrichmentTasks[taskID] = Task { [weak self] in
-                guard let self else { return }
-                await self.fetchTrackAttributes(
-                    batch,
-                    scope: scope,
-                    sessionSnapshot: sessionSnapshot,
-                    taskID: taskID
-                )
-            }
-        }
-    }
-
-    nonisolated static func attributeURIsToRequest(
-        from tracks: [CatalogTrack],
-        excluding excluded: Set<String>,
-        limit: Int
-    ) -> [String] {
-        guard limit > 0 else { return [] }
-        var seen = excluded
-        var wanted: [String] = []
-        wanted.reserveCapacity(min(tracks.count, limit))
-
-        for track in tracks where track.uri.hasPrefix("spotify:track:") {
-            guard wanted.count < limit else { break }
-            if seen.insert(track.uri).inserted {
-                wanted.append(track.uri)
-            }
-        }
-        return wanted
-    }
-
-    private func fetchTrackAttributes(
-        _ uris: [String],
-        scope: UInt64,
-        sessionSnapshot: CatalogSessionSnapshot,
-        taskID: UUID
-    ) async {
-        defer {
-            enrichmentTasks[taskID] = nil
-            if scope == requestScope {
-                requestsInFlight.subtract(uris)
-            }
-        }
-
-        do {
-            let fetched = try await attributesProvider.attributes(for: uris)
-            guard isCurrent(scope, sessionSnapshot: sessionSnapshot) else { return }
-            let addedAttributes = fetched.keys.contains { trackAttributes[$0] == nil }
-            trackAttributes.merge(fetched) { current, _ in current }
-            trimAttributeCache(preserving: Set(fetched.keys))
-            if addedAttributes {
-                trackAttributesRevision &+= 1
-            }
-        } catch {
-            guard !isCancellation(error), isCurrent(scope, sessionSnapshot: sessionSnapshot) else { return }
-            debugLog(
-                "CatalogMetadataRepository",
-                "Track attributes failed; error=\(String(describing: type(of: error)))"
-            )
-        }
-    }
-
-    private func isCurrent(
-        _ scope: UInt64,
-        sessionSnapshot: CatalogSessionSnapshot
-    ) -> Bool {
-        scope == requestScope && session.snapshot == sessionSnapshot && sessionSnapshot.isAvailable
-    }
-
     private func acceptCurrentSessionWrite() -> Bool {
         let snapshot = session.snapshot
         guard snapshot.isAvailable else { return false }
@@ -286,8 +173,6 @@ final class CatalogMetadataRepository {
         publishTracks([:], affectedURIs: Set(tracksBySource.values.flatMap(\.keys)))
         publishItems([:], affectedURIs: Set(itemsBySource.values.flatMap(\.keys)))
         retainedTrackURIsBySource.removeAll(keepingCapacity: false)
-        trackAttributes.removeAll(keepingCapacity: false)
-        trackAttributesRevision &+= 1
         contentEpoch = epoch
     }
 
@@ -368,14 +253,4 @@ final class CatalogMetadataRepository {
         return nil
     }
 
-    private func trimAttributeCache(preserving preserved: Set<String>) {
-        guard trackAttributes.count > Self.cacheLimit else { return }
-        let excess = trackAttributes.count - Self.cacheLimit
-        let victims = trackAttributes.keys.lazy
-            .filter { !preserved.contains($0) }
-            .prefix(excess)
-        for uri in Array(victims) {
-            trackAttributes.removeValue(forKey: uri)
-        }
-    }
 }

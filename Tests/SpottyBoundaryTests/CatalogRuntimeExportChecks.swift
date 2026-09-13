@@ -7,7 +7,7 @@ import Testing
 struct CatalogRuntimeExportTests {
     @Test func playbackPublicationsNeverBecomeBrowsingInput() {
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         let track = HarnessFixtures.track(uri: "spotify:track:current", title: "Runtime label")
         metadata.replaceTracks([track], from: .nowPlaying)
         metadata.replaceTracks([track], from: .queue)
@@ -26,7 +26,7 @@ struct CatalogRuntimeExportTests {
 
     @Test func exportRevisionIgnoresUnchangedAndShadowedWrites() {
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         let preferred = HarnessFixtures.track(uri: "spotify:track:current", title: "Library label")
         let fallback = HarnessFixtures.track(uri: preferred.uri, title: "Search label")
         metadata.replaceTracks([preferred], from: .library)
@@ -44,7 +44,7 @@ struct CatalogRuntimeExportTests {
 
     @Test func exportCannotReadAnOlderAccountBeforeReset() {
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let metadata = CatalogMetadataRepository(attributesProvider: HarnessTrackAttributes(), session: session)
+        let metadata = CatalogMetadataRepository(session: session)
         let previous = HarnessFixtures.track(uri: "spotify:track:account-a")
         metadata.replaceTracks([previous], from: .library)
         session.update(accountEpoch: 2, isAvailable: true)

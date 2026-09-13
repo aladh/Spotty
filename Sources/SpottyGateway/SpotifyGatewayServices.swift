@@ -38,7 +38,6 @@ private struct LiveAccountSession: AccountSession {
 
 extension SpotifyConnectAPI: RemotePlaybackClient {}
 extension SpotifyWebPlayerAPI: WebQueueClient {}
-extension TrackAttributesAPI: TrackAttributesProviding {}
 
 /// Playback commands retain their own dispatch lane; catalog synchronization must not park pause
 /// or seek behind a page walk. Only the metadata read participates in shared enrichment admission.
@@ -75,7 +74,6 @@ package struct SpotifyGatewayServices: Sendable {
     package let account: any AccountSession
     package let catalog: any CatalogProviding
     package let playlistMutations: any PlaylistMutating
-    package let trackAttributes: any TrackAttributesProviding
 
     package init(openAuthorizationURL: @escaping @Sendable (URL) async -> Bool) {
         let interactive = SpotifyGatewayTransport.admitted(priority: .interactive)
@@ -106,6 +104,5 @@ package struct SpotifyGatewayServices: Sendable {
         account = LiveAccountSession(openAuthorizationURL: openAuthorizationURL)
         self.catalog = catalog
         playlistMutations = catalog
-        trackAttributes = TrackAttributesAPI(transport: enrichment)
     }
 }

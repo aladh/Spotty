@@ -105,21 +105,17 @@ package extension PlaybackSessionRuntime {
         guard canTogglePlayback else { return }
         let targetIsPlaying = !isPlaying
         let now = environment.clock.now()
-        let resumePlan = resumeLoadPlan()
-        // A cold idle join can retain a displayed track without any engine resume
-        // identity (for example, an empty Connect context). Treat the explicit Play
-        // press as a fresh track selection in that narrow case; do not fabricate a
-        // sticky resume plan or change reconnect rehydration.
-        let startsRetainedTrack =
-            targetIsPlaying && defaultLocalPlaybackDevice != nil
-            && resumePlan.targets().isEmpty && !trackURI.isEmpty
+        let resumeTarget = PlaybackResumeTarget(
+            trackURI: trackURI, contextURI: state.playbackContextURI,
+            positionMS: UInt32(max(0, min(Double(UInt32.max), position * 1_000))),
+            engineGeneration: engineGeneration)
         let localOperation: LocalPlaybackOperation =
-            !targetIsPlaying ? .pause : (startsRetainedTrack ? .playURI(trackURI) : .resume(resumePlan))
+            targetIsPlaying ? .resumeObserved(resumeTarget) : .pause
         let expectedTiming: PlaybackTiming
         if targetIsPlaying {
             // A paused anchor may be arbitrarily old; resume interpolation from now.
             expectedTiming = PlaybackTiming(
-                position: startsRetainedTrack ? 0 : position, duration: duration, anchoredAt: now)
+                position: position, duration: duration, anchoredAt: now)
         } else {
             // Freeze the smooth UI clock in the same event that applies paused transport. The
             // local player can still refresh an exact position as a follow-up; a remote device
@@ -260,7 +256,7 @@ package extension PlaybackSessionRuntime {
     }
 
     /// Sticky resume-load identity read through the engine getters, never presentation state.
-    /// Shared by user resume and reconnect rehydration.
+    /// Used only for reconnect rehydration; user resume validates an observed target.
     func resumeLoadPlan() -> ResumeLoadPlan {
         ResumeLoadPlan.capture(
             savedAtDeactivation: environment.local.resumePositionMilliseconds(),

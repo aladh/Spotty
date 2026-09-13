@@ -2573,7 +2573,7 @@ struct PlaybackCommandFailureTests {
 
     @Test
     @MainActor
-    func resumeAfterDeactivationUsesTheEnginesStickyPosition() async {
+    func resumeValidatesTheDisplayedTrackInsteadOfLoadingConflictingStickyIdentity() async {
         let engine = HarnessEngine(
             executeResult: .ok,
             resumePosition: 93_606,
@@ -2615,19 +2615,20 @@ struct PlaybackCommandFailureTests {
         player.togglePlayback()
         await expectEventually { player.state.pendingCommands[.transport] == nil }
 
-        let plan: ResumeLoadPlan?
+        let plan: PlaybackResumeTarget?
         switch engine.operations.first {
-        case let .resume(captured):
+        case let .resumeObserved(captured):
             plan = captured
         default:
             plan = nil
         }
         #expect(
-            (plan?.contextURI) == ("spotify:playlist:ctx"),
-            "resume loads sticky context not the empty presentation context")
+            (plan?.contextURI) == nil,
+            "a stale sticky context cannot replace the displayed context")
         #expect(
-            (plan?.trackURI) == ("spotify:track:sticky"), "resume loads sticky track not the presentation track")
-        #expect((plan?.positionMS) == (93_606), "resume uses the deactivation position")
+            (plan?.trackURI) == ("spotify:track:presentation"), "the engine must validate the displayed track")
+        #expect((plan?.positionMS) == (50_000), "the engine must validate the displayed position")
+        #expect(plan?.engineGeneration == player.engineGeneration)
         await player.shutdownForTermination()
     }
 }

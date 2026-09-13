@@ -24,6 +24,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
     public let expectedTrack: CurrentTrack?
     /// Requested identity even when no optimistic metadata/presentation was supplied.
     public let expectedTrackURI: String?
+    public let resumeTarget: PlaybackResumeTarget?
     /// Exact presentation captured at `commandStarted` for a known play target.
     public let rollbackPresentation: PlaybackPresentationSnapshot?
     /// Requested shuffle value for a live options command. Repeat commands leave this nil.
@@ -50,6 +51,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
         latestAuthoritativeTiming: PlaybackTiming? = nil,
         expectedTrack: CurrentTrack? = nil,
         expectedTrackURI: String? = nil,
+        resumeTarget: PlaybackResumeTarget? = nil,
         rollbackPresentation: PlaybackPresentationSnapshot? = nil,
         expectedShuffle: Bool? = nil,
         rollbackShuffle: Bool? = nil,
@@ -68,6 +70,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
         self.latestAuthoritativeTiming = latestAuthoritativeTiming
         self.expectedTrack = expectedTrack
         self.expectedTrackURI = expectedTrackURI
+        self.resumeTarget = resumeTarget
         self.rollbackPresentation = rollbackPresentation
         self.expectedShuffle = expectedShuffle
         self.rollbackShuffle = rollbackShuffle
@@ -89,6 +92,9 @@ public enum PlaybackTransportCommandResolution: Equatable, Sendable {
 }
 
 public struct PlaybackNotice: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable { case command, resumeUnavailable }
+    public static let resumeUnavailableMessage =
+        "This playback session could not be resumed safely. Choose a track or playlist to play."
     public static let audioKeyRefusedMessage =
         "Spotify declined this playback attempt. Your queue is preserved. Try the track again later."
     public static let trackUnavailableMessage =
@@ -96,9 +102,11 @@ public struct PlaybackNotice: Equatable, Sendable {
 
     public let id: UUID
     public let message: String
+    public let kind: Kind
 
-    public init(id: UUID = UUID(), message: String) {
+    public init(id: UUID = UUID(), message: String, kind: Kind = .command) {
         self.id = id
         self.message = message
+        self.kind = kind
     }
 }

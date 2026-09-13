@@ -180,7 +180,7 @@ private struct SidebarPlaylistRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityLabel(playlist.title)
         .accessibilityValue(
-            (playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle) + (isPlaying ? ", Playing" : "")
+            (playlist.subtitle.isEmpty ? "Playlist" : playlist.subtitle) + (isPlaying ? ", Active playlist" : "")
         )
         .help(playlist.title)
     }

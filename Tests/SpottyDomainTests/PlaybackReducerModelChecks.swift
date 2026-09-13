@@ -92,6 +92,12 @@ private struct EnvelopeGenerator {
 
     // MARK: Primitives
 
+    private mutating func randomNotice() -> PlaybackNotice? {
+        guard nextBool(&rng) else { return nil }
+        return PlaybackNotice(
+            message: "synthetic notice", kind: nextBool(&rng) ? .command : .resumeUnavailable)
+    }
+
     private mutating func nextRevision(for source: PlaybackEventSource) -> UInt64 {
         let counter = (revisions[source] ?? 0) &+ 1
         revisions[source] = counter
@@ -243,20 +249,28 @@ private struct EnvelopeGenerator {
 
     // MARK: Command lifecycle
 
-    private mutating func makeStartedCommand() -> PendingPlaybackCommand {
+    private mutating func makeStartedCommand(_ state: PlaybackState) -> PendingPlaybackCommand {
         let kind = pick(modelCommandKinds, &rng)
         let id = makeUUID(&rng)
         var expectedTransport: PlaybackTransportState?
         var expectedTiming: PlaybackTiming?
         var expectedTrack: CurrentTrack?
         var expectedTrackURI: String?
+        var resumeTarget: PlaybackResumeTarget?
         var expectedShuffle: Bool?
         var expectedRepeatFlags: RepeatFlags?
         var expectedOwner: PlaybackOwner?
         switch kind {
         case .transport:
             expectedTransport = pick(modelTransports, &rng)
-            if nextBool(&rng) {
+            if let current = state.currentTrack, !current.uri.isEmpty, nextInt(&rng, 3) == 0 {
+                expectedTransport = .playing
+                expectedTrackURI = current.uri
+                expectedTiming = state.timing
+                resumeTarget = PlaybackResumeTarget(
+                    trackURI: current.uri, contextURI: state.playbackContextURI,
+                    positionMS: UInt32(state.timing.position * 1_000), engineGeneration: state.engineEpoch)
+            } else if nextBool(&rng) {
                 expectedTrack = randomTrack()
             } else if nextBool(&rng) {
                 expectedTrackURI = pick(modelTrackURIs, &rng)
@@ -282,6 +296,7 @@ private struct EnvelopeGenerator {
             expectedTiming: expectedTiming,
             expectedTrack: expectedTrack,
             expectedTrackURI: expectedTrackURI,
+            resumeTarget: resumeTarget,
             expectedShuffle: expectedShuffle,
             expectedRepeatFlags: expectedRepeatFlags,
             expectedOwner: expectedOwner,
@@ -305,7 +320,7 @@ private struct EnvelopeGenerator {
     private mutating func commandEvent(_ state: PlaybackState) -> PlaybackEvent {
         switch nextInt(&rng, 10) {
         case 0, 1, 2, 3:
-            let command = makeStartedCommand()
+            let command = makeStartedCommand(state)
             remember(command.id)
             return .commandStarted(command)
         case 4:
@@ -339,7 +354,7 @@ private struct EnvelopeGenerator {
             return .commandFinished(
                 id: referencedID(state),
                 accepted: nextBool(&rng),
-                notice: nextBool(&rng) ? PlaybackNotice(message: "synthetic failure") : nil
+                notice: randomNotice()
             )
         }
     }
@@ -411,7 +426,7 @@ private struct EnvelopeGenerator {
             return (.devices(randomDeviceSnapshot()), .engineDevices)
         default:
             return (
-                .notice(nextBool(&rng) ? PlaybackNotice(message: "synthetic notice") : nil), .user
+                .notice(randomNotice()), .user
             )
         }
     }
@@ -768,6 +783,50 @@ private func rollbackRestoration(
 
 // MARK: - Trace runner
 
+private func emptyResumeObservationPreservesIdentity(
+    pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope, accepted: Bool
+) -> String? {
+    guard accepted, pre.accountEpoch == post.accountEpoch, pre.engineEpoch == post.engineEpoch,
+        pre.pendingCommands[.transport]?.resumeTarget != nil,
+        case let .enginePlayback(snapshot) = envelope.event,
+        snapshot.trackURI?.isEmpty != false
+    else { return nil }
+    if pre.currentTrack != post.currentTrack || pre.playbackContextURI != post.playbackContextURI
+        || pre.timing != post.timing || pre.options != post.options
+    {
+        return "an empty activation observation erased a pending resume's identity or position"
+    }
+    return nil
+}
+
+private func transientNoticePreservesResumeBlock(
+    pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope
+) -> String? {
+    guard pre.accountEpoch == post.accountEpoch, pre.engineEpoch == post.engineEpoch,
+        pre.notice?.kind == .resumeUnavailable
+    else { return nil }
+    switch envelope.event {
+    case let .notice(notice), let .commandFinished(_, _, notice):
+        if notice?.kind == .command, post.notice != pre.notice {
+            return "a transient error erased the persistent resume block"
+        }
+    default: break
+    }
+    return nil
+}
+
+private func resumeConfirmationRequiresContext(
+    pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope
+) -> String? {
+    guard case let .enginePlayback(snapshot) = envelope.event, snapshot.contextURI == nil else { return nil }
+    for intent in post.intents where intent.command.resumeTarget != nil && intent.outcome == .observedConfirmed {
+        if pre.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed {
+            return "a sample without context confirmed a resume"
+        }
+    }
+    return nil
+}
+
 private func firstViolation(
     pre: PlaybackState,
     post: PlaybackState,
@@ -794,6 +853,17 @@ private func firstViolation(
         return violation
     }
     if let violation = terminalOutcomesAreImmutable(pre: pre, post: post) { return violation }
+    if let violation = emptyResumeObservationPreservesIdentity(
+        pre: pre, post: post, envelope: envelope, accepted: accepted)
+    {
+        return violation
+    }
+    if let violation = transientNoticePreservesResumeBlock(pre: pre, post: post, envelope: envelope) {
+        return violation
+    }
+    if let violation = resumeConfirmationRequiresContext(pre: pre, post: post, envelope: envelope) {
+        return violation
+    }
     if let violation = pendingCoherence(post) { return violation }
     if let violation = intentRetentionBound(post) { return violation }
     if let violation = timingIsNonNegative(post) { return violation }

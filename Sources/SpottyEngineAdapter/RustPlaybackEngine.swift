@@ -96,6 +96,7 @@ public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @uncheck
         case let .playTracks(tracks): engineResult(PlaybackCore.play(tracks: tracks))
         case .pause: engineResult(PlaybackCore.pause())
         case let .resume(plan): resume(plan)
+        case let .resumeObserved(target): engineResult(PlaybackCore.resumeObserved(target))
         case let .rehydrate(plan, sessionGeneration):
             ResumeLoadSequence.completing(play: nil, targets: plan.targets()) {
                 engineResult(PlaybackCore.load($0, rehydratingSessionGeneration: sessionGeneration))

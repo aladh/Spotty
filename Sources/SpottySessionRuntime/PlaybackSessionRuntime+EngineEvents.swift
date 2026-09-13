@@ -533,7 +533,7 @@ extension PlaybackSessionRuntime {
     /// The engine publishes `resume_pending` once its rebuilt session is connected and
     /// activated, and keeps `spirc_ready` clear until a load lands or its window times out,
     /// so the session phase stays non-ready (no Web API bootstrap) while this runs. The plan
-    /// comes from the same sticky engine getters as user resume; nothing is mirrored here.
+    /// comes from sticky engine getters; user resume uses a separate validated observation.
     /// One sequence per engine session generation: the engine republishes the flag on every
     /// snapshot inside its window. The operation may queue behind another local command while
     /// the engine moves on, so it carries the session generation and the engine itself declines

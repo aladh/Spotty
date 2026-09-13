@@ -122,7 +122,7 @@ final class SyntheticPlayback: @unchecked Sendable {
             case let .playTracks(uris):
                 if let first = uris.first { trackURI = first; playing = true; positionMS = 0 }
             case .pause: playing = false
-            case .resume, .rehydrate: playing = true
+            case .resume, .resumeObserved, .rehydrate: playing = true
             case .next: skipLocked()
             case .previous: positionMS = 0
             case let .seek(value): positionMS = Int64(value)

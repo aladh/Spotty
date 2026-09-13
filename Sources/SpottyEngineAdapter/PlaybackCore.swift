@@ -200,6 +200,13 @@ nonisolated enum PlaybackCore {
 
     static func pause() -> Result { spotty_playback_pause() }
     static func resume() -> Result { spotty_playback_resume() }
+    static func resumeObserved(_ target: PlaybackResumeTarget) -> Result {
+        target.trackURI.withCString { track in
+            withOptionalCString(target.contextURI) { context in
+                spotty_playback_resume_observed(track, context, target.positionMS, target.engineGeneration)
+            }
+        }
+    }
     static func resumePositionMilliseconds() -> UInt32 {
         spotty_playback_get_resume_position_ms()
     }

@@ -22,6 +22,9 @@ func positiveImportContract() {
         spotty_playback_authorize_streaming
     let playURI: @convention(c) (UnsafePointer<CChar>) -> SpottyPlaybackResult =
         spotty_playback_play_uri
+    let resumeObserved:
+        @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>?, UInt32, UInt64) -> SpottyPlaybackResult =
+            spotty_playback_resume_observed
 
     // Optional C-string arguments/fields and typed open enums.
     let load:
@@ -111,6 +114,7 @@ func positiveImportContract() {
         registerAudioControl,
         authorize,
         playURI,
+        resumeObserved,
         load,
         initWithOptionalToken,
         audioControl,

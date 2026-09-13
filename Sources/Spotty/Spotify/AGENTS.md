@@ -29,8 +29,9 @@ and playback boundaries.
 - The runtime's `QueueService` owns precedence and context identity. `QueueProtocolProjection` projects upcoming
   rows from unfiltered Connect tracks; metadata must not reorder or erase newer authoritative state.
 - Follow the engine contract for typed observations, Swift presentation policy, and the single
-  reconnect rehydration sequence. Resume targets come from sticky resume-load URIs via
-  `ResumeLoadPlan`, never presentation snapshots.
+  reconnect rehydration sequence. Reconnect targets come from sticky engine URIs via `ResumeLoadPlan`.
+  User resume sends an expectation that the engine validates against its own observations;
+  displayed metadata alone never establishes a loaded local player.
 - Keep read-only catalog access separate from playlist mutation. Writes use `PlaylistMutating` and
   `PlaylistMutationController`.
 - Follow [privacy](../../../PRIVACY.md) for logging; never log credentials or private identifiers.

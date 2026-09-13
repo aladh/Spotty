@@ -13,14 +13,16 @@ public nonisolated struct PlaybackEngineResult: Equatable, Sendable {
     /// Initialization proved that the cached streaming credential is unusable. This terminal
     /// result keeps the Web API grant intact while the account owner requests fresh authorization.
     public static let credentialsRejected = PlaybackEngineResult(rawValue: -4)
+    public static let resumeMismatch = PlaybackEngineResult(rawValue: -5)
+    public static let resumeBusy = PlaybackEngineResult(rawValue: -6)
     public var isOK: Bool { rawValue == 0 }
     public var isCredentialsRejected: Bool { rawValue == Self.credentialsRejected.rawValue }
     public var requiresReconnect: Bool { rawValue == -2 || rawValue == -3 }
 }
 
-/// One ordered resume-load sequence for user resume and reconnect rehydration.
+/// Legacy play-first resume and reconnect rehydration load sequence.
 ///
-/// User resume plays first and, on a non-reconnect failure, tries each target until one
+/// The legacy adapter plays first and, on a non-reconnect failure, tries each target until one
 /// lands. Reconnect rehydration passes no `play`: the engine has already activated and is
 /// holding readiness open, and inside that window a load returns as soon as it is queued, so
 /// the sequence stops at the first queued target exactly as the engine's own loop used to.
@@ -46,6 +48,7 @@ public nonisolated enum LocalPlaybackOperation: Sendable {
     case playTracks([String])
     case pause
     case resume(ResumeLoadPlan)
+    case resumeObserved(PlaybackResumeTarget)
     /// Engine reconnect published `resume_pending` for `sessionGeneration`; issue the plan's
     /// loads without `play()`. The engine runs them only while that session and window last.
     case rehydrate(ResumeLoadPlan, sessionGeneration: UInt64)

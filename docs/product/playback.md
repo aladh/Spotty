@@ -22,8 +22,10 @@
   Play or Resume uses the local engine without asking for device selection, even when Spotify
   retains a previous track. Other controls retain ownership-based routing. Unidentified playback
   that is still playing requires explicit device selection; known remote candidates stay remote.
-  If the engine has no resumable context or track, that explicit Play starts the displayed track
-  from the beginning. The ready card is announced as “Default device” by VoiceOver and is hidden
+  Resume must validate the displayed current track, context, and paused position against the
+  engine's session before starting audio. A cold join restores the session paused, preserving its
+  queue and options, and then plays only after matching local player evidence. It never starts a
+  different track or silently restarts at zero. The ready card is announced as “Default device” by VoiceOver and is hidden
   while playback commands are unavailable. With no displayed track, it remains ready for a new
   track selection; the player shelf's Play button stays disabled.
 ### System media controls
@@ -56,6 +58,11 @@
   device invokes the existing explicit transfer action and keeps the sidebar open.
 
 - With no current track, Play is disabled. Pause appears only for observed playing state.
+- A pending resume keeps its current track, context and position through an intermediate empty
+  activation observation. A stale or unavailable resume shows a persistent notice asking the user
+  to choose a track or playlist; the stale Play control is disabled while the notice remains.
+  Choosing new playback clears that notice. The active playlist remains green while paused in the
+  sidebar and matching Home cards; disconnecting or clearing the current track clears the indicator.
 - If the active local engine cannot load its current requested track, show an actionable playback
   notice explaining that the user can retry or choose another track through the existing playback
   and browsing controls, without raw upstream details or a claim of permanent

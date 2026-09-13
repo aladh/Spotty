@@ -240,6 +240,11 @@ final class PlaybackEffectRegistry {
             PlaybackEffectSettlement(raw: $0, didSettle: didMutate)
         }
     }
+    func settlements() -> [PlaybackEffectID: PlaybackEffectSettlement] {
+        SessionRuntimeActor.sync { raw.settlements() }.mapValues {
+            PlaybackEffectSettlement(raw: $0, didSettle: didMutate)
+        }
+    }
     func replace(
         _ id: PlaybackEffectID, with task: Task<Void, Never>, registration: PlaybackEffectRegistration? = nil,
         onCancel: (@SessionRuntimeActor () -> Void)? = nil

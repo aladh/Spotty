@@ -11,7 +11,8 @@ struct ArtworkSourceLoaderTests {
         defer { fixture.remove() }
         let loader = ArtworkSourceLoader(maximumSourceBytes: 128 * 1_024, protocolClasses: [ArtworkHTTPProtocol.self])
         let loading = Task { try await loader.load(fixture.url) }
-        #expect(await waitForArtworkTransfer { fixture.started })
+        defer { loading.cancel() }
+        try await requireArtworkTransfer { fixture.started }
         fixture.send(Data(repeating: 1, count: 64 * 1_024))
         fixture.send(Data(repeating: 2, count: 64 * 1_024))
         fixture.finish()
@@ -26,33 +27,35 @@ struct ArtworkSourceLoaderTests {
     }
 
     @Test(arguments: [nil, 4])
-    func oversizedStreamStopsBeforeCompletionDespiteMissingOrFalseLength(contentLength: Int?) async {
+    func oversizedStreamStopsBeforeCompletionDespiteMissingOrFalseLength(contentLength: Int?) async throws {
         let fixture = ArtworkHTTPFixture(contentLength: contentLength)
         defer { fixture.remove() }
         let loader = ArtworkSourceLoader(maximumSourceBytes: 8, protocolClasses: [ArtworkHTTPProtocol.self])
         let loading = Task { try await loader.load(fixture.url) }
-        #expect(await waitForArtworkTransfer { fixture.started })
+        defer { loading.cancel() }
+        try await requireArtworkTransfer { fixture.started }
         fixture.send(Data(repeating: 1, count: 8))
         // CFNetwork may coalesce a tiny custom-protocol body before calling the delegate.
         // Force delivery while retaining the eight-byte application buffer limit.
         fixture.send(Data(repeating: 2, count: 64 * 1_024))
         // No finish signal is sent. A whole-response download with a post hoc cap would hang.
         await #expect(throws: ArtworkFailure.tooLarge) { try await loading.value }
-        #expect(await waitForArtworkTransfer { fixture.stopped })
+        try await requireArtworkTransfer { fixture.stopped }
         await loader.cancelAll()
     }
 
-    @Test func declaredOversizeCancelsBeforeAcceptingTheBody() async {
+    @Test func declaredOversizeCancelsBeforeAcceptingTheBody() async throws {
         let fixture = ArtworkHTTPFixture(contentLength: 8 * 1_024 * 1_024 + 1)
         defer { fixture.remove() }
         let loader = ArtworkSourceLoader(protocolClasses: [ArtworkHTTPProtocol.self])
         let loading = Task { try await loader.load(fixture.url) }
-        #expect(await waitForArtworkTransfer { fixture.started })
+        defer { loading.cancel() }
+        try await requireArtworkTransfer { fixture.started }
         // This probe is below the source limit and has no end signal. Only the declared
         // oversized length can reject it; CFNetwork need not deliver header-only fixtures.
         fixture.send(Data(repeating: 1, count: 64 * 1_024))
         await #expect(throws: ArtworkFailure.tooLarge) { try await loading.value }
-        #expect(await waitForArtworkTransfer { fixture.stopped })
+        try await requireArtworkTransfer { fixture.stopped }
         await loader.cancelAll()
     }
 
@@ -62,14 +65,16 @@ struct ArtworkSourceLoaderTests {
         defer { first.remove(); second.remove() }
         let loader = ArtworkSourceLoader(maximumSourceBytes: 8, protocolClasses: [ArtworkHTTPProtocol.self])
         let canceled = Task { try await loader.load(first.url) }
-        #expect(await waitForArtworkTransfer { first.started })
+        defer { canceled.cancel() }
+        try await requireArtworkTransfer { first.started }
         first.send(Data([1, 2]))
         canceled.cancel()
         await #expect(throws: CancellationError.self) { try await canceled.value }
-        #expect(await waitForArtworkTransfer { first.stopped })
+        try await requireArtworkTransfer { first.stopped }
 
         let replacement = Task { try await loader.load(second.url) }
-        #expect(await waitForArtworkTransfer { second.started })
+        defer { replacement.cancel() }
+        try await requireArtworkTransfer { second.started }
         second.send(Data([3, 4]))
         second.finish()
         #expect(try await replacement.value == Data([3, 4]))
@@ -84,32 +89,35 @@ struct ArtworkSourceLoaderTests {
         let loader = ArtworkSourceLoader(maximumSourceBytes: 8, protocolClasses: [ArtworkHTTPProtocol.self])
         let oldLoading = Task { try await loader.load(old.url) }
         let alsoOldLoading = Task { try await loader.load(alsoOld.url) }
-        #expect(await waitForArtworkTransfer { old.started })
-        #expect(await waitForArtworkTransfer { alsoOld.started })
+        defer { oldLoading.cancel(); alsoOldLoading.cancel() }
+        try await requireArtworkTransfer { old.started }
+        try await requireArtworkTransfer { alsoOld.started }
         old.send(Data([1]))
         await loader.cancelAll()
         await #expect(throws: CancellationError.self) { try await oldLoading.value }
         await #expect(throws: CancellationError.self) { try await alsoOldLoading.value }
-        #expect(await waitForArtworkTransfer { old.stopped })
-        #expect(await waitForArtworkTransfer { alsoOld.stopped })
+        try await requireArtworkTransfer { old.stopped }
+        try await requireArtworkTransfer { alsoOld.stopped }
 
         let currentLoading = Task { try await loader.load(current.url) }
-        #expect(await waitForArtworkTransfer { current.started })
+        defer { currentLoading.cancel() }
+        try await requireArtworkTransfer { current.started }
         current.send(Data([2]))
         current.finish()
         #expect(try await currentLoading.value == Data([2]))
         await loader.cancelAll()
     }
 
-    @Test func failedHTTPStatusNeverAdmitsItsBody() async {
+    @Test func failedHTTPStatusNeverAdmitsItsBody() async throws {
         let fixture = ArtworkHTTPFixture(status: 503)
         defer { fixture.remove() }
         let loader = ArtworkSourceLoader(protocolClasses: [ArtworkHTTPProtocol.self])
         let loading = Task { try await loader.load(fixture.url) }
-        #expect(await waitForArtworkTransfer { fixture.started })
+        defer { loading.cancel() }
+        try await requireArtworkTransfer { fixture.started }
         fixture.send(Data(repeating: 1, count: 64 * 1_024))
         await #expect(throws: ArtworkFailure.unavailable) { try await loading.value }
-        #expect(await waitForArtworkTransfer { fixture.stopped })
+        try await requireArtworkTransfer { fixture.stopped }
         await loader.cancelAll()
     }
 }
@@ -182,10 +190,20 @@ private final class ArtworkHTTPProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 
-private func waitForArtworkTransfer(_ predicate: () -> Bool) async -> Bool {
-    for _ in 0..<10_000 {
-        if predicate() { return true }
+private enum ArtworkTransferWatchdogError: Error {
+    case timedOut
+}
+
+private func requireArtworkTransfer(
+    timeout: Duration = .seconds(10),
+    _ predicate: () -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now + timeout
+    while clock.now < deadline {
+        try Task.checkCancellation()
+        if predicate() { return }
         await Task.yield()
     }
-    return false
+    throw ArtworkTransferWatchdogError.timedOut
 }

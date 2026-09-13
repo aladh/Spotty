@@ -30,13 +30,18 @@ final class HarnessRemote: RemotePlaybackClient, @unchecked Sendable {
     }
 
     private struct Storage {
+        struct MetadataPark {
+            let id: UInt64
+            let continuation: CheckedContinuation<SpotifyConnectTrackMetadata, any Error>
+        }
+
         var commands: [SpotifyConnectCommand] = []
         var requestedURIs: [String] = []
         var sendBehavior = SendBehavior.succeed
         var metadataBehavior = MetadataBehavior.immediate
         var metadataTitle = "Metadata"
         var sendParks: [UInt64: CheckedContinuation<Void, any Error>] = [:]
-        var metadataParks: [String: CheckedContinuation<SpotifyConnectTrackMetadata, any Error>] = [:]
+        var metadataParks: [String: MetadataPark] = [:]
         var nextParkID: UInt64 = 0
         var activeMetadataRequests = 0
         var maximumActiveMetadataRequests = 0
@@ -95,43 +100,62 @@ final class HarnessRemote: RemotePlaybackClient, @unchecked Sendable {
     var activeMetadataRequests: Int { withStorage { $0.activeMetadataRequests } }
     var maximumActiveMetadataRequests: Int { withStorage { $0.maximumActiveMetadataRequests } }
     var parkedMetadataRequestCount: Int { withStorage { $0.metadataParks.count } }
+    var parkedMetadataURIs: Set<String> { withStorage { Set($0.metadataParks.keys) } }
     var parkedSendCount: Int { withStorage { $0.sendParks.count } }
 
     /// Releases the oldest parked send.
-    func completePark(success: Bool) {
+    @discardableResult
+    func completePark(success: Bool) -> Bool {
         let parked = withStorage { storage -> CheckedContinuation<Void, any Error>? in
             guard let id = storage.sendParks.keys.min() else { return nil }
             return storage.sendParks.removeValue(forKey: id)
         }
-        guard let parked else { return }
+        guard let parked else { return false }
         if success {
             parked.resume()
         } else {
             parked.resume(throwing: HarnessFailure.unavailable)
         }
+        return true
     }
 
     /// Releases the parked metadata request for `uri`, or the only parked request when omitted.
-    func completeMetadata(for uri: String? = nil, title: String? = nil) {
-        typealias Parked = CheckedContinuation<SpotifyConnectTrackMetadata, any Error>
-        let resolved = withStorage { storage -> (String, Parked)? in
+    @discardableResult
+    func completeMetadata(for uri: String? = nil, title: String? = nil) -> Bool {
+        let resolved = withStorage { storage -> (String, Storage.MetadataPark)? in
             let key = uri ?? storage.metadataParks.keys.sorted().first
             guard let key, let parked = storage.metadataParks.removeValue(forKey: key) else { return nil }
             storage.activeMetadataRequests -= 1
             return (key, parked)
         }
-        guard let resolved else { return }
+        guard let resolved else { return false }
         let resolvedTitle = title ?? withStorage { $0.metadataTitle }
-        resolved.1.resume(returning: HarnessFixtures.metadata(uri: resolved.0, title: resolvedTitle))
+        resolved.1.continuation.resume(
+            returning: HarnessFixtures.metadata(uri: resolved.0, title: resolvedTitle))
+        return true
     }
 
-    private func cancelMetadata(_ uri: String) {
-        let parked = withStorage { storage -> CheckedContinuation<SpotifyConnectTrackMetadata, any Error>? in
-            guard let parked = storage.metadataParks.removeValue(forKey: uri) else { return nil }
+    @discardableResult
+    func failMetadata(for uri: String? = nil, error: any Error = HarnessFailure.unavailable) -> Bool {
+        let parked = withStorage { storage -> Storage.MetadataPark? in
+            let key = uri ?? storage.metadataParks.keys.sorted().first
+            guard let key, let parked = storage.metadataParks.removeValue(forKey: key) else { return nil }
             storage.activeMetadataRequests -= 1
             return parked
         }
-        parked?.resume(throwing: CancellationError())
+        guard let parked else { return false }
+        parked.continuation.resume(throwing: error)
+        return true
+    }
+
+    private func cancelMetadata(_ uri: String, id: UInt64) {
+        let parked = withStorage { storage -> Storage.MetadataPark? in
+            guard storage.metadataParks[uri]?.id == id else { return nil }
+            let parked = storage.metadataParks.removeValue(forKey: uri)
+            storage.activeMetadataRequests -= 1
+            return parked
+        }
+        parked?.continuation.resume(throwing: CancellationError())
     }
 
     private func cancelSend(_ id: UInt64) {
@@ -166,7 +190,14 @@ final class HarnessRemote: RemotePlaybackClient, @unchecked Sendable {
             }
             try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                    withStorage { $0.sendParks[id] = continuation }
+                    let cancelled = withStorage { storage -> Bool in
+                        if Task.isCancelled { return true }
+                        storage.sendParks[id] = continuation
+                        return false
+                    }
+                    if cancelled {
+                        continuation.resume(throwing: CancellationError())
+                    }
                 }
             } onCancel: {
                 self.cancelSend(id)
@@ -184,20 +215,40 @@ final class HarnessRemote: RemotePlaybackClient, @unchecked Sendable {
         case .immediate:
             return HarnessFixtures.metadata(uri: uri, title: withStorage { $0.metadataTitle })
         case .park:
-            withStorage { storage in
-                storage.activeMetadataRequests += 1
-                storage.maximumActiveMetadataRequests = max(
-                    storage.maximumActiveMetadataRequests,
-                    storage.activeMetadataRequests
-                )
+            let id = withStorage { storage -> UInt64 in
+                storage.nextParkID &+= 1
+                return storage.nextParkID
             }
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation {
                     (continuation: CheckedContinuation<SpotifyConnectTrackMetadata, any Error>) in
-                    withStorage { $0.metadataParks[uri] = continuation }
+                    enum Registration {
+                        case parked
+                        case cancelled
+                        case duplicate
+                    }
+                    let registration = withStorage { storage -> Registration in
+                        if Task.isCancelled { return .cancelled }
+                        guard storage.metadataParks[uri] == nil else { return .duplicate }
+                        storage.metadataParks[uri] = Storage.MetadataPark(id: id, continuation: continuation)
+                        storage.activeMetadataRequests += 1
+                        storage.maximumActiveMetadataRequests = max(
+                            storage.maximumActiveMetadataRequests,
+                            storage.activeMetadataRequests
+                        )
+                        return .parked
+                    }
+                    switch registration {
+                    case .parked:
+                        break
+                    case .cancelled:
+                        continuation.resume(throwing: CancellationError())
+                    case .duplicate:
+                        continuation.resume(throwing: HarnessFailure.unavailable)
+                    }
                 }
             } onCancel: {
-                self.cancelMetadata(uri)
+                self.cancelMetadata(uri, id: id)
             }
         }
     }

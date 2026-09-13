@@ -130,6 +130,12 @@ final class PlaybackEffectRegistry {
         tasks[id].map(PlaybackEffectSettlement.init(task:))
     }
 
+    /// Snapshot live effect identities for synchronization diagnostics. This does not transfer or
+    /// alter ownership; callers that need to await after invalidation retain the returned handles.
+    func settlements() -> [PlaybackEffectID: PlaybackEffectSettlement] {
+        tasks.mapValues(PlaybackEffectSettlement.init(task:))
+    }
+
     func replace(
         _ id: PlaybackEffectID,
         with task: Task<Void, Never>,

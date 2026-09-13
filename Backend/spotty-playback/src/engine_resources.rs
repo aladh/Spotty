@@ -294,10 +294,13 @@ mod teardown_tests {
         let task_dropped = Arc::new(AtomicBool::new(false));
         block_on_export(async {
             let task_dropped_by_task = Arc::clone(&task_dropped);
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
             let mut task = tokio::spawn(async move {
                 let _probe = DropProbe(task_dropped_by_task);
+                started_tx.send(()).unwrap();
                 pending::<()>().await;
             });
+            started_rx.await.unwrap();
 
             drain_spirc_task(
                 &mut task,

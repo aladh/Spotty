@@ -26,7 +26,7 @@ private final class WaitUntilSuspensionGate {
 struct WaitUntilTests {
     @Test
     @MainActor
-    func testWaitUntil() async {
+    func testWaitUntil() async throws {
         do {
             let immediate = await waitUntil { true }
             #expect((immediate) == true, "already-true condition succeeds")
@@ -47,9 +47,8 @@ struct WaitUntilTests {
                     return false
                 }
             }
-            while !probe.entered {
-                await Task.yield()
-            }
+            defer { cancelledDuringPoll.cancel() }
+            try await requireEventually { probe.entered }
             cancelledDuringPoll.cancel()
             #expect((await cancelledDuringPoll.value == false) == true, "cancelled wait returns false during polling")
 
@@ -60,13 +59,23 @@ struct WaitUntilTests {
                     return true
                 }
             }
-            while !gate.entered {
-                await Task.yield()
+            defer {
+                cancelledAfterPredicate.cancel()
+                gate.release()
             }
+            try await requireEventually { gate.entered }
             cancelledAfterPredicate.cancel()
             gate.release()
             #expect(
                 (await cancelledAfterPredicate.value == false) == true, "cancelled wait does not accept a late true")
+        }
+    }
+
+    @Test
+    @MainActor
+    func requireEventuallyAcceptsAnEstablishedPrerequisite() async {
+        await #expect(throws: Never.self) {
+            try await requireEventually { true }
         }
     }
 }

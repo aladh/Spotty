@@ -124,6 +124,17 @@ Use `SPOTTY_CHECK_REPEATS=N ./Scripts/check.sh` with `N` from 1 through 25 when 
 lifetime work merits stress. Main runs three passes. Boundary synchronization failures report their
 call sites; injected clocks drive scheduling while elapsed-time limits serve only as hang watchdogs.
 
+Each `swift test` invocation in `check.sh` runs in its own process group through a hard liveness
+watchdog. Warm CI invocations have a five-minute limit; local invocations allow twenty minutes for
+cold compilation. Override the latter only for diagnosis with `SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS`.
+The wrapper prints the lane, repetition, command, PID, elapsed time, and exit status, and preserves
+the underlying nonzero status or interrupt. A timeout records the owned process tree, attempts one
+bounded macOS sample of a live helper, and terminates only that invocation's process group; it never
+retries tests or kills unrelated Swift processes. CI keeps per-lane logs and Swift Testing event
+streams under `$RUNNER_TEMP/spotty-swift-test-diagnostics` and uploads them when the Debug check
+fails. SwiftPM's hidden event-stream path option is detected before use, so older toolchains retain
+the text log and process diagnostics without failing on an unsupported flag.
+
 ## Clean and risk-specific verification
 
 For clean-build changes or diagnosis requiring a rebuild:

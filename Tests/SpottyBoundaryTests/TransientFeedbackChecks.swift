@@ -43,7 +43,7 @@ private func seedRemoteOwner(_ player: PlaybackStore) {
 struct TransientFeedbackTests {
     @Test
     @MainActor
-    func testTransientFeedback() async {
+    func testTransientFeedback() async throws {
         do {
             #expect(
                 (AppDisplayName.resolve(info: ["CFBundleDisplayName": "Configured Name"])) == ("Configured Name"),
@@ -61,6 +61,7 @@ struct TransientFeedbackTests {
         do {
             let clock = HarnessClock(sleep: .uncooperativelyParked)
             let feedback = TransientFeedbackPresenter(clock: clock, duration: 4)
+            defer { clock.releaseAll() }
 
             feedback.success("Queue request sent")
             #expect((feedback.message?.kind) == (.success), "success kind")
@@ -81,6 +82,7 @@ struct TransientFeedbackTests {
             feedback.success("   ")
             #expect((feedback.message?.id) == (visibleID), "blank text does not replace")
 
+            try await requireEventually { clock.waiterCount == 3 }
             feedback.dismiss()
             #expect((feedback.message) == nil, "explicit dismiss clears the current message")
             clock.releaseAll()
@@ -131,6 +133,10 @@ struct TransientFeedbackTests {
                 environment: HarnessEnvironment.make(clock: clock),
                 feedback: feedback
             )
+            defer {
+                player.effects.cancelAccountScoped()
+                clock.releaseAll()
+            }
             #expect((player.feedback === feedback) == true, "the store keeps the composed presenter")
 
             player.addToQueue(uris: ["spotify:track:fixture"])
@@ -141,12 +147,14 @@ struct TransientFeedbackTests {
             #expect((player.transientCommandError) == nil, "disconnected add does not use playback notice")
             await player.endSession(clearGrant: false, finalPhase: .signedOut)
             #expect((feedback.message) == nil, "account teardown clears leftover mutation feedback")
+            try await requireEventually { clock.waiterCount == 1 }
             clock.releaseAll()
             await player.shutdownForTermination()
         }
 
         do {
             let clock = HarnessClock(sleep: .uncooperativelyParked)
+            defer { clock.releaseAll() }
 
             let localSuccessFeedback = TransientFeedbackPresenter(clock: clock, duration: 4)
             let localSuccess = PlaybackStore(
@@ -224,14 +232,22 @@ struct TransientFeedbackTests {
                 environment: HarnessEnvironment.make(remote: parkedRemote, clock: clock),
                 feedback: cancelledFeedback
             )
+            defer {
+                cancelled.effects.cancelAccountScoped()
+                _ = parkedRemote.completePark(success: false)
+            }
             seedRemoteOwner(cancelled)
             cancelled.addToQueue(uris: ["spotify:track:cancel"])
-            #expect(
-                (await waitUntil { parkedRemote.sendCount == 1 }) == true,
-                "cancelled add started the remote command")
+            try await requireEventually { parkedRemote.parkedSendCount == 1 }
+            #expect(parkedRemote.sendCount == 1, "cancelled add started the remote command")
+            let cancelledSettlement = cancelled.effects.settlements().first { id, _ in
+                if case .queueCommand = id { return true }
+                return false
+            }?.value
+            #expect(cancelledSettlement != nil)
             cancelled.effects.cancelAccountScoped()
-            parkedRemote.completePark(success: false)
-            await yieldPasses()
+            _ = parkedRemote.completePark(success: false)
+            await cancelledSettlement?.wait()
             #expect((cancelledFeedback.message) == nil, "cancelled add reports no mutation feedback")
             await cancelled.shutdownForTermination()
 
@@ -241,14 +257,22 @@ struct TransientFeedbackTests {
                 environment: HarnessEnvironment.make(remote: staleRemote, clock: clock),
                 feedback: staleFeedback
             )
+            defer {
+                staleAccount.effects.cancelAccountScoped()
+                _ = staleRemote.completePark(success: false)
+            }
             seedRemoteOwner(staleAccount)
             staleAccount.addToQueue(uris: ["spotify:track:stale"])
-            #expect(
-                (await waitUntil { staleRemote.sendCount == 1 }) == true,
-                "stale-account add started the remote command")
+            try await requireEventually { staleRemote.parkedSendCount == 1 }
+            #expect(staleRemote.sendCount == 1, "stale-account add started the remote command")
+            let staleSettlement = staleAccount.effects.settlements().first { id, _ in
+                if case .queueCommand = id { return true }
+                return false
+            }?.value
+            #expect(staleSettlement != nil)
             staleAccount.accountStore.advanceEpoch()
-            staleRemote.completePark(success: true)
-            await yieldPasses()
+            #expect(staleRemote.completePark(success: true))
+            await staleSettlement?.wait()
             #expect((staleFeedback.message) == nil, "stale-account add reports no mutation feedback")
             await staleAccount.shutdownForTermination()
 

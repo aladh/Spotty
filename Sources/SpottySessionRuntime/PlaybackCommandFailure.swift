@@ -25,7 +25,7 @@ nonisolated enum PlaybackCommandFailure: Error, Equatable, Sendable {
         if engineResult.requiresReconnect {
             return .failure(.reconnectRequired)
         }
-        if engineResult == .error {
+        if engineResult == .error || engineResult == .resumeBusy {
             return .failure(.rejected)
         }
         return .failure(.unavailable)

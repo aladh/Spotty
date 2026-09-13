@@ -14,6 +14,7 @@ public nonisolated struct PlaybackEngineResult: Equatable, Sendable {
     /// result keeps the Web API grant intact while the account owner requests fresh authorization.
     public static let credentialsRejected = PlaybackEngineResult(rawValue: -4)
     public static let resumeMismatch = PlaybackEngineResult(rawValue: -5)
+    public static let resumeBusy = PlaybackEngineResult(rawValue: -6)
     public var isOK: Bool { rawValue == 0 }
     public var isCredentialsRejected: Bool { rawValue == Self.credentialsRejected.rawValue }
     public var requiresReconnect: Bool { rawValue == -2 || rawValue == -3 }

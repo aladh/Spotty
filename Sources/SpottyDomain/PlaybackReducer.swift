@@ -139,7 +139,9 @@ public enum PlaybackReducer {
                 return .rejected
             }
             if shouldHoldOptimisticPlayTarget(incomingURI: incomingURI, in: candidate) {
-                applyEnginePlaybackOptions(snapshot, in: &candidate)
+                if candidate.pendingCommands[.transport]?.resumeTarget == nil {
+                    applyEnginePlaybackOptions(snapshot, in: &candidate)
+                }
             } else {
                 supersedeOptimisticPlayTargetIfNeeded(incomingURI: incomingURI, in: &candidate)
                 let previousURI = candidate.currentTrack?.uri

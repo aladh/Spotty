@@ -257,7 +257,7 @@ private struct EnvelopeGenerator {
         switch kind {
         case .transport:
             expectedTransport = pick(modelTransports, &rng)
-            if let current = state.currentTrack, nextInt(&rng, 3) == 0 {
+            if let current = state.currentTrack, !current.uri.isEmpty, nextInt(&rng, 3) == 0 {
                 expectedTransport = .playing
                 expectedTrackURI = current.uri
                 expectedTiming = state.timing
@@ -786,7 +786,8 @@ private func emptyResumeObservationPreservesIdentity(
         snapshot.trackURI?.isEmpty != false
     else { return nil }
     if pre.currentTrack != post.currentTrack || pre.playbackContextURI != post.playbackContextURI
-        || pre.timing != post.timing {
+        || pre.timing != post.timing || pre.options != post.options
+    {
         return "an empty activation observation erased a pending resume's identity or position"
     }
     return nil
@@ -819,7 +820,10 @@ private func firstViolation(
     }
     if let violation = terminalOutcomesAreImmutable(pre: pre, post: post) { return violation }
     if let violation = emptyResumeObservationPreservesIdentity(
-        pre: pre, post: post, envelope: envelope, accepted: accepted) { return violation }
+        pre: pre, post: post, envelope: envelope, accepted: accepted)
+    {
+        return violation
+    }
     if let violation = pendingCoherence(post) { return violation }
     if let violation = intentRetentionBound(post) { return violation }
     if let violation = timingIsNonNegative(post) { return violation }

@@ -76,11 +76,16 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Check source policies
-        uses: ast-grep/action@cf62e780f0c88301228978d593a7784427a097a6 # v1.5.0
+        uses: ast-grep/action@d9518f632658f9c7c4b4dd4df22e98388a0d2c68 # Node 24
         with:
           version: ${{ steps.ast-grep.outputs.version }}
           config: sgconfig.yml
           paths: Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift
+
+      - name: Check reviewer event behavior
+        run: |
+          npm ci --ignore-scripts --prefix Scripts/agent-review-tests
+          npm test --prefix Scripts/agent-review-tests
 
       - name: Check rule fixtures and policy owners
         run: ./Scripts/check-source-policy.sh --test-only

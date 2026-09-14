@@ -58,3 +58,25 @@ that boundary.
 See [engine contracts](engine-contract.md) for non-obvious lifetime and FFI semantics,
 [product contracts](../product/README.md) for observable behavior, and the
 [enforcement inventory](enforcement.md) for verification owners.
+
+### Connect observations
+
+Keep the bridge's hidden observer and cluster subscription on the existing session's Dealer.
+[Spirc](../../Backend/spotty-playback/vendor/librespot/connect/src/spirc.rs) owns the real playback
+device, incoming commands, transfers, and state publication. Its public handle exposes commands,
+not a stream of complete clusters. It consumes the registration response internally; player
+events do not expose the complete initial device roster or a remote player's queue.
+
+The bridge's [initial cluster fetch](../../Backend/spotty-playback/src/connect.rs) registers a
+hidden, non-player member to obtain that snapshot without waiting for another device to change.
+It uses a distinct member ID because replacing Spirc's registration with a partial observer state
+would alter the playback device. Subsequent pushes feed the same bridge mapping for devices,
+ownership, playback, and queue. Both subscriptions share one Dealer connection; the bridge
+observes account state while Spirc acts on protocol state.
+
+Forwarding Spirc's registration reply and pushes could remove the separate bootstrap, but requires
+a retained upstream API change with delivery, buffering, ordering, and teardown guarantees. Keep
+the existing observation boundary until a compatible upstream interface or measured benefit
+justifies that maintenance. Preserve the bootstrap/push precedence and account-generation fences
+in the [engine contract](engine-contract.md); apparent subscription duplication is not sufficient
+reason to remove them.

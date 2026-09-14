@@ -11,6 +11,17 @@ findings. It does not authorize merge, release, tag, or repository-setting chang
 request says so.
 Declare changes to product contracts, repository rules, and historical records in the PR description.
 
+### Preventing recurrence
+
+When fixing an issue, identify the underlying cause and where else the same failure can occur.
+Apply the smallest effective safeguard against that class of error: prefer structural code changes
+or automated checks; update canonical guidance when the gap is procedural.
+
+Include prevention in the same PR when scope is small. If broader prevention would materially expand
+scope or delay the fix, open and link a follow-up issue describing the failure class, proposed
+safeguard, and acceptance criteria. If the fix or existing safeguards already prevent recurrence,
+explain why no additional mechanism is needed.
+
 ### PR acceptance
 
 A PR is ready when all three conditions hold for its latest changes:

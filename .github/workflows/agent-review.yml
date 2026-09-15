@@ -70,11 +70,12 @@ jobs:
             exit 0
           fi
           base_sha=$(jq -r '.base.sha' <<< "$pr")
+          base_branch=$(jq -r '.base.ref' <<< "$pr")
           head_sha=$(jq -r '.head.sha' <<< "$pr")
           # The most recent published review records the head it covered.
           previous_head=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
             | jq -r --arg login "${REVIEWER_LOGIN}[bot]" --arg marker "$REVIEW_MARKER" \
-              '.[] | select(.user.login == $login) | select(.body | startswith($marker)) | .commit_id' | tail -n 1)
+              '.[] | select(.state != "PENDING") | select(.user.login == $login) | select(.body | startswith($marker)) | .commit_id' | tail -n 1)
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             mode=full; reason='rerun requested'
           elif [ "$GITHUB_EVENT_NAME" = issue_comment ]; then
@@ -90,6 +91,7 @@ jobs:
           fi
           {
             echo "BASE_SHA=$base_sha"
+            echo "BASE_BRANCH=$base_branch"
             echo "HEAD_SHA=$head_sha"
             echo "PREVIOUS_HEAD=$previous_head"
             echo "REVIEW_MODE=$mode"
@@ -161,7 +163,7 @@ jobs:
             -f query='query($owner: String!, $name: String!, $number: Int!) {
               repository(owner: $owner, name: $name) { pullRequest(number: $number) {
                 reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
-                  id isResolved isOutdated path line originalLine
+                  id isResolved isOutdated path line originalLine diffSide
                   comments(first: 50) { pageInfo { hasNextPage } nodes { author { login } body url } } } } } } }' \
             > "$REVIEW_IN/threads-response.json"
           # Fail closed rather than review against a truncated thread history.
@@ -179,19 +181,26 @@ jobs:
                   and (.comments.nodes[0].body as $body
                     | ($body | startswith($marker))
                       or ($legacy == "true" and ($body | startswith("<!-- spotty-") | not))))
-              | {id, path, line: (.line // .originalLine), isOutdated,
+              | {id, path, line: (.line // .originalLine), originalLine, diffSide, isOutdated,
                  comments: [.comments.nodes[] | {author: .author.login, body, url}]}]' \
             "$REVIEW_IN/threads-response.json" > "$REVIEW_IN/threads.json"
           jq -n --arg repository "$GITHUB_REPOSITORY" --argjson pr "$PR_NUMBER" \
-            --arg base "$BASE_SHA" --arg head "$HEAD_SHA" --arg previous_head "$PREVIOUS_HEAD" \
+            --arg base "$BASE_SHA" --arg base_branch "$BASE_BRANCH" --arg head "$HEAD_SHA" --arg previous_head "$PREVIOUS_HEAD" \
             --arg mode "$REVIEW_MODE" --arg reason "$REVIEW_REASON" --arg in "$REVIEW_IN" --arg out "$REVIEW_OUT" \
-            '{repository: $repository, pr: $pr, base: $base, head: $head,
+            '{repository: $repository, pr: $pr, base: $base, base_branch: $base_branch, head: $head,
               previous_head: (if $previous_head == "" then null else $previous_head end),
               mode: $mode, reason: $reason,
               pr_diff: ($in + "/pr.diff"), changes_diff: ($in + "/changes.diff"),
               pr_description: ($in + "/pr.md"),
               threads: ($in + "/threads.json"), output_directory: $out}' > "$REVIEW_IN/context.json"
           echo "Mode: $REVIEW_MODE ($REVIEW_REASON); $(jq length "$REVIEW_IN/threads.json") open $REVIEWER_NAME thread(s); $(wc -l < "$REVIEW_IN/changes.diff") diff lines under audit"
+
+      - name: Collect read-only review evidence
+        if: steps.eligibility.outputs.skip != 'true'
+        working-directory: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I "$GITHUB_WORKSPACE/reviewer/.github/agent-review/evidence.py"
 
       - name: Review
         id: review
@@ -230,11 +239,21 @@ jobs:
           jq -e --slurpfile threads "$REVIEW_IN/threads.json" '
             ($threads[0] | map(.id)) as $ids
             | type == "array" and (map(.id) | sort) == ($ids | sort)
-            and all(.[]; (.resolve | type == "boolean") and (.reply | type == "string"))' thread-actions.json > /dev/null \
+            and all(.[]; (.resolve | type == "boolean") and (.reply | type == "string") and (.resolve == false or (.reply | length > 0)))' thread-actions.json > /dev/null \
             || { echo '::error::thread-actions.json must hold exactly one {id, resolve, reply} per thread in threads.json'; exit 1; }
           [ "$(wc -c < summary.md)" -le 60000 ] || { echo '::error::summary.md exceeds 60000 bytes'; exit 1; }
           echo "findings=$(jq length findings.json)" >> "$GITHUB_OUTPUT"
           echo "resolving=$(jq '[.[] | select(.resolve)] | length' thread-actions.json)" >> "$GITHUB_OUTPUT"
+
+      # Refresh publication scripts after the agent has finished using its edit access.
+      - name: Checkout publication code
+        if: steps.eligibility.outputs.skip != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/agent-review
+          path: publisher
 
       - name: Authenticate as OpenCode App
         id: app-token
@@ -261,72 +280,15 @@ jobs:
         if: steps.eligibility.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          FINDINGS: ${{ steps.results.outputs.findings }}
-        run: |
-          set -euo pipefail
-          cd "$REVIEW_OUT"
-          graphql() { gh api graphql -f query="$1" "${@:2}" > /dev/null; }
-          # Apply thread dispositions first so the approval decision sees the final thread state.
-          jq -c '.[]' thread-actions.json | while IFS= read -r action; do
-            id=$(jq -r '.id' <<< "$action")
-            reply=$(jq -r '.reply' <<< "$action")
-            if [ -n "$reply" ]; then
-              graphql 'mutation($id: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $id, body: $body}) { comment { id } } }' \
-                -f id="$id" -f body="$reply"
-            fi
-            if [ "$(jq -r '.resolve' <<< "$action")" = true ]; then
-              graphql 'mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }' -f id="$id"
-            fi
-          done
-          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
-          current_head=$(jq -r '.head.sha' <<< "$pr")
-          open_threads=$(gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
-            -f query='query($owner: String!, $name: String!, $number: Int!) {
-              repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-                reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved comments(first: 1) { nodes { author { login } body } } } } } } }' \
-            | jq --arg login "$REVIEWER_LOGIN" --arg marker "$REVIEW_MARKER" --arg legacy "$LEGACY_UNMARKED_THREADS" \
-              '.data.repository.pullRequest.reviewThreads
-              | if .pageInfo.hasNextPage then "truncated" else
-                  [.nodes[] | select(.isResolved == false
-                    and .comments.nodes[0].author.login == $login
-                    and (.comments.nodes[0].body as $body
-                      | ($body | startswith($marker))
-                        or ($legacy == "true" and ($body | startswith("<!-- spotty-") | not))))] | length end')
-          event=COMMENT
-          if [ "$open_threads" = '"truncated"' ]; then
-            echo '::warning::More than one page of review threads; withholding approval.'
-            open_threads=unknown
-          elif [ "$CAN_APPROVE" = true ] && [ "$FINDINGS" -eq 0 ] && [ "$open_threads" -eq 0 ] \
-            && [ "$current_head" = "$HEAD_SHA" ] \
-            && jq -e '.state == "open" and .draft == false' <<< "$pr" > /dev/null; then
-            event=APPROVE
-          fi
-          header="**${REVIEWER_NAME}** of \`${HEAD_SHA:0:7}\` ($REVIEW_REASON): $FINDINGS new finding(s)"
-          if [ "$open_threads" = unknown ]; then header="$header, thread state too large to verify (approval withheld)"
-          elif [ "$open_threads" -gt 0 ]; then header="$header, $open_threads earlier thread(s) still open"; fi
-          if [ "$current_head" != "$HEAD_SHA" ]; then header="$header. The PR head moved during the review; the next run covers it"; fi
-          header="$header."
-          if [ "$FINDINGS" -eq 0 ] && [ "$open_threads" = 0 ]; then
-            header="$header No actionable findings remain in the reviewed scope."
-          fi
-          rerun_hint="Trusted repository collaborators can rerun this review by commenting \`$RERUN_COMMAND\`."
-          body=$(printf '%s\n%s\n\n%s\n\n%s' "$REVIEW_MARKER" "$header" "$(cat summary.md)" "$rerun_hint")
-          request() {
-            jq -n --arg commit "$HEAD_SHA" --arg event "$event" --arg body "$1" --arg marker "$REVIEW_MARKER" --slurpfile findings "$2" \
-              '{commit_id: $commit, event: $event, body: $body,
-                comments: [$findings[0][] | {path, line, side: "RIGHT", body: ($marker + "\n" + .body)}]}' \
-              | gh api --method POST "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" --input - > /dev/null
-          }
-          placement=inline
-          if ! request "$body" findings.json; then
-            if [ "$FINDINGS" -eq 0 ]; then exit 1; fi
-            echo '::warning::Inline placement was rejected (for example a finding on a binary or unchanged line); publishing findings in the review body instead.'
-            placement=body
-            inline=$(jq -r '.[] | "- `\(.path):\(.line)` — \(.body)"' findings.json)
-            echo '[]' > no-findings.json
-            request "$(printf '%s\n\nFindings:\n%s' "$body" "$inline")" no-findings.json
-          fi
-          echo "Published $event review of $HEAD_SHA with $FINDINGS finding(s) ($placement); $open_threads ${REVIEWER_NAME} thread(s) remain open"
+          REVIEW_PENDING: ${{ runner.temp }}/review-pending.json
+        run: python3 -I "$GITHUB_WORKSPACE/publisher/.github/agent-review/publish.py"
+
+      - name: Remove unsubmitted review
+        if: ${{ always() && steps.app-token.outputs.token != '' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REVIEW_PENDING: ${{ runner.temp }}/review-pending.json
+        run: python3 -I "$GITHUB_WORKSPACE/publisher/.github/agent-review/publish.py" --cleanup
 
       - name: Summarize review trace
         if: ${{ !cancelled() && steps.eligibility.outputs.skip != 'true' && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}

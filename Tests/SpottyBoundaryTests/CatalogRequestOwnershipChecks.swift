@@ -1,8 +1,73 @@
 import Testing
+import SpottyDomain
 @testable import SpottyCore
 
 @MainActor
 struct CatalogRequestOwnershipTests {
+    @Test(arguments: [false, true])
+    func invalidPlaylistAddressSettlesLoading(cached: Bool) async {
+        let provider = HarnessCatalog()
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let store = PlaylistStore(
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+        let item = CatalogItem(
+            id: "invalid", uri: "spotify:playlist:", title: "Invalid address",
+            subtitle: "", artworkURL: nil, kind: .playlist)
+        if cached { store.replaceLoadedPlaylist(uri: item.uri, tracks: []) }
+
+        await store.load(item)
+
+        #expect(!store.isLoading)
+        #expect(store.error != nil)
+        #expect(store.isShowingCachedContent == cached)
+        #expect(!store.canEditLoadedContent)
+        #expect(provider.playlistRequestCount == 0)
+    }
+
+    @Test func precancelledFeatureLoadsSettleTheirIndicatorsAndAllowRetry() async {
+        let provider = HarnessCatalog()
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let metadata = CatalogMetadataRepository(session: session)
+        let home = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
+        let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+        let artist = ArtistDetailStore(provider: provider, session: session)
+        let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
+        let search = SearchStore(provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
+        func item(_ kind: CatalogItem.Kind) -> CatalogItem {
+            CatalogItem(
+                id: "synthetic", uri: "spotify:\(kind.rawValue.lowercased()):synthetic", title: "Synthetic",
+                subtitle: "", artworkURL: nil, kind: kind)
+        }
+        let load = {
+            await home.loadHome()
+            await home.loadPlaylists()
+            await album.load(item(.album))
+            await artist.load(item(.artist))
+            await playlist.load(item(.playlist))
+            await search.search("synthetic")
+        }
+        let cancelled = Task { await load() }
+        cancelled.cancel()
+        await cancelled.value
+
+        #expect(home.loadingSections.isEmpty)
+        #expect(!album.isLoading)
+        #expect(!artist.isLoading)
+        #expect(!playlist.isLoading)
+        #expect(!search.isSearching)
+        #expect(
+            provider.homeRequestCount + provider.playlistLibraryRequestCount + provider.albumRequestCount
+                + provider.artistRequestCount + provider.playlistRequestCount + provider.searchTrackRequestCount == 0)
+
+        await load()
+        #expect(!home.isLoading && !album.isLoading && !artist.isLoading && !playlist.isLoading && !search.isSearching)
+        #expect(provider.homeRequestCount == 1)
+        #expect(provider.albumRequestCount == 1)
+        #expect(provider.artistRequestCount == 1)
+        #expect(provider.playlistRequestCount == 1)
+        #expect(provider.searchTrackRequestCount == 1)
+    }
+
     enum Retirement: CaseIterable, Sendable {
         case reset, superseded, accountChanged, disconnected, reconnected, abandoned
     }

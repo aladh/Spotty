@@ -74,6 +74,10 @@ both pushes. Each published review includes its rerun command for trusted reposi
 Unrelated and unauthorized comments use separate concurrency groups, so they cannot cancel or
 displace a pending eligible review.
 
+If a required review check failed or was cancelled, rerun that original Actions run (or use
+`gh run rerun RUN_ID`). A separate trigger comment or dispatch can publish a fresh review while
+its check belongs to the default-branch commit; it does not replace the failed PR check.
+
 ## Setup and trust
 
 Install the [OpenCode GitHub App](https://github.com/apps/opencode-agent) on Spotty only. The

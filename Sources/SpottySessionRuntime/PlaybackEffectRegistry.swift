@@ -101,6 +101,10 @@ private actor PlaybackEffectDrainState {
 /// Owns every runtime effect from registration through completion. Named entries keep the task,
 /// identity and cancellation handler together; callers start work through `run` and retain exact
 /// settlement handles when they need to await it after cancellation or replacement.
+///
+/// Command UUIDs identify requests; admission gates decide which may overlap. Queue replacement
+/// uses one effect lifetime: queue code owns its request token and intent deadline, while this
+/// registry completes the task. Cancellation cannot undo an already-dispatched replacement.
 @SessionRuntimeActor
 final class PlaybackEffectRegistry {
     /// A task that cannot observe cancellation must not hold account replacement forever. This is
@@ -128,8 +132,9 @@ final class PlaybackEffectRegistry {
         entries.mapValues { PlaybackEffectSettlement(task: $0.task) }
     }
 
-    /// Registers, starts and completes one effect. The replacement is installed before calling
-    /// the old cancellation handler, so a reentrant handler observes current ownership.
+    /// Registers, starts and completes one effect. The replacement is installed before the old
+    /// cancellation handler runs synchronously. Calls to `cancel` or `run` for the same ID from
+    /// that handler affect the replacement.
     /// Late completion removes only its own entry, including when cancellation was ignored.
     func run(
         _ id: PlaybackEffectID,

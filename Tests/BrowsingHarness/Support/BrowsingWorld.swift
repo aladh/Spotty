@@ -69,10 +69,11 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     func authorizeInteractively() async throws -> KeymasterTokens { throw rejectMutation() }
     func accessToken() async throws -> String { throw BrowsingFailure.unsupportedAction }
     func adopt(_: KeymasterTokens) async throws { throw rejectMutation() }
-    func clear() async {
-        guard scenario.mode == .playback else { _ = rejectMutation(); return }
+    func clear() async -> Bool {
+        guard scenario.mode == .playback else { _ = rejectMutation(); return false }
         lock.withLock { grantAvailable = false }
         record("account.synthetic-clear")
+        return true
     }
 
     func restoreSyntheticAccount() {

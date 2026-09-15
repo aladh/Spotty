@@ -101,7 +101,7 @@ nonisolated struct KeymasterFileStore: KeymasterTokenStoring {
         guard fsync(parent) == 0 else { throw StoreError.system(errno) }
     }
 
-    func clear() {
+    func clear() throws {
         clearLegacyGrant()
         do {
             let parent = try openDirectory(create: false)
@@ -114,6 +114,7 @@ nonisolated struct KeymasterFileStore: KeymasterTokenStoring {
             return
         } catch {
             SpottyLog.authentication.error("Stored grant removal failed source=file")
+            throw error
         }
     }
 

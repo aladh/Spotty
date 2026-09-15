@@ -316,9 +316,9 @@ struct AuthCookieCleanupTests {
             } catch {
                 #expect((false) == true, "adopt writes the grant")
             }
-            await session.clear()
+            #expect(await session.clear())
             #expect((counter.count) == (1), "clearing the grant removes Spotify cookies")
-            await session.clear()
+            #expect(await session.clear())
             #expect((counter.count) == (2), "a second clear is still safe")
             #expect((store.stored) == nil, "the grant does not return after cookie cleanup")
         }

@@ -389,6 +389,7 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
         var authorization = Authorization.cancelled
         var authorizeCount = 0
         var clearCount = 0
+        var clearSucceeds = true
         var markCount = 0
         var parkClear = false
         var clearPark: CheckedContinuation<Void, Never>?
@@ -406,12 +407,14 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
         authorization: Authorization = .cancelled,
         grantState: KeymasterGrantState? = nil,
         reauthenticationRequired: Bool = false,
+        clearSucceeds: Bool = true,
         revocations: Revocations = .finished
     ) {
         storage.hasStoredGrant = hasGrant
         storage.authorization = authorization
         storage.grantState = grantState
         storage.reauthenticationRequired = reauthenticationRequired
+        storage.clearSucceeds = clearSucceeds
         revocationsBehavior = revocations
     }
 
@@ -494,13 +497,14 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
 
     func adopt(_: KeymasterTokens) async throws {}
 
-    func clear() async {
+    func clear() async -> Bool {
         if parkClear {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 withStorage { $0.clearPark = continuation }
             }
         }
         withStorage { $0.clearCount += 1 }
+        return withStorage { $0.clearSucceeds }
     }
 
     func revocations() -> AsyncStream<Void> {

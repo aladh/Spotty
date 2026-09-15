@@ -33,6 +33,7 @@ package nonisolated enum KeymasterGrantState: Equatable, Sendable {
     case absent
     case denied
     case failed
+    case removalFailed
 }
 
 /// Storage for the keymaster tokens.
@@ -44,7 +45,7 @@ package nonisolated enum KeymasterGrantState: Equatable, Sendable {
 nonisolated protocol KeymasterTokenStoring: Sendable {
     func loadResult() -> KeymasterGrantLoadResult
     func save(_ tokens: KeymasterTokens) throws
-    func clear()
+    func clear() throws
 }
 
 /// Privacy-safe persistence diagnostics. Messages name a storage category and a reason;
@@ -150,11 +151,15 @@ final class KeymasterPersistenceWorker: @unchecked Sendable {
         return receipt
     }
 
-    func submitClear() -> KeymasterPersistenceReceipt<Void> {
-        let receipt = KeymasterPersistenceReceipt<Void>()
+    func submitClear() -> KeymasterPersistenceReceipt<Result<Void, any Error>> {
+        let receipt = KeymasterPersistenceReceipt<Result<Void, any Error>>()
         queue.async { [store] in
-            store.clear()
-            receipt.resolve(())
+            do {
+                try store.clear()
+                receipt.resolve(.success(()))
+            } catch {
+                receipt.resolve(.failure(error))
+            }
         }
         return receipt
     }

@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import Synchronization
 @testable import SpottyCore
 @testable import SpottyGateway
 import SpottyRuntimeContracts
@@ -34,7 +35,7 @@ struct KeymasterFileStoreChecks {
             atPath: directory.appendingPathComponent("session.json").path)
         #expect((folder[.posixPermissions] as? NSNumber)?.intValue == 0o700)
         #expect((file[.posixPermissions] as? NSNumber)?.intValue == 0o600)
-        await relaunched.clear()
+        #expect(await relaunched.clear())
         let afterLogout = KeymasterSession(store: store, cookieCleanup: {})
         #expect(await afterLogout.grantState == .absent)
     }
@@ -56,6 +57,47 @@ struct KeymasterFileStoreChecks {
         #expect(throws: (any Error).self) { try store.save(oversized) }
         #expect(store.loadResult() == .found(grant))
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["session.json"])
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func failedRemovalStaysVisibleAndRetryDoesNotRestoreTheOldGrant(revoked: Bool) async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = KeymasterFileStore(directory: directory)
+        let cookies = Mutex(0)
+        let session = KeymasterSession(
+            store: store, refresher: { _ in throw KeymasterAuthError.grantRevoked },
+            cookieCleanup: { cookies.withLock { $0 += 1 } })
+        let grant = HarnessFixtures.tokens()
+        try await session.adopt(grant)
+        let stream = session.grantRevocations()
+        var announcements = 0
+        let listener = Task {
+            for await _ in stream { announcements += 1 }
+        }
+        defer { listener.cancel() }
+        // A directory at the staging name makes the store reject cleanup deterministically.
+        let obstacle = directory.appendingPathComponent(".session.pending")
+        try FileManager.default.createDirectory(at: obstacle, withIntermediateDirectories: false)
+
+        if revoked {
+            await #expect(throws: KeymasterSessionError.grantRevoked) {
+                try await session.refreshIgnoringExpiry(rejected: grant.accessToken)
+            }
+            #expect(await waitUntil { announcements == 1 })
+        } else {
+            #expect(await session.clear() == false)
+        }
+
+        #expect(await session.grantState == .removalFailed)
+        #expect(await session.hasGrant == false)
+        #expect(cookies.withLock { $0 } == 1)
+        await #expect(throws: KeymasterSessionError.noGrant) { try await session.accessToken() }
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("session.json").path))
+
+        try FileManager.default.removeItem(at: obstacle)
+        #expect(await session.retryGrantState() == .absent)
+        #expect(store.loadResult() == .absent, "retry finishes logout instead of restoring the retained grant")
     }
 
     @Test func schemaVersionPreservesLegacyGrantsAndRejectsFutureFormats() throws {
@@ -95,7 +137,7 @@ struct KeymasterFileStoreChecks {
         for name in protectedFiles {
             try marker.write(to: targetSession.appendingPathComponent(name))
         }
-        store.clear()
+        #expect(throws: (any Error).self) { try store.clear() }
         for name in protectedFiles {
             #expect(try Data(contentsOf: targetSession.appendingPathComponent(name)) == marker)
         }
@@ -120,7 +162,7 @@ struct KeymasterFileStoreChecks {
         #expect(store.loadResult() == .found(grant))
         #expect(!FileManager.default.fileExists(atPath: stage.path))
         try Data("interrupted replacement".utf8).write(to: stage)
-        store.clear()
+        try store.clear()
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
     }
 
@@ -140,7 +182,7 @@ struct KeymasterFileStoreChecks {
         try marker.write(to: target)
         try FileManager.default.createSymbolicLink(at: file, withDestinationURL: target)
         #expect(store.loadResult() == .failed)
-        store.clear()
+        try store.clear()
         #expect(try Data(contentsOf: target) == marker)
     }
 }

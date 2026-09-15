@@ -118,7 +118,7 @@ struct AccountReauthenticationPersistenceTests {
         #expect((await restored.reauthenticationRequired()) == false, "the live replacement is usable")
 
         await restored.markReauthenticationRequired()
-        await restored.clear()
+        #expect(await restored.clear())
         #expect((store.stored) == nil, "explicit grant clear removes the marker with the grant")
     }
 
@@ -370,11 +370,12 @@ private final class ReauthenticationAccount: AccountSession, @unchecked Sendable
     }
     func accessToken() async throws -> String { "existing-access" }
     func adopt(_: KeymasterTokens) async throws { lock.withLock { markerStorage = false } }
-    func clear() async {
+    func clear() async -> Bool {
         lock.withLock {
             clearStorage += 1
             markerStorage = false
         }
+        return true
     }
     func revocations() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
 }

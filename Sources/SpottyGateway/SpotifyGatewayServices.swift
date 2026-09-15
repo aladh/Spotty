@@ -11,7 +11,7 @@ package protocol AccountSession: Sendable {
     func markReauthenticationRequired() async
     func accessToken() async throws -> String
     func adopt(_ tokens: KeymasterTokens) async throws
-    func clear() async
+    func clear() async -> Bool
     func revocations() -> AsyncStream<Void>
 }
 
@@ -32,7 +32,7 @@ private struct LiveAccountSession: AccountSession {
     func markReauthenticationRequired() async { await KeymasterSession.shared.markReauthenticationRequired() }
     func accessToken() async throws -> String { try await KeymasterSession.shared.accessToken() }
     func adopt(_ tokens: KeymasterTokens) async throws { try await KeymasterSession.shared.adopt(tokens) }
-    func clear() async { await KeymasterSession.shared.clear() }
+    func clear() async -> Bool { await KeymasterSession.shared.clear() }
     func revocations() -> AsyncStream<Void> { KeymasterSession.shared.grantRevocations() }
 }
 

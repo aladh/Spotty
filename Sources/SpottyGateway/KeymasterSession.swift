@@ -42,6 +42,8 @@ actor KeymasterSession {
     private let cookieCleanup: @Sendable () -> Void
     private var tokens: KeymasterTokens?
     private var loadFailure: KeymasterGrantLoadResult?
+    /// A failed removal must be retried as removal, never as restoration of the old grant.
+    private var removalPending = false
     /// A replacement grant is kept private until its durable save succeeds. Reads that could
     /// refresh or expose credentials wait for this bounded worker operation rather than racing a
     /// newer sign-in with the still-committed grant.
@@ -116,6 +118,7 @@ actor KeymasterSession {
         get async {
             await ensureGrantVisible()
             if tokens != nil { return .available }
+            if removalPending { return .removalFailed }
             switch loadFailure {
             case .some(.denied): return .denied
             case .some(.failed): return .failed
@@ -129,6 +132,9 @@ actor KeymasterSession {
     /// it must not become a permanent process-lifetime result after file access recovers.
     func retryGrantState() async -> KeymasterGrantState {
         await waitForAdoption()
+        if removalPending {
+            _ = await clear()
+        }
         if tokens == nil, loadFailure != nil {
             hasLoadedStore = false
             loadFailure = nil
@@ -267,12 +273,13 @@ actor KeymasterSession {
         // newer grant that never reached the store when two saves fail in succession.
         tokens = committed
         loadFailure = nil
+        removalPending = false
         adoptionInFlight = nil
         adoptionCompletion = nil
     }
 
-    /// Forgets the grant — on logout, or when the refresh token is dead.
-    func clear() async {
+    /// Fences the grant immediately and reports whether its durable removal succeeded.
+    func clear() async -> Bool {
         hasLoadedStore = true
         supersedeRefresh()
         adoptionInFlight = nil
@@ -282,13 +289,21 @@ actor KeymasterSession {
         let expectedGeneration = generation
         tokens = nil
         loadFailure = nil
+        removalPending = true
         let receipt = persistence.submitClear()
-        _ = await receipt.value()
+        let result = await receipt.value()
+        let removed: Bool
+        switch result {
+        case .success: removed = true
+        case .failure: removed = false
+        }
         // A new grant may have been adopted while the bounded worker completed the clear. Its
         // cookies belong to the replacement and must survive; the worker's ordering still makes
         // this clear happen before that replacement's save.
-        guard generation == expectedGeneration else { return }
+        guard generation == expectedGeneration else { return removed }
+        removalPending = !removed
         cookieCleanup()
+        return removed
     }
 
     /// Abandons any refresh in flight and disowns whatever it eventually returns.
@@ -460,7 +475,7 @@ actor KeymasterSession {
     /// from signing out a newer interactive grant.
     private func clearIfCurrent(startedAt: Int) async -> Bool {
         guard generation == startedAt else { return false }
-        await clear()
+        _ = await clear()
         return generation == (startedAt &+ 1)
     }
 

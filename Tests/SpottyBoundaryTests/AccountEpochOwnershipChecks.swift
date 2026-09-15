@@ -6,6 +6,27 @@ import Foundation
 
 @Suite("Account Epoch Ownership")
 struct AccountEpochOwnershipTests {
+    @Test @MainActor
+    func failedGrantRemovalStillRetiresTheSessionAndReportsTheRetainedLogin() async {
+        let account = HarnessAccount(hasGrant: true, clearSucceeds: false)
+        let engine = HarnessEngine()
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: engine, account: account))
+        await player.restore()
+        let epoch = player.accountEpoch
+
+        await player.logout()
+
+        #expect(player.accountEpoch == epoch + 1)
+        #expect(player.accountStore.phase == .signedOut)
+        #expect(!player.catalogSession.isAvailable)
+        #expect(engine.count(.shutdown) == 1)
+        #expect(account.clearCount == 1)
+        #expect(player.feedback.message?.kind == .failure)
+        let failureMessage = await SpottySessionRuntime.AccountStore.grantRemovalFailureMessage
+        #expect(player.feedback.message?.text == failureMessage)
+    }
+
     @Test
     @MainActor
     func testAccountEpochOwnership() async {

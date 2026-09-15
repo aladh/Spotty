@@ -1,11 +1,36 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import SpottyCore
 @testable import SpottyGateway
 import SpottyRuntimeContracts
 
 @Suite("Keymaster Persistence")
 struct KeymasterPersistenceTests {
+    @Test @MainActor
+    func lateRemovalFailureDoesNotFenceAReplacementGrantOrClearItsCookies() async throws {
+        let store = GatedPersistenceStore(failClear: true)
+        store.releaseFirstSave()
+        let cookies = Mutex(0)
+        let session = KeymasterSession(store: store, cookieCleanup: { cookies.withLock { $0 += 1 } })
+        try await session.adopt(persistenceGrant(access: "old", refresh: "old-refresh"))
+        let removal = Task { await session.clear() }
+        await store.clearEntered.value()
+        let clearingGeneration = await session.credentialGeneration
+        let replacement = persistenceGrant(access: "replacement", refresh: "replacement-refresh")
+        let adoption = Task { try await session.adopt(replacement) }
+        #expect(await waitUntil { await session.credentialGeneration != clearingGeneration })
+
+        store.releaseClear()
+        #expect(await removal.value == false)
+        try await adoption.value
+
+        #expect(await session.retryGrantState() == .available)
+        #expect(try await session.accessToken() == replacement.accessToken)
+        #expect(store.stored == replacement)
+        #expect(cookies.withLock { $0 } == 0)
+    }
+
     @Test
     func testWorkerOrdersOverlappingDurableWrites() async throws {
         let store = GatedPersistenceStore()
@@ -18,7 +43,7 @@ struct KeymasterPersistenceTests {
         // All three operations are submitted before the blocked first save can complete.
         store.releaseFirstSave()
         try await first.value().get()
-        await clear.value()
+        try await clear.value().get()
         try await second.value().get()
         #expect(store.stored == replacement)
     }
@@ -59,7 +84,7 @@ struct KeymasterPersistenceTests {
         )
         #expect((try? await restoredSession.accessToken()) == "rotated-at")
 
-        await session.clear()
+        #expect(await session.clear())
         #expect(secure.stored == nil)
     }
 
@@ -118,7 +143,7 @@ struct KeymasterPersistenceTests {
             store.releaseFirstSave()
             _ = await first.value
 
-            await session.clear()
+            #expect(await session.clear())
             #expect((store.stored) == nil, "the clear removes the previous durable grant")
             try? await session.adopt(replacement)
             #expect((store.stored) == (replacement), "save, clear, save preserves the newest durable grant")
@@ -132,7 +157,7 @@ struct KeymasterPersistenceTests {
             let clear = Task { await session.clear() }
             store.releaseFirstSave()
             _ = await first.value
-            await clear.value
+            #expect(await clear.value)
             #expect((store.stored) == nil, "a stale save cannot recreate a signed-out grant")
         }
     }
@@ -198,6 +223,11 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
     private var saveEntered = false
     private var saveWaiter: CheckedContinuation<Void, Never>?
     private let firstSaveGate = DispatchSemaphore(value: 0)
+    private let clearGate = DispatchSemaphore(value: 0)
+    private let failClear: Bool
+    let clearEntered = KeymasterPersistenceReceipt<Void>()
+
+    init(failClear: Bool = false) { self.failClear = failClear }
 
     var stored: KeymasterTokens? { lock.withLock { value } }
 
@@ -226,7 +256,17 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
         lock.withLock { value = tokens }
     }
 
-    func clear() { lock.withLock { value = nil } }
+    func clear() throws {
+        if failClear {
+            clearEntered.resolve(())
+            clearGate.wait()
+            clearGate.signal()
+            throw PersistenceSaveFailure.rejected
+        }
+        lock.withLock { value = nil }
+    }
+
+    func releaseClear() { clearGate.signal() }
 
     func waitUntilFirstSaveEntered() async {
         await withCheckedContinuation { continuation in

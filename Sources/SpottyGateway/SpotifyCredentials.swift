@@ -106,14 +106,16 @@ nonisolated struct SpotifyCredentials: Sendable {
     /// timeout response after Spotify applied a mutation must not be replayed.
     func retryingRefusedToken(
         replay: SpotifyTransientRetry.Replay = .unsafe,
-        _ attempt: () async throws -> Attempt,
+        prepare: () async throws -> URLRequest,
+        send: (URLRequest) async throws -> Attempt
     ) async throws -> (body: Data, status: Int) {
         try await Self.retryingRefusedCredentials(
             replay: replay,
             retryTiming: retryTiming,
             invalidateAccessToken: invalidateAccessToken,
             invalidateClientToken: invalidateClientToken,
-            attempt
+            prepare: prepare,
+            send: send
         )
     }
 
@@ -123,53 +125,22 @@ nonisolated struct SpotifyCredentials: Sendable {
         retryTiming: SpotifyTransientRetry.Timing = .production,
         invalidateAccessToken: @Sendable (String) async throws -> Void,
         invalidateClientToken: (@Sendable (String) async -> Void)? = nil,
-        _ attempt: () async throws -> Attempt,
+        prepare: () async throws -> URLRequest,
+        send: (URLRequest) async throws -> Attempt
     ) async throws -> (body: Data, status: Int) {
         var didInvalidateCredentials = false
         var completedAttempts = 0
 
         while true {
             try Task.checkCancellation()
+            // Credential owners control their own retry policy. A lost rotating-refresh
+            // response cannot inherit the API read's permission to replay transport.
+            let request = try await prepare()
+            try Task.checkCancellation()
             completedAttempts += 1
-
+            let sent: Attempt
             do {
-                let sent = try await attempt()
-                if sent.status == 401 {
-                    // Client-token drop is non-throwing. Do it first so a throwing bearer refresh
-                    // (grantRevoked, noGrant, or a superseded spend) cannot leave a dead client cached
-                    // for the rest of its fortnight. The exact sent pair is named even when this
-                    // 401 will not be retried — a budget-final or already-replayed 401 must still
-                    // make that rejection authoritative.
-                    if let rejected = sent.clientToken {
-                        await invalidateClientToken?(rejected)
-                    }
-                    if let rejected = sent.accessToken {
-                        try await invalidateAccessToken(rejected)
-                    }
-                    if didInvalidateCredentials || completedAttempts >= SpotifyTransientRetry.maximumAttempts {
-                        return (sent.body, sent.status)
-                    }
-                    didInvalidateCredentials = true
-                    continue
-                }
-
-                if replay == .safe,
-                    completedAttempts < SpotifyTransientRetry.maximumAttempts,
-                    let delay = SpotifyTransientRetry.delay(
-                        status: sent.status,
-                        retryAfterHeader: sent.retryAfter,
-                        completedAttempts: completedAttempts,
-                        now: retryTiming.now(),
-                        unitJitter: retryTiming.unitJitter()
-                    )
-                {
-                    try await retryTiming.sleep(delay)
-                    continue
-                }
-
-                return (sent.body, sent.status)
-            } catch let error as CancellationError {
-                throw error
+                sent = try await send(request)
             } catch let error as URLError {
                 if replay == .safe,
                     completedAttempts < SpotifyTransientRetry.maximumAttempts,
@@ -184,6 +155,39 @@ nonisolated struct SpotifyCredentials: Sendable {
                 }
                 throw error
             }
+
+            if sent.status == 401 {
+                // Name the sent pair even on the final attempt. Drop the client token first
+                // so a failed bearer refresh cannot leave a known-dead client token cached.
+                // Refresh errors propagate; only the credential owner may decide to retry.
+                if let rejected = sent.clientToken {
+                    await invalidateClientToken?(rejected)
+                }
+                if let rejected = sent.accessToken {
+                    try await invalidateAccessToken(rejected)
+                }
+                if didInvalidateCredentials || completedAttempts >= SpotifyTransientRetry.maximumAttempts {
+                    return (sent.body, sent.status)
+                }
+                didInvalidateCredentials = true
+                continue
+            }
+
+            if replay == .safe,
+                completedAttempts < SpotifyTransientRetry.maximumAttempts,
+                let delay = SpotifyTransientRetry.delay(
+                    status: sent.status,
+                    retryAfterHeader: sent.retryAfter,
+                    completedAttempts: completedAttempts,
+                    now: retryTiming.now(),
+                    unitJitter: retryTiming.unitJitter()
+                )
+            {
+                try await retryTiming.sleep(delay)
+                continue
+            }
+
+            return (sent.body, sent.status)
         }
     }
 

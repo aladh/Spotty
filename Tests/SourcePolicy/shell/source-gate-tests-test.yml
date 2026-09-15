@@ -10,13 +10,65 @@ valid:
     scan
   fi
   command -v "$ast_grep"
+  "$ast_grep" test --config sgconfig.yml --skip-snapshot-tests
+  "$ast_grep" scan --config sgconfig.yml Sources
   echo "&"
+  echo "'command' set +e"
 - |
   # set +e is forbidden as code, not as explanatory text.
   python3 -B Scripts/documentation_policy.py
   python3 -B Scripts/script_tests.py policy
   npm test --prefix Scripts/agent-review-tests
 invalid:
+- |
+  set -euo pipefail
+  echo ready
+    \command set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  \command set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  'command' set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  "builtin" set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  \eval 'set +e'
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  'set' +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  c"ommand" set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  c\ommand set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
 - |
   python3 -B Scripts/documentation_policy.py
   python3 -B Scripts/script_tests.py policy

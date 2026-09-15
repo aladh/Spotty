@@ -322,11 +322,19 @@ class SourcePolicyRoutingTests(unittest.TestCase):
                 self.assertIn("source-gate-tests", self.scan(path, hidden))
                 backgrounded = source.replace(command + "\n", command + " &\nwait\n")
                 self.assertIn("source-gate-tests", self.scan(path, backgrounded))
-        for disable in ("set +e", "set +o errexit", "command set +e", "builtin set +e",
-                        "time set +e", "eval 'set +e'"):
+        for disable in ("set +e", "set +o errexit", "set -euo pipefail +e",
+                        "command set +e", "builtin set +e", "time set +e", "eval 'set +e'"):
             with self.subTest(disable=disable):
                 masked = source.replace("set -euo pipefail", "set -euo pipefail\n" + disable)
                 self.assertIn("source-gate-tests", self.scan(path, masked))
+        for name, arguments in (("set", "+e"), ("command", "set +e"),
+                                ("builtin", "set +e"), ("eval", "'set +e'")):
+            for spelling in (f"\\{name}", f"'{name}'", f'"{name}"',
+                             f'{name[0]}"{name[1:]}"', f"{name[0]}\\{name[1:]}"):
+                with self.subTest(spelling=spelling):
+                    for prefix in ("", "echo ready\n  "):
+                        masked = source.replace("set -euo pipefail", f"set -euo pipefail\n{prefix}{spelling} {arguments}")
+                        self.assertIn("source-gate-tests", self.scan(path, masked))
         self.assertNotIn("source-gate-tests", self.scan("Scripts/unrelated.sh", "#!/bin/bash\nset -euo pipefail\n"))
 
     def test_policy_still_matches_beside_recovered_swift_syntax(self):

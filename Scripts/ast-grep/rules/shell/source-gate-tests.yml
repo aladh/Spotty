@@ -6,7 +6,8 @@ message: Run source/test gates in the foreground at program scope and keep errex
 files:
 - Scripts/check-source-policy.sh
 note: The independent CI syntax scan rejects hidden/backgrounded gates and shell command
-  wrappers (except command -v). Execution fixtures check gate failure propagation;
+  wrappers (except command -v). Quoted or escaped command names are rejected except
+  the configured ast-grep executable. Execution fixtures check gate failure propagation;
   other control flow, aliases, and exit paths still need review.
 rule:
   kind: program
@@ -26,7 +27,7 @@ rule:
         field: name
         regex: ^set$
       not:
-        pattern: set -euo pipefail
+        regex: ^set -euo pipefail$
       stopBy: end
   - has:
       kind: command
@@ -41,3 +42,15 @@ rule:
       precedes:
         regex: ^&$
       stopBy: end
+  - has:
+      kind: command
+      has:
+        field: name
+        all:
+        - regex: >-
+            ['"\\]
+        - not:
+            regex: '^"\$ast_grep"$'
+      stopBy: end
+  # The pinned Bash grammar can fold a line-leading escape into the previous argument.
+  - regex: '(?m)^[ \t]*\\'

@@ -3,11 +3,11 @@
 Spotty runs automated PR reviews through one shared pipeline, the
 [reusable review workflow](../../.github/workflows/agent-review.yml). Each reviewer is a thin
 caller workflow that owns its triggers and passes its configuration directory, review marker,
-primary agent, and optional path filter. Current reviewers:
+primary agent, and rerun command. Current reviewers:
 
 - [Thermos review](thermos-review.md): correctness and quality of every ready PR.
-- [Documentation review](docs-review.md): sense and product-specification guard for PRs that
-  touch documentation; comment-only.
+- [Documentation review](docs-review.md): documentation accuracy, missing updates, and the
+  product-specification guard for every eligible PR; comment-only.
 
 ## Shared behavior
 
@@ -15,9 +15,8 @@ A reviewer runs when a PR from this repository is opened ready, marked ready, re
 to, and on request (a trigger comment or **Run workflow** on the default branch). The first run
 audits the whole PR; later runs audit only the changes since the head that reviewer last covered,
 so a fix push gets a small follow-up rather than a repeat. A force-push or rebase falls back to a
-full review. A reviewer with a path filter limits its diffs to matching files, rejects findings
-outside them, and skips PRs whose changed files do not match unless one of its own threads is still
-open, in which case it runs to reconcile those threads. Approval is opt-in per caller.
+full review. Both reviewers receive the full PR context, including implementation changes whose
+documentation updates may be missing. Approval is opt-in per caller.
 
 The agents run with a read-only repository token and never hold the App token. They write
 `findings.json`, `thread-actions.json`, and `summary.md`; a trusted workflow step validates those
@@ -52,7 +51,9 @@ workflow, choose the default branch, and enter the PR number. Either posts anoth
 the current head. The PR must be open, ready, and from this repository, and the comment must come
 from the owner, a member, or a collaborator. Both paths run the workflow and reviewer configuration
 from the default branch. A push while a review is running cancels that run; the next run covers
-both pushes.
+both pushes. Each published review includes its rerun command for trusted repository collaborators.
+Unrelated and unauthorized comments use separate concurrency groups, so they cannot cancel or
+displace a pending eligible review.
 
 ## Setup and trust
 
@@ -74,6 +75,13 @@ workflow log using the shared [trace summary configuration](../../.github/agent-
 Raw trace files are temporary and are not uploaded as artifacts.
 
 The contributor-free model provider may use submitted public source for Meta training.
+
+## Verifying workflow changes
+
+Run `npm ci --ignore-scripts --prefix Scripts/agent-review-tests`, then
+`npm test --prefix Scripts/agent-review-tests` with Node.js 20 or newer, Ruby, Git, and jq. CI runs
+the same fixtures in Source policies. They evaluate event gates with GitHub’s expression library
+and execute the input/body construction against isolated repository and API fixtures.
 
 ## Adding a reviewer
 

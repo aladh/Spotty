@@ -17,7 +17,7 @@ contracts and records.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.
 - [Agent reviews](development/agent-reviews.md): shared review pipeline, approval, thread handling, and trust.
 - [Thermos review](development/thermos-review.md): correctness and quality review of every ready PR.
-- [Documentation review](development/docs-review.md): sense and product-specification guard for documentation PRs.
+- [Documentation review](development/docs-review.md): documentation accuracy, missing updates, and product-specification guard for every eligible PR.
 
 ## Product
 

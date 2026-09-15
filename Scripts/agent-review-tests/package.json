@@ -1,0 +1,7 @@
+{
+  "name": "spotty-agent-review-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" },
+  "devDependencies": { "@actions/expressions": "0.3.61" }
+}

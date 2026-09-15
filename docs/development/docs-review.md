@@ -1,10 +1,10 @@
 # Documentation review
 
-The documentation review runs on open, ready PRs from this repository that change `docs/`,
-`README.md`, `PRIVACY.md`, `SECURITY.md`, `CONTRIBUTING.md`, or any `AGENTS.md`. It limits its
-diffs to those paths and skips PRs that touch none of them. It is comment-only: it never approves
-and never requests changes, and its open threads block merge through the thread-resolution rule
-until they are resolved. Trigger phrase: `@docs-review review`.
+The documentation review runs on every open, ready PR from this repository. It receives the full
+diff so it can detect missing documentation updates as well as errors in changed documents.
+Changes with no documentation impact receive a concise no-findings assessment. It is comment-only:
+it never approves and never requests changes, and its open threads block merge through the
+thread-resolution rule until they are resolved. Trigger phrase: `@docs-review review`.
 
 It shares its triggers, incremental mode, publication, approval, thread handling, and trust model
 with every other reviewer; see [agent reviews](agent-reviews.md). Its prompts are Spotty's own and
@@ -18,7 +18,8 @@ Two subagents inspect the same change, and a coordinator reconciles them:
   canonical owner named by the [documentation index](../README.md) and is linked rather than
   duplicated; files under `docs/` follow the [documentation guidance](../AGENTS.md), while other
   in-scope files follow their nearest `AGENTS.md` and their own purpose; links and anchors resolve;
-  the change reads correctly in context.
+  the change reads correctly in context. Implementation and workflow changes are checked for
+  necessary updates to existing guidance, even when no documentation file changed.
 - **Specification guard.** Every hunk in a governed document is classified as wording, a
   correction of a product contract to verified shipped behavior, or a change of requirement, rule,
   or record. Governed documents are the [product contracts](../product/README.md) under
@@ -27,7 +28,9 @@ Two subagents inspect the same change, and a coordinator reconciles them:
   accepted ADR decisions. A correction or change must be declared in the PR description with the
   old and new requirement and the reason, as [product documentation guidance](../product/AGENTS.md)
   requires; an undeclared one is a finding even when the new text is more accurate. Corrections are
-  checked against `Sources/` and `Backend/` at the head.
+  checked against `Sources/` and `Backend/` at the head. Changed implementation is also checked
+  against existing promises to identify an omitted contract update. Missing-update findings name
+  the canonical document and attach to the changed implementation line that creates the gap.
 
 Declared and justified changes are not findings; the summary names them so a reader of the review
 sees which product or rule decisions the PR carries. The review does not judge whether a declared

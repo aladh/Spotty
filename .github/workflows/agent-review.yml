@@ -22,10 +22,9 @@ on:
         required: false
         type: string
         default: '2'
-      path_regex:
-        required: false
+      rerun_command:
+        required: true
         type: string
-        default: ''
       legacy_unmarked_threads:
         required: false
         type: string
@@ -52,7 +51,7 @@ jobs:
       CONFIG_DIRECTORY: ${{ inputs.config_directory }}
       PRIMARY_AGENT: ${{ inputs.primary_agent }}
       EXPECTED_AUDITORS: ${{ inputs.expected_auditors }}
-      PATH_REGEX: ${{ inputs.path_regex }}
+      RERUN_COMMAND: ${{ inputs.rerun_command }}
       LEGACY_UNMARKED_THREADS: ${{ inputs.legacy_unmarked_threads }}
       CAN_APPROVE: ${{ inputs.can_approve }}
     steps:
@@ -130,42 +129,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Apply path filter
-        id: path-filter
-        if: steps.eligibility.outputs.skip != 'true'
-        working-directory: source
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ -z "$PATH_REGEX" ]; then
-            exit 0
-          fi
-          if git diff --name-only "$BASE_SHA...$HEAD_SHA" | grep -E "$PATH_REGEX" > /dev/null; then
-            exit 0
-          fi
-          # No matching change, but earlier threads owned by this reviewer still need reconciling.
-          owned_open=$(gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
-            -f query='query($owner: String!, $name: String!, $number: Int!) {
-              repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-                reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved comments(first: 1) { nodes { author { login } body } } } } } } }' \
-            | jq --arg login "$REVIEWER_LOGIN" --arg marker "$REVIEW_MARKER" --arg legacy "$LEGACY_UNMARKED_THREADS" \
-              '.data.repository.pullRequest.reviewThreads
-              | if .pageInfo.hasNextPage then 1 else
-                  [.nodes[] | select(.isResolved == false
-                    and .comments.nodes[0].author.login == $login
-                    and (.comments.nodes[0].body as $body
-                      | ($body | startswith($marker))
-                        or ($legacy == "true" and ($body | startswith("<!-- spotty-") | not))))] | length end')
-          if [ "$owned_open" -gt 0 ]; then
-            echo "No changed file matches path_regex, but $owned_open owned thread(s) remain open; reviewing thread dispositions only"
-            exit 0
-          fi
-          echo "Skipping: no changed file matches path_regex and no owned thread is open"
-          echo 'skip=true' >> "$GITHUB_OUTPUT"
-
       - name: Prepare review inputs
-        if: steps.eligibility.outputs.skip != 'true' && steps.path-filter.outputs.skip != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         working-directory: source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -177,30 +142,13 @@ jobs:
             REVIEW_REASON="history rewritten since ${PREVIOUS_HEAD:0:7}"
             { echo "REVIEW_MODE=$REVIEW_MODE"; echo "REVIEW_REASON=$REVIEW_REASON"; } >> "$GITHUB_ENV"
           fi
-          if [ -n "$PATH_REGEX" ]; then
-            git diff "$BASE_SHA...$HEAD_SHA" --name-only -z | grep -zE "$PATH_REGEX" > "$REVIEW_IN/pr-filtered-paths.z" || true
-            if [ -s "$REVIEW_IN/pr-filtered-paths.z" ]; then
-              xargs -0 git diff "$BASE_SHA...$HEAD_SHA" -- < "$REVIEW_IN/pr-filtered-paths.z" > "$REVIEW_IN/pr.diff"
-            else
-              : > "$REVIEW_IN/pr.diff"
-            fi
-          else
-            git diff "$BASE_SHA...$HEAD_SHA" > "$REVIEW_IN/pr.diff"
-          fi
+          git diff "$BASE_SHA...$HEAD_SHA" > "$REVIEW_IN/pr.diff"
           if [ "$REVIEW_MODE" = incremental ]; then
-            if [ -n "$PATH_REGEX" ]; then
-              if [ -s "$REVIEW_IN/pr-filtered-paths.z" ]; then
-                xargs -0 git diff "$PREVIOUS_HEAD" "$HEAD_SHA" -- < "$REVIEW_IN/pr-filtered-paths.z" > "$REVIEW_IN/changes.diff"
-              else
-                : > "$REVIEW_IN/changes.diff"
-              fi
+            git diff "$BASE_SHA...$HEAD_SHA" --name-only -z > "$REVIEW_IN/pr-paths.z"
+            if [ -s "$REVIEW_IN/pr-paths.z" ]; then
+              xargs -0 git diff "$PREVIOUS_HEAD" "$HEAD_SHA" -- < "$REVIEW_IN/pr-paths.z" > "$REVIEW_IN/changes.diff"
             else
-              git diff "$BASE_SHA...$HEAD_SHA" --name-only -z > "$REVIEW_IN/pr-paths.z"
-              if [ -s "$REVIEW_IN/pr-paths.z" ]; then
-                xargs -0 git diff "$PREVIOUS_HEAD" "$HEAD_SHA" -- < "$REVIEW_IN/pr-paths.z" > "$REVIEW_IN/changes.diff"
-              else
-                : > "$REVIEW_IN/changes.diff"
-              fi
+              : > "$REVIEW_IN/changes.diff"
             fi
           else
             cp "$REVIEW_IN/pr.diff" "$REVIEW_IN/changes.diff"
@@ -247,7 +195,7 @@ jobs:
 
       - name: Review
         id: review
-        if: steps.eligibility.outputs.skip != 'true' && steps.path-filter.outputs.skip != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         working-directory: source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -268,7 +216,7 @@ jobs:
 
       - name: Validate review outputs
         id: results
-        if: steps.eligibility.outputs.skip != 'true' && steps.path-filter.outputs.skip != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         run: |
           set -euo pipefail
           cd "$REVIEW_OUT"
@@ -279,10 +227,6 @@ jobs:
             and (.line | type == "number" and . == floor and . > 0)
             and (.body | type == "string" and length > 0))' findings.json > /dev/null \
             || { echo '::error::findings.json is not an array of {path, line, body}'; exit 1; }
-          if [ -n "$PATH_REGEX" ]; then
-            jq -e --arg re "$PATH_REGEX" 'all(.[]; .path | test($re))' findings.json > /dev/null \
-              || { echo '::error::findings.json names a path outside this reviewer'"'"'s path_regex'; exit 1; }
-          fi
           jq -e --slurpfile threads "$REVIEW_IN/threads.json" '
             ($threads[0] | map(.id)) as $ids
             | type == "array" and (map(.id) | sort) == ($ids | sort)
@@ -294,7 +238,7 @@ jobs:
 
       - name: Authenticate as OpenCode App
         id: app-token
-        if: steps.eligibility.outputs.skip != 'true' && steps.path-filter.outputs.skip != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         run: |
           set -euo pipefail
           if ! oidc=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
@@ -314,7 +258,7 @@ jobs:
           echo "token=$token" >> "$GITHUB_OUTPUT"
 
       - name: Publish review
-        if: steps.eligibility.outputs.skip != 'true' && steps.path-filter.outputs.skip != 'true'
+        if: steps.eligibility.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           FINDINGS: ${{ steps.results.outputs.findings }}
@@ -365,7 +309,8 @@ jobs:
           if [ "$FINDINGS" -eq 0 ] && [ "$open_threads" = 0 ]; then
             header="$header No actionable findings remain in the reviewed scope."
           fi
-          body=$(printf '%s\n%s\n\n%s' "$REVIEW_MARKER" "$header" "$(cat summary.md)")
+          rerun_hint="Trusted repository collaborators can rerun this review by commenting \`$RERUN_COMMAND\`."
+          body=$(printf '%s\n%s\n\n%s\n\n%s' "$REVIEW_MARKER" "$header" "$(cat summary.md)" "$rerun_hint")
           request() {
             jq -n --arg commit "$HEAD_SHA" --arg event "$event" --arg body "$1" --arg marker "$REVIEW_MARKER" --slurpfile findings "$2" \
               '{commit_id: $commit, event: $event, body: $body,
@@ -384,7 +329,7 @@ jobs:
           echo "Published $event review of $HEAD_SHA with $FINDINGS finding(s) ($placement); $open_threads ${REVIEWER_NAME} thread(s) remain open"
 
       - name: Summarize review trace
-        if: ${{ !cancelled() && steps.eligibility.outputs.skip != 'true' && steps.path-filter.outputs.skip != 'true' && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}
+        if: ${{ !cancelled() && steps.eligibility.outputs.skip != 'true' && (steps.review.outcome == 'success' || steps.review.outcome == 'failure') }}
         working-directory: ${{ runner.temp }}
         env:
           OPENCODE_DISABLE_PROJECT_CONFIG: 'true'

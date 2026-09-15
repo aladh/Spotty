@@ -656,8 +656,8 @@ struct MediaDetailStoreTests {
                 (store.releases.map(\.uri)) == (["spotify:album:first-release"]),
                 "artist mapping uses the profile name after both fetches complete")
             #expect(
-                (store.releases.first?.subtitle) == ("First Artist"),
-                "artist mapping uses the profile as the release subtitle")
+                (store.releases.first?.subtitle) == ("2024 • Album"),
+                "artist mapping preserves the release year and type")
             #expect((!store.isLoading) == true, "parallel artist loading finishes once")
 
             await store.load(firstArtistItem)
@@ -698,7 +698,7 @@ struct MediaDetailStoreTests {
             #expect(
                 (store.releases.map(\.uri)) == (["spotify:album:second-release"]), "only the current artist publishes")
             #expect(
-                (store.releases.first?.subtitle) == ("Second Artist"), "the current artist profile names the releases")
+                (store.releases.first?.subtitle) == ("2025 • Album"), "the current artist preserves release metadata")
             #expect((!store.isLoading) == true, "the current artist clears loading")
         }
 

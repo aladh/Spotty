@@ -1,4 +1,5 @@
 import SpottyDomain
+import SpottyRuntimeContracts
 import SwiftUI
 
 enum NativeTrackColumn: String, CaseIterable {
@@ -8,6 +9,7 @@ enum NativeTrackColumn: String, CaseIterable {
     case album
     case dateAdded
     case duration
+    case playCount
 
     var title: String {
         switch self {
@@ -17,12 +19,13 @@ enum NativeTrackColumn: String, CaseIterable {
         case .album: "Album"
         case .dateAdded: "Date added"
         case .duration: "Time"
+        case .playCount: "Plays"
         }
     }
 
     var comparator: KeyPathComparator<TrackTableRow>? {
         switch self {
-        case .index: nil
+        case .index, .playCount: nil
         case .title: KeyPathComparator(\TrackTableRow.title)
         case .artist: KeyPathComparator(\TrackTableRow.artist)
         case .album: KeyPathComparator(\TrackTableRow.album)
@@ -36,6 +39,7 @@ enum NativeTrackColumn: String, CaseIterable {
         case .catalog: [.title, .artist, .album, .duration]
         case .playlist: [.index, .title, .album, .dateAdded, .duration]
         case .album: [.index, .title, .duration]
+        case .artist: [.index, .title, .playCount, .duration]
         }
     }
 }
@@ -52,12 +56,15 @@ struct NativeTrackCell: View {
     let playback: CatalogPlaybackAccess
     let searchQuery: String
     let onSelect: ((CatalogItem) -> Void)?
+    var artistTrack: CatalogArtistPopularTrack? = nil
+    @State private var indexHovered = false
 
     var body: some View {
         content
             .font(.system(size: 14))
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: alignment)
+            .opacity(artistTrack?.isPlayable == false ? 0.45 : 1)
     }
 
     private var alignment: Alignment {
@@ -102,6 +109,11 @@ struct NativeTrackCell: View {
             )
             .monospacedDigit()
             .foregroundStyle(SpottyPalette.dataText)
+        case .playCount:
+            if let count = artistTrack?.playCount {
+                Text(count.formatted()).foregroundStyle(SpottyPalette.dataText)
+                    .accessibilityLabel("\(count.formatted()) plays")
+            }
         }
     }
 
@@ -111,15 +123,27 @@ struct NativeTrackCell: View {
         let currentForeground = isSelected ? SpottyPalette.textPrimary : SpottyPalette.mediaGreen
 
         return Group {
-            if isCurrent && indicator.isPlaying {
-                Image(systemName: "speaker.wave.2.fill")
-                    .foregroundStyle(currentForeground)
+            if variant == .artist && indexHovered && playback.canStartPlayback && artistTrack?.isPlayable != false {
+                Button {
+                    playback.playTrack(row.track)
+                } label: {
+                    TransportSymbol(kind: .play).frame(width: 16, height: 16)
+                }
+                .buttonStyle(.plain)
+                .pointingHandCursor()
+                .accessibilityLabel("Play \(row.track.title)")
             } else {
-                Text(String(position))
-                    .monospacedDigit()
-                    .foregroundStyle(isCurrent ? currentForeground : SpottyPalette.dataText)
+                if isCurrent && indicator.isPlaying {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .foregroundStyle(currentForeground)
+                } else {
+                    Text(String(position))
+                        .monospacedDigit()
+                        .foregroundStyle(isCurrent ? currentForeground : SpottyPalette.dataText)
+                }
             }
         }
+        .onHover { indexHovered = $0 }
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityLabel(
             isCurrent ? "Current track, track \(position) of \(total)" : "Track \(position) of \(total)"
@@ -132,7 +156,7 @@ struct NativeTrackCell: View {
         let artistForeground = isCurrent && !isSelected ? SpottyPalette.mediaGreen : SpottyPalette.textSecondary
 
         return HStack(alignment: .center, spacing: 12) {
-            if variant == .playlist {
+            if variant == .playlist || variant == .artist {
                 RemoteArtwork(url: row.track.artworkURL, kind: .track, cornerRadius: 4)
                     .frame(width: 40, height: 40)
             }
@@ -142,14 +166,19 @@ struct NativeTrackCell: View {
                     .font(.system(size: 16))
                     .foregroundStyle(titleForeground)
                     .lineLimit(1)
-                CatalogArtistLinks(
-                    artists: row.track.artists, fallback: row.track.artist, color: artistForeground,
-                    searchQuery: searchQuery, onSelect: onSelect
-                )
-                .font(.system(size: 14))
+                    .accessibilityLabel(
+                        artistTrack?.isPlayable == false ? "\(row.track.title), unavailable" : row.track.title)
+                if variant != .artist {
+                    CatalogArtistLinks(
+                        artists: row.track.artists, fallback: row.track.artist, color: artistForeground,
+                        searchQuery: searchQuery, onSelect: onSelect
+                    )
+                    .font(.system(size: 14))
+                }
             }
         }
         .accessibilityElement(children: .contain)
+        .accessibilityValue(artistTrack?.isPlayable == false ? "Unavailable" : "")
     }
 
     private var catalogTitleCell: some View {

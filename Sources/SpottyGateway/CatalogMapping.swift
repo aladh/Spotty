@@ -115,11 +115,13 @@ nonisolated enum CatalogMapping {
 
     static func item(from release: PathfinderRelease, artist: String) -> CatalogItem? {
         guard let uri = release.uri, !uri.isEmpty else { return nil }
+        let kind = release.type.flatMap { CatalogArtistReleaseKind(rawValue: $0.lowercased()) }
+        let subtitle = [release.date?.year.map(String.init), kind?.label].compactMap { $0 }.joined(separator: " • ")
         return CatalogItem(
             id: uri,
             uri: uri,
             title: release.name ?? "Untitled release",
-            subtitle: artist,
+            subtitle: subtitle.isEmpty ? artist : subtitle,
             artworkURL: release.coverArt?.largestURL.flatMap(URL.init(string:)),
             kind: .album
         )

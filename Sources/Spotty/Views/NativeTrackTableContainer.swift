@@ -13,9 +13,12 @@ final class NativeTrackTableContainer: NSView {
     private let columnHeader = NSHostingView(rootView: AnyView(EmptyView()))
     private let catalogHeader = NSTableHeaderView()
     private let compactHeader = NSHostingView(rootView: AnyView(EmptyView()))
+    private let footer = NSHostingView(rootView: AnyView(EmptyView()))
     private let variant: TrackTableVariant
     private var heroContent: AnyView?
     private var compactContent: AnyView?
+    private var footerContent: AnyView?
+    private var collapseOffset: CGFloat?
     private var order: [KeyPathComparator<TrackTableRow>] = []
     private var sort: ((NativeTrackColumn) -> Void)?
     private var heroHeight: CGFloat = 0
@@ -37,8 +40,8 @@ final class NativeTrackTableContainer: NSView {
         scrollView.contentView.postsFrameChangedNotifications = true
         scrollView.documentView = document
         table.revealRow = { [weak self] in self?.reveal(row: $0) }
-        scrollView.setAccessibilityLabel("Tracks")
-        table.setAccessibilityLabel("Tracks")
+        scrollView.setAccessibilityLabel(variant == .artist ? "Artist" : "Tracks")
+        table.setAccessibilityLabel(variant == .artist ? "Popular" : "Tracks")
         table.style = .plain
         table.backgroundColor = .clear
         table.headerView = nil
@@ -55,6 +58,7 @@ final class NativeTrackTableContainer: NSView {
             let native = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.rawValue))
             native.title = column.title
             native.resizingMask = variant == .catalog ? .userResizingMask : []
+            if variant == .artist && column == .playCount { native.minWidth = 0 }
             if variant == .catalog {
                 let cell = NativeTrackHeaderCell(textCell: column.title)
                 native.headerCell = cell
@@ -76,9 +80,11 @@ final class NativeTrackTableContainer: NSView {
             document.addSubview(columnHeader)
         }
         document.addSubview(table)
+        document.addSubview(footer)
         addSubview(compactHeader)
         compactHeader.isHidden = true
         hero.sizingOptions = [.intrinsicContentSize]
+        footer.sizingOptions = [.intrinsicContentSize]
         compactHeader.sizingOptions = [.intrinsicContentSize]
         columnHeader.sizingOptions = []
         NotificationCenter.default.addObserver(
@@ -95,11 +101,14 @@ final class NativeTrackTableContainer: NSView {
     isolated deinit { NotificationCenter.default.removeObserver(self) }
 
     func updateHeaders(
-        hero: AnyView?, compact: AnyView?, sortOrder: [KeyPathComparator<TrackTableRow>],
+        hero: AnyView?, compact: AnyView?, footer: AnyView? = nil, collapseOffset: CGFloat? = nil,
+        sortOrder: [KeyPathComparator<TrackTableRow>],
         sort: @escaping (NativeTrackColumn) -> Void
     ) {
         heroContent = hero
         compactContent = compact
+        footerContent = footer
+        self.collapseOffset = collapseOffset
         order = sortOrder
         self.sort = sort
         for column in table.tableColumns {
@@ -134,11 +143,12 @@ final class NativeTrackTableContainer: NSView {
         let minimumWidth: CGFloat =
             switch variant {
             case .playlist: 576 + indexWidth
-            case .album: 216 + indexWidth
+            case .album, .artist: 216 + indexWidth
             case .catalog: 388
             }
         let customWidth = catalogColumnWidths?.reduce(0, +) ?? 0
-        let proposedWidth = max(minimumWidth, viewportWidth - inset * 2, customWidth)
+        let availableWidth = max(minimumWidth, viewportWidth - inset * 2, customWidth)
+        let proposedWidth = variant == .artist ? min(900, availableWidth) : availableWidth
         configuringColumns = true
         for (column, width) in zip(table.tableColumns, columnWidths(tableWidth: proposedWidth)) {
             column.width = width
@@ -162,17 +172,28 @@ final class NativeTrackTableContainer: NSView {
             sortOrder: order, sort: { [weak self] in self?.sort?($0) }
         )
         columnHeader.rootView = AnyView(headers)
-        columnHeader.frame = NSRect(x: inset, y: heroHeight, width: tableWidth, height: 36)
+        let columnHeaderHeight: CGFloat = variant == .artist ? 0 : 36
+        columnHeader.isHidden = variant == .artist
+        columnHeader.frame = NSRect(x: inset, y: heroHeight, width: tableWidth, height: columnHeaderHeight)
         catalogHeader.frame = columnHeader.frame
-        let tableY = heroHeight + 36
-        let tableHeight = max(CGFloat(rowCount) * table.rowHeight, viewportSize.height - tableY)
+        let tableY = heroHeight + columnHeaderHeight
+        let tableHeight = max(
+            CGFloat(rowCount) * table.rowHeight, footerContent == nil ? viewportSize.height - tableY : 0)
         table.frame = NSRect(x: inset, y: tableY, width: tableWidth, height: tableHeight)
-        document.frame = NSRect(x: 0, y: 0, width: documentWidth, height: tableY + tableHeight)
+        let footerY = tableY + tableHeight
+        if let footerContent {
+            footer.rootView = AnyView(footerContent.frame(width: documentWidth))
+            footer.frame.size.width = documentWidth
+            footer.frame = NSRect(x: 0, y: footerY, width: documentWidth, height: footer.fittingSize.height)
+        } else {
+            footer.frame = NSRect(x: 0, y: footerY, width: documentWidth, height: 0)
+        }
+        document.frame = NSRect(x: 0, y: 0, width: documentWidth, height: max(viewportSize.height, footer.frame.maxY))
         if let compactContent {
             compactHeader.rootView = AnyView(
                 VStack(spacing: 0) {
                     compactContent
-                    headers.padding(.horizontal, inset)
+                    if variant != .artist { headers.padding(.horizontal, inset) }
                 }
                 .frame(width: documentWidth)
                 .background(SpottyPalette.catalogCanvas)
@@ -222,7 +243,7 @@ final class NativeTrackTableContainer: NSView {
     private func updateCompactHeader() {
         compactHeader.isHidden =
             compactContent == nil || heroHeight <= 64
-            || scrollView.contentView.bounds.minY < heroHeight - 64
+            || scrollView.contentView.bounds.minY < (collapseOffset ?? heroHeight - 64)
         compactHeader.frame.origin.x = -scrollView.contentView.bounds.minX
     }
 
@@ -234,6 +255,12 @@ final class NativeTrackTableContainer: NSView {
     }
 
     private func columnWidths(tableWidth: CGFloat) -> [CGFloat] {
+        if variant == .artist {
+            let plays: CGFloat = tableWidth >= 520 ? 120 : 0
+            table.tableColumns.first { $0.identifier.rawValue == NativeTrackColumn.playCount.rawValue }?.isHidden =
+                plays == 0
+            return [40, tableWidth - 120 - plays, plays, 80]
+        }
         if variant == .album {
             let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9) + 24
             return [index, tableWidth - index - 104, 104]

@@ -1,14 +1,16 @@
 import SpottyDomain
+import SpottyRuntimeContracts
 import SwiftUI
 
 enum TrackTableVariant: Equatable {
     case catalog
     case playlist
     case album
+    case artist
 
     var initialSortOrder: [KeyPathComparator<TrackTableRow>] {
         switch self {
-        case .catalog, .album:
+        case .catalog, .album, .artist:
             []
         case .playlist:
             [KeyPathComparator(\TrackTableRow.dateAddedSortValue, order: .reverse)]
@@ -27,10 +29,12 @@ struct TrackTable: View {
     let onSelect: ((CatalogItem) -> Void)?
     let detailHeader: AnyView?
     let compactDetailHeader: AnyView?
+    let detailFooter: AnyView?
+    let artistTracks: [String: CatalogArtistPopularTrack]
+    let detailHeaderCollapseOffset: CGFloat?
     let interactionState: CatalogRouteInteractionState?
     @State private var localInteractionState: CatalogRouteInteractionState
-    @State private var displayCache = TrackTableDisplayCache()
-    @State private var visibleRows: [TrackTableRow] = []
+    @State private var projection = TrackTableProjection()
 
     init(
         tracks: CatalogTrackCollection,
@@ -41,6 +45,9 @@ struct TrackTable: View {
         onSelect: ((CatalogItem) -> Void)? = nil,
         detailHeader: AnyView? = nil,
         compactDetailHeader: AnyView? = nil,
+        detailFooter: AnyView? = nil,
+        artistTracks: [String: CatalogArtistPopularTrack] = [:],
+        detailHeaderCollapseOffset: CGFloat? = nil,
         interactionState: CatalogRouteInteractionState? = nil
     ) {
         self.tracks = tracks
@@ -51,6 +58,9 @@ struct TrackTable: View {
         self.onSelect = onSelect
         self.detailHeader = detailHeader
         self.compactDetailHeader = compactDetailHeader
+        self.detailFooter = detailFooter
+        self.artistTracks = artistTracks
+        self.detailHeaderCollapseOffset = detailHeaderCollapseOffset
         self.interactionState = interactionState
         _localInteractionState = State(initialValue: CatalogRouteInteractionState(isPlaylist: variant == .playlist))
     }
@@ -58,6 +68,7 @@ struct TrackTable: View {
     private var interaction: CatalogRouteInteractionState { interactionState ?? localInteractionState }
 
     var body: some View {
+        let visibleRows = projection.rows(tracks, sortOrder: interaction.sortOrder, searchQuery: searchQuery)
         // Register the presentation dependency here: AppKit reads the binding outside a
         // SwiftUI body, including immediate menu actions after a native selection change.
         let _ = interaction.selection
@@ -68,17 +79,11 @@ struct TrackTable: View {
             sortOrder: Binding(get: { interaction.sortOrder }, set: { interaction.sortOrder = $0 }),
             scrollOffset: Binding(get: { interaction.scrollOffset }, set: { interaction.scrollOffset = $0 }),
             playlistActions: playlistActions, onSelect: onSelect,
-            detailHeader: detailHeader, compactDetailHeader: compactDetailHeader
+            detailHeader: detailHeader, compactDetailHeader: compactDetailHeader,
+            detailFooter: detailFooter, artistTracks: artistTracks,
+            detailHeaderCollapseOffset: detailHeaderCollapseOffset
         )
         .onChange(of: displayInputs, initial: true) { oldInputs, newInputs in
-            _ = displayCache.update(
-                tracks,
-                sortOrder: newInputs.sortOrder
-            )
-            let search = PlaylistSearch(newInputs.searchQuery)
-            visibleRows =
-                newInputs.searchQuery.isEmpty
-                ? displayCache.rows : displayCache.rows.filter { search.matches($0.track) }
             if oldInputs.searchQuery != newInputs.searchQuery {
                 interaction.selection.formIntersection(Set(visibleRows.map(\.id)))
             }
@@ -101,6 +106,29 @@ struct TrackTable: View {
             sortOrder: interaction.sortOrder,
             searchQuery: searchQuery
         )
+    }
+}
+
+/// Prepare rows synchronously before AppKit lays out a retained route. An empty first render
+/// can clamp its saved scroll position before an onChange callback supplies the real rows.
+/// This non-observable cache avoids publishing state during body evaluation or reprojection on
+/// unrelated SwiftUI updates.
+@MainActor
+private final class TrackTableProjection {
+    private var cache = TrackTableDisplayCache()
+    private var searchQuery = ""
+    private var visibleRows: [TrackTableRow] = []
+
+    func rows(_ tracks: CatalogTrackCollection, sortOrder: [KeyPathComparator<TrackTableRow>], searchQuery: String)
+        -> [TrackTableRow]
+    {
+        let updated = cache.update(tracks, sortOrder: sortOrder)
+        if updated || self.searchQuery != searchQuery {
+            self.searchQuery = searchQuery
+            let search = PlaylistSearch(searchQuery)
+            visibleRows = searchQuery.isEmpty ? cache.rows : cache.rows.filter { search.matches($0.track) }
+        }
+        return visibleRows
     }
 }
 

@@ -8,7 +8,7 @@ import Testing
 @Suite("Owned native track table")
 @MainActor
 struct NativeTrackTableChecks {
-    @Test(arguments: [TrackTableVariant.playlist, .album])
+    @Test(arguments: [TrackTableVariant.playlist, .album, .artist])
     func selectionFollowsDuplicateOccurrenceAcrossSortAndMetadataUpdates(variant: TrackTableVariant) {
         let fixture = Fixture(variant: variant)
         let first = track(id: "first", title: "A")
@@ -57,7 +57,7 @@ struct NativeTrackTableChecks {
         #expect(fixture.state.selection == [first.id])
     }
 
-    @Test(arguments: [TrackTableVariant.playlist, .album])
+    @Test(arguments: [TrackTableVariant.playlist, .album, .artist])
     func ownedScrollOffsetRestoresAndClampsWithoutReplacingTheTable(variant: TrackTableVariant) {
         let fixture = Fixture(variant: variant)
         fixture.state.scrollOffset = 560
@@ -71,7 +71,7 @@ struct NativeTrackTableChecks {
         #expect(fixture.container.scrollView.contentView.bounds.minY == 0)
     }
 
-    @Test(arguments: [TrackTableVariant.playlist, .album])
+    @Test(arguments: [TrackTableVariant.playlist, .album, .artist])
     func keyboardRevealKeepsSelectionBelowTheCompactDetailHeader(variant: TrackTableVariant) {
         let fixture = Fixture(variant: variant)
         fixture.hero = AnyView(Color.clear.frame(height: 300))
@@ -80,7 +80,7 @@ struct NativeTrackTableChecks {
         fixture.update((0..<80).map { track(id: "occurrence-\($0)", title: "Track \($0)") })
         fixture.container.table.scrollRowToVisible(5)
         let rowTop = fixture.container.table.frame.minY + fixture.container.table.rect(ofRow: 5).minY
-        let expected = rowTop - 100  // 64-point compact hero plus 36-point column header.
+        let expected = rowTop - (variant == .artist ? 64 : 100)
         #expect(abs(fixture.container.scrollView.contentView.bounds.minY - expected) < 1)
     }
 
@@ -116,6 +116,54 @@ struct NativeTrackTableChecks {
         }
     }
 
+    @Test func artistFooterSharesScrollingAndNarrowLayoutKeepsDurationVisible() throws {
+        let fixture = Fixture(variant: .artist)
+        fixture.hero = AnyView(Color.clear.frame(height: 400))
+        fixture.footer = AnyView(Color.clear.frame(height: 600))
+        fixture.compact = AnyView(Color.clear.frame(height: 64))
+        for width in [900.0, 400.0, 320.0, 700.0] {
+            fixture.container.frame.size.width = width
+            fixture.update((0..<5).map { track(id: "track-\($0)", title: "Track \($0)") })
+            let table = fixture.container.table
+            let document = try #require(fixture.container.scrollView.documentView)
+            #expect(table.frame.minY == 400)
+            #expect(table.frame.height == 280)
+            #expect(document.frame.height == 1280)
+            #expect(table.frame.maxX <= fixture.container.scrollView.contentSize.width - 24)
+            let plays = try #require(table.tableColumns.first { $0.identifier.rawValue == "playCount" })
+            #expect(plays.isHidden == (width < 568))
+        }
+        fixture.state.scrollOffset = 800
+        fixture.update((0..<5).map { track(id: "track-\($0)", title: "Updated") })
+        #expect(fixture.container.scrollView.contentView.bounds.minY == 800)
+        fixture.footer = AnyView(Color.clear.frame(height: 100))
+        fixture.update([])
+        #expect(fixture.container.scrollView.contentView.bounds.minY <= 100)
+    }
+
+    @Test func artistInitialHostingLayoutRestoresAgainstTheCompleteTrackCount() throws {
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make())
+        let state = CatalogRouteInteractionState()
+        state.scrollOffset = 500
+        let tracks = (0..<10).map { track(id: "track-\($0)", title: "Track \($0)") }
+        let host = NSHostingView(
+            rootView: TrackTable(
+                tracks: CatalogTrackCollection(tracks: tracks), playback: CatalogPlaybackAccess(player: player),
+                variant: .artist,
+                detailHeader: AnyView(Color.clear.frame(height: 400)),
+                detailFooter: AnyView(Color.clear.frame(height: 300)), interactionState: state))
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+        host.layoutSubtreeIfNeeded()
+        func table(in view: NSView) -> NativeTrackTableContainer? {
+            if let table = view as? NativeTrackTableContainer { return table }
+            return view.subviews.lazy.compactMap { table(in: $0) }.first
+        }
+        let container = try #require(table(in: host))
+        #expect(container.table.numberOfRows == 10)
+        #expect(container.scrollView.contentView.bounds.minY == 500)
+        #expect(state.scrollOffset == 500)
+    }
+
     private func track(id: String, title: String, occurrenceUID: String? = nil) -> CatalogTrack {
         CatalogTrack(
             id: id, uri: "spotify:track:shared", title: title, artist: "Artist", album: "Album",
@@ -133,6 +181,7 @@ struct NativeTrackTableChecks {
         var actions: TrackPlaylistActions?
         var hero: AnyView?
         var compact: AnyView?
+        var footer: AnyView?
 
         init(variant: TrackTableVariant = .playlist) {
             self.variant = variant
@@ -155,7 +204,8 @@ struct NativeTrackTableChecks {
                 sortOrder: Binding(get: { [state] in state.sortOrder }, set: { [state] in state.sortOrder = $0 }),
                 scrollOffset: Binding(
                     get: { [state] in state.scrollOffset }, set: { [state] in state.scrollOffset = $0 }),
-                playlistActions: actions, onSelect: nil, detailHeader: hero, compactDetailHeader: compact
+                playlistActions: actions, onSelect: nil, detailHeader: hero, compactDetailHeader: compact,
+                detailFooter: footer
             )
         }
     }

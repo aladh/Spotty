@@ -106,9 +106,15 @@ public struct CatalogArtistSnapshot: Equatable, Codable, Sendable {
     public let item: CatalogItem?
     public let name: String?
     public let releases: [CatalogItem]
+    public let overview: CatalogArtistOverview?
+    public let releaseKinds: [String: CatalogArtistReleaseKind]?
     public init(
-        name: String?, releases: [CatalogItem], item: CatalogItem? = nil, freshness: CatalogFreshness = .current
-    ) { self.name = name; self.releases = releases; self.item = item; self.freshness = freshness }
+        name: String?, releases: [CatalogItem], item: CatalogItem? = nil, freshness: CatalogFreshness = .current,
+        overview: CatalogArtistOverview? = nil, releaseKinds: [String: CatalogArtistReleaseKind]? = nil
+    ) {
+        self.name = name; self.releases = releases; self.item = item; self.freshness = freshness
+        self.overview = overview; self.releaseKinds = releaseKinds
+    }
 }
 
 public protocol PlaylistMutating: Sendable {

@@ -1,5 +1,6 @@
 import AppKit
 import SpottyDomain
+import SpottyRuntimeContracts
 import SwiftUI
 
 /// Owns the table and scroll view directly. SwiftUI provides values and leaf content; native
@@ -17,6 +18,9 @@ struct NativeTrackTable: NSViewRepresentable {
     let onSelect: ((CatalogItem) -> Void)?
     let detailHeader: AnyView?
     let compactDetailHeader: AnyView?
+    var detailFooter: AnyView? = nil
+    var artistTracks: [String: CatalogArtistPopularTrack] = [:]
+    var detailHeaderCollapseOffset: CGFloat? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -82,6 +86,10 @@ struct NativeTrackTable: NSViewRepresentable {
                 compact: next.compactDetailHeader.map {
                     AnyView($0.environment(\.artworkAccess, next.artworkAccess).id(next.artworkAccess.accountEpoch))
                 },
+                footer: next.detailFooter.map {
+                    AnyView($0.environment(\.artworkAccess, next.artworkAccess).id(next.artworkAccess.accountEpoch))
+                },
+                collapseOffset: next.detailHeaderCollapseOffset,
                 sortOrder: next.sortOrder,
                 sort: { [weak self] column in self?.sort(column) }
             )
@@ -128,7 +136,8 @@ struct NativeTrackTable: NSViewRepresentable {
                     row: displayedRows[row], column: column, position: row + 1, total: displayedRows.count,
                     variant: content.variant, isSelected: content.selection.contains(displayedRows[row].id),
                     playback: content.playback, searchQuery: content.searchQuery,
-                    onSelect: content.onSelect
+                    onSelect: content.onSelect,
+                    artistTrack: content.artistTracks[displayedRows[row].track.uri]
                 )
                 .environment(\.artworkAccess, content.artworkAccess)
                 .id("\(content.artworkAccess.accountEpoch):\(displayedRows[row].id)")
@@ -193,7 +202,7 @@ struct NativeTrackTable: NSViewRepresentable {
 
         private func activateSelection() {
             guard content.playback.canStartPlayback, selectedTracks.count == 1,
-                let track = selectedTracks.first
+                let track = selectedTracks.first, content.artistTracks[track.uri]?.isPlayable != false
             else { return }
             content.playback.playTrack(track)
         }
@@ -211,7 +220,10 @@ struct NativeTrackTable: NSViewRepresentable {
             guard !tracks.isEmpty else { return nil }
             let menu = NSMenu()
             if tracks.count == 1, let track = tracks.first {
-                menu.addAction("Play", systemImage: "play.fill", enabled: content.playback.canStartPlayback) {
+                menu.addAction(
+                    "Play", systemImage: "play.fill",
+                    enabled: content.playback.canStartPlayback && content.artistTracks[track.uri]?.isPlayable != false
+                ) {
                     [playback = content.playback] in
                     playback.playTrack(track)
                 }

@@ -145,17 +145,6 @@ package final class PlaybackSessionRuntime: Sendable {
     var presentationRevision: UInt64 = 0
     var publicationPending = false
     var presentationSubscribers: [UUID: AsyncStream<RuntimePresentation>.Continuation] = [:]
-    var serviceSubscribers: [UUID: AsyncStream<SessionSnapshot>.Continuation] = [:]
-    var sessionID = UUID()
-    var sessionAccountEpoch: UInt64 = 1
-    var routeRevision: UInt64 = 0
-    var serviceReceipts: [SessionCommandReceipt] = []
-    var serviceCommandLedger: [UUID: SessionCommandReceipt] = [:]
-    var serviceIntentIDs: [UUID: [UUID]] = [:]
-    var serviceIntentOutcomes: [UUID: SessionCommandDisposition] = [:]
-    var serviceCommandActions: [UUID: SessionAction] = [:]
-    var serviceCommandEpochs: [UUID: UInt64] = [:]
-    var lastServiceRoute: ConnectCommandRoute?
 
     package init(
         environment: PlaybackEnvironment
@@ -399,8 +388,6 @@ package final class PlaybackSessionRuntime: Sendable {
             let queueEntriesChanged = reduction.queueEntriesChanged
             let devicesChanged = reduction.devicesChanged
             state = next
-            recordServiceIntent(event)
-            synchronizeServiceReceipts()
             let nextSemantic = PlaybackSemanticProjection(state: next)
             if semantic != nextSemantic { semantic = nextSemantic }
             if timeline != next.timing { timeline = next.timing }

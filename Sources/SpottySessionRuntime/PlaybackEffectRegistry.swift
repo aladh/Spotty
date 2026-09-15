@@ -18,8 +18,6 @@ enum PlaybackEffectID: Hashable, Sendable {
     case reconnectRehydration
     case credentialRejection
     case commandDeadline(UUID)
-    case serviceReceiptDeadline(UUID)
-    case serviceAccountReceipt(UUID)
     case command(UUID)
     case queueCommand(UUID)
 

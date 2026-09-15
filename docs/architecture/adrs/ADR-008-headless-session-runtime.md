@@ -33,6 +33,11 @@ storage, MainActor, or blocking FFI work inside that entrance. View code continu
 projections rather than the reducer snapshot. The runtime must not construct SwiftUI or AppKit
 presentation objects.
 
+The desktop's stamped runtime entrance and `RuntimePresentation` are the command and publication
+path. Headless scenarios exercise the same runtime methods with injected workers. A parallel RPC
+command namespace, receipt ledger, or serialized session protocol needs a concrete shipping client;
+test-only consumers do not justify maintaining a second admission and settlement model.
+
 `SpottyRuntimeContracts` holds typed, Sendable catalog and session values. `SpottyGateway` contains
 Spotify authorization, private wire models, HTTP transports, response mapping, and operation-specific
 failure interpretation. Feature stores consume domain snapshots rather than Pathfinder responses.

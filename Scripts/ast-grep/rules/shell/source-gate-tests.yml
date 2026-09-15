@@ -2,11 +2,12 @@
 id: source-gate-tests
 language: Bash
 severity: error
-message: Run required source/test gates at program scope and keep errexit enabled.
+message: Run source/test gates in the foreground at program scope and keep errexit enabled.
 files:
 - Scripts/check-source-policy.sh
-note: The independent CI syntax scan catches commands hidden in branches/functions or
-  failure-masking lists. Other control flow, aliases, and exit paths still need review.
+note: The independent CI syntax scan rejects hidden/backgrounded gates and shell command
+  wrappers (except command -v). Execution fixtures check gate failure propagation;
+  other control flow, aliases, and exit paths still need review.
 rule:
   kind: program
   any:
@@ -26,4 +27,17 @@ rule:
         regex: ^set$
       not:
         pattern: set -euo pipefail
+      stopBy: end
+  - has:
+      kind: command
+      has:
+        field: name
+        regex: ^(command|builtin|time|eval)$
+      not:
+        pattern: command -v $TOOL
+      stopBy: end
+  - has:
+      kind: command
+      precedes:
+        regex: ^&$
       stopBy: end

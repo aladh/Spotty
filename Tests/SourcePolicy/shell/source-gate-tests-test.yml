@@ -9,6 +9,8 @@ valid:
   if [[ "${1:-}" != --test-only ]]; then
     scan
   fi
+  command -v "$ast_grep"
+  echo "&"
 - |
   # set +e is forbidden as code, not as explanatory text.
   python3 -B Scripts/documentation_policy.py
@@ -57,3 +59,45 @@ invalid:
   python3 -B Scripts/documentation_policy.py
   python3 -B Scripts/script_tests.py policy
   # npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  command set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  builtin set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  time set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  eval 'set +e'
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  python3 -B Scripts/documentation_policy.py &
+  wait
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy &
+  wait
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests &
+  wait

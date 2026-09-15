@@ -42,7 +42,9 @@ Additional owners:
   Python/Node entry points in unconditional, failing CI lanes; mutation fixtures cover omitted,
   skipped, relocated, and failure-masking steps. The independent
   [source-gate rule](../../../Scripts/ast-grep/rules/shell/source-gate-tests.yml) requires shell
-  checks at program scope and rejects errexit changes. Test contents and other control flow still need review.
+  foreground checks at program scope, rejects errexit changes and command wrappers except
+  `command -v`. [Execution fixtures](../../../Scripts/test_source_gate_policy.py) check that each
+  failing gate stops both local and CI invocations. Test contents and other control flow still need review.
 - Living documentation size: [documentation policy](../../../Scripts/documentation_policy.py), run
   by Source policies, with [boundary and discovery tests](../../../Scripts/test_documentation_policy.py).
   Limits bound growth, including new files; they cannot detect duplication or justify removing

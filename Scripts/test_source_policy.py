@@ -320,7 +320,10 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             with self.subTest(command=command):
                 hidden = source.replace(command + "\n", "").replace(guard, guard + "\n    " + command)
                 self.assertIn("source-gate-tests", self.scan(path, hidden))
-        for disable in ("set +e", "set +o errexit"):
+                backgrounded = source.replace(command + "\n", command + " &\nwait\n")
+                self.assertIn("source-gate-tests", self.scan(path, backgrounded))
+        for disable in ("set +e", "set +o errexit", "command set +e", "builtin set +e",
+                        "time set +e", "eval 'set +e'"):
             with self.subTest(disable=disable):
                 masked = source.replace("set -euo pipefail", "set -euo pipefail\n" + disable)
                 self.assertIn("source-gate-tests", self.scan(path, masked))

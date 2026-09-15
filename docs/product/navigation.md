@@ -38,7 +38,7 @@
   when artwork is known; missing statistics or verification are omitted. The hero, Popular tracks,
   and Discography share one native scroll area with Play and shuffle controls and a compact title
   and Play action when scrolled. Popular initially shows up to five ranked 56-point rows, expandable
-  to the returned set, with track artwork, title, duration, and play count when available.
+  to the returned set, with track artwork, title, and duration, plus play count when available.
   Narrow layouts hide play counts to keep titles and durations usable. Unavailable
   tracks remain labeled and cannot start playback. Native selection, Return, and double-click
   retain the shared table behavior. Discography offers returned popular releases and filters for

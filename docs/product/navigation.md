@@ -47,8 +47,8 @@
 - The native resizable sidebar starts near 208 points (range 180–260); the inspector near 280
   (260–360). Keep the library visible; a native command toggles the inspector.
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
-  standard window controls, geometry, and hit targets. Empty toolbar space drags the window and
-  double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
+  standard window controls, geometry, and hit targets; do not reposition them. Empty toolbar space
+  drags the window and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
   Home and Search controls stay 48 points high with breathing room and native Home focus indication.
 - Closing a window leaves Spotty running in the Dock; Dock and standard Window commands reopen it.
   Sign Out remains in the Spotty menu while connecting or failed. Teardown drains accepted

@@ -8,5 +8,6 @@
 - Add a page only for a distinct reader need. Remove repetition before splitting a page; splitting
   duplicated text across files does not make it useful. Preserve [product requirements](product/AGENTS.md).
 - [CI size limits](../Scripts/documentation_policy.py) bound living guides, the landing page, and
-  agent instructions. Records and legal notices are exempt. Passing the limit does not prove good
+  agent instructions. The linked policy defines the exact scope and record, legal-notice, and vendor
+  exemptions; privacy guidance remains bounded. Passing the limit does not prove good
   writing; changing a limit is a policy change requiring a reason in the PR.

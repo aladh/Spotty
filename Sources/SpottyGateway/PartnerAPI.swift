@@ -137,15 +137,14 @@ nonisolated struct PartnerAPI: Sendable {
 
     /// Injected transports use the same per-attempt fence. Production additionally checks inside
     /// its admission wrapper, after waiting for request capacity and checking the grant identity.
-    func checkingDispatch(_ context: PlaylistMutationContext?) -> PartnerAPI {
-        guard let context else { return self }
+    func checkingDispatch(_ authorization: PlaylistMutationAuthorization) -> PartnerAPI {
         return PartnerAPI(
             accessToken: credentials.accessToken,
             clientToken: credentials.clientToken,
             invalidateAccessToken: credentials.invalidateAccessToken,
             invalidateClientToken: credentials.invalidateClientToken,
             transport: { [credentials] request in
-                try context.authorizeDispatch()
+                try authorization.authorizeDispatch()
                 return try await credentials.transport(request)
             },
             retryTiming: credentials.retryTiming

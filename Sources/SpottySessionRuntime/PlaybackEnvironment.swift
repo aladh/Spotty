@@ -178,7 +178,7 @@ package nonisolated struct PlaybackEnvironment: Sendable {
         lifecycle: any SystemLifecycleEvents,
         clock: any PlaybackClock,
         catalog: any CatalogProviding,
-        playlistMutations: any PlaylistMutating,
+        playlistMutations: any PlaylistMutationDispatching,
         queueServiceHook: (any QueueServiceHook)? = nil,
         catalogCacheLifecycle: (any CatalogCacheLifecycle)? = nil,
         artwork: any ArtworkProviding = UnavailableArtworkProvider()

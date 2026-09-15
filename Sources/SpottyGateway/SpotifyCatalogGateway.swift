@@ -3,13 +3,13 @@ import SpottyDomain
 import SpottyRuntimeContracts
 
 /// Converts private service responses before they cross the compiler boundary.
-struct SpotifyCatalogGateway: CatalogProviding, PlaylistMutating {
+struct SpotifyCatalogGateway: CatalogProviding, PlaylistMutationDispatching {
     let api: PartnerAPI
-    let mutationAPI: (@Sendable (PlaylistMutationContext?) async -> PartnerAPI)?
+    let mutationAPI: (@Sendable (PlaylistMutationAuthorization) async -> PartnerAPI)?
 
     init(
         api: PartnerAPI,
-        mutationAPI: (@Sendable (PlaylistMutationContext?) async -> PartnerAPI)? = nil
+        mutationAPI: (@Sendable (PlaylistMutationAuthorization) async -> PartnerAPI)? = nil
     ) {
         self.api = api
         self.mutationAPI = mutationAPI
@@ -57,41 +57,27 @@ struct SpotifyCatalogGateway: CatalogProviding, PlaylistMutating {
     func artistDiscography(id: String) async throws -> CatalogArtistSnapshot {
         try await read { CatalogMapping.artist(try await api.artistDiscography(id: id)) }
     }
-    func addToPlaylist(playlistId: String, trackUris: [String]) async throws {
-        try await addToPlaylist(playlistId: playlistId, trackUris: trackUris, requestContext: nil)
-    }
-    func addToPlaylist(playlistId: String, trackUris: [String], context: PlaylistMutationContext) async throws {
-        try await addToPlaylist(playlistId: playlistId, trackUris: trackUris, requestContext: context)
-    }
-    private func addToPlaylist(
-        playlistId: String, trackUris: [String], requestContext: PlaylistMutationContext?
+    func addToPlaylist(
+        playlistId: String, trackUris: [String], authorization: PlaylistMutationAuthorization
     ) async throws {
         try await write {
             guard !trackUris.isEmpty, trackUris.allSatisfy({ SpotifyURI.id(from: $0, kind: "track") != nil }) else {
                 throw PlaylistMutationFailure.rejected
             }
-            try requestContext?.authorizeDispatch()
-            let client = await mutationAPI?(requestContext) ?? api.checkingDispatch(requestContext)
+            let client = try await mutationClient(authorization: authorization)
             _ = try await editablePlaylist(id: playlistId, using: client)
             try Task.checkCancellation()
             try await client.addToPlaylist(playlistId: playlistId, trackUris: trackUris, position: .bottom)
         }
     }
-    func removeFromPlaylist(playlistId: String, uids: [String]) async throws {
-        try await removeFromPlaylist(playlistId: playlistId, uids: uids, requestContext: nil)
-    }
-    func removeFromPlaylist(playlistId: String, uids: [String], context: PlaylistMutationContext) async throws {
-        try await removeFromPlaylist(playlistId: playlistId, uids: uids, requestContext: context)
-    }
-    private func removeFromPlaylist(
-        playlistId: String, uids: [String], requestContext: PlaylistMutationContext?
+    func removeFromPlaylist(
+        playlistId: String, uids: [String], authorization: PlaylistMutationAuthorization
     ) async throws {
         try await write {
             guard !uids.isEmpty, Set(uids).count == uids.count, uids.allSatisfy({ !$0.isEmpty }) else {
                 throw PlaylistMutationFailure.rejected
             }
-            try requestContext?.authorizeDispatch()
-            let client = await mutationAPI?(requestContext) ?? api.checkingDispatch(requestContext)
+            let client = try await mutationClient(authorization: authorization)
             let playlist = try await editablePlaylist(id: playlistId, using: client)
             let entries = playlist.content?.items ?? []
             let requested = Set(uids)
@@ -111,6 +97,13 @@ struct SpotifyCatalogGateway: CatalogProviding, PlaylistMutating {
             try Task.checkCancellation()
             try await client.removeFromPlaylist(playlistId: playlistId, uids: uids)
         }
+    }
+
+    private func mutationClient(authorization: PlaylistMutationAuthorization) async throws -> PartnerAPI {
+        try authorization.authorizeDispatch()
+        let client = await mutationAPI?(authorization) ?? api
+        try authorization.authorizeDispatch()
+        return client.checkingDispatch(authorization)
     }
 
     private func editablePlaylist(id: String, using client: PartnerAPI) async throws -> PathfinderPlaylistUnion {

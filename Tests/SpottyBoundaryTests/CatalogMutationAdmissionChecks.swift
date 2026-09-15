@@ -7,17 +7,20 @@ import Testing
 @Suite("Catalog Mutation Admission")
 @MainActor
 struct CatalogMutationAdmissionTests {
-    @Test(arguments: [false, true])
-    func retirementFencesAValidatedMutationBeforeCredentialsAreCleared(removal: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func retirementFencesAValidatedMutationBeforeCredentialsAreCleared(
+        removal: Bool, customClientFactory: Bool
+    ) async throws {
         let transport = PlaylistAdmissionTransport()
         let accesses = HarnessCounters()
         let credentials = HarnessClock.parked()
-        let gateway = SpotifyCatalogGateway(
-            api: mutationAdmissionAPI(transport: transport.send) {
-                accesses.record("token")
-                if accesses.count("token") == 3 { try await credentials.sleep(seconds: 1) }
-                return "still-valid-original-grant"
-            })
+        let api = mutationAdmissionAPI(transport: transport.send) {
+            accesses.record("token")
+            if accesses.count("token") == 3 { try await credentials.sleep(seconds: 1) }
+            return "still-valid-original-grant"
+        }
+        let factory: @Sendable (PlaylistMutationAuthorization) async -> PartnerAPI = { _ in api }
+        let gateway = SpotifyCatalogGateway(api: api, mutationAPI: customClientFactory ? factory : nil)
         let shutdown = HarnessEngineGate(result: .ok)
         defer { shutdown.release(); credentials.releaseAll() }
         let engine = HarnessEngine()
@@ -73,7 +76,8 @@ struct CatalogMutationAdmissionTests {
         let transport = PlaylistAdmissionTransport(uids: ["first", "last"], pageSize: 1)
         let gateway = SpotifyCatalogGateway(api: mutationAdmissionAPI(transport: transport.send))
 
-        try await gateway.removeFromPlaylist(playlistId: "owned", uids: ["last"])
+        try await gateway.removeFromPlaylist(
+            playlistId: "owned", uids: ["last"], authorization: try mutationAuthorization())
 
         let operations = await transport.operations
         #expect(operations.filter { $0 == "profileAttributes" }.count == 1)
@@ -89,9 +93,11 @@ struct CatalogMutationAdmissionTests {
         let gateway = SpotifyCatalogGateway(api: mutationAdmissionAPI(transport: transport.send))
         await expectRejectedMutation {
             if removal {
-                try await gateway.removeFromPlaylist(playlistId: "owned", uids: ["known"])
+                try await gateway.removeFromPlaylist(
+                    playlistId: "owned", uids: ["known"], authorization: try mutationAuthorization())
             } else {
-                try await gateway.addToPlaylist(playlistId: "owned", trackUris: ["spotify:track:added"])
+                try await gateway.addToPlaylist(
+                    playlistId: "owned", trackUris: ["spotify:track:added"], authorization: try mutationAuthorization())
             }
         }
         #expect(await transport.mutations.count == 1)
@@ -104,9 +110,11 @@ struct CatalogMutationAdmissionTests {
 
         await expectRejectedMutation {
             if removal {
-                try await gateway.removeFromPlaylist(playlistId: "owned", uids: ["known"])
+                try await gateway.removeFromPlaylist(
+                    playlistId: "owned", uids: ["known"], authorization: try mutationAuthorization())
             } else {
-                try await gateway.addToPlaylist(playlistId: "owned", trackUris: ["spotify:track:added"])
+                try await gateway.addToPlaylist(
+                    playlistId: "owned", trackUris: ["spotify:track:added"], authorization: try mutationAuthorization())
             }
         }
 
@@ -119,11 +127,13 @@ struct CatalogMutationAdmissionTests {
     func everyWriteRevalidatesTheCurrentProfile() async throws {
         let transport = PlaylistAdmissionTransport()
         let gateway = SpotifyCatalogGateway(api: mutationAdmissionAPI(transport: transport.send))
-        try await gateway.addToPlaylist(playlistId: "owned", trackUris: ["spotify:track:first"])
+        try await gateway.addToPlaylist(
+            playlistId: "owned", trackUris: ["spotify:track:first"], authorization: try mutationAuthorization())
         await transport.setProfileURI("spotify:user:replacement")
 
         await expectRejectedMutation {
-            try await gateway.addToPlaylist(playlistId: "owned", trackUris: ["spotify:track:second"])
+            try await gateway.addToPlaylist(
+                playlistId: "owned", trackUris: ["spotify:track:second"], authorization: try mutationAuthorization())
         }
 
         #expect(await transport.mutations == ["addToPlaylist"])
@@ -138,7 +148,8 @@ struct CatalogMutationAdmissionTests {
         let gateway = SpotifyCatalogGateway(api: mutationAdmissionAPI(transport: transport.send))
 
         await expectRejectedMutation {
-            try await gateway.removeFromPlaylist(playlistId: "owned", uids: requested)
+            try await gateway.removeFromPlaylist(
+                playlistId: "owned", uids: requested, authorization: try mutationAuthorization())
         }
 
         #expect(await transport.mutations.isEmpty)
@@ -171,7 +182,8 @@ struct CatalogMutationAdmissionTests {
         )
 
         do {
-            try await gateway.removeFromPlaylist(playlistId: "owned", uids: ["known"])
+            try await gateway.removeFromPlaylist(
+                playlistId: "owned", uids: ["known"], authorization: try mutationAuthorization())
             Issue.record("An account replacement must fence a previously validated mutation")
         } catch {
             #expect(error as? PlaylistMutationFailure == .failed)
@@ -211,6 +223,13 @@ struct CatalogMutationAdmissionTests {
         #expect(replacementGeneration != originalGeneration)
         #expect(try await session.accessToken(expectedGeneration: replacementGeneration) == "replacement-access")
     }
+}
+
+/// Direct gateway tests use an isolated, admitted account; retirement tests use the real runtime port.
+private func mutationAuthorization() throws -> PlaylistMutationAuthorization {
+    let admission = PlaylistMutationAdmission()
+    admission.activate(accountEpoch: 1)
+    return try admission.authorize(PlaylistMutationContext(accountEpoch: 1))
 }
 
 @MainActor

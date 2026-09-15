@@ -73,14 +73,14 @@ package struct SpotifyGatewayServices: Sendable {
     package let webQueue: any WebQueueClient
     package let account: any AccountSession
     package let catalog: any CatalogProviding
-    package let playlistMutations: any PlaylistMutating
+    package let playlistMutations: any PlaylistMutationDispatching
 
     package init(openAuthorizationURL: @escaping @Sendable (URL) async -> Bool) {
         let interactive = SpotifyGatewayTransport.admitted(priority: .interactive)
         let enrichment = SpotifyGatewayTransport.admitted(priority: .enrichment)
         let catalog = SpotifyCatalogGateway(
             api: PartnerAPI(transport: interactive),
-            mutationAPI: { context in
+            mutationAPI: { authorization in
                 let session = KeymasterSession.shared
                 let generation = await session.credentialGeneration
                 return PartnerAPI(
@@ -93,7 +93,7 @@ package struct SpotifyGatewayServices: Sendable {
                             throw KeymasterSessionError.noGrant
                         }
                         try Task.checkCancellation()
-                        try context?.authorizeDispatch()
+                        try authorization.authorizeDispatch()
                         return try await URLSession.shared.data(for: request)
                     }
                 )

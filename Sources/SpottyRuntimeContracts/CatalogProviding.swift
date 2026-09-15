@@ -117,23 +117,6 @@ public struct CatalogArtistSnapshot: Equatable, Codable, Sendable {
     }
 }
 
-public protocol PlaylistMutating: Sendable {
-    func addToPlaylist(playlistId: String, trackUris: [String]) async throws
-    func removeFromPlaylist(playlistId: String, uids: [String]) async throws
-    func addToPlaylist(playlistId: String, trackUris: [String], context: PlaylistMutationContext) async throws
-    func removeFromPlaylist(playlistId: String, uids: [String], context: PlaylistMutationContext) async throws
-}
-
-extension PlaylistMutating {
-    public func addToPlaylist(playlistId: String, trackUris: [String], context: PlaylistMutationContext) async throws {
-        try await addToPlaylist(playlistId: playlistId, trackUris: trackUris)
-    }
-
-    public func removeFromPlaylist(playlistId: String, uids: [String], context: PlaylistMutationContext) async throws {
-        try await removeFromPlaylist(playlistId: playlistId, uids: uids)
-    }
-}
-
 /// Compatibility failures have stable meaning without exposing endpoint names or raw responses.
 public enum CatalogReadFailure: Error, Equatable, Sendable {
     case compatibility

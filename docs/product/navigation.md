@@ -4,105 +4,96 @@
 
 ## Window and navigation behavior
 
-- New windows start on Home with search unfocused. Navigation selection is not restored across
-  launches. Playlists open from the sidebar; there is no separate playlist grid destination.
-- Revisit a retained playlist, album, or artist page within the same account to restore its
-  completed content immediately. Playlist search, table sort, occurrence selection, and scroll
-  position belong to that route; artist pages retain scroll position, Popular selection and
-  expansion, and the discography filter and expansion. Filtering
-  still clears hidden selections, and removed occurrences do not regain selection. Account
-  changes clear navigation history and all retained interaction state. Bounded retention can
-  evict older routes; an evicted route loads normally.
-- Track metadata learned while browsing a playlist or album updates matching tracks in active
-  and retained playlist and album pages. This preserves duplicate occurrences, track order, and
-  route interaction state; refreshed labels do not make saved collection content current.
-- Opening a `spotify:` resource URI or an `https://open.spotify.com` link delivered to Spotty
-  opens the matching playlist, album, or artist page. Links navigate without starting playback.
-  Unsupported resources, malformed addresses, and lookalike hosts leave navigation unchanged.
-- Album pages use an artwork-led hero with a large responsive title and an artist, release-year,
-  song-count, and runtime summary. The hero scrolls with the tracks and gives way to a compact
-  title and Play action. Numbered 56-point rows place artist credits beneath each title and keep
-  durations visible at narrow widths; repeated album names and track thumbnails are omitted.
-  Known artist credits navigate to their artist pages. Selection, sorting, keyboard focus, and
-  retained scroll position use the same native table behavior as playlists.
-  Album rows truncate durations to whole seconds; the header truncates the sum of the original
-  durations once, matching the Spotify album reference. Fractional seconds can therefore make
-  the header total differ from the sum of the displayed row times.
-- Complete saved playlist and album results can remain useful after an offline, timeout, or
-  throttled read once the current process has verified the matching Spotify account. Saved
-  content is labelled as possibly out of date, including while refreshing. An account or
-  credential failure must not expose another account's content or silently turn a failed
-  authorization into cached success. This does not provide offline sign-in or downloaded music.
-- Artist pages use Spotify's full-width banner when available, a large artist name, and known
-  verification and monthly-listener facts. Missing banners use a tinted header, showing a portrait
-  when artwork is known; missing statistics or verification are omitted. The hero, Popular tracks,
-  and Discography share one native scroll area with Play and shuffle controls and a compact title
-  and Play action when scrolled. Popular initially shows up to five ranked 56-point rows, expandable
-  to the returned set, with track artwork, title, and duration, plus play count when available.
-  Narrow layouts hide play counts to keep titles and durations usable. Unavailable
-  tracks remain labeled and cannot start playback. Native selection, Return, and double-click
-  retain the shared table behavior. Discography offers returned popular releases and filters for
-  known albums, singles/EPs, and compilations, with year/type labels and Show all expansion.
-  These sections use read-only catalog data; no following, saving, or download controls are shown.
-- The main window has a native, resizable sidebar and inspector. The sidebar begins near 208 points and the
-  inspector near 280; their ranges are 180–260 and 260–360 points respectively. The library stays visible; a native
-  command can show or hide the inspector.
-- A black native window toolbar contains back/forward history, Home, and a persistent rounded search field.
-  AppKit owns the standard window controls, their geometry, and their hit targets; do not reposition them.
-  Home and Search live in that bar; the library sidebar uses an opaque neutral near-black surface.
-  Empty top-bar space supports dragging and double-clicking to toggle native window zoom.
-  Navigation history clears when the account changes. Command-[ and Command-] navigate history;
-  Command-L focuses search. Home and Search retain 48-point control heights with vertical breathing room; Home retains its
-  native keyboard focus indicator.
-- The sidebar reads Spotify’s saved custom playlist order and folder hierarchy. Folder rows
-  expand and collapse locally, including nested folders, without changing the Spotify library.
-  Sibling order follows the service across pagination; folder failures preserve the previous
-  complete library rather than publishing a partial tree. Folder requests use a shared concurrency
-  limit of four so collapsed folders do not load serially at launch; an empty sidebar shows loading
-  progress while the library is fetched. The flat playlist catalog remains
-  available for detail navigation and playlist actions.
-  Rows use 48-point artwork, a 16-point title, and a muted 14-point owner or fallback label, with
-  native keyboard selection and scrolling. Sidebar rows use a pointing-hand cursor and reveal
-  a play button over playlist artwork on hover; clicking the rest of the row opens its details.
-  Selection uses a neutral gray highlight with native active/inactive behavior; hover uses a darker surface only on
-  unselected rows. The playlist matching the playing context has a green title and
-  trailing green speaker icon for both local and Connect playback, independent of navigation
-  selection. The indicator clears when playback pauses, disconnects, or changes context.
-  Home and Search remain in the top bar; the sidebar
-  has no separate Your Library destinations or app-name header.
-- The near-black inspector presents Queue and Recently played as text tabs with a green active
-  underline. Rows use 48-point artwork beside title and artist; available duration and history
-  timestamps remain in accessibility descriptions without narrowing the visible title column.
-  Playlist-sourced upcoming tracks show “Next from:” with the known playlist name as a link
-  to its detail view. The link follows accepted playback context and never starts playback.
-  Queue artist credits and playlist artist/album names navigate to their catalog pages. Each
-  known artist is a separate link; links underline and turn white on hover, with a pointing-hand
-  cursor. Missing destination metadata stays plain text. Queue row hover also uses the pointer.
-  Playlist table cells retain the arrow except for links; enabled playback buttons use a pointer.
-  Nested links use native pointer regions so leaving a link restores its parent’s cursor.
-  The seek bar has a 4-point gray rail and white played portion; hover, keyboard focus, or dragging
-  reveals a 12-point white handle and green played portion. Enabled seeking uses a pointing hand.
-  Native focus and disabled semantics remain; disabled seeking shows the rail without an active handle.
-  Current and upcoming queue rows show an inset rounded highlight and dimmed artwork with a
-  play/pause button on hover. Row clicks still select; the artwork
-  button, Return, or double-click invokes playback.
-  Queue ordering and history content retain their existing playback-owned sources.
-- Closing the main window does not quit Spotty. The app remains in the
-  Dock and reopens through the Dock icon or the standard macOS Window command.
-- Sign Out stays in the macOS **Spotty** menu, including while connecting or after a session
-  failure. Teardown drains accepted authorization persistence before clearing the grant.
-- Launch restoration retries transient engine startup failures after one and three seconds,
-  both with cached streaming credentials and after refreshing them from the saved grant.
-  Retries stay within the account connection lifetime; sign-out cancels them and definitive
-  credential rejection stops them. Exhaustion shows the connection failure without deleting the grant.
+### Navigation and retained content
+
+- New windows start on Home with search unfocused. Navigation is not restored across launches.
+  Playlists open from the sidebar, without a separate playlist-grid destination.
+- Same-account revisits restore retained playlist, album, and artist content immediately. Playlists
+  retain search, table sort, occurrence selection, and scroll. Artists retain scroll, Popular selection and
+  expansion, and the discography filter and expansion. Filtering clears hidden selections; removed occurrences never
+  regain selection. Account changes clear history and interaction state. Retention is bounded;
+  evicted routes reload normally.
+- Track labels learned from playlists/albums update matching tracks in active and retained
+  playlists/albums, preserving duplicates, order, and interaction state. Refreshed labels do not
+  make saved collections current.
+- Valid `spotify:` resource URIs and `https://open.spotify.com` links open playlist, album, or
+  artist details without playback. Unsupported resources, malformed links, and lookalike hosts
+  leave navigation unchanged.
+- Complete saved playlist and album results remain usable after offline, timeout, or throttled reads
+  only after this process verifies the matching account. Label them possibly out of date, including
+  during refresh. Credential or account failures cannot become cached success or expose another
+  account's content. This provides neither offline sign-in nor downloaded music.
+
+### Album and artist pages
+
+- Albums have an artwork header, large responsive title, and artist, release year, song count, and runtime
+  summary. The header scrolls into a compact title and Play action. Numbered 56-point rows put
+  linked artist credits below titles and retain durations at narrow widths; omit repeated album
+  names and track thumbnails. Native selection, sorting, focus, and retained scrolling match
+  playlists. Truncate row durations to seconds; truncate the sum of original durations once for
+  the header, so its total can differ from summed row displays.
+- Artists use a full-width banner when available, a large name, and known verification and monthly-listener
+  facts. Without a banner, use a tinted header with a portrait when known; omit unknown statistics
+  and verification. Hero, Popular, and Discography share one native scroll area with Play/shuffle
+  and a compact title/Play action when scrolled.
+- Popular shows up to five ranked 56-point rows, expandable to the returned set. Rows have artwork,
+  title, duration, and optional play count; hide counts at narrow widths. Label unavailable tracks
+  and prevent their playback. Preserve native selection, Return, and double-click behavior.
+- Discography shows returned popular releases, filters for known albums, singles/EPs, and compilations, year/type
+  labels, and Show all expansion. Catalog reads do not add following, saving, or download controls.
+
+### Window and toolbar
+
+- The native resizable sidebar starts near 208 points (range 180–260); the inspector near 280
+  (260–360). Keep the library visible; a native command toggles the inspector.
+- The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
+  standard window controls, geometry, and hit targets. Empty toolbar space drags the window and
+  double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
+  Home and Search controls stay 48 points high with breathing room and native Home focus indication.
+- Closing a window leaves Spotty running in the Dock; Dock and standard Window commands reopen it.
+  Sign Out remains in the Spotty menu while connecting or failed. Teardown drains accepted
+  authorization persistence before clearing the grant.
+- Launch restoration retries transient engine startup after one and three seconds, with cached
+  streaming credentials and after grant refresh. Account lifetime bounds retries; sign-out cancels
+  them and definitive credential rejection stops them. Exhaustion reports failure without deleting
+  the grant.
+
+### Library sidebar
+
+- Preserve Spotify's custom playlist order and nested folders across pagination. Expansion is local;
+  folder failure keeps the previous complete library. Share a four-request concurrency limit so
+  collapsed folders need not load serially. Show progress for an empty loading library; retain the
+  flat catalog for navigation and playlist actions.
+- Use an opaque near-black surface, 48-point artwork, 16-point titles, muted 14-point owner or fallback
+  labels, and native keyboard selection/scrolling. Rows use a pointing hand; artwork reveals Play
+  on hover while the rest opens details. Selection is neutral gray with native active/inactive
+  behavior; darker hover applies only to unselected rows.
+- The active playlist has a green title and trailing green speaker for local and Connect playback,
+  independent of navigation selection, including while paused. Clear them on disconnect, cleared
+  current track, or context change; see [playback state](playback.md#transport-and-progress).
+  Home and Search stay in the toolbar; omit separate Your Library destinations and an app-name header.
+
+### Queue inspector and player
+
+- Near-black Queue and Recently played text tabs use a green active underline. Rows pair 48-point artwork
+  with title and artist; duration and history timestamps stay accessible without narrowing titles.
+  Playlist queues show “Next from:” with the known playlist link, following accepted context
+  without starting playback. Ordering/history retain playback-owned sources.
+- Known queue artists and playlist-table artists/albums link to details; each artist links
+  separately. Unknown destinations remain text. Links underline, turn white, and use a pointing
+  hand on hover. Queue rows and enabled playback buttons also use the pointer; other playlist
+  cells retain the arrow. Native nested pointer regions restore the parent's cursor on exit.
+- Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
+  hover. Row clicks select; artwork buttons, Return, and double-click start the deliberate action.
+- Seeking uses a 4-point gray rail and white played portion. Hover, keyboard focus, or dragging
+  reveals a 12-point white handle and green played portion. Enabled seeking uses a pointing hand;
+  disabled seeking keeps the rail without an active handle. Preserve native focus/disabled semantics.
 
 ## Transient mutation feedback
 
-- User-initiated mutations, including Add to Queue, report through the one app-composed
-  `TransientFeedbackPresenter`; playlist and queue management share it.
-- The banner is a single non-modal overlay just above the persistent player. It must not steal
-  focus, intercept unrelated pointer or keyboard input, or shift window layout. A newer message
-  replaces the current one; automatic dismissal is cancellable and must not clear a replacement.
-- Durable connection, playback, session, and command-reconciliation status stay with their existing
-  owners (including `PlaybackNotice` / now-playing status text). Do not turn those strings into
-  toasts.
+- User mutations, including playlist management and Add to Queue, share the app-composed
+  `TransientFeedbackPresenter`.
+- Show one non-modal banner above the player without stealing focus, intercepting unrelated
+  input, or moving layout. New messages replace old ones; cancelled dismissal cannot clear a replacement.
+- Durable connection, session, playback, and reconciliation status stays with its existing owners
+  (`PlaybackNotice`/now-playing text), not transient banners.

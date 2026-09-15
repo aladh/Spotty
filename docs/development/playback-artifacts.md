@@ -24,12 +24,10 @@ SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
 ./Backend/spotty-playback/build-xcframework.sh
 ```
 
-The full and Rust scopes run the portable Python playback checks, check header regeneration with the
-pinned cbindgen source parser, and validate producer ABI compatibility. CI runs that Python suite in
-its Linux `Playback script checks` job, then performs only compiled Rust/header verification in the
-single macOS job. Swift CI consumes only published artifacts,
-rejecting noncanonical or unversioned release URLs before dependency resolution.
-[Verification](verification.md#normal-verification) defines when app-only PRs may skip the Rust steps.
+The Rust scope verifies Python playback checks, header regeneration, and producer ABI compatibility.
+[Verification](verification.md#normal-verification) owns local gate selection;
+[CI enforcement](../architecture/enforcement/build-and-abi.md#ci-and-release-workflow) owns job
+ordering and skips. Swift CI accepts only canonical, versioned release URLs before resolving dependencies.
 
 ## Publish a tested candidate
 

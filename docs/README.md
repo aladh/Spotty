@@ -3,8 +3,8 @@
 [Spotty overview](../README.md) · [Repository rules](../AGENTS.md) ·
 [PR workflow and acceptance](../CONTRIBUTING.md)
 
-Choose the guide for the task; the product, ADR, and enforcement indexes lead to their focused
-contracts and records.
+Start with [why Spotty exists](product/scope.md#why-spotty), then choose the owner of your question.
+Product contracts define behavior, ADRs record decisions, and development guides explain procedures.
 
 ## Development
 
@@ -12,7 +12,7 @@ contracts and records.
 - [Development signing](development/signing.md): signing identities and credential recovery.
 - [Generated local state](development/local-state.md): build outputs and artwork regeneration.
 - [Build and verification](development/verification.md): launch, formatting, tests, and diagnostics.
-- [Runtime architecture acceptance](development/runtime-acceptance.md): implemented boundaries, evidence requirements, and process/distribution gates.
+- [Runtime acceptance and measurements](development/runtime-acceptance.md): evidence requirements, synthetic workloads, and profiling.
 - [Playback binary artifacts](development/playback-artifacts.md): local candidates, publication, and app pins.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.
 - [Agent reviews](development/agent-reviews.md): shared review pipeline, approval, thread handling, and trust.

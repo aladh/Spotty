@@ -57,6 +57,11 @@ authorize a skip. Swift CI uses only published engines. Candidate builds
 are selected by [input comparison](../../../Scripts/playback-candidate-needed.sh); producer validation
 and publication do not depend on app compatibility with unpublished candidates.
 
+Ordinary non-candidate PRs target five minutes on macOS; producing an XCFramework is an explicit
+exception. The Swift Debug step has a 15-minute watchdog within the candidate-capable job's
+120-minute ceiling. Per-invocation test deadlines and diagnostics are in
+[verification](../../development/verification.md#normal-verification).
+
 [GitHub guidance](../../../.github/AGENTS.md) owns workflow-change constraints.
 [Promotion tests](../../../Scripts/test_playback_promotion.py) exercise release eligibility and
 integrity. Action pins, credentials, cache trust, release warnings, and publication authorization

@@ -4,15 +4,15 @@
 
 ## Verify a download
 
-Download the app archive and its `.sha256` file from the same GitHub release into one folder.
-In Terminal, change to that folder and run the following, substituting the downloaded version:
+Download the archive and `.sha256` file from the same GitHub release into one folder. In that
+folder, substitute the downloaded version and run:
 
 ```bash
 shasum -a 256 -c Spotty-X.Y.Z.zip.sha256
 ```
 
-Continue only if the result is `Spotty-X.Y.Z.zip: OK`. This checks download integrity; the checksum
-is hosted with the archive and is not independent proof of publisher identity.
+Continue only on `Spotty-X.Y.Z.zip: OK`. This verifies download integrity, not independent
+publisher identity: the checksum is hosted alongside the archive.
 
 ## Package, sign, and notarize
 
@@ -24,22 +24,17 @@ Local packages are development artifacts:
 ./Scripts/validate-app.sh --local
 ```
 
-`archive-app.sh` delegates compile-only building and signing to `package-app.sh --release`, then
-archives the resulting app as `dist/Spotty-<version>.zip` with `ditto`. PR and `main` CI own test
-acceptance; the release lane compiles the accepted tagged commit without rerunning tests.
-`SPOTTY_SIGNING_IDENTITY` selects the
-signing identity. Unset, packaging falls back to the checkout-local self-signed identity.
-`SPOTTY_SIGNING_IDENTITY="-"` is an ad-hoc signature, used by
-[release.yml](../../.github/workflows/release.yml). For a hardened-runtime Developer ID archive,
-supply a Developer ID identity explicitly:
+`archive-app.sh` compiles and packages with `package-app.sh --release`, then uses `ditto` to write
+ignored `dist/Spotty-<version>.zip`. PR/main CI owns test acceptance; archiving does not rerun tests.
+`SPOTTY_SIGNING_IDENTITY` selects the identity. Unset, it uses the checkout-local self-signed
+identity; `-` means ad-hoc signing. For a hardened-runtime Developer ID archive:
 
 ```bash
 SPOTTY_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
   ./Scripts/archive-app.sh
 ```
 
-The archive is written to ignored `dist/`. Notarization additionally requires an existing Apple
-`notarytool` profile:
+Notarization additionally needs an existing Apple `notarytool` profile:
 
 ```bash
 SPOTTY_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
@@ -47,79 +42,67 @@ SPOTTY_NOTARY_PROFILE="spotty-notary" \
   ./Scripts/notarize-app.sh
 ```
 
-`validate-app.sh --distribution` requires a Developer ID signature, a valid notarization ticket, and
-Gatekeeper acceptance. Signing proves artifact integrity; it does not make the private Spotify
-integration supported or policy-compliant. Retain the selected engine's dependency notices; see
-[playback artifacts](playback-artifacts.md) for engine publication.
-
-The production session runtime runs inside the app executable. Spotty does not package a custom
-session XPC helper; the XPC services embedded by Sparkle belong only to the updater.
+`validate-app.sh --distribution` requires Developer ID signing, a valid notarization ticket, and
+Gatekeeper acceptance. Signing does not make the private Spotify integration supported or
+policy-compliant. Retain the engine's dependency notices; see [engine publication](playback-artifacts.md).
+The session runtime is in-process; embedded XPC services belong only to Sparkle, not a session helper.
 
 ## Tagged releases
 
-An authorized `vX.Y.Z` tag must match `CFBundleShortVersionString` in `Packaging/Info.plist`. The
-[release workflow](../../.github/workflows/release.yml) runs `archive-app.sh`, which compiles,
-packages, and signs the accepted tagged commit without rerunning the PR and `main` test gates; the
-workflow first requires the tag commit to be on `main` and its latest `main` CI run to be successful.
-It then computes the `.sha256` checksum and generates a signed Sparkle appcast. Before tagging,
-write the release notes in `docs/releases/vX.Y.Z.md`; the workflow publishes that file verbatim as a
-regular GitHub release. Until Developer ID and notarization credentials are configured,
-artifacts use hardened-runtime ad-hoc signing with the library-validation exception in
-[AdHoc.entitlements](../../Packaging/AdHoc.entitlements). Hosts without an Apple Team ID cannot
-otherwise load Sparkle. Apple-team development and Developer ID packages retain library validation.
-Release notes must state that macOS will not automatically trust these unnotarized downloads.
-Renovate owns dependency updates.
+Before creating an authorized `vX.Y.Z` tag:
+
+1. Increase **both** version and build number in [Info.plist](../../Packaging/Info.plist).
+   The tag must match `CFBundleShortVersionString`. CI checks that match, not monotonic increases.
+2. Commit `docs/releases/vX.Y.Z.md` using the [format below](#release-note-format).
+3. Merge to `main` and require the tag commit's latest main CI run to succeed.
+4. Configure `SPARKLE_PRIVATE_KEY` and back it up privately before tagging; feed generation fails
+   without it. Preserve the existing key when one is configured.
+
+The [release workflow](../../.github/workflows/release.yml) checks main ancestry and CI, archives
+that accepted commit without repeating tests, computes its checksum, generates the signed appcast,
+and publishes the committed notes verbatim as a regular GitHub release. Only regular app releases
+should become latest. Renovate owns dependency updates.
+
+Until Developer ID/notarization credentials are configured, releases use hardened-runtime ad-hoc
+signing with [library validation disabled](../../Packaging/AdHoc.entitlements): hosts without an
+Apple Team ID otherwise cannot load Sparkle. Apple-team development and Developer ID packages
+retain validation. Notes must say macOS will not automatically trust these unnotarized downloads.
 
 ## Built-in updates
 
-**Spotty → Check for Updates…** checks the latest regular GitHub release. Automatic checks are off
-by default and can be enabled in the same menu. Downloads and installation require user action;
-Sparkle's automatic-install option is disabled. Installation uses the normal application termination
-path, which shuts down playback before exit. Restart does not initiate playback.
+**Spotty → Check for Updates…** checks the latest regular GitHub release. Automatic checks default
+off and can be enabled in the same menu. Download and installation require user action; automatic
+installation is disabled. Installation follows normal termination, draining playback; restart does
+not start playback. v0.2.0 was the first updater-enabled version and requires manual installation.
 
-Sparkle is pinned by SwiftPM and embedded with its helpers by
-[embed-sparkle.sh](../../Scripts/embed-sparkle.sh). The release lane generates the appcast from the
-final archive and embeds the canonical release notes with
-[generate-update-feed.sh](../../Scripts/generate-update-feed.sh). GitHub's latest-release asset URL
-serves the feed; only regular app releases should become latest. Version and build number must both
-increase for a release (not enforced by CI: `release.yml` only checks that the tag equals
-`Info.plist`, and `generate-update-feed.sh` only checks the feed against the built version).
-v0.2.0 is the first updater-enabled version and must be installed manually.
+SwiftPM pins Sparkle; [embed-sparkle.sh](../../Scripts/embed-sparkle.sh) embeds its helpers.
+[generate-update-feed.sh](../../Scripts/generate-update-feed.sh) builds the feed from the final
+archive and canonical notes and checks it against the built version. GitHub's latest-release asset
+URL serves the feed.
 
-Both the feed and archives require Ed25519 authentication using the public key in
-[Info.plist](../../Packaging/Info.plist). The corresponding private seed is stored in the GitHub
-Actions secret `SPARKLE_PRIVATE_KEY`; keep a private backup outside version control. Configure the secret
-and store the backup before creating the release tag: tag pushes start feed generation, which fails without the secret.
-Never rotate it
-by simply replacing the public key: existing installations trust the old key. Follow
+Both archives and feeds require Ed25519 authentication with the public key in Info.plist. The
+private seed lives in the `SPARKLE_PRIVATE_KEY` Actions secret, with a backup outside version
+control. This authentication is independent of Apple signing/notarization. Never replace the
+public key alone: installed apps trust the old key. Follow
 [Sparkle's key rotation procedure](https://sparkle-project.org/documentation/) when needed.
-The key authenticates Spotty updates independently of Apple signing or notarization.
 
 ## Release-note format
 
-Start each `docs/releases/vX.Y.Z.md` with one sentence summarizing the release. Follow with
-`## Fixes`, `## Improvements`, or `## What’s new` and concise user-facing bullets. An optional
-`## Known limitations` section and a behavior/migration-change section (for example v0.2.4's
-`## Session storage change`) may follow.
+Write for a listener, answering **what will I notice?**:
 
-Write for a listener who uses Spotty but does not develop software. Each summary and bullet must
-answer **what will I notice?** in plain language. Name the screen, control, action, or problem the
-listener recognizes; say when the change matters when that context is useful. Do not include work
-that has no observable user effect, such as refactors, dependency updates, test changes, internal
-architecture, or release-process changes. Mention an implementation detail only when the listener
-must understand it to act, assess a privacy or security consequence, or understand a known
-limitation.
+- Start with one sentence summarizing the release, followed by `## Fixes`, `## Improvements`, or
+  `## What’s new` and concise user-facing bullets. Name the recognizable screen, control, action,
+  or problem and when the change matters.
+- Add `## Known limitations` or a behavior/migration section when needed.
+- Omit changes without observable effects: refactors, dependencies, tests, architecture, and
+  release machinery. Include technical detail only to help the listener act, assess privacy or
+  security consequences, or understand a limitation.
+- Before approval, read the notes without their PRs. A nontechnical listener should understand
+  the benefit. Explain or remove terms such as *invalidation*, *runtime*, and *session ownership*;
+  translating engineering work into user outcomes is part of writing the notes.
 
-Before approval, read only the proposed notes (not the commits or PRs behind them) and check that a
-nontechnical listener can explain the benefit. Rewrite or omit terms such as *metadata*,
-*invalidation*, *runtime*, *session ownership*, *assertion*, *lifetime*, and *concurrency* unless the
-note explains a user-recognizable meaning. Engineering accuracy is necessary, but translating an
-implementation summary into user outcomes is part of writing the release notes.
-
-End with `## Install`: list macOS, hardware, and account requirements; explain built-in updates
-when supported; name the versioned archive and checksum and give its verification command.
-Include the current signing/notarization status and the macOS first-launch instructions, with a
-link to the README at that release's tag; the "will not automatically trust" sentence applies from
-v0.2.1 onward. Use [v0.2.3](../releases/v0.2.3.md) as the structural template and update every
-version reference for the new release; apply the audience test above independently rather than
-copying the wording of any past release.
+End with `## Install`: macOS, hardware, and account requirements; built-in updates when supported;
+versioned archive/checksum names and verification command; signing/notarization status; and
+first-launch instructions linking to the README at that tag. The “will not automatically trust”
+warning applies from v0.2.1 onward. Use [v0.2.3](../releases/v0.2.3.md) for structure, update every
+version reference, and apply the audience test independently of older wording.

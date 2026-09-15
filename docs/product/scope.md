@@ -2,6 +2,12 @@
 
 [Product contracts](README.md) · [Safe testing](safe-testing.md)
 
+## Why Spotty?
+
+What if Spotify made a native app for macOS? That is Spotty's main goal: the same Spotify people
+know, with native Mac interaction. Preserve familiar browsing, listening, appearance, and behavior
+while using macOS controls for input, selection, focus, and windowing.
+
 ## Product direction
 
 - Apply the **80/20 product principle**: aim to cover the most-used listening workflows—roughly

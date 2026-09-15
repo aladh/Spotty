@@ -4,101 +4,79 @@
 
 ## Playback presentation and ownership
 
-- Follow [engine ownership](../architecture/playback-engine-ownership.md): Rust/librespot owns the playback protocol,
-  Swift owns policy/presentation, and AVFoundation renders decoded PCM through the narrow adapter.
-- Spotty mirrors the active Spotify Connect device automatically, including a device owned by a
-  different computer. The now-playing title, artist, artwork, position, play/pause state, queue,
-  and available controls must follow that owner without requiring a manual refresh.
-- An identified remote owner adds a thin green strip to the player shelf that names the device and
-  its playing or paused state. It disappears for local or unidentified ownership and does not
-  replace the device menu.
-- Transport commands target the device that owns playback. Spotty must not silently transfer
-  playback to this Mac merely because the user pressed a remote control. When no device is marked
-  active but a current track remains, a remembered last remote device stays an uncertain remote
-  candidate so commands remain remote-routable; a missing or stale fallback never becomes local.
-  When this Mac is ready and present in the Connect device list, nothing is playing, and no device
-  is active or identified as a remote candidate, This computer is the green default destination
-  with “Ready to play” status. Opening Spotty does not activate or transfer playback. An explicit
-  Play or Resume uses the local engine without asking for device selection, even when Spotify
-  retains a previous track. Other controls retain ownership-based routing. Unidentified playback
-  that is still playing requires explicit device selection; known remote candidates stay remote.
-  Resume must validate the displayed current track, context, and paused position against the
-  engine's session before starting audio. A cold join restores the session paused, preserving its
-  queue and options, and then plays only after matching local player evidence. It never starts a
-  different track or silently restarts at zero. The ready card is announced as “Default device” by VoiceOver and is hidden
-  while playback commands are unavailable. With no displayed track, it remains ready for a new
-  track selection; the player shelf's Play button stays disabled.
+Rust/librespot owns protocol and engine lifetimes, Swift owns policy/presentation, and AVFoundation
+renders decoded PCM; see [engine ownership](../architecture/playback-engine-ownership.md).
+
+- Automatically mirror the active Connect owner's track, artists, artwork, position, transport,
+  queue, and available controls, including another computer, without manual refresh.
+- An identified remote owner adds a thin green player-shelf strip naming its device and playing/
+  paused state. Hide it for local/unidentified ownership; it supplements the device menu.
+- Controls target the playback owner without silently transferring to this Mac. With a retained
+  track but no active device, a remembered remote owner remains an uncertain remote candidate.
+  Missing/stale fallback never implies local ownership.
+- When this Mac is ready and listed, nothing is playing, and no active device or remote candidate
+  exists, show This computer as the green default with “Ready to play”. Opening Spotty never
+  activates/transfers playback. Explicit Play/Resume then uses the local engine without device
+  selection, even with a retained track; other controls keep ownership-based routing. Unidentified
+  playing state requires device selection; known remote candidates stay remote.
+- Resume validates displayed track/context/paused position against the engine. Cold joins restore
+  the session paused, including queue/options, and play only after matching local-player evidence.
+  Never substitute a track or restart at zero. VoiceOver announces the ready card as “Default
+  device”; hide it while commands are unavailable. Without a displayed track it accepts a new
+  selection, but the player shelf's Play stays disabled.
+
 ### System media controls
 
-- macOS Play/Pause, Previous, and Next media keys use the same capabilities and Connect routing
-  as the Playback menu. Explicit system Play and Pause are idempotent. They never transfer playback.
-- The system Now Playing surface mirrors the current title, artist, duration, position, and transport
-  state, including an identified remote Connect owner. macOS chooses the active media app.
-- Signing out, losing the connection, or quitting clears system metadata and disables commands.
-  Closing the window leaves media controls available while Spotty continues running.
-- The isolated demo and automated tests do not register system media commands.
+- Play/Pause, Previous, and Next media keys share Playback-menu admission and routing. Explicit
+  system Play/Pause are idempotent and never transfer playback.
+- System Now Playing mirrors title, artist, duration, position, transport, and identified remote
+  ownership. macOS chooses the active media app.
+- Sign-out, disconnection, or quit clears system metadata and disables commands. Closing a window
+  retains controls while Spotty runs. Demo/tests never register system media commands.
 
 ### Transport and progress
 
-- Unmodified Space toggles playback while browsing in the main window. Holding it toggles only
-  once. Text editing, focused native controls, sheets, and dialogs retain their normal Space
-  behavior. The menu action and keyboard handler use the same playback admission and routing.
-
-
-- The black player shelf is 72 points tall, with 56-point artwork, 14-point track titles,
-  12-point artist/time labels, and a 32-point play button. The centered progress area scales
-  with window width; the remote-owner strip remains separate. Queue and device-chooser icons
-  use 16-point filled glyphs in adjacent 32-point targets, with 70% white at rest and white on hover.
-  Open controls use #1ed760 with a 4-point dot. Connect shows a
-  computer glyph for a remote computer owner and the device/speaker glyph otherwise.
-  Queue and Connect share one inspector: selecting the other icon switches its contents, selecting
-  the active icon closes it, and the header close button clears the active indicator. Queue retains
-  its Recently played tab when switching to Connect. Connect shows the current device in a dark
-  card and available devices in 56-point rows, with this computer first. Selecting an available
-  device invokes the existing explicit transfer action and keeps the sidebar open.
-
-- With no current track, Play is disabled. Pause appears only for observed playing state.
-- A pending resume keeps its current track, context, position and playback modes through local
-  loading/timing samples and intermediate empty activation observations until Spotify confirms
-  playback. A stale, unavailable or unconfirmed resume stays paused and shows a persistent notice asking the user
-  to choose a track or playlist; the stale Play control is disabled while the notice remains.
-  Choosing new playback clears that notice. The active playlist remains green while paused in the
-  sidebar and matching Home cards; disconnecting or clearing the current track clears the indicator.
-- If the active local engine cannot load its current requested track, show an actionable playback
-  notice explaining that the user can retry or choose another track through the existing playback
-  and browsing controls, without raw upstream details or a claim of permanent
-  unavailability. Preload failures, superseded requests, stale account/engine lifetimes, and
-  observations held behind a newer optimistic play target must not surface that notice. The notice
-  appears above the player controls with a keyboard-accessible dismiss button and a VoiceOver
-  announcement; it does not reconnect or change credentials. Dismissal of an older notice must
-  not clear a newer one.
-- An explicit audio-key refusal that also prevents decoding stops the current attempt, preserves
-  the queue, and asks the user to try again later. It never automatically skips through subsequent
-  tracks. Ordinary unavailable-track handling remains separate.
-- The transport order is shuffle, previous, play/pause, next, repeat. Previous and next use the
-  track-skip symbols with an outside bar, not rewind or fast-forward symbols. Repeat stays to the
-  right of Next.
-- Playback position uses a Spotify-styled native macOS slider with keyboard and VoiceOver adjustment and an
-  accessible elapsed/total description. Authoritative snapshots update it while idle. Dragging owns
-  the thumb until release and commits once; a track, account, engine, or ownership change rejects
-  that obsolete gesture. Disabled playback cannot seek.
-  Interpolate idle progress smoothly from confirmed playing snapshots using
-  [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift), without per-frame
-  SwiftUI layout. A new snapshot within a small tolerance of the presented position leaves the
-  running animation alone; a larger drift eases onto the corrected path, and pauses, seeks, and
-  track/owner changes re-anchor it immediately. Reduce Motion disables interpolation. During interaction the native slider owns the visible position and
-  commit; interpolation never changes playback state or sends a seek.
-- Shuffle is a single on/off control using Spotty's persistent fewer-repeats policy. There is no
-  style picker because Connect exposes no shuffle-style parameter.
-- Repeat cycles off → queue → track → off. Each step sends only the Connect flags that change,
-  planned from the reducer's raw context/track pair rather than the display mode. Ordinary
-  track-repeat (context off, track on) → off is one mutation; a both-true track snapshot → off
-  clears both flags. Queue → track is the only two-flag step and applies context off before track
-  on. If the second mutation fails after the first was accepted, Spotty best-effort restores the
-  captured previous flags and still reports failure. A later snapshot of the requested target is
-  kept; the known intermediate off after a compensated queue → track failure restores queue
-  repeat; a compensated both-true track → off failure whose intermediate snapshot is still
-  displayed as track (`context: false`, `track: true`) restores the captured previous track
-  mode and both-true flags; unrelated newer authoritative repeat state is left intact.
+- Unmodified Space toggles once while browsing, including when held. Text editing, focused native
+  controls, sheets, and dialogs retain normal Space behavior. Keyboard and menu actions share admission/routing.
+- Use a black 72-point player shelf, 56-point artwork, 14-point titles, 12-point artist/time labels,
+  and a 32-point Play button. Center progress and scale it with width; keep the owner strip separate.
+  Queue/device icons are 16-point filled glyphs in adjacent 32-point targets: 70% white at rest,
+  white on hover, and #1ed760 with a 4-point dot while open. Connect uses a computer glyph for
+  remote computers and device/speaker otherwise.
+- Queue and Connect share one inspector. The other icon switches contents; the active icon or
+  header close button closes it and clears its indicator. Retain Recently played when switching.
+  Connect shows the current device in a dark card and available devices in 56-point rows, this
+  computer first. Selecting a device explicitly transfers playback and leaves the inspector open.
+- With no track, disable Play. Show Pause only for observed playing state. Pending resume retains
+  track, context, position, and modes through local loading/timing and empty activation observations
+  until Spotify confirms playback. Stale/unavailable/unconfirmed resume stays paused with a durable
+  “choose a track or playlist” notice; disable stale Play until new playback clears it. The active
+  playlist remains green in the sidebar and Home while paused; disconnect/cleared track removes it.
+- A failed current local track load explains how to retry or choose another track through existing controls, without
+  raw upstream errors or permanent-unavailability claims. Suppress notices for preload/superseded
+  requests, stale lifetimes, and observations behind newer optimistic targets. Show the notice above
+  controls with keyboard dismissal and a VoiceOver announcement. It never reconnects or changes
+  credentials; dismissing an older notice cannot clear a newer one.
+- Explicit audio-key refusal followed by decoder failure stops that attempt, preserves the queue,
+  and asks the user to retry later. Never auto-skip subsequent tracks; ordinary unavailability stays separate.
+- Order controls: shuffle, previous, Play/Pause, next, repeat. Previous/next use track-skip symbols
+  with an outside bar, not rewind/fast-forward.
+- Use a Spotify-styled native slider with keyboard/VoiceOver adjustment and elapsed/total
+  description. Authoritative snapshots drive idle position. Dragging owns the thumb and commits
+  once; track/account/engine/owner changes reject obsolete gestures. Disabled playback cannot seek.
+- Interpolate confirmed playing progress with [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift),
+  without per-frame SwiftUI layout. Small drift leaves animation running; larger drift eases to
+  correction. Pause, seek, and track/owner changes re-anchor immediately. Reduce Motion disables
+  interpolation. During interaction the native slider owns position/commit; interpolation neither
+  changes playback state nor sends seeks.
+- Shuffle is one on/off control with persistent fewer-repeats policy. No style picker: Connect has
+  no shuffle-style parameter.
+- Repeat cycles off → queue → track → off using the reducer's raw context/track flags. Send only
+  changed flags. Ordinary track → off changes one; both-true → off clears both. Queue → track
+  changes context off before track on. If the second mutation fails after the first succeeds,
+  best-effort restore captured flags and report failure. Keep later authoritative target snapshots
+  and unrelated newer states. Otherwise compensate known intermediate states: off after failed
+  queue → track restores queue; `(context: false, track: true)` after failed both-true → off
+  restores the captured track mode and both-true flags.
 
 See [Queue behavior](queue.md) for ordering and occurrence-safe mutations.

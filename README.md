@@ -4,10 +4,11 @@
 
 # Spotty
 
-**Your Spotify music. A native Mac app.**
+**The Spotify you know, built natively for macOS.**
 
-Listen in a familiar Spotify layout with the menus, keyboard shortcuts, and track selection
-you expect on a Mac.
+Spotty's main goal is to explore what Spotify would be like as a native Mac app: the familiar
+layout and everyday listening workflows, with the menus, keyboard shortcuts, and track selection
+you expect on macOS.
 
 **[Download Spotty](https://github.com/aladh/Spotty/releases/latest)**
 

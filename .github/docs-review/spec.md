@@ -13,7 +13,9 @@ independent reviewers; report only what you verified.
   contract may be corrected to verified shipped behavior only when the PR states the divergence
   and the chosen side.
 - **Repository rules**: the root `AGENTS.md`, every nested `AGENTS.md`, and `CONTRIBUTING.md`.
-  Changing a rule changes how every future PR is judged.
+  This also includes documentation-size limits and exemptions in `Scripts/documentation_policy.py`.
+  Changing a rule changes how every future PR is judged; raising a limit to fit added prose needs
+  an explicit rationale, not a silent baseline update.
 - **Historical records**: published release notes under `docs/releases/`, completed dated
   measurement sections in `docs/architecture/performance-baseline.md` and the JSON under
   `docs/architecture/measurements/`, and the context, decision, and consequences text of accepted

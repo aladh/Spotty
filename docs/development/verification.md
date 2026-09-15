@@ -4,310 +4,113 @@
 
 ## Build and run
 
-For an authorized launch, from the repository root:
+For an authorized launch:
 
 ```bash
 ./script/build_and_run.sh
 ```
 
-This verifies, builds, signs, and replaces the running app; do not use it as a compile check.
-Modes include the default `run`, `--debug` (launches under `lldb`), `--logs`, `--telemetry`,
-`--verify`, `--release`, and `--verify-release`.
-See [launch constraints](../../script/AGENTS.md) and
-[signing setup](signing.md) before authenticated launches.
+This verifies, builds, signs, and replaces the running app. For compile-only work, use the checks
+below. Launch modes include `--debug`, `--logs`, `--telemetry`, `--verify`, `--release`, and
+`--verify-release`; follow the [launch constraints](../../script/AGENTS.md) and [signing setup](signing.md).
 
 ## Normal verification
 
-For UI changes, follow the [visual fidelity procedure](../product/scope.md#visual-fidelity-and-interaction).
-Standing permissions cover [Spotty Demo](../product/safe-testing.md#spotty-demo-standing-authorization)
-and [read-only Spotify comparison](../product/safe-testing.md#spotify-read-only-reference).
-Use the Demo to inspect affected UI when useful, fix in-scope failures, and rerun affected checks
-without interim approval. Use the existing commands below for builds and checks; launch-script or
-Run-action setup is needed only when that workflow is missing or is itself part of the requested change.
+Choose the smallest check that covers the change. Documentation-only edits need no app build.
+UI work also follows [visual fidelity](../product/scope.md#visual-fidelity-and-interaction) and
+[Demo/Spotify inspection permissions](../product/safe-testing.md).
 
-Use the smallest focused check per [AGENTS.md](../../AGENTS.md#development). Available gate scopes:
+| Command | Coverage |
+| --- | --- |
+| `./Scripts/check.sh` | Complete gate, including source policies |
+| `./Scripts/check-source-policy.sh` | Source, topology, and documentation policies |
+| `SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh` | Swift checks against the published engine pin |
+| `SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh` | Python playback checks and compiled Rust/header checks |
 
-```bash
-./Scripts/check.sh
-./Scripts/check-source-policy.sh
-SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
-SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
-```
-
-The full gate includes source policies; CI runs those once in the Linux `Source policies` job,
-separately from the Swift and Rust scopes. `check-source-policy.sh` needs Python 3, Ruby, and ast-grep
-at the version in `Scripts/ast-grep/version`. Install with `brew install ast-grep` when Homebrew
-provides that version, or install the exact CLI with npm:
+All scopes need Python 3. Full/Swift checks also need Ruby; full/Rust checks need the
+[engine toolchain](setup.md#engine-development) and pinned cbindgen. Source policies need Ruby and
+the ast-grep version in `Scripts/ast-grep/version`. If Homebrew does not provide that version:
 
 ```bash
 npm install --prefix /tmp/spotty-ast-grep "@ast-grep/cli@$(cat Scripts/ast-grep/version)"
 SPOTTY_AST_GREP=/tmp/spotty-ast-grep/node_modules/.bin/ast-grep ./Scripts/check-source-policy.sh
 ```
 
-[Source policies](../architecture/enforcement/source-checks.md) explain the rules and their limits.
-The same scan roots run locally and in CI, including tests, launch/engine scripts, and the package
-manifest. Rule fixtures cover matching; routing tests cover file owners and exceptions. A clean
-syntax scan does not replace Swift compilation or behavior tests.
+Checks neither sign in nor start playback. A source/pin mismatch warns without rebuilding or
+replacing the published engine. Packaging and Swift checks need no Rust tools.
+[Source policies](../architecture/enforcement/source-checks.md) explain their proof limits;
+[Package.swift](../../Package.swift) owns test targets and platform boundaries.
 
-The full and Rust scopes require the [engine toolchain](setup.md#engine-development) and pinned
-cbindgen for source-header reproducibility. The Swift scope and packaging use the pinned binary
-without either tool. All scopes require Python 3; the full and Swift scopes also require Ruby for
-parsed workflow checks. Standalone `compile-release-spotty.sh` does not require those verification
-tools. A differing source input digest produces a pin-freshness warning without implicitly rebuilding
-or replacing the independently released engine. Checks do not sign in or initiate playback. See the
-[enforcement inventory](../architecture/enforcement.md) for coverage.
-
-CI uses exactly one macOS runner job for conditional compiled Rust verification/candidate production,
-then Swift Debug checks and the Release distribution compile. The portable Python playback checks run
-in a separate Linux job, in parallel with source policies and the Linux domain build, and the macOS
-job requires all three Linux results before it starts. Debug and Release share one SwiftPM cache under a
-combined key; separate configuration directories remain inside `.build`. macOS cache restores remain
-available to pull requests, but explicit cache saves run only after the aggregate passes on `main` and
-only after a primary-key miss. This avoids uploading branch-private PR build products while successful
-main runs continue to populate caches for later restores. CI restores source timestamps only when tracked
-compiler input contents match the manifest saved with that build cache; changed and new inputs keep
-checkout timestamps. Rust verification disables incremental products and keeps line-table
-debug information to reduce cache transfer without changing assertions or test coverage. Release
-caches include Cargo host tools as well as target products and a content-checked input timestamp manifest. Rust compiler tools are blocked
-before Swift runs. The `Linux domain` job builds `SpottyDomain` and runs `SpottyDomainTests`
-in a Swift container; `Package.swift` declares only those two targets off macOS, so an AppKit,
-SwiftUI, AVFoundation, or playback-FFI import in the domain fails to compile there. Main requires
-`Source policies`, `Playback script checks`, `Linux domain`, and `macOS checks`. The macOS aggregate step
-validates every prerequisite and local phase outcome, including the explicit decision required to skip
-compiled Rust. Swift Debug checks have a 15-minute step watchdog so a wedge releases the scarce runner
-well before the candidate-capable job's 120-minute ceiling. The five-minute macOS target applies to
-ordinary non-candidate PRs; candidate-producing runs are an explicit exception because the required
-source-built XCFramework alone can exceed that budget.
-
-CI skips macOS for PRs limited to documentation, including nested `AGENTS.md` files. The Linux
-source-policy, playback-script, and domain jobs still run; none is conditional. Other PRs skip Rust only when limited to app sources/tests, assets, packaging, package pins, or
-documentation. Engine, shared-header, CI, script, license, and unknown paths require Rust; main always
-runs it. The Linux source-policy job uses the PR base commit's classifier. A base without the policy
-requires Rust; a base without macOS classification keeps macOS enabled. Detection errors fail CI. Skipped Rust steps are accepted only after an
-explicit successful app-only decision. When Rust is selected, CI caches pinned cbindgen by version
-and runner image/architecture, verifies its version before reuse, and runs header regeneration plus
-the compiled Rust checks once on macOS. CI's internal `rust-compiled` scope omits only the Python suite
-already completed by `Playback script checks`; the public full and Rust scopes retain that suite.
-App-only PRs skip the compiled source-engine checks only because changes to engine, shared-header, CI,
-script, license, and unknown paths select Rust through the trusted base policy. See
-[CI policy](../../Scripts/ci_rust_policy.py) for exact paths.
+CI runs source policies, Python playback checks, and the Linux domain job before its single macOS
+job. Documentation-only PRs skip macOS. App-only PRs can skip compiled Rust; main runs it.
+Unknown paths and classification errors cannot authorize a skip. The trusted base classifier,
+complete aggregate, caches, and exact workflow behavior belong to
+[CI enforcement](../architecture/enforcement/build-and-abi.md#ci-and-release-workflow),
+[CI policy](../../Scripts/ci_rust_policy.py), and [ci.yml](../../.github/workflows/ci.yml).
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
-header. `--check` verifies reproducibility; set `SPOTTY_CBINDGEN` if the pinned tool is not on `PATH`.
+header; never hand-edit it. Use `--check` for reproducibility and `SPOTTY_CBINDGEN` for an alternate
+pinned executable. Preserve [pointer ownership](../../Sources/SpottyPlaybackCore/AGENTS.md) and
+extend `Scripts/check-c-header-imports.sh` for new pointer shapes.
 
-Edit Rust declarations and regenerate; never hand-edit generated headers. Preserve callback and
-pointer ownership annotations under the [C-boundary guidance](../../Sources/SpottyPlaybackCore/AGENTS.md).
-Extend `Scripts/check-c-header-imports.sh` when adding a pointer shape.
-
-Swift formatting:
-
-```bash
-./Scripts/format-swift.sh --check
-./Scripts/format-swift.sh --write
-```
-
-The domain and boundary suites retain the existing policy and injected-workflow corpus. Separate
-SwiftPM targets exercise session runtime, gateway admission, and catalog storage;
-[Package.swift](../../Package.swift) owns the complete target list. The full gate runs every target
-in full. `Tests/BrowsingHarness/Checks` provides the `SpottyBrowsingHarnessTests` target, which
-`Package.swift` includes only when `SPOTTY_BUILD_BROWSING_HARNESS=1` is set; `check.sh` sets it.
-`Tests/ABI`, `Tests/Compiler`, and `Tests/SourcePolicy` hold fixtures read by scripts rather than
-test targets. Discover test names with `swift test list` (add `SPOTTY_BUILD_BROWSING_HARNESS=1` to
-include the harness target), then filter for focused iteration:
+Format Swift with `./Scripts/format-swift.sh --check` or `--write`. Discover focused tests with
+`swift test list`, then filter:
 
 ```bash
 swift test --disable-sandbox --filter ProtobufTests/testProtobuf
 swift test --disable-sandbox --no-parallel --filter AuthFlowTests/testAuthFlow
 ```
 
-Use `SPOTTY_CHECK_REPEATS=N ./Scripts/check.sh` with `N` from 1 through 25 when concurrency or
-lifetime work merits stress. Main runs three passes. Boundary synchronization failures report their
-call sites; injected clocks drive scheduling while elapsed-time limits serve only as hang watchdogs.
+Set `SPOTTY_BUILD_BROWSING_HARNESS=1` to include harness targets; `check.sh` already does so.
+ABI/compiler/source fixtures are script inputs, not Swift test targets. For justified lifetime
+stress, use `SPOTTY_CHECK_REPEATS=N` (1–25); main runs three passes.
 
-Each `swift test` invocation in `check.sh` runs in its own process group through a hard liveness
-watchdog. Warm CI invocations have a five-minute limit; local invocations allow twenty minutes for
-cold compilation. Override the latter only for diagnosis with `SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS`.
-The wrapper prints the lane, repetition, command, PID, elapsed time, and exit status, and preserves
-the underlying nonzero status or interrupt. A timeout records the owned process tree, attempts one
-bounded macOS sample of a live helper, and terminates only that invocation's process group; it never
-retries tests or kills unrelated Swift processes. CI keeps per-lane logs and Swift Testing event
-streams under `$RUNNER_TEMP/spotty-swift-test-diagnostics` and uploads them when the Debug check
-fails. SwiftPM's hidden event-stream path option is detected before use, so older toolchains retain
-the text log and process diagnostics without failing on an unsupported flag.
+Each Swift test invocation has a process-group watchdog: five minutes in CI, twenty locally.
+`SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS` overrides the local limit for diagnosis. Timeout handling
+samples and terminates only that invocation, without retrying it or killing unrelated processes.
+CI uploads per-lane logs and supported Swift Testing event streams from
+`$RUNNER_TEMP/spotty-swift-test-diagnostics` when Debug checks fail.
 
 ## Clean and risk-specific verification
 
-For clean-build changes or diagnosis requiring a rebuild:
-
-```bash
-./Scripts/check-clean.sh
-```
-
-It runs the full scope (source policies included) against both Debug and Release, so it needs
-the [engine toolchain](setup.md#engine-development), cbindgen, ast-grep, and Python 3.
-
-This removes generated Swift build products, rebuilds the engine artifact, and verifies Debug and
-Release. Preserve unrelated work. Use `./Scripts/compile-release-spotty.sh` for compile-only Release
-verification.
+Use `./Scripts/check-clean.sh` only when a clean rebuild is needed. It removes generated Swift
+products, rebuilds the engine, and runs the full gate for Debug and Release. Preserve unrelated
+work and install the full gate's tools first. `./Scripts/compile-release-spotty.sh` provides
+compile-only Release verification.
 
 ## Diagnostics
 
-Release builds use Unified Logging. `./Scripts/export-diagnostics.sh [lookback]` writes a bounded
-report under ignored `diagnostics/`, defaulting `lookback` to `15m`; it never prunes that directory.
-Handle reports according to [PRIVACY.md](../../PRIVACY.md).
+`./Scripts/export-diagnostics.sh [lookback]` exports local Unified Logging to ignored
+`diagnostics/` (default lookback: `15m`) without pruning it. Handle reports under [PRIVACY.md](../../PRIVACY.md).
 
 ## Synthetic browsing
 
-Run the isolated demo under its [standing authorization](../product/safe-testing.md#spotty-demo-standing-authorization):
-
 ```bash
-./Scripts/browse-synthetic.sh
+./script/build_and_run.sh --demo   # Interactive browsing
+./Scripts/browse-synthetic.sh      # Automated browsing workload
 ```
 
-For interactive browsing without the automated workload, use `./script/build_and_run.sh --demo`.
-For an optimized synthetic measurement, use:
+The isolated Demo uses the normal UI with synthetic dependencies, a verified network-denying
+sandbox, and no live credentials, engine, or audio output. Its separate Apple Development-signed
+identity is `dev.spotty.demo` at `.build/Spotty Demo.app`; caches/preferences persist separately
+from live Spotty. Follow [standing authorization](../product/safe-testing.md#spotty-demo-standing-authorization).
 
-```bash
-./Scripts/browse-synthetic.sh --optimized Tests/BrowsingHarness/queue-rendering.json
-```
-
-The optimized mode uses Release optimization with testability and measurement instrumentation
-explicitly enabled for the non-shipping harness. It still uses synthetic engine/audio dependencies;
-it is not a measurement of production audio or a normal distribution binary. Compare the same
-optimized mode, scenario, window, and display conditions. Historical Debug samples are not a matched
-before/after baseline. See [runtime acceptance](runtime-acceptance.md) for evidence and proof limits.
-The interactive [Demo scenario](../../Tests/BrowsingHarness/demo.json) has 28 playlists: 20 top-level
-rows and two folders containing four playlists each, so the sidebar scrolls. Explicit scenario
-paths and profiling retain their declared fixture size.
-The interactive Home also includes synthetic albums with a long title, a single song, missing
-artwork, and no tracks, for inspecting album headers, track rows, and responsive scrolling.
-Its artist shelf includes banner and portrait headers, a long name, missing artwork/statistics,
-an empty artist, unavailable Popular tracks, and a mixed discography for checking filters and
-retained navigation without accessing a live account.
-The default commands build an isolated Debug Spotty demo with the normal window, root view,
-navigation, commands, and lifecycle.
-It never launches or terminates the live Spotty app. The [version-1 scenario](../../Tests/BrowsingHarness/scenario.json)
-defines two playlists, six [AI-generated covers](../../Tests/BrowsingHarness/Support/Artwork/prompts.json)
-repeated across distinct artwork URLs, repeated visits, and a fixed viewing cadence. Pass a JSON
-scenario path to change the bounded workload; `mode: "signed-out"` exercises the real signed-out
-root view. Invalid scenarios fail closed. The version-2 playback scenario below extends this foundation; search and playlist mutation remain outside its scope.
-
-The demo injects all environment ports from one synthetic owner. Its artwork provider reads local
-fixture files through the same bounded pipeline, with file access explicitly enabled only for the
-synthetic provider. A separately signed app sandbox denies socket access, which
-the workload verifies before browsing. No live auth, Keychain, engine, or audio-device dependency
-is constructed. The demo uses the same Apple Development certificate selection as Spotty and the stable
-`dev.spotty.demo` identity at `.build/Spotty Demo.app`, preserving macOS permissions across rebuilds.
-Its blue [icon source](../../Tests/BrowsingHarness/Icon/SpottyDemo.icon) distinguishes it in the Dock.
-Regenerate its fallback icon with `./Scripts/generate-icon.sh Tests/BrowsingHarness/Icon/SpottyDemo.icon/Assets/SpottyDemo.png Tests/BrowsingHarness/Icon/SpottyDemo.icns` after changing the source.
-Its sandbox caches/preferences are separate from live Spotty and persist across launches. Each run
-gets a new `.build/browsing-runs/` directory for fixtures and `report.json`. The automated command waits for the report and fails if the workload fails or times out;
-the app stays open for inspection.
-
-The report records the scenario, commit/diff identity, machine/OS context, window size/scale,
-checkpoint RSS and physical footprint, cumulative CPU time, store loading time, scroll positions,
-catalog request counts, fixture size, and demo-container cache footprint. Repeat the same scenario on
-the same machine/configuration and compare several runs; Debug timings and synthetic source bytes
-do not measure live network latency or production audio performance. First visits are cold-process
-samples; later cycles show reuse within that process. Source-file reads can still benefit from the
-operating system's filesystem cache. Framework scheduling and measured timings can vary.
-A verified network sandbox, zero mutation attempts, and a completed report are acceptance checks, not performance budgets.
-
-`check.sh` runs the harness's headless fixture, port, and read-only browsing checks. The normal
-package graph excludes every harness target; the shipping product has no synthetic launch selector.
+[demo.json](../../Tests/BrowsingHarness/demo.json) supplies a scrolling playlist library and album/
+artist edge cases, including missing artwork, empty results, long titles, and unavailable tracks.
+Pass another scenario path for a bounded workload; `mode: "signed-out"` exercises sign-out UI.
+Invalid scenarios fail closed. Each run writes fixtures and `report.json` under
+`.build/browsing-runs/`; automated runs fail on workload failure or timeout and leave the Demo open.
 
 ### Synthetic playback and fault traces
 
-Run `./Scripts/browse-synthetic.sh Tests/BrowsingHarness/playback.json` for real controls and store
-intake backed by one synthetic playback authority. Add `--interactive` before the scenario path to
-browse freely. The Demo menu injects rejection, holds/releases observations, changes the observed
-owner, disconnects, and starts a replacement generation. Normal transport, seek, shuffle/repeat,
-transfer and queue commands operate only on that synthetic authority; no audio is rendered.
-
-The automated workload checks play/pause, seek acceptance and rollback, old observations crossing a
-handoff, disconnect/recovery, and logout/account replacement before browsing under 5 Hz playback
-samples. `report.json` includes named command/observation settlement durations, playback counters,
-observer invalidations, and main-run-loop display callback gap percentiles. Gaps are display
-opportunities, **not measured GPU frame presentation**; settlement durations are not proof of
-input-to-pixel latency. Reports declare refresh rate, reduced-motion state and hardware context.
-Compare repeated runs on the same configuration without concurrent UI inspection or compilation.
-The synthetic clock continues after the report so the completed Demo remains usable interactively.
-
-The original version-1 browsing and signed-out scenarios remain read-only. All versions retain the
-same OS network sandbox, injected environment ports, separate Demo identity and non-shipping graph.
+`./Scripts/browse-synthetic.sh Tests/BrowsingHarness/playback.json` exercises transport and injected
+faults through a synthetic playback authority. Add `--interactive` before the scenario to use its
+Demo fault menu. Version-1 scenarios remain read-only; all harness targets stay outside the shipping
+package graph. See [runtime acceptance](runtime-acceptance.md) for evidence limits.
 
 ### Combined hydration and lifecycle measurements
 
-`Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json` adds six fresh 96-track
-queue waves during playlist navigation/scrolling. The 5 Hz source runs independently of MainActor,
-and each checkpoint records its cumulative emitted sample count. Synthetic metadata waits 15 ms per lookup;
-production hydration retains its eight-request concurrency. Each wave reports ordering, first
-metadata and complete hydration (5 ms polling resolution), plus diagnostic counter deltas. The
-report also samples main-thread user + system CPU with Mach thread accounting on MainActor.
-These are cumulative counters; subtract the first checkpoint from the last to exclude startup.
-The finite workload suppresses App Nap while allowing idle system sleep, so slow variants do not
-cross into a different background-throttling policy. Each hydration wave has a 30-second liveness
-watchdog. The report declares window visibility; an occluded run can measure CPU and publications,
-but cannot validate a rendered-frame budget.
-
-Add `--profile` before the scenario path to attach the local Xcode Animation Hitches template.
-The workload waits for the profiler before starting and requires an unoccluded window. Profiling
-uses the ordinary 600-second report watchdog. The trace remains beside `report.json`;
-inspect table availability before claiming rendered-frame statistics. A successful capture can
-contain no supported presentation events. The recorder allows up to 180 seconds to save after
-interruption; a failed or incomplete save is not valid evidence. Instruments adds overhead: compare profiled runs with
-profiled runs and ordinary runs with ordinary runs. Raw traces may include host/process metadata;
-keep them local and publish only reviewed aggregate measurements.
-
-Use `--profile --interactive` to prepare a visible queue inspector before starting. Open the queue,
-then choose **Demo > Run Measurement**; each process runs the workload once. The recorder still
-owns a bounded wait for the report. `Demo workload` signposts delimit the measured interval, and
-`Queue metadata batch` events record enrichment publication starts without track or account data.
-The profile includes the `os_signpost` instrument so these boundaries can be exported. Filter frame
-and hitch summaries to the workload interval and the Demo process; do not include preparation or
-treat full pipelined frame lifetime as a one-display-interval deadline.
-
-The engine's credential-free named fault measurement uses the production health cadence,
-serialized reconnect seam, recovery lease and owned-child teardown:
-
-```bash
-SPOTTY_LIFECYCLE_REPORT=/tmp/spotty-lifecycle.json cargo test --locked \
-  --manifest-path Backend/spotty-playback/Cargo.toml named_lifecycle_fault_measurements -- --ignored
-SPOTTY_STALLED_SHUTDOWN_REPORT=/tmp/spotty-stalled-shutdown.json cargo test --locked \
-  --manifest-path Backend/spotty-playback/Cargo.toml measure_stalled_spirc_task_deadline -- --ignored
-SPOTTY_SWIFT_LIFECYCLE_REPORT=/tmp/spotty-swift-drain.json swift test --disable-sandbox \
-  --no-parallel --filter PlaybackEffectDrainTests
-```
-
-The first measurement uses paused Tokio time for silent-fault detection and monotonic wall time for
-30 recovery/drain samples. Its wall-clock loop is opt-in; the normal suite independently checks
-the production cadence with explicit timer registration and paused time. Recovery injects 5 ms cleanup and 20 ms construction; its result
-measures orchestration, not Spotify network connection or real session readiness. The ignored
-measurement spends three real four-second deadlines on parked task shutdown; it creates no
-actual Spirc/dealer. Swift records 12 cooperative and noncancelable drains with the production
-250 ms grace period, then explicitly releases/joins each fenced operation. The normal suites
-retain deterministic ownership, rollback, generation and cancellation checks. No measurement
-constructs live credentials, opens a Spotify connection or renders audio.
-
-For a matched publication control, apply
-[`queue-unbatched.patch`](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) to a disposable
-checkout of the same revision and run the same scenario repeatedly. This changes only metadata
-publication to one update per result; it preserves ownership, ordering, concurrency and metadata
-delay. Reverse the patch before normal checks or delivery. Keep the inspector/display/window
-configuration the same, do not compile or inspect UI during either workload, and retain actual
-sample rates and source identity with the aggregate comparison.
-
-To summarize a saved visible capture, export run 1's `os-signpost`, `hitches`, `hitches-updates`
-and `hitches-frame-lifetimes` tables with `xcrun xctrace export --input TRACE --xpath
-'/trace-toc/run[@number="1"]/data/table[@schema="SCHEMA"]' --output FILE`.
-Name the XML files `PREFIX-signposts.xml`, `PREFIX-hitches.xml`,
-`PREFIX-hitches-updates.xml` and `PREFIX-hitches-frame-lifetimes.xml`, then run
-`python3 Scripts/summarize_synthetic_trace.py PREFIX`. A missing/incomplete workload marker or
-missing app frames is an error. The output includes complete-frame counts, Instruments hitch
-incidence, descriptive duration quantiles and half-open rolling-second batch counts. Inspect the
-report's window visibility, motion setting and functional result separately before accepting a run.
-
-The [queue rendering scenario](../../Tests/BrowsingHarness/queue-rendering.json) sets
-`forceSynchronousLayout` to false to let AppKit schedule layout/display. The harness retains an
-attached playlist scroll view across virtualization and reacquires it when SwiftUI replaces it.
-Omitting the flag retains historical synchronous stress behavior; compare only identical modes.
+Use the [measurement procedure](runtime-acceptance.md#measurements) for optimized runs, Instruments
+captures, queue hydration comparisons, and credential-free lifecycle measurements. Scenario
+parameters live in [harness fixtures](../../Tests/BrowsingHarness); report fields and exact cases
+belong to their producers and tests, not a second inventory here.

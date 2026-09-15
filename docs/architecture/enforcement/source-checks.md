@@ -37,6 +37,10 @@ Additional owners:
 - Repository text and artifact hygiene: [repository-text checks](../../../Scripts/check-source-policy.sh),
   [artifact hygiene](../../../Scripts/check.sh), the
   [notices preamble prefix check](../../../Scripts/test_notices_policy.py), gitignore, and privacy review.
+- Living documentation size: [documentation policy](../../../Scripts/documentation_policy.py), run
+  by Source policies, with [boundary and discovery tests](../../../Scripts/test_documentation_policy.py).
+  Limits bound growth, including new files; they cannot detect duplication or justify removing
+  product requirements. [Documentation review](../../development/docs-review.md) owns that judgment.
 - Signing validity and non-destructive launch ordering: the
   [signing contract](../../development/signing.md) and [validation](../../../Scripts/validate-app.sh).
 

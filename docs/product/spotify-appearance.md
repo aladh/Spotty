@@ -75,7 +75,6 @@ relevant states, using [authorized synthetic or read-only inspection](safe-testi
   [PlaybackPositionSlider](../../Sources/Spotty/Views/PlaybackPositionSlider.swift). Native control
   and scrolling behavior must remain usable.
 
-The new native catalog header/row drawing, explicit queue selection drawing, column resizing, and
-compact-header scrolling are candidates for visual acceptance against these retained anchors.
-Shared constants and behavioral tests do not certify their rendered fidelity. A mismatch must be
-fixed or reviewed as an explicit product change; do not redefine this reference to accept it.
+Native headers, rows, queue selection, column resizing, and compact-header scrolling require visual
+comparison. Shared constants and behavior tests do not certify fidelity. Fix mismatches or review
+them as explicit product changes; do not redefine this reference to accept them.

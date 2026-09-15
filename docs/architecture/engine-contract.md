@@ -16,27 +16,20 @@
   flight; construction still settles transactionally under the lifecycle mutex. A retired
   task cannot clear its replacement's ownership. Transient outages retry indefinitely with
   delays of 0, 2, 5, 10, then 30 seconds; credential rejection terminates the owning run.
-  Each lease reports one named terminal outcome and monotonic elapsed time with its attempt
-  count, without account/device identifiers. This measures trigger-to-settlement when diagnostics
-  are enabled; it is not a network latency guarantee. The silent-session detector retains its
-  60-second cadence. Swift owns account admission and child-work drain, not a competing engine retry loop.
-- Each AP connection attempt bounds socket/proxy setup and handshake together at five seconds
-  (`Duration::from_secs(5)` in the vendored crate,
-  [connection/mod.rs](../../Backend/spotty-playback/vendor/librespot/core/src/connection/mod.rs)).
-  This is a retained librespot patch; see the vendored
-  [librespot README](../../Backend/spotty-playback/vendor/librespot/README.md).
-  Retry count, authentication, token fetching, and total initialization remain separate budgets.
-  Timeouts are transient failures and do not clear credentials.
+  Diagnostics report one named terminal outcome, monotonic trigger-to-settlement time, and attempt
+  count per lease, without account/device identifiers or a network-latency guarantee. Silent-session
+  detection runs every 60 seconds. Swift owns account admission and child-work drain, not engine retries.
+- Each AP attempt bounds socket/proxy setup plus handshake at five seconds; see the retained
+  [connection patch](../../Backend/spotty-playback/vendor/librespot/core/src/connection/mod.rs) and
+  [patch record](../../Backend/spotty-playback/vendor/librespot/README.md). Retry count, authentication,
+  token fetching, and total initialization have separate budgets. Timeouts are transient and retain credentials.
 - Swift supplies a validated, opaque installation identity before authorization or playback
   sessions begin. The engine copies it once and rejects a conflicting process-lifetime value.
   Authorization and playback share this identity: the authorization session obtains reusable
   AP credentials and is shut down before the playback session starts under the lifecycle lock.
-  Logout removes account credentials but retains the non-secret identity. It is independent of
-  the advertised computer name and of the separately scoped client-token identifier. The app
-  supplies this identity through
-  [ConnectInstallationIDStore](../../Sources/SpottyEngineAdapter/ConnectInstallationIDStore.swift);
-  debug checkout and unbundled-test isolation are documented in
-  [local state](../development/local-state.md).
+  Logout removes credentials but retains this non-secret identity, separate from computer name and client-token identity.
+  [ConnectInstallationIDStore](../../Sources/SpottyEngineAdapter/ConnectInstallationIDStore.swift)
+  supplies it; [local state](../development/local-state.md) defines Debug/test isolation.
 - Closed command channels and failed rehydration request engine reinitialization through typed
   outcomes. Rehydrate before announcing readiness; fetching Web playback state afterward would
   reopen the stale-position window.
@@ -52,23 +45,19 @@
 
 ## FFI surface
 
-The checked-in [generated declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
-and [Swift annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h)
-are the producer-canonical copy of field layouts, signatures, nullability, and allocation
-contracts. `SpottyPlaybackCore` is a `binaryTarget` in [Package.swift](../../Package.swift),
-so the app actually compiles against the copy of these headers shipped inside the pinned
-XCFramework; [check.sh](../../Scripts/check.sh) validates against that XCFramework's headers.
+The checked-in [declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
+and [annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h) own producer
+layouts, signatures, nullability, and allocation contracts. The app compiles against headers in
+[Package.swift](../../Package.swift)'s pinned XCFramework; [check.sh](../../Scripts/check.sh) validates that copy.
 Connection, playback, devices, and queue cross as typed protocol snapshots, not raw protobuf or
 presentation copy.
 
-An adapter can register the aggregate Connect-cluster callback to receive local identity, device
-roster, connection, and optional playback/queue facts from one cluster with one generation and
-revision. Bootstrap and dealer-push provenance remain explicit. Registration replaces only the
-cluster-origin legacy notifications; player-local playback and independent lifecycle callbacks
-remain separate ordered sources. Nested pointers are borrowed for the callback duration and must
-be copied before returning. Snapshot capture owns the revision lock; callback delivery does not.
-Canonical queue and playback caches are updated before delivery so a reentrant getter observes
-the published facts, and a reentrant cleanup cannot be followed by a stale cache write.
+The aggregate Connect-cluster callback carries local identity, devices, connection, and optional
+playback/queue facts under one generation/revision, with explicit bootstrap/dealer-push provenance.
+Registration replaces cluster-origin legacy notifications only; player-local and lifecycle callbacks
+remain separate ordered sources. Copy borrowed nested pointers before returning. Snapshot capture
+holds the revision lock; callback delivery does not. Update canonical queue/playback caches before
+delivery so reentrant getters see published facts and reentrant cleanup cannot precede a stale write.
 
 Preserve these distinctions when changing the boundary:
 
@@ -107,5 +96,5 @@ Keep PCM, sessions, Spirc, streaming, decryption, and decoding in the retained e
 resume export. User resume expectations must be checked against engine observations, never treated
 as proof that the local player has loaded the displayed track. Reconnect backoff stays local to
 its loop; connection presentation must not acquire duplicate device-name, retry-counter, timestamp,
-or session-identity state. New protocol or ownership boundaries require an explicit architectural
-decision, not another engine or state machine alongside the existing one.
+or session-identity state. New protocol or ownership boundaries require an architectural decision,
+not a parallel engine or state machine.

@@ -24,6 +24,8 @@ while IFS= read -r owner; do
     [[ -f "$owner" && -s "$owner" ]] || { echo "Missing or empty policy owner: $owner" >&2; exit 1; }
 done < Scripts/ast-grep/required-files.txt
 
+python3 -B Scripts/documentation_policy.py
+
 if grep -nE "MockCatalog|PlaybackController|demo catalog" \
     "README.md" >&2; then
     echo "Mock catalog references remain" >&2

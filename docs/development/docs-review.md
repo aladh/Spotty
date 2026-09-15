@@ -1,48 +1,33 @@
 # Documentation review
 
-The documentation review runs on every open, ready PR from this repository. It receives the full
-diff so it can detect missing documentation updates as well as errors in changed documents.
-Changes with no documentation impact receive a concise no-findings assessment. It is comment-only:
-it never approves and never requests changes, and its open threads block merge through the
-thread-resolution rule until they are resolved. Trigger phrase: `@docs-review review`.
-
-It shares its triggers, incremental mode, publication, approval, thread handling, and trust model
-with every other reviewer; see [agent reviews](agent-reviews.md). Its prompts are Spotty's own and
-do not derive from Thermos.
+Every open, ready, same-repository PR receives a comment-only documentation review, including code
+changes that may need documentation. It never approves or requests changes; unresolved findings
+still block merge. Trigger: `@docs-review review`. See [agent reviews](agent-reviews.md) for shared
+triggers, incremental review, publication, reruns, and trust limits.
 
 ## What it reviews
 
-Two subagents inspect the same change, and a coordinator reconciles them:
+A coordinator reconciles two Spotty-owned rubrics:
 
-- **Sense.** Each changed claim about the repository is true at the head; content sits in the
-  canonical owner named by the [documentation index](../README.md) and is linked rather than
-  duplicated; files under `docs/` follow the [documentation guidance](../AGENTS.md), while other
-  in-scope files follow their nearest `AGENTS.md` and their own purpose; links and anchors resolve;
-  the change reads correctly in context. Implementation and workflow changes are checked for
-  necessary updates to existing guidance, even when no documentation file changed.
-- **Specification guard.** Every hunk in a governed document is classified as wording, a
-  correction of a product contract to verified shipped behavior, or a change of requirement, rule,
-  or record. Governed documents are the [product contracts](../product/README.md) under
-  `docs/product/`, the root and nested `AGENTS.md` files and `CONTRIBUTING.md`, published release
-  notes under `docs/releases/`, dated measurement sections and JSON in `docs/architecture/`, and
-  accepted ADR decisions. A correction or change must be declared in the PR description with the
-  old and new requirement and the reason, as [product documentation guidance](../product/AGENTS.md)
-  requires; an undeclared one is a finding even when the new text is more accurate. Corrections are
-  checked against `Sources/` and `Backend/` at the head. Changed implementation is also checked
-  against existing promises to identify an omitted contract update. Missing-update findings name
-  the canonical document and attach to the changed implementation line that creates the gap.
+- [Sense](../../.github/docs-review/sense.md): accuracy at the PR head, canonical ownership,
+  missing updates, working links, and useful copy. It checks for duplicated procedures,
+  implementation inventories, and new pages without a distinct reader need. Passing the
+  [CI size limit](../../Scripts/documentation_policy.py) does not establish concision.
+- [Specification guard](../../.github/docs-review/spec.md): classifies governed edits as wording,
+  corrections to verified behavior, or changes to requirements, rules, or records. It checks the
+  PR's declarations against code and contracts, including policy limits and exemptions. The rubric
+  owns the governed-document list; [product guidance](../product/AGENTS.md) requires preserving
+  intended requirements during cleanup.
 
-Declared and justified changes are not findings; the summary names them so a reader of the review
-sees which product or rule decisions the PR carries. The review does not judge whether a declared
-product decision is right; the maintainer owns that.
+Declare the old requirement, the new one, and why it changes in the PR description. Justified,
+declared decisions are summarized rather than reported as findings; the maintainer owns those
+decisions. Missing-update findings identify the canonical owner and the code line creating the gap.
 
 ## Limits
 
-The review reads documents and code; it does not build or run the app, so it cannot verify
-claims about runtime behavior beyond what source and tests show. It checks the PR description as
-written at review time; a declaration added later is picked up by the next run, which resolves the
-thread. Thermos's approval remains the only automated approval.
+This review reads code and docs without building or running the app. It cannot establish runtime
+or visual behavior. A declaration added after review needs another run; Thermos remains the only
+automated approver. These prompts are Spotty's own, independent of Thermos.
 
-See the [caller workflow](../../.github/workflows/docs-review.yml) and
-[agent configuration and prompts](../../.github/docs-review) for models, tools, the task, and the
-subagent rubrics.
+The [caller workflow](../../.github/workflows/docs-review.yml) and
+[configuration](../../.github/docs-review) own models, tools, and orchestration.

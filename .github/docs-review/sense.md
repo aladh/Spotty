@@ -30,6 +30,9 @@ For every changed Markdown file in the range under audit:
 5. **Clarity.** The change reads correctly in context: no contradiction with the surrounding
    paragraph or with another document that covers the same topic, no dangling reference to
    removed text, and heading levels that follow the file's structure.
+   Read the resulting document to catch newly duplicated procedures, added implementation/test
+   inventories, and new pages without a distinct reader need. A size-limit pass is not a concision
+   verdict. Request the smallest update to the canonical owner, not another summary or checklist.
 6. **Release-note audience.** For a new or changed `docs/releases/vX.Y.Z.md`, apply the audience
    and content test in `docs/development/releases.md#release-note-format`. Read the notes on their
    own, as a nontechnical Spotty listener will. Every summary and change bullet must describe an

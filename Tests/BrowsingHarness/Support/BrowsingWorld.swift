@@ -168,7 +168,8 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating,
         return CatalogHomeSnapshot(
             greeting: home.greeting,
             sections: home.sections + [
-                CatalogSection(id: "synthetic-albums", title: "Albums for you", items: fixtures.albums)
+                CatalogSection(id: "synthetic-albums", title: "Albums for you", items: fixtures.albums),
+                CatalogSection(id: "synthetic-artists", title: "Artists for you", items: fixtures.artists),
             ])
     }
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
@@ -195,8 +196,18 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating,
     }
     func album(id: String) async throws -> CatalogAlbumSnapshot {
         record("album.\(id)")
-        guard let album = fixtures.album(id: id) else { throw BrowsingFailure.unsupportedAction }
+        guard let album = fixtures.album(id: id) ?? fixtures.artistAlbum(id: id) else {
+            throw BrowsingFailure.unsupportedAction
+        }
         return album
+    }
+    func artist(id: String) async throws -> CatalogArtistSnapshot {
+        record("artist.\(id)")
+        guard let artist = fixtures.artist(id: id) else { throw BrowsingFailure.unsupportedAction }
+        return artist
+    }
+    func artistDiscography(id: String) async throws -> CatalogArtistSnapshot {
+        try await artist(id: id)
     }
     func libraryAlbums() async throws -> [CatalogItem] {
         scenario.expandedLibrary == true ? fixtures.albums : []

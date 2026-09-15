@@ -181,6 +181,9 @@ rows and two folders containing four playlists each, so the sidebar scrolls. Exp
 paths and profiling retain their declared fixture size.
 The interactive Home also includes synthetic albums with a long title, a single song, missing
 artwork, and no tracks, for inspecting album headers, track rows, and responsive scrolling.
+Its artist shelf includes banner and portrait headers, a long name, missing artwork/statistics,
+an empty artist, unavailable Popular tracks, and a mixed discography for checking filters and
+retained navigation without accessing a live account.
 The default commands build an isolated Debug Spotty demo with the normal window, root view,
 navigation, commands, and lifecycle.
 It never launches or terminates the live Spotty app. The [version-1 scenario](../../Tests/BrowsingHarness/scenario.json)

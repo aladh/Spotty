@@ -8,7 +8,8 @@
   launches. Playlists open from the sidebar; there is no separate playlist grid destination.
 - Revisit a retained playlist, album, or artist page within the same account to restore its
   completed content immediately. Playlist search, table sort, occurrence selection, and scroll
-  position belong to that route; artist pages retain their visible release anchor. Filtering
+  position belong to that route; artist pages retain scroll position, Popular selection and
+  expansion, and the discography filter and expansion. Filtering
   still clears hidden selections, and removed occurrences do not regain selection. Account
   changes clear navigation history and all retained interaction state. Bounded retention can
   evict older routes; an evicted route loads normally.
@@ -32,6 +33,16 @@
   content is labelled as possibly out of date, including while refreshing. An account or
   credential failure must not expose another account's content or silently turn a failed
   authorization into cached success. This does not provide offline sign-in or downloaded music.
+- Artist pages use Spotify's full-width banner when available, a large artist name, and known
+  verification and monthly-listener facts. Missing banners use a tinted portrait header; missing
+  statistics or verification are omitted. The hero, Popular tracks, and Discography share one
+  native scroll area with Play and shuffle controls and a compact title and Play action when scrolled. Popular initially shows
+  five ranked 56-point rows, expandable to the returned set, with track artwork, title, play count,
+  and duration. Narrow layouts hide play counts to keep titles and durations usable. Unavailable
+  tracks remain labeled and cannot start playback. Native selection, Return, and double-click
+  retain the shared table behavior. Discography offers returned popular releases and filters for
+  known albums, singles/EPs, and compilations, with year/type labels and Show all expansion.
+  These sections use read-only catalog data; no following, saving, or download controls are shown.
 - The main window has a native, resizable sidebar and inspector. The sidebar begins near 208 points and the
   inspector near 280; their ranges are 180–260 and 260–360 points respectively. The library stays visible; a native
   command can show or hide the inspector.

@@ -5,6 +5,7 @@ import SpottyRuntimeContracts
 /// tint carries through both before flattening to `SpottyPalette.catalogCanvas` at the track list.
 struct DetailHeroBackground<Content: View>: View {
     let artworkURL: URL?
+    let tintOpacity: Double
     let content: () -> Content
     @State private var loadedTint: (request: ArtworkRequest, color: Color)?
     @Environment(\.artworkAccess) private var artwork
@@ -16,8 +17,9 @@ struct DetailHeroBackground<Content: View>: View {
     private var tint: Color? { loadedTint?.request == tintRequest ? loadedTint?.color : nil }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(artworkURL: URL?, @ViewBuilder content: @escaping () -> Content) {
+    init(artworkURL: URL?, tintOpacity: Double = 1, @ViewBuilder content: @escaping () -> Content) {
         self.artworkURL = artworkURL
+        self.tintOpacity = tintOpacity
         self.content = content
     }
 
@@ -25,10 +27,14 @@ struct DetailHeroBackground<Content: View>: View {
         content()
             .background {
                 LinearGradient(
-                    colors: [tint ?? SpottyPalette.playlistHeroGradient[0], SpottyPalette.catalogCanvas],
+                    colors: [
+                        (tint ?? SpottyPalette.playlistHeroGradient[0]).opacity(tintOpacity),
+                        SpottyPalette.catalogCanvas,
+                    ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
+                .background(SpottyPalette.catalogCanvas)
                 .ignoresSafeArea(edges: .horizontal)
                 .animationIfAllowed(.easeInOut(duration: 0.35), value: tint, reduceMotion: reduceMotion)
             }

@@ -28,6 +28,7 @@ struct RemoteArtwork: View {
     let url: URL?
     let kind: CatalogItem.Kind
     let cornerRadius: CGFloat
+    var showsBorder = true
     @Environment(\.artworkAccess) private var artwork
     @Environment(\.displayScale) private var displayScale
     @State private var loaded: LoadedArtwork?
@@ -53,6 +54,7 @@ struct RemoteArtwork: View {
                     placeholder
                 }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
             .task(id: request) {
                 loaded = nil
                 guard let request,
@@ -64,8 +66,10 @@ struct RemoteArtwork: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(.separator.opacity(0.28))
+            if showsBorder {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(.separator.opacity(0.28))
+            }
         }
         .accessibilityHidden(true)
     }

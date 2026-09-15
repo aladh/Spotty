@@ -25,6 +25,15 @@ header inform the [album presentation contract](navigation.md#window-and-navigat
 Spotty omits Spotify's play-count column and unsupported save/download controls; these references
 do not establish full feature or visual parity.
 
+Artist reference: Spotify desktop **1.3.0.277**, **Dan be**, inspected on **2026-09-15** at rest
+and scrolled through Popular and Discography. The full-width photographic banner, oversized artist
+name, verification/listener lines, numbered artwork rows, compact scrolled header, and discography
+chips inform the [artist presentation contract](navigation.md#window-and-navigation-behavior).
+Spotty uses its shared Play and shuffle controls and omits follow, save, download, Artist pick, and other
+unsupported recommendation/editorial sections. Discography expands within the page rather than
+opening a separate route. Artist play counts are shown when available and hidden at narrow widths.
+The reference captures remain local; synthetic Demo artists provide repeatable inspection fixtures.
+
 ## Retained anchors
 
 Dimensions are in points. Keep these relationships while applying the responsive behavior in the

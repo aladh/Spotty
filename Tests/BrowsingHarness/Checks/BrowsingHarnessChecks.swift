@@ -131,7 +131,7 @@ struct BrowsingHarnessTests {
     }
 
     @Test
-    func expandedLibraryAlbumsCanBeBrowsedThroughTheInjectedCatalog() async throws {
+    func expandedLibraryAlbumsAndArtistsCanBeBrowsedThroughTheInjectedCatalog() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyAlbumDemo-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         var input = scenario()
@@ -139,13 +139,25 @@ struct BrowsingHarnessTests {
         let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
         let home = try await world.home()
         let albums = try await world.libraryAlbums()
-        #expect(home.sections.last?.items == albums)
+        #expect(home.sections.first { $0.id == "synthetic-albums" }?.items == albums)
         #expect(!albums.isEmpty)
         for item in albums {
             let id = String(item.uri.dropFirst("spotify:album:".count))
             let album = try await world.album(id: id)
             #expect(album.item == item)
             #expect(album.tracks.allSatisfy { $0.albumItem == item })
+        }
+        let artists = try #require(home.sections.first { $0.id == "synthetic-artists" }?.items)
+        #expect(artists.count == 5)
+        for item in artists {
+            let id = String(item.uri.dropFirst("spotify:artist:".count))
+            let artist = try await world.artist(id: id)
+            #expect(artist.item == item)
+            #expect(try await world.artistDiscography(id: id).releases == artist.releases)
+            for release in artist.releases {
+                let albumID = String(release.uri.dropFirst("spotify:album:".count))
+                #expect(try await world.album(id: albumID).item == release)
+            }
         }
         #expect(world.snapshot().mutationAttempts == 0)
     }

@@ -199,13 +199,40 @@ extension CatalogMapping {
             })
     }
     static func artist(_ value: PathfinderArtistUnion) -> CatalogArtistSnapshot {
-        CatalogArtistSnapshot(
+        var seen = Set<String>()
+        let popularReleases = (value.discography?.popularReleasesAlbums?.releases ?? []).filter { release in
+            guard let id = release.releaseId else { return false }
+            return seen.insert(id).inserted
+        }
+        let kinds = Dictionary(
+            (value.releases + popularReleases).compactMap { release -> (String, CatalogArtistReleaseKind)? in
+                guard let uri = release.uri, let type = release.type,
+                    let kind = CatalogArtistReleaseKind(rawValue: type.lowercased())
+                else { return nil }
+                return (uri, kind)
+            }, uniquingKeysWith: { first, _ in first })
+        let popularTracks = (value.discography?.topTracks?.items ?? []).compactMap {
+            entry -> CatalogArtistPopularTrack? in
+            guard let value = entry.track, let track = searchTrack(from: value.metadata) else { return nil }
+            return CatalogArtistPopularTrack(
+                track: track, playCount: value.playcount.flatMap(Int64.init).flatMap { $0 >= 0 ? $0 : nil },
+                isPlayable: value.playability?.playable != false)
+        }
+        return CatalogArtistSnapshot(
             name: value.profile?.name,
             releases: value.releases.compactMap { item(from: $0, artist: value.profile?.name ?? "") },
             item: value.uri.map { uri in
                 CatalogItem(
                     id: uri, uri: uri, title: value.profile?.name ?? "Unknown artist", subtitle: "Artist",
                     artworkURL: value.visuals?.avatarImage?.largestURL.flatMap(URL.init(string:)), kind: .artist)
-            })
+            },
+            overview: value.profile.map { _ in
+                CatalogArtistOverview(
+                    headerArtworkURL: value.headerImage?.data?.largestURL.flatMap(URL.init(string:)),
+                    monthlyListeners: value.stats?.monthlyListeners.flatMap { $0 >= 0 ? $0 : nil },
+                    isVerified: value.onPlatformReputationTrait?.verification?.isVerified == true,
+                    popularTracks: popularTracks,
+                    popularReleases: popularReleases.compactMap { item(from: $0, artist: value.profile?.name ?? "") })
+            }, releaseKinds: kinds)
     }
 }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The shuffle toggle shown in a `DetailActionRow` (playlists only).
+/// The shuffle toggle shown in a `DetailActionRow` for playlists and artists.
 struct DetailActionRowShuffle {
     let isEnabled: Bool
     let toggle: () -> Void

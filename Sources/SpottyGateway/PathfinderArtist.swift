@@ -38,6 +38,50 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
         let avatarImage: PathfinderImage?
     }
 
+    struct HeaderImage: Decodable, Sendable {
+        struct Image: Decodable, Sendable {
+            struct Source: Decodable, Sendable {
+                let url: String?
+                let maxWidth: Int?
+            }
+            let sources: [Source]?
+            var largestURL: String? { sources?.max { ($0.maxWidth ?? 0) < ($1.maxWidth ?? 0) }?.url }
+        }
+        let data: Image?
+    }
+
+    struct Stats: Decodable, Sendable {
+        let monthlyListeners: Int?
+    }
+
+    struct Reputation: Decodable, Sendable {
+        struct Verification: Decodable, Sendable {
+            let isVerified: Bool?
+        }
+        let verification: Verification?
+    }
+
+    struct TopTracks: Decodable, Sendable {
+        struct Item: Decodable, Sendable {
+            let track: Track?
+        }
+        struct Track: Decodable, Sendable {
+            struct Playability: Decodable, Sendable { let playable: Bool? }
+            let metadata: PathfinderTrack
+            let playcount: String?
+            let playability: Playability?
+
+            private enum CodingKeys: String, CodingKey { case playcount, playability }
+            init(from decoder: any Decoder) throws {
+                metadata = try PathfinderTrack(from: decoder)
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                playcount = try values.decodeIfPresent(String.self, forKey: .playcount)
+                playability = try values.decodeIfPresent(Playability.self, forKey: .playability)
+            }
+        }
+        let items: [Item]?
+    }
+
     /// The discography, whichever operation filled it in.
     ///
     /// The overview splits releases into `albums`, `singles` and `compilations`, each holding
@@ -48,6 +92,8 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
         let albums: PathfinderReleaseGroup?
         let singles: PathfinderReleaseGroup?
         let compilations: PathfinderReleaseGroup?
+        var popularReleasesAlbums: PathfinderReleaseGroup? = nil
+        var topTracks: TopTracks? = nil
     }
 
     let uri: String?
@@ -55,6 +101,10 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
     let profile: Profile?
     let visuals: Visuals?
     let discography: Discography?
+    // These fields were verified against the stored overview query on 2026-09-15.
+    var headerImage: HeaderImage? = nil
+    var stats: Stats? = nil
+    var onPlatformReputationTrait: Reputation? = nil
 
     var artistId: String? {
         id ?? uri.flatMap(SpotifyURI.id(from:))
@@ -65,7 +115,8 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
             uri: uri, id: id, profile: profile, visuals: visuals,
             discography: Discography(
                 all: PathfinderReleaseGroup(items: items, totalCount: discography?.all?.totalCount),
-                albums: nil, singles: nil, compilations: nil))
+                albums: nil, singles: nil, compilations: nil),
+            headerImage: headerImage, stats: stats, onPlatformReputationTrait: onPlatformReputationTrait)
     }
 
     /// Every release this response carries, in order, deduplicated by id.

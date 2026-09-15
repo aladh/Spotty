@@ -197,10 +197,19 @@ final class ArtistDetailStore {
         let item: CatalogItem
         let releases: [CatalogItem]
         let freshness: CatalogFreshness
+        let overview: CatalogArtistOverview?
+        let releaseKinds: [String: CatalogArtistReleaseKind]
+        let popularTracks: CatalogTrackCollection
+        let popularPreview: CatalogTrackCollection
     }
 
     private(set) var item: CatalogItem?
     private(set) var releases: [CatalogItem] = []
+    private(set) var overview: CatalogArtistOverview?
+    private(set) var releaseKinds: [String: CatalogArtistReleaseKind] = [:]
+    private(set) var popularTracks = CatalogTrackCollection()
+    private(set) var popularPreview = CatalogTrackCollection()
+    private(set) var artistTracks: [String: CatalogArtistPopularTrack] = [:]
     private(set) var isLoading = false
     private(set) var error: String?
     private(set) var isShowingCachedContent = false
@@ -230,6 +239,7 @@ final class ArtistDetailStore {
         hasLoadedContent = false
         item = nil
         releases = []
+        clearOverview()
         isLoading = false
         error = nil
         isShowingCachedContent = false
@@ -276,17 +286,25 @@ final class ArtistDetailStore {
                     }
                 }
                 do {
-                    async let overview = provider.artist(id: id)
+                    async let profileRequest = provider.artist(id: id)
                     async let discography = provider.artistDiscography(id: id)
-                    let (profile, allReleases) = try await (overview, discography)
+                    let (profile, allReleases) = try await (profileRequest, discography)
                     guard self.isCurrent(handle) else { return }
                     item = profile.item?.uri == selected.uri ? (profile.item ?? selected) : selected
-                    let artistName = profile.name ?? selected.title
                     releases = allReleases.releases.map { release in
-                        CatalogItem(
-                            id: release.id, uri: release.uri, title: release.title, subtitle: artistName,
-                            artworkURL: release.artworkURL, kind: release.kind, ownerURI: release.ownerURI)
+                        guard release.subtitle.isEmpty else { return release }
+                        return CatalogItem(
+                            id: release.id, uri: release.uri, title: release.title,
+                            subtitle: profile.name ?? selected.title, artworkURL: release.artworkURL,
+                            kind: release.kind, ownerURI: release.ownerURI)
                     }
+                    overview = profile.overview
+                    releaseKinds = (profile.releaseKinds ?? [:]).merging(allReleases.releaseKinds ?? [:]) { _, latest in
+                        latest
+                    }
+                    popularTracks.replace(overview?.popularTracks.map(\.track) ?? [])
+                    popularPreview.replace(Array(popularTracks.tracks.prefix(5)))
+                    updateArtistTracks()
                     loadedSession = session.snapshot
                     hasLoadedContent = true
                     error = nil
@@ -294,8 +312,11 @@ final class ArtistDetailStore {
                     isShowingCachedContent = !freshness.isCurrent
                     if freshness.isCurrent { self.flight.markLoaded(handle) }
                     retained.store(
-                        Snapshot(item: item ?? selected, releases: releases, freshness: freshness), for: selected.uri,
-                        cost: releases.count, snapshot: handle.sessionSnapshot
+                        Snapshot(
+                            item: item ?? selected, releases: releases, freshness: freshness,
+                            overview: overview, releaseKinds: releaseKinds,
+                            popularTracks: popularTracks, popularPreview: popularPreview), for: selected.uri,
+                        cost: releases.count + popularTracks.tracks.count, snapshot: handle.sessionSnapshot
                     )
                 } catch {
                     guard self.flight.shouldReport(error, for: handle), item?.uri == handle.key else { return }
@@ -315,17 +336,37 @@ final class ArtistDetailStore {
         if let cached = retained.entry(for: selected.uri) {
             item = cached.value.item
             releases = cached.value.releases
+            overview = cached.value.overview
+            releaseKinds = cached.value.releaseKinds
+            popularTracks = cached.value.popularTracks
+            popularPreview = cached.value.popularPreview
+            updateArtistTracks()
             loadedSession = cached.needsRefresh ? nil : cached.session
             hasLoadedContent = true
             freshness = cached.value.freshness
             isShowingCachedContent = cached.needsRefresh || cached.session != session.snapshot || !freshness.isCurrent
         } else {
             releases = []
+            clearOverview()
             loadedSession = nil
             hasLoadedContent = false
             freshness = .current
             isShowingCachedContent = false
         }
+    }
+
+    private func clearOverview() {
+        overview = nil
+        releaseKinds = [:]
+        popularTracks.replace([])
+        popularPreview.replace([])
+        artistTracks = [:]
+    }
+
+    private func updateArtistTracks() {
+        artistTracks = Dictionary(
+            (overview?.popularTracks ?? []).map { ($0.track.uri, $0) },
+            uniquingKeysWith: { first, _ in first })
     }
 
     private func isCurrent(_ handle: Flight.Handle) -> Bool {

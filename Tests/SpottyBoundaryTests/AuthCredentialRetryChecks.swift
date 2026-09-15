@@ -257,7 +257,7 @@ struct AuthCredentialRetryTests {
 
         let loggedOut = Task { try await session.refreshIgnoringExpiry(rejected: "access-adopted") }
         await refresher.waitUntilParked()
-        await session.clear()
+        #expect(await session.clear())
         refresher.complete(grant(access: "access-zombie", refresh: "refresh-zombie"))
 
         var logoutStale = false
@@ -349,7 +349,7 @@ struct AuthCredentialRetryTests {
         store.releaseLoad()
 
         _ = await first.value
-        await clear.value
+        #expect(await clear.value)
         #expect((store.stored) == nil, "clear leaves no durable grant after an overlapping load")
     }
 

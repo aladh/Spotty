@@ -1,11 +1,64 @@
 import Foundation
 import Testing
+import Synchronization
 @testable import SpottyCore
 @testable import SpottyGateway
 import SpottyRuntimeContracts
 
 @Suite("Keymaster Persistence")
 struct KeymasterPersistenceTests {
+    @Test(arguments: [false, true]) @MainActor
+    func completedRemovalSurvivesFailedAdoption(removed: Bool) async throws {
+        let store = GatedPersistenceStore(
+            failClear: !removed, parkClear: true, failReplacementSave: true)
+        store.releaseFirstSave()
+        let cookies = Mutex(0)
+        let session = KeymasterSession(store: store, cookieCleanup: { cookies.withLock { $0 += 1 } })
+        let old = persistenceGrant(access: "old", refresh: "old-refresh")
+        try await session.adopt(old)
+        let removal = Task { await session.clear() }
+        await store.clearEntered.value()
+        let clearingGeneration = await session.credentialGeneration
+        let adoption = Task {
+            try await session.adopt(persistenceGrant(access: "replacement", refresh: "replacement-refresh"))
+        }
+        #expect(await waitUntil { await session.credentialGeneration != clearingGeneration })
+
+        store.releaseClear()
+        #expect(await removal.value == removed)
+        await #expect(throws: PersistenceSaveFailure.rejected) { try await adoption.value }
+
+        #expect(await session.grantState == (removed ? .absent : .removalFailed))
+        #expect(await session.hasGrant == false)
+        #expect(store.stored == (removed ? nil : old))
+        // A new authorization began; its cookies cannot be distinguished from the old jar.
+        #expect(cookies.withLock { $0 } == 0)
+    }
+
+    @Test @MainActor
+    func lateRemovalFailureDoesNotFenceAReplacementGrantOrClearItsCookies() async throws {
+        let store = GatedPersistenceStore(failClear: true)
+        store.releaseFirstSave()
+        let cookies = Mutex(0)
+        let session = KeymasterSession(store: store, cookieCleanup: { cookies.withLock { $0 += 1 } })
+        try await session.adopt(persistenceGrant(access: "old", refresh: "old-refresh"))
+        let removal = Task { await session.clear() }
+        await store.clearEntered.value()
+        let clearingGeneration = await session.credentialGeneration
+        let replacement = persistenceGrant(access: "replacement", refresh: "replacement-refresh")
+        let adoption = Task { try await session.adopt(replacement) }
+        #expect(await waitUntil { await session.credentialGeneration != clearingGeneration })
+
+        store.releaseClear()
+        #expect(await removal.value == false)
+        try await adoption.value
+
+        #expect(await session.retryGrantState() == .available)
+        #expect(try await session.accessToken() == replacement.accessToken)
+        #expect(store.stored == replacement)
+        #expect(cookies.withLock { $0 } == 0)
+    }
+
     @Test
     func testWorkerOrdersOverlappingDurableWrites() async throws {
         let store = GatedPersistenceStore()
@@ -18,7 +71,7 @@ struct KeymasterPersistenceTests {
         // All three operations are submitted before the blocked first save can complete.
         store.releaseFirstSave()
         try await first.value().get()
-        await clear.value()
+        try await clear.value().get()
         try await second.value().get()
         #expect(store.stored == replacement)
     }
@@ -59,7 +112,7 @@ struct KeymasterPersistenceTests {
         )
         #expect((try? await restoredSession.accessToken()) == "rotated-at")
 
-        await session.clear()
+        #expect(await session.clear())
         #expect(secure.stored == nil)
     }
 
@@ -118,7 +171,7 @@ struct KeymasterPersistenceTests {
             store.releaseFirstSave()
             _ = await first.value
 
-            await session.clear()
+            #expect(await session.clear())
             #expect((store.stored) == nil, "the clear removes the previous durable grant")
             try? await session.adopt(replacement)
             #expect((store.stored) == (replacement), "save, clear, save preserves the newest durable grant")
@@ -132,7 +185,7 @@ struct KeymasterPersistenceTests {
             let clear = Task { await session.clear() }
             store.releaseFirstSave()
             _ = await first.value
-            await clear.value
+            #expect(await clear.value)
             #expect((store.stored) == nil, "a stale save cannot recreate a signed-out grant")
         }
     }
@@ -198,6 +251,17 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
     private var saveEntered = false
     private var saveWaiter: CheckedContinuation<Void, Never>?
     private let firstSaveGate = DispatchSemaphore(value: 0)
+    private let clearGate = DispatchSemaphore(value: 0)
+    private let failClear: Bool
+    private let parkClear: Bool
+    private let failReplacementSave: Bool
+    let clearEntered = KeymasterPersistenceReceipt<Void>()
+
+    init(failClear: Bool = false, parkClear: Bool = false, failReplacementSave: Bool = false) {
+        self.failClear = failClear
+        self.parkClear = parkClear || failClear
+        self.failReplacementSave = failReplacementSave
+    }
 
     var stored: KeymasterTokens? { lock.withLock { value } }
 
@@ -222,11 +286,23 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
 
         if isFirstSave {
             firstSaveGate.wait()
+        } else if failReplacementSave {
+            throw PersistenceSaveFailure.rejected
         }
         lock.withLock { value = tokens }
     }
 
-    func clear() { lock.withLock { value = nil } }
+    func clear() throws {
+        if parkClear {
+            clearEntered.resolve(())
+            clearGate.wait()
+            clearGate.signal()
+        }
+        if failClear { throw PersistenceSaveFailure.rejected }
+        lock.withLock { value = nil }
+    }
+
+    func releaseClear() { clearGate.signal() }
 
     func waitUntilFirstSaveEntered() async {
         await withCheckedContinuation { continuation in

@@ -3,9 +3,43 @@ import SpottyDomain
 import Foundation
 @testable import SpottyCore
 @testable import SpottySessionRuntime
+@testable import SpottyGateway
 
 @Suite("Account Epoch Ownership")
 struct AccountEpochOwnershipTests {
+    @Test @MainActor
+    func failedGrantRemovalStillRetiresTheSessionAndReportsTheRetainedLogin() async {
+        let account = HarnessAccount(hasGrant: true, clearSucceeds: false)
+        let engine = HarnessEngine()
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: engine, account: account))
+        await player.restore()
+        let epoch = player.accountEpoch
+
+        await player.logout()
+
+        #expect(player.accountEpoch == epoch + 1)
+        #expect(player.accountStore.phase == .signedOut)
+        #expect(!player.catalogSession.isAvailable)
+        #expect(engine.count(.shutdown) == 1)
+        #expect(account.clearCount == 1)
+        #expect(player.feedback.message?.kind == .failure)
+        let failureMessage = await SpottySessionRuntime.AccountStore.grantRemovalFailureMessage
+        #expect(player.feedback.message?.text == failureMessage)
+        #expect(await account.hasGrant() == false)
+        #expect(await account.grantState() == .removalFailed)
+        #expect(account.hasStoredGrant, "failure retains the file without making it usable")
+        await #expect(throws: KeymasterSessionError.noGrant) { try await account.accessToken() }
+
+        await player.restore()
+        #expect(player.accountStore.phase == .failed(failureMessage))
+        #expect(engine.initializeCount == 1, "restoration must not admit the retained login")
+
+        try? await account.adopt(HarnessFixtures.tokens())
+        #expect(await account.grantState() == .available)
+        #expect(await account.hasGrant())
+    }
+
     @Test
     @MainActor
     func testAccountEpochOwnership() async {
@@ -33,6 +67,8 @@ struct AccountEpochOwnershipTests {
                 (await player.queueService.accountEpoch) == (afterLogout), "QueueService reset uses that exact epoch")
             #expect((engine.count(.shutdown)) == (1), "logout still shuts the engine down once")
             #expect((account.clearCount) == (1), "logout still clears the grant once")
+            #expect(await account.grantState() == .absent)
+            #expect(!account.hasStoredGrant)
         }
 
         do {

@@ -258,8 +258,9 @@ private final class GatedConnectAccount: AccountSession, @unchecked Sendable {
         lock.withLock { adoptReturnedStorage = true }
     }
 
-    func clear() async {
+    func clear() async -> Bool {
         lock.withLock { clearStorage += 1 }
+        return true
     }
 
     func revocations() -> AsyncStream<Void> {

@@ -49,6 +49,9 @@ final class AccountStore {
     var onReauthenticationChange: ((Bool) -> Void)?
     var onReady: (() -> Void)?
     var onCacheRetirementFailure: (() -> Void)?
+    var onGrantRemovalFailure: (() -> Void)?
+    static let grantRemovalFailureMessage =
+        "The session ended, but Spotty could not remove the saved login. It may return when Spotty restarts."
 
     init(environment: PlaybackEnvironment, coordinator: PlaybackCoordinator) {
         self.environment = environment
@@ -142,8 +145,7 @@ final class AccountStore {
         await coordinator.cleanupEngine()
         await coordinator.clearStreamingCredentials()
         if intent.clearGrant {
-            await environment.account.clear()
-            setRequiresReauthentication(false)
+            await clearGrant()
         }
         // The phase is not republished here: the owner already published the cumulative intent,
         // and an upgrade that arrived while this was suspended must not be reverted to the
@@ -160,11 +162,17 @@ final class AccountStore {
     ) async -> SessionTeardownIntent {
         let resolved = applied.merging(desired)
         if resolved.clearGrant && !applied.clearGrant {
-            await environment.account.clear()
-            setRequiresReauthentication(false)
+            await clearGrant()
         }
         phase = resolved.finalPhase
         return resolved
+    }
+
+    private func clearGrant() async {
+        if !(await environment.account.clear()) {
+            onGrantRemovalFailure?()
+        }
+        setRequiresReauthentication(false)
     }
 
     /// The only mutation of `epoch`. A new account lifetime starts here so in-flight work
@@ -247,6 +255,8 @@ final class AccountStore {
                 "Spotty cannot access its saved Spotify session. Check its session-file permissions and try again.")
         case .failed:
             phase = .failed("Spotty could not read its saved Spotify session. Try again or sign in again.")
+        case .removalFailed:
+            phase = .failed(Self.grantRemovalFailureMessage)
         }
     }
 

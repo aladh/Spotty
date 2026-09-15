@@ -20,7 +20,9 @@ reauthentication marker, and account-lifetime checks. Missing, denied, and corru
 distinct outcomes.
 
 Do not read, migrate, or modify old Keychain entries. Upgrading requires one browser authorization;
-subsequent launches restore the file. Sign Out removes the active file. Existing historical entries
+subsequent launches restore the file. Sign Out fences the grant immediately and reports failed file
+removal. A failed removal stays fenced in this process until deletion succeeds or a new grant is
+durably adopted. Reconnecting retries deletion instead of restoring the old grant. Existing historical entries
 are inert and can be removed separately by their owner. Retired plaintext preferences are still
 removed without being imported.
 

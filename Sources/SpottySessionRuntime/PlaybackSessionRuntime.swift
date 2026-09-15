@@ -192,6 +192,9 @@ package final class PlaybackSessionRuntime: Sendable {
             self?.feedback.failure(
                 "The session ended, but Spotty could not remove its catalog cache. Cache access remains disabled.")
         }
+        accountStore.onGrantRemovalFailure = { [weak self] in
+            self?.feedback.failure(AccountStore.grantRemovalFailureMessage)
+        }
         accountStore.onReauthenticationChange = { [weak self] required in
             guard let self else { return }
             self.requiresReauthentication = required

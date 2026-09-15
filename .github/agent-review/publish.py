@@ -51,6 +51,33 @@ def owns(thread, env):
         env["LEGACY_UNMARKED_THREADS"] == "true" and not body.startswith("<!-- spotty-"))
 
 
+def thread_state(env, pending_review, snapshots, request):
+    connection = graphql('''query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+        reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
+          id isResolved comments(first: 50) { pageInfo { hasNextPage } nodes { author { login } body url pullRequestReview { id state } } } } } } } }''',
+        {"owner": env["GITHUB_REPOSITORY"].split('/')[0], "name": env["GITHUB_REPOSITORY"].split('/')[1],
+         "number": int(env["PR_NUMBER"])}, request)["repository"]["pullRequest"]["reviewThreads"]
+    threads = connection["nodes"]
+    unresolved = [thread for thread in threads if not thread["isResolved"]]
+    owned = [thread for thread in unresolved if owns(thread, env)
+             and (thread["comments"]["nodes"][0].get("pullRequestReview") or {}).get("state") != "PENDING"
+             and (thread["comments"]["nodes"][0].get("pullRequestReview") or {}).get("id") != pending_review]
+    complete = not connection["pageInfo"]["hasNextPage"] and all(thread["comments"]["nodes"] for thread in unresolved)
+    complete = complete and snapshots.keys() <= {thread["id"] for thread in threads}
+    # Compare identity, author and body; ignore only replies this publication itself staged.
+    # Also check formerly owned threads so edits/deletions cannot hide them from owns().
+    for thread in unresolved:
+        if thread["id"] not in snapshots and thread not in owned:
+            continue
+        comments = thread["comments"]
+        history = [{"author": (comment["author"] or {}).get("login"), "body": comment["body"], "url": comment["url"]}
+                   for comment in comments["nodes"]
+                   if (comment.get("pullRequestReview") or {}).get("id") != pending_review]
+        complete = complete and not comments["pageInfo"]["hasNextPage"] and history == snapshots.get(thread["id"])
+    return owned, complete
+
+
 def cleanup(env, request=github):
     state = Path(env["REVIEW_PENDING"])
     if not state.exists():
@@ -80,6 +107,8 @@ def cleanup(env, request=github):
 
 def publish(env, request=github, sleep=time.sleep):
     out = Path(env["REVIEW_OUT"])
+    snapshots = {thread["id"]: thread["comments"]
+                 for thread in json.loads((Path(env["REVIEW_IN"]) / "threads.json").read_text())}
     findings = json.loads((out / "findings.json").read_text())
     actions = json.loads((out / "thread-actions.json").read_text())
     summary = (out / "summary.md").read_text()
@@ -118,26 +147,17 @@ def publish(env, request=github, sleep=time.sleep):
                 pullRequestReviewThreadId: $thread, body: $body}) { comment { id } } }''',
                     {"review": pending["node_id"], "thread": action["id"], "body": action["reply"]}, request)
 
-    # Re-read head and owned threads after staging; calculate approval from intended resolutions.
+    # Re-read complete thread histories and head after staging, before deciding approval.
+    owned, complete = thread_state(env, pending["node_id"], snapshots, request)
     pr = request("GET", root)
-    connection = graphql('''query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-        reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
-          id isResolved comments(first: 1) { nodes { author { login } body pullRequestReview { state } } } } } } } }''',
-        {"owner": env["GITHUB_REPOSITORY"].split('/')[0], "name": env["GITHUB_REPOSITORY"].split('/')[1],
-         "number": int(env["PR_NUMBER"])}, request)["repository"]["pullRequest"]["reviewThreads"]
     current = pr["head"]["sha"] == head and pr["state"] == "open" and not pr["draft"]
     resolving = {action["id"] for action in actions if action["resolve"]} if current else set()
-    owned = [thread for thread in connection["nodes"] if not thread["isResolved"] and owns(thread, env)
-             and (thread["comments"]["nodes"][0].get("pullRequestReview") or {}).get("state") != "PENDING"]
     resolving &= {thread["id"] for thread in owned}
     remaining = sum(thread["id"] not in resolving for thread in owned)
-    complete = not connection["pageInfo"]["hasNextPage"] and all(
-        thread["comments"]["nodes"] for thread in connection["nodes"] if not thread["isResolved"])
     event = "APPROVE" if env["CAN_APPROVE"] == "true" and not findings and remaining == 0 and current and complete else "COMMENT"
     header = f"**{env['REVIEWER_NAME']}** of `{head[:7]}` ({env['REVIEW_REASON']}): {len(findings)} new finding(s)."
     if not complete:
-        header += " Thread state is incomplete; approval withheld."
+        header += " Thread state is incomplete or changed since review; approval and resolution withheld."
         resolving.clear()
     elif remaining:
         header += f" {remaining} earlier thread(s) remain open."
@@ -152,12 +172,15 @@ def publish(env, request=github, sleep=time.sleep):
     request("POST", root + f"/reviews/{pending['id']}/events", {"event": event, "body": body})
     # A failed submission leaves every thread open; resolution only follows a confirmed submission.
     if resolving:
+        owned, complete = thread_state(env, pending["node_id"], snapshots, request)
         latest = request("GET", root)
-        if latest["head"]["sha"] == head and latest["state"] == "open" and not latest["draft"]:
-            for thread_id in sorted(resolving):
+        if complete and latest["head"]["sha"] == head and latest["state"] == "open" and not latest["draft"]:
+            for thread_id in sorted(resolving & {thread["id"] for thread in owned}):
                 graphql('''mutation($id: ID!) {
                   resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }''',
                         {"id": thread_id}, request)
+        else:
+            print("Thread state or PR eligibility changed after submission; resolution withheld")
     print(f"Published one {event} review of {head} with {len(findings)} finding(s) ({placement})")
 
 

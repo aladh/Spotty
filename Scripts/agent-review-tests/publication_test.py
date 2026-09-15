@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -30,18 +31,27 @@ class PublicationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
-        self.env = dict(REVIEW_OUT=self.temp.name, REVIEW_PENDING=str(self.directory / 'pending.json'),
+        self.env = dict(REVIEW_IN=self.temp.name, REVIEW_OUT=self.temp.name,
+                        REVIEW_PENDING=str(self.directory / 'pending.json'),
                         GITHUB_REPOSITORY='owner/repo', PR_NUMBER='1', HEAD_SHA='a' * 40,
                         REVIEW_MARKER='<!-- spotty-test -->', REVIEWER_LOGIN='opencode-agent',
                         LEGACY_UNMARKED_THREADS='false', CAN_APPROVE='true', REVIEWER_NAME='Test review',
                         REVIEW_REASON='fixture', RERUN_COMMAND='@test review', GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1')
         self.write([], [{'id': 'thread', 'reply': 'Verified fixed.', 'resolve': True}])
         self.calls = []
-        self.fail = None
+        self.before_request = None
         self.truncated = False
         self.current_head = self.env['HEAD_SHA']
         self.pending_state = 'PENDING'
         self.extra = []
+        self.comments_truncated = False
+        self.live_comments = [{'author': {'login': 'opencode-agent'},
+                               'body': self.env['REVIEW_MARKER'] + '\nfinding', 'url': 'https://example.invalid/finding',
+                               'pullRequestReview': {'id': 'earlier-review', 'state': 'COMMENTED'}}]
+        self.staged_comments = []
+        (self.directory / 'threads.json').write_text(json.dumps([{
+            'id': 'thread', 'comments': [{'author': 'opencode-agent', 'body': self.live_comments[0]['body'],
+                                        'url': self.live_comments[0]['url']}]}]))
 
     def write(self, findings, actions):
         (self.directory / 'findings.json').write_text(json.dumps(findings))
@@ -50,10 +60,12 @@ class PublicationTests(unittest.TestCase):
 
     def request(self, method, endpoint, payload=None):
         self.calls.append((method, endpoint, payload))
-        if self.fail:
-            self.fail(method, endpoint, payload)
+        if self.before_request:
+            self.before_request(method, endpoint, payload)
         if endpoint.endswith('/reviews'):
             self.assertNotIn('event', payload)
+            self.pending_state = 'PENDING'
+            self.staged_comments = []
             return {'id': 12, 'node_id': 'pending-review'}
         if endpoint.endswith('/events'):
             self.pending_state = 'COMMENTED'
@@ -62,11 +74,22 @@ class PublicationTests(unittest.TestCase):
             return {'state': self.pending_state}
         if endpoint == 'graphql':
             if payload['query'].startswith('query'):
-                thread = {'id': 'thread', 'isResolved': False, 'comments': {'nodes': [
-                    {'author': {'login': 'opencode-agent'}, 'body': self.env['REVIEW_MARKER'] + '\nfinding',
-                     'pullRequestReview': {'state': 'COMMENTED'}}]}}
+                staged = [dict(comment, pullRequestReview={'id': 'pending-review', 'state': self.pending_state})
+                          for comment in self.staged_comments]
+                thread = {'id': 'thread', 'isResolved': False, 'comments': {
+                    'nodes': self.live_comments + staged}}
+                threads = json.loads(json.dumps([thread] + self.extra))
+                limit = int(re.search(r'comments\(first: (\d+)\)', payload['query'])[1])
+                for item in threads:
+                    comments = item['comments']
+                    comments['pageInfo'] = {'hasNextPage': len(comments['nodes']) > limit or self.comments_truncated}
+                    comments['nodes'] = comments['nodes'][:limit]
                 return {'data': {'repository': {'pullRequest': {'reviewThreads': {
-                    'pageInfo': {'hasNextPage': self.truncated}, 'nodes': [thread] + self.extra}}}}}
+                    'pageInfo': {'hasNextPage': self.truncated}, 'nodes': threads}}}}}
+            if 'addPullRequestReviewThreadReply' in payload['query']:
+                self.staged_comments.append({'author': {'login': 'opencode-agent'},
+                                             'body': payload['variables']['body'],
+                                             'url': 'https://example.invalid/staged-reply'})
             return {'data': {}}
         return {'head': {'sha': self.current_head}, 'state': 'open', 'draft': False}
 
@@ -121,10 +144,50 @@ class PublicationTests(unittest.TestCase):
     def test_null_review_keeps_owned_thread_visible(self):
         self.extra = [{'id': 'legacy-thread', 'isResolved': False, 'comments': {'nodes': [
             {'author': {'login': 'opencode-agent'}, 'body': self.env['REVIEW_MARKER'] + '\nfinding',
-             'pullRequestReview': None}]}}]
+             'url': 'https://example.invalid/legacy', 'pullRequestReview': None}]}}]
         self.run_publish()
         self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
-        self.assertIn('1 earlier thread(s) remain open', self.submitted()[0]['body'])
+        self.assertEqual(self.resolved(), [])
+
+    def test_unseen_reply_edit_or_removal_withholds_approval_and_all_resolutions(self):
+        original = json.loads(json.dumps(self.live_comments))
+        reply = {'author': {'login': 'author'}, 'body': 'This is still broken.',
+                 'url': 'https://example.invalid/objection', 'pullRequestReview': None}
+        for change in ('reply', 'edit', 'removal'):
+            with self.subTest(change=change):
+                self.calls.clear()
+                self.live_comments = json.loads(json.dumps(original))
+                if change == 'reply':
+                    self.live_comments.append(reply)
+                elif change == 'edit':
+                    self.live_comments[0]['body'] += '\nAdditional concern.'
+                else:
+                    self.live_comments.clear()
+                self.run_publish()
+                self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
+                self.assertEqual(self.resolved(), [])
+                self.assertIn('Thread state is incomplete', self.submitted()[0]['body'])
+
+    def test_paginated_comments_withhold_approval_and_resolution(self):
+        self.comments_truncated = True
+        self.run_publish()
+        self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
+        self.assertEqual(self.resolved(), [])
+
+    def test_own_staged_reply_does_not_count_as_unseen_history(self):
+        self.run_publish()
+        self.assertEqual(self.submitted()[0]['event'], 'APPROVE')
+        self.assertEqual(len(self.resolved()), 1)
+
+    def test_reply_arriving_during_submission_prevents_resolution(self):
+        def add_reply(method, endpoint, payload):
+            if endpoint.endswith('/events'):
+                self.live_comments.append({'author': {'login': 'author'}, 'body': 'New evidence.',
+                                           'url': 'https://example.invalid/latest', 'pullRequestReview': None})
+        self.before_request = add_reply
+        self.run_publish()
+        self.assertEqual(len(self.submitted()), 1)
+        self.assertEqual(self.resolved(), [])
 
     def test_moved_head_withholds_approval_and_resolution(self):
         self.current_head = 'b' * 40
@@ -140,11 +203,11 @@ class PublicationTests(unittest.TestCase):
                 def fail(method, endpoint, payload):
                     if (failing_stage == 'reply' and endpoint == 'graphql' and 'addPullRequestReviewThreadReply' in payload['query']) or (failing_stage == 'submission' and endpoint.endswith('/events')):
                         raise failure(503)
-                self.fail = fail
+                self.before_request = fail
                 with self.assertRaises(publisher.APIError):
                     self.run_publish()
                 self.assertEqual(self.resolved(), [])
-                self.fail = None
+                self.before_request = None
                 publisher.cleanup(self.env, self.request)
                 self.assertIn(('DELETE', 'repos/owner/repo/pulls/1/reviews/12', None), self.calls)
 
@@ -175,7 +238,7 @@ class PublicationTests(unittest.TestCase):
                 count += 1
                 if count == 1:
                     raise failure(422, 'User can only have one pending review per pull request')
-        self.fail = fail
+        self.before_request = fail
         self.run_publish()
         self.assertEqual(count, 2)
         self.assertEqual(len(self.submitted()), 1)
@@ -186,11 +249,11 @@ class PublicationTests(unittest.TestCase):
         def fail(method, endpoint, payload):
             if endpoint.endswith('/reviews') and payload['comments']:
                 raise failure(422)
-        self.fail = fail
+        self.before_request = fail
         self.run_publish()
         self.assertIn('Findings (inline placement rejected)', self.submitted()[0]['body'])
         self.calls.clear()
-        self.fail = lambda *_: (_ for _ in ()).throw(failure(503))
+        self.before_request = lambda *_: (_ for _ in ()).throw(failure(503))
         with self.assertRaises(publisher.APIError):
             self.run_publish()
         self.assertEqual(len(self.calls), 1)
@@ -289,6 +352,17 @@ class EvidenceTests(unittest.TestCase):
         result = evidence.collect(self.context, self.directory, fetch)
         runtime = next(item for item in result['inputs'] if item['name'] == 'ci_runtime')
         self.assertEqual(runtime['status'], 'unavailable')
+
+    def test_full_review_does_not_require_obsolete_rewritten_history(self):
+        for mode, previous, status in (('full', 'b' * 40, 'present'),
+                                       ('incremental', 'b' * 40, 'missing'),
+                                       ('incremental', None, 'missing'),
+                                       ('incremental', self.head, 'present')):
+            with self.subTest(mode=mode, previous=previous):
+                self.context.update(mode=mode, previous_head=previous)
+                result = evidence.collect(self.context, self.directory, self.fetch)
+                source = next(item for item in result['inputs'] if item['name'] == 'source_and_history')
+                self.assertEqual(source['status'], status)
 
 
 if __name__ == '__main__':

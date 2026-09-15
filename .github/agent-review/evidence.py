@@ -84,10 +84,13 @@ def collect(context, directory, fetch=github):
     try:
         actual_head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True,
                                               stderr=subprocess.DEVNULL, timeout=10).strip()
+        revisions = [context["base"], head]
+        if context.get("mode") == "incremental":
+            revisions.append(context.get("previous_head"))
         history_present = actual_head == head and all(
-            subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"],
-                           capture_output=True, timeout=10).returncode == 0
-            for revision in (context["base"], head, context.get("previous_head")) if revision
+            revision and subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"],
+                                        capture_output=True, timeout=10).returncode == 0
+            for revision in revisions
         )
     except (OSError, subprocess.SubprocessError):
         history_present = False

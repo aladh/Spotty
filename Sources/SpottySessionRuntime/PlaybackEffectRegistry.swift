@@ -31,21 +31,6 @@ enum PlaybackEffectID: Hashable, Sendable {
     }
 }
 
-/// One owner for every runtime-level asynchronous lifetime. Replacing a named effect cancels the
-/// superseded task; account teardown can invalidate all account work in one operation.
-///
-/// Transport commands use unique `.command(UUID)` tokens, so this is lifetime ownership rather than
-/// kind-level cancel-in-flight. A second pause is refused by the pending-command gate, not by
-/// replacing an in-flight token. `replace` may supply a SessionRuntimeActor `onCancel`, which runs for both
-/// `cancel` and `replace` of that token so ordinary command cancellation can settle reducer state
-/// before the task resumes. `complete` drops a registration only when that same object still
-/// owns the token. Sequential Add to Queue keeps unique `.queueCommand(UUID)` tokens so ordered
-/// multi-add is not cancelled. Authoritative Connect `set_queue` replacement uses one
-/// `.queueReplacement` lifetime plus a transition-owned request token: a second removal is refused while
-/// one is in flight, because cancellation cannot undo a `set_queue` Spotify already accepted.
-/// See `docs/architecture/adrs/ADR-003-playback-command-effects.md`.
-final class PlaybackEffectRegistration: Sendable { init() {} }
-
 /// Exact identity of one currently registered effect task. Capture it before the registry
 /// invalidates that token; waiting still observes that task after the live entry is gone.
 struct PlaybackEffectSettlement: Sendable {
@@ -113,6 +98,9 @@ private actor PlaybackEffectDrainState {
     }
 }
 
+/// Owns every runtime effect from registration through completion. Named entries keep the task,
+/// identity and cancellation handler together; callers start work through `run` and retain exact
+/// settlement handles when they need to await it after cancellation or replacement.
 @SessionRuntimeActor
 final class PlaybackEffectRegistry {
     /// A task that cannot observe cancellation must not hold account replacement forever. This is
@@ -120,88 +108,63 @@ final class PlaybackEffectRegistry {
     /// timeout or a claim that an already-sent request was undone.
     nonisolated static let accountDrainTimeoutNanoseconds: UInt64 = 250_000_000
 
-    private var tasks: [PlaybackEffectID: Task<Void, Never>] = [:]
-    private var registrations: [PlaybackEffectID: PlaybackEffectRegistration] = [:]
-    private var cancellationHandlers: [PlaybackEffectID: @SessionRuntimeActor () -> Void] = [:]
+    private final class Registration: Sendable {}
+
+    private struct Entry {
+        let registration: Registration
+        let task: Task<Void, Never>
+        let onCancel: (@SessionRuntimeActor () -> Void)?
+    }
+
+    private var entries: [PlaybackEffectID: Entry] = [:]
 
     func settlement(of id: PlaybackEffectID) -> PlaybackEffectSettlement? {
-        tasks[id].map(PlaybackEffectSettlement.init(task:))
+        entries[id].map { PlaybackEffectSettlement(task: $0.task) }
     }
 
     /// Snapshot live effect identities for synchronization diagnostics. This does not transfer or
     /// alter ownership; callers that need to await after invalidation retain the returned handles.
     func settlements() -> [PlaybackEffectID: PlaybackEffectSettlement] {
-        tasks.mapValues(PlaybackEffectSettlement.init(task:))
+        entries.mapValues { PlaybackEffectSettlement(task: $0.task) }
     }
 
-    func replace(
-        _ id: PlaybackEffectID,
-        with task: Task<Void, Never>,
-        registration: PlaybackEffectRegistration? = nil,
-        onCancel: (@SessionRuntimeActor () -> Void)? = nil
-    ) {
-        let previousHandler = cancellationHandlers[id]
-        let previousTask = tasks[id]
-        let owned = registration ?? PlaybackEffectRegistration()
-        tasks[id] = task
-        registrations[id] = owned
-        cancellationHandlers[id] = onCancel
-        previousHandler?()
-        previousTask?.cancel()
-    }
-
-    /// Registers, starts, and completes one effect in a single call.
-    ///
-    /// This is the sanctioned way to start store-owned asynchronous work: it creates the
-    /// registration, replaces the named token, and drops that registration when the operation
-    /// returns, so a site cannot forget `complete` or complete a token a newer effect already owns.
-    /// `replace`/`complete`/`cancel` remain available for the few sites that need the pieces.
+    /// Registers, starts and completes one effect. The replacement is installed before calling
+    /// the old cancellation handler, so a reentrant handler observes current ownership.
+    /// Late completion removes only its own entry, including when cancellation was ignored.
     func run(
         _ id: PlaybackEffectID,
         onCancel: (@SessionRuntimeActor () -> Void)? = nil,
         operation: @escaping @SessionRuntimeActor @Sendable () async -> Void
     ) {
-        let registration = PlaybackEffectRegistration()
+        let registration = Registration()
         let task = Task { [weak self] in
             defer { self?.complete(id, registration: registration) }
             await operation()
         }
-        replace(id, with: task, registration: registration, onCancel: onCancel)
+        let previous = entries.updateValue(
+            Entry(registration: registration, task: task, onCancel: onCancel), forKey: id)
+        previous?.onCancel?()
+        previous?.task.cancel()
     }
 
     @discardableResult
     func cancel(_ id: PlaybackEffectID) -> PlaybackEffectSettlement? {
-        guard let task = tasks.removeValue(forKey: id) else {
-            cancellationHandlers[id] = nil
-            registrations[id] = nil
-            return nil
-        }
-        let settlement = PlaybackEffectSettlement(task: task)
-        let handler = cancellationHandlers.removeValue(forKey: id)
-        registrations[id] = nil
-        handler?()
-        task.cancel()
-        return settlement
+        guard let entry = entries.removeValue(forKey: id) else { return nil }
+        entry.onCancel?()
+        entry.task.cancel()
+        return PlaybackEffectSettlement(task: entry.task)
     }
 
-    func complete(_ id: PlaybackEffectID, registration: PlaybackEffectRegistration) {
-        guard registrations[id] === registration else { return }
-        cancellationHandlers.removeValue(forKey: id)
-        registrations[id] = nil
-        tasks[id] = nil
-    }
-
-    func complete(_ id: PlaybackEffectID) {
-        cancellationHandlers.removeValue(forKey: id)
-        registrations[id] = nil
-        tasks[id] = nil
+    private func complete(_ id: PlaybackEffectID, registration: Registration) {
+        guard entries[id]?.registration === registration else { return }
+        entries[id] = nil
     }
 
     /// A lost observation interval makes command confirmation history unknowable. Cancel every
     /// command task, including one whose pending slot was already consumed by a confirmation.
     /// Cancellation fences later completion; it cannot undo a request already sent to Spotify.
     func cancelPlaybackCommands() {
-        let ids = tasks.keys.filter { id in
+        let ids = entries.keys.filter { id in
             switch id {
             case .command, .commandDeadline, .queueCommand, .queueReplacement: true
             default: false
@@ -212,12 +175,10 @@ final class PlaybackEffectRegistry {
 
     @discardableResult
     func cancelAccountScoped() -> [PlaybackEffectID: PlaybackEffectSettlement] {
-        let ids = tasks.keys.filter(\.isAccountScoped)
+        let ids = entries.keys.filter(\.isAccountScoped)
         var settlements: [PlaybackEffectID: PlaybackEffectSettlement] = [:]
         for id in ids {
-            let settlement = settlement(of: id)
-            _ = cancel(id)
-            if let settlement {
+            if let settlement = cancel(id) {
                 settlements[id] = settlement
             }
         }

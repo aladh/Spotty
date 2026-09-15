@@ -245,15 +245,11 @@ final class PlaybackEffectRegistry {
             PlaybackEffectSettlement(raw: $0, didSettle: didMutate)
         }
     }
-    func replace(
-        _ id: PlaybackEffectID, with task: Task<Void, Never>, registration: PlaybackEffectRegistration? = nil,
-        onCancel: (@SessionRuntimeActor () -> Void)? = nil
+    func run(
+        _ id: PlaybackEffectID, onCancel: (@SessionRuntimeActor () -> Void)? = nil,
+        operation: @escaping @MainActor @Sendable () async -> Void
     ) {
-        SessionRuntimeActor.sync { raw.replace(id, with: task, registration: registration, onCancel: onCancel) }
-        didMutate()
-    }
-    func complete(_ id: PlaybackEffectID, registration: PlaybackEffectRegistration) {
-        SessionRuntimeActor.sync { raw.complete(id, registration: registration) }
+        SessionRuntimeActor.sync { raw.run(id, onCancel: onCancel) { await operation() } }
         didMutate()
     }
     @discardableResult

@@ -7,6 +7,34 @@ import SpottyRuntimeContracts
 
 @Suite("Keymaster Persistence")
 struct KeymasterPersistenceTests {
+    @Test(arguments: [false, true]) @MainActor
+    func completedRemovalSurvivesFailedAdoption(removed: Bool) async throws {
+        let store = GatedPersistenceStore(
+            failClear: !removed, parkClear: true, failReplacementSave: true)
+        store.releaseFirstSave()
+        let cookies = Mutex(0)
+        let session = KeymasterSession(store: store, cookieCleanup: { cookies.withLock { $0 += 1 } })
+        let old = persistenceGrant(access: "old", refresh: "old-refresh")
+        try await session.adopt(old)
+        let removal = Task { await session.clear() }
+        await store.clearEntered.value()
+        let clearingGeneration = await session.credentialGeneration
+        let adoption = Task {
+            try await session.adopt(persistenceGrant(access: "replacement", refresh: "replacement-refresh"))
+        }
+        #expect(await waitUntil { await session.credentialGeneration != clearingGeneration })
+
+        store.releaseClear()
+        #expect(await removal.value == removed)
+        await #expect(throws: PersistenceSaveFailure.rejected) { try await adoption.value }
+
+        #expect(await session.grantState == (removed ? .absent : .removalFailed))
+        #expect(await session.hasGrant == false)
+        #expect(store.stored == (removed ? nil : old))
+        // A new authorization began; its cookies cannot be distinguished from the old jar.
+        #expect(cookies.withLock { $0 } == 0)
+    }
+
     @Test @MainActor
     func lateRemovalFailureDoesNotFenceAReplacementGrantOrClearItsCookies() async throws {
         let store = GatedPersistenceStore(failClear: true)
@@ -225,9 +253,15 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
     private let firstSaveGate = DispatchSemaphore(value: 0)
     private let clearGate = DispatchSemaphore(value: 0)
     private let failClear: Bool
+    private let parkClear: Bool
+    private let failReplacementSave: Bool
     let clearEntered = KeymasterPersistenceReceipt<Void>()
 
-    init(failClear: Bool = false) { self.failClear = failClear }
+    init(failClear: Bool = false, parkClear: Bool = false, failReplacementSave: Bool = false) {
+        self.failClear = failClear
+        self.parkClear = parkClear || failClear
+        self.failReplacementSave = failReplacementSave
+    }
 
     var stored: KeymasterTokens? { lock.withLock { value } }
 
@@ -252,17 +286,19 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
 
         if isFirstSave {
             firstSaveGate.wait()
+        } else if failReplacementSave {
+            throw PersistenceSaveFailure.rejected
         }
         lock.withLock { value = tokens }
     }
 
     func clear() throws {
-        if failClear {
+        if parkClear {
             clearEntered.resolve(())
             clearGate.wait()
             clearGate.signal()
-            throw PersistenceSaveFailure.rejected
         }
+        if failClear { throw PersistenceSaveFailure.rejected }
         lock.withLock { value = nil }
     }
 

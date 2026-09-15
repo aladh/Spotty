@@ -70,7 +70,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     func accessToken() async throws -> String { throw BrowsingFailure.unsupportedAction }
     func adopt(_: KeymasterTokens) async throws { throw rejectMutation() }
     func clear() async -> Bool {
-        guard scenario.mode == .playback else { _ = rejectMutation(); return false }
+        guard scenario.mode == .playback else { _ = rejectMutation(); return true }
         lock.withLock { grantAvailable = false }
         record("account.synthetic-clear")
         return true

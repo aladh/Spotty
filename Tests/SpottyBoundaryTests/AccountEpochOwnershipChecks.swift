@@ -3,6 +3,7 @@ import SpottyDomain
 import Foundation
 @testable import SpottyCore
 @testable import SpottySessionRuntime
+@testable import SpottyGateway
 
 @Suite("Account Epoch Ownership")
 struct AccountEpochOwnershipTests {
@@ -25,6 +26,18 @@ struct AccountEpochOwnershipTests {
         #expect(player.feedback.message?.kind == .failure)
         let failureMessage = await SpottySessionRuntime.AccountStore.grantRemovalFailureMessage
         #expect(player.feedback.message?.text == failureMessage)
+        #expect(await account.hasGrant() == false)
+        #expect(await account.grantState() == .removalFailed)
+        #expect(account.hasStoredGrant, "failure retains the file without making it usable")
+        await #expect(throws: KeymasterSessionError.noGrant) { try await account.accessToken() }
+
+        await player.restore()
+        #expect(player.accountStore.phase == .failed(failureMessage))
+        #expect(engine.initializeCount == 1, "restoration must not admit the retained login")
+
+        try? await account.adopt(HarnessFixtures.tokens())
+        #expect(await account.grantState() == .available)
+        #expect(await account.hasGrant())
     }
 
     @Test
@@ -54,6 +67,8 @@ struct AccountEpochOwnershipTests {
                 (await player.queueService.accountEpoch) == (afterLogout), "QueueService reset uses that exact epoch")
             #expect((engine.count(.shutdown)) == (1), "logout still shuts the engine down once")
             #expect((account.clearCount) == (1), "logout still clears the grant once")
+            #expect(await account.grantState() == .absent)
+            #expect(!account.hasStoredGrant)
         }
 
         do {

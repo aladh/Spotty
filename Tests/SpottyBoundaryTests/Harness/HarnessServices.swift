@@ -475,7 +475,7 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
         }
     }
 
-    func hasGrant() async -> Bool { hasStoredGrant }
+    func hasGrant() async -> Bool { await grantState() == .available }
 
     func grantState() async -> KeymasterGrantState {
         if let state = withStorage({ $0.grantState }) { return state }
@@ -493,18 +493,32 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
         }
     }
 
-    func accessToken() async throws -> String { "fixture-access" }
+    func accessToken() async throws -> String {
+        guard await hasGrant() else { throw KeymasterSessionError.noGrant }
+        return "fixture-access"
+    }
 
-    func adopt(_: KeymasterTokens) async throws {}
+    func adopt(_: KeymasterTokens) async throws {
+        withStorage {
+            $0.hasStoredGrant = true
+            $0.grantState = .available
+        }
+    }
 
     func clear() async -> Bool {
+        // Fence immediately. Parking controls completion of teardown, not grant availability.
+        let succeeds = withStorage { storage in
+            storage.grantState = storage.clearSucceeds ? .absent : .removalFailed
+            if storage.clearSucceeds { storage.hasStoredGrant = false }
+            return storage.clearSucceeds
+        }
         if parkClear {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 withStorage { $0.clearPark = continuation }
             }
         }
         withStorage { $0.clearCount += 1 }
-        return withStorage { $0.clearSucceeds }
+        return succeeds
     }
 
     func revocations() -> AsyncStream<Void> {

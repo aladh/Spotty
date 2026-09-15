@@ -14,6 +14,19 @@ struct BrowsingHarnessTests {
         BrowsingScenario(trackCount: 30, artworkCount: 2, artworkPixels: 64, cycles: 1)
     }
 
+    @Test(arguments: [BrowsingScenario.Mode.browsing, .signedOut])
+    func unsupportedClearDoesNotReportAStoredLoginRemovalFailure(mode: BrowsingScenario.Mode) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyBrowsingTests-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.mode = mode
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+
+        #expect(await world.clear(), "this world has no persisted login that can fail removal")
+        #expect(world.snapshot().mutationAttempts == 1, "unsupported mutations still fail read-only acceptance")
+        #expect(await world.hasGrant() == (mode == .browsing), "a rejected action does not mutate the scenario")
+    }
+
     @Test
     func remotePlayUsesSemanticTrackSelection() throws {
         let playback = SyntheticPlayback()

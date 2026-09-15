@@ -15,14 +15,17 @@ A reviewer runs when a PR from this repository is opened ready, marked ready, re
 to, and on request (a trigger comment or **Run workflow** on the default branch). The first run
 audits the whole PR; later runs audit only the changes since the head that reviewer last covered,
 so a fix push gets a small follow-up rather than a repeat. A force-push or rebase falls back to a
-full review. Both reviewers receive the full PR context, including implementation changes whose
+full review. Whitespace-only pushes still receive an audit: `git diff -w` can hide changes to string
+contents and indentation-sensitive behavior, so it cannot establish that re-approval is safe. Both reviewers receive the full PR context, including implementation changes whose
 documentation updates may be missing. Approval is opt-in per caller.
 
 The agents run with a read-only repository token and never hold the App token. They write
 `findings.json`, `thread-actions.json`, and `summary.md`; a trusted workflow step validates those
-files and publishes one review per head as the OpenCode App: the summary as the body, the findings
+files and submits one review per run as the OpenCode App: the summary as the body, the findings
 as inline comments on the head commit, and replies and resolutions for that reviewer's earlier
-threads. A reviewer configured to approve does so when no new findings exist and none of its earlier
+threads. Findings and earlier-thread replies are attached to one pending review, submitted together;
+verified thread resolutions follow a successful submission. An always-run cleanup step removes
+only that run's unsubmitted review when the runner and GitHub remain available. A reviewer configured to approve does so when no new findings exist and none of its earlier
 threads remains unresolved; otherwise, and for comment-only reviewers always, the review is a
 comment. Reviewers never request changes. An approval means no actionable findings remained in the
 reviewed scope; the summary states what the review could not exercise. Branch rules dismiss
@@ -33,6 +36,22 @@ problem is gone, or whose author reply documents a disposition that holds up, ge
 and is resolved; threads that still apply stay open. Declining a finding therefore only needs a
 reply with the evidence or scope boundary. PR readiness follows
 [agent operations](../../CONTRIBUTING.md#pr-acceptance).
+
+## Evidence and coverage
+
+Before the agent runs, `evidence.json` names the available PR description, diffs, source/history,
+and unresolved threads, plus sanitized snapshots of live base-branch rules, head-matched check
+results, and the latest CI attempt's job/step results. Branch rules establish approval/check
+requirements; CI results establish only the recorded execution and outcome at the recorded head.
+A pending or absent run does not establish passing tests. Snapshots are point-in-time review inputs,
+not a replacement for the live PR acceptance gate at merge.
+
+UI, playback, and performance claims need an explicit revision-matched report, trace, or screenshot
+manifest; the workflow names that input as missing when none is supplied. App installation
+permissions are not collected with the agent's repository token. Read failures retain the specific
+endpoint and sanitized HTTP status, without response bodies or credentials. Reviewers report these
+named limits rather than claiming that general GitHub access is missing. Agents remain read-only;
+this evidence collection grants no new permissions.
 
 ## Thread ownership
 
@@ -55,15 +74,25 @@ both pushes. Each published review includes its rerun command for trusted reposi
 Unrelated and unauthorized comments use separate concurrency groups, so they cannot cancel or
 displace a pending eligible review.
 
+If a required review check failed or was cancelled, rerun that original Actions run (or use
+`gh run rerun RUN_ID`). A separate trigger comment or dispatch can publish a fresh review while
+its check belongs to the default-branch commit; it does not replace the failed PR check.
+
 ## Setup and trust
 
 Install the [OpenCode GitHub App](https://github.com/apps/opencode-agent) on Spotty only. The
 publication step holds the App's installation token, whose pull-request write permission covers
 reviews, approvals, thread replies, and resolutions; comment-versus-approve behavior is workflow
 logic, not a credential restriction. Approval is computed from the output files and the live thread
-state, not asserted by the agent. A finding whose inline placement the API rejects is published in
+state, not asserted by the agent. Publication code is freshly checked out after the editable agent run and before the App token is
+created. A finding whose inline placement the API rejects is published in
 the review body instead. Reviews refuse to run, or withhold approval, when a PR has more review
-threads than one API page can return.
+threads than one API page can return, or an unresolved thread's original comment is unavailable.
+Before submission and again before resolving, publication compares the reviewed comment history
+with live threads, including reviewed threads someone else has resolved, and excluding only its
+own staged replies. Changed or incomplete histories withhold approval and resolution before
+submission; when detected after submission, they withhold the remaining resolution calls.
+These checks are snapshots across separate GitHub requests.
 
 PR changes can affect reviewer configuration, since the workflow reads it from the PR merge
 revision. The agents retain shell, edit, and web tools, so treating source, threads, PR text, and
@@ -79,9 +108,11 @@ The contributor-free model provider may use submitted public source for Meta tra
 ## Verifying workflow changes
 
 Run `npm ci --ignore-scripts --prefix Scripts/agent-review-tests`, then
-`npm test --prefix Scripts/agent-review-tests` with Node.js 20 or newer, Ruby, Git, and jq. CI runs
+`npm test --prefix Scripts/agent-review-tests` with Node.js 20 or newer, Python 3, Ruby, Git, and jq. CI runs
 the same fixtures in Source policies. They evaluate event gates with GitHub’s expression library
-and execute the input/body construction against isolated repository and API fixtures.
+and execute the input/body construction against isolated repository and API fixtures. Publication
+fixtures cover staged replies, failure cleanup, head changes, and the approval/resolution order;
+evidence fixtures distinguish unavailable endpoints from missing UI reports.
 
 ## Adding a reviewer
 

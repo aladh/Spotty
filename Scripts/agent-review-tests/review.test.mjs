@@ -135,12 +135,12 @@ function temporary(run) {
 
 test('both published review bodies include the trusted-collaborator rerun hint', () => temporary(directory => {
   writeFileSync(join(directory, 'summary.md'), 'No findings. Literal $(touch unexpected).');
-  const publish = steps.find(step => step.name === 'Publish review').run;
-  // Execute the production body construction with literal, potentially hostile summary text.
-  const formatBody = publish.split('\n').filter(line => /^(rerun_hint|body)=/.test(line)).join('\n');
-  assert.notEqual(formatBody, '');
+  const publisher = join(root, '.github/agent-review/publish.py');
   for (const [file, command] of reviewers) {
-    const result = execFileSync('bash', ['-eu', '-c', `${formatBody}\nprintf '%s' "$body"`], {
+    const result = execFileSync('python3', ['-c', `import importlib.util, os, pathlib, sys
+spec = importlib.util.spec_from_file_location('publisher', sys.argv[1])
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+print(module.review_body(os.environ, os.environ['header'], pathlib.Path('summary.md').read_text()))`, publisher], {
       cwd: directory, encoding: 'utf8',
       env: { ...process.env, REVIEW_MARKER: '<!-- reviewer -->', header: 'Review of head', RERUN_COMMAND: command },
     });
@@ -177,7 +177,7 @@ for (const includeDocs of [false, true]) {
     mkdirSync(bin);
     writeFileSync(join(bin, 'gh'), `#!/bin/sh
 case "$*" in
-  'api graphql '*) printf '%s' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}' ;;
+  'api graphql '*) printf '%s' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"id":"earlier","isResolved":false,"isOutdated":true,"path":"Sources/Feature.swift","line":null,"originalLine":7,"diffSide":"LEFT","comments":{"pageInfo":{"hasNextPage":false},"nodes":[{"author":{"login":"opencode-agent"},"body":"<!-- spotty-docs-review --> finding","url":"https://example.invalid/1"},{"author":{"login":"author"},"body":"Fixed in current head","url":"https://example.invalid/2"}]}}]}}}}}' ;;
   *) printf '%s' '{"title":"Fixture","body":"Implementation change"}' ;;
 esac
 `, { mode: 0o755 });
@@ -185,7 +185,7 @@ esac
     const result = spawnSync('bash', ['-eu', '-c', steps.find(step => step.name === 'Prepare review inputs').run], {
       cwd: directory, encoding: 'utf8', env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, GITHUB_REPOSITORY: 'aladh/Spotty',
-        GITHUB_ENV: join(directory, 'env'), PR_NUMBER: '472', BASE_SHA: base, HEAD_SHA: head,
+        GITHUB_ENV: join(directory, 'env'), PR_NUMBER: '472', BASE_SHA: base, BASE_BRANCH: 'main', HEAD_SHA: head,
         PREVIOUS_HEAD: '', REVIEW_MODE: 'full', REVIEW_REASON: 'fixture', REVIEWER_LOGIN: 'opencode-agent',
         REVIEW_MARKER: '<!-- spotty-docs-review -->', REVIEWER_NAME: 'Documentation review',
         LEGACY_UNMARKED_THREADS: 'false', REVIEW_IN: input, REVIEW_OUT: join(directory, 'out'),
@@ -198,7 +198,38 @@ esac
     assert.equal(diff.includes('README.md'), includeDocs);
     const context = JSON.parse(readFileSync(join(input, 'context.json'), 'utf8'));
     assert.equal(context.head, head);
-    assert.deepEqual(JSON.parse(readFileSync(context.threads, 'utf8')), []);
+    const [thread] = JSON.parse(readFileSync(context.threads, 'utf8'));
+    assert.equal(thread.id, 'earlier');
+    assert.equal(thread.line, 7);
+    assert.equal(thread.originalLine, 7);
+    assert.equal(thread.diffSide, 'LEFT');
+    assert.equal(thread.comments[1].body, 'Fixed in current head');
+    assert.equal(git('show', `${base}:Sources/Feature.swift`), 'let label = "Before"');
+    assert.equal(context.base_branch, 'main');
     assert.match(readFileSync(context.pr_description, 'utf8'), /Implementation change/);
   }));
 }
+
+test('range selection ignores pending reviews and retains dismissed published approvals', () => temporary(directory => {
+  const base = 'a'.repeat(40), previous = 'b'.repeat(40), head = 'c'.repeat(40);
+  const bin = join(directory, 'bin'); mkdirSync(bin);
+  const reviews = [
+    { state: 'DISMISSED', user: { login: 'opencode-agent[bot]' }, body: '<!-- review --> approved', commit_id: previous },
+    { state: 'PENDING', user: { login: 'opencode-agent[bot]' }, body: '<!-- review --> pending', commit_id: head },
+  ];
+  writeFileSync(join(directory, 'reviews.json'), JSON.stringify(reviews));
+  writeFileSync(join(directory, 'pr.json'), JSON.stringify({
+    state: 'open', draft: false, base: { sha: base, ref: 'main' },
+    head: { sha: head, repo: { full_name: 'aladh/Spotty' } },
+  }));
+  writeFileSync(join(bin, 'gh'), '#!/bin/sh\ncase "$*" in\n  */reviews) cat reviews.json;;\n  *) cat pr.json;;\nesac\n', { mode: 0o755 });
+  const envFile = join(directory, 'env');
+  execFileSync('bash', ['-eu', '-c', steps.find(step => step.name === 'Select eligible PR and review range').run], {
+    cwd: directory, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, PR_NUMBER: '1',
+      GITHUB_REPOSITORY: 'aladh/Spotty', GITHUB_EVENT_NAME: 'pull_request', REVIEWER_LOGIN: 'opencode-agent',
+      REVIEW_MARKER: '<!-- review -->', GITHUB_ENV: envFile, GITHUB_OUTPUT: join(directory, 'output'), RUNNER_TEMP: directory },
+  });
+  const selected = readFileSync(envFile, 'utf8');
+  assert.ok(selected.includes(`PREVIOUS_HEAD=${previous}`));
+  assert.ok(selected.includes('REVIEW_MODE=incremental'));
+}));

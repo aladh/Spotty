@@ -1,11 +1,74 @@
 import Testing
 import Foundation
+import SpottyDomain
 @testable import SpottyCore
 @testable import SpottyGateway
 import SpottyRuntimeContracts
 
 @Suite("Auth Credential Retry")
 struct AuthCredentialRetryTests {
+    @Test @MainActor
+    func readRetryCannotMultiplyClientTokenAttempts() async {
+        let calls = HarnessCounters()
+        let transport = ScriptedTransport(responses: [(200, profileBody)])
+        let api = PartnerAPI(
+            accessToken: { "access-a" },
+            clientToken: {
+                try await ClientTokenRequest.send(
+                    deviceId: "synthetic",
+                    transport: { _ in
+                        calls.record("client-token")
+                        throw URLError(.timedOut)
+                    }, retryTiming: .immediate
+                ).token
+            },
+            invalidateAccessToken: { _ in }, invalidateClientToken: { _ in },
+            transport: transport.send, retryTiming: .immediate)
+        await #expect(throws: URLError.self) { _ = try await api.profile() }
+        #expect(calls.count("client-token") == SpotifyTransientRetry.maximumAttempts)
+        #expect(transport.callCount == 0)
+    }
+
+    @Test(
+        arguments: [false, true],
+        [URLError.Code.timedOut, .networkConnectionLost, .cannotConnectToHost])
+    @MainActor
+    func readRetryCannotRepeatRotatingRefreshFailures(afterRefusal: Bool, code: URLError.Code) async throws {
+        let spent = RecordingInvalidator()
+        let session = KeymasterSession(
+            store: MemoryGrantStore(),
+            refresher: { refreshToken in
+                await spent.record(refreshToken)
+                return try await KeymasterAuth.postToken(
+                    body: Data(), fallbackRefreshToken: refreshToken,
+                    transport: { _ in throw URLError(code) }, retryTiming: .immediate)
+            },
+            cookieCleanup: {})
+        try await session.adopt(
+            grant(
+                access: "access-a", refresh: "refresh-a",
+                expiresAt: HarnessDates.fixed.addingTimeInterval(afterRefusal ? 3_600 : -3_600)))
+        let invalidatedClient = RecordingInvalidator()
+        let transport = ScriptedTransport(
+            responses: Array(repeating: (401, Data()), count: SpotifyTransientRetry.maximumAttempts))
+        let api = PartnerAPI(
+            accessToken: { try await session.accessToken(now: HarnessDates.fixed) },
+            clientToken: { "client-a" },
+            invalidateAccessToken: { _ = try await session.refreshIgnoringExpiry(rejected: $0) },
+            invalidateClientToken: { await invalidatedClient.record($0) },
+            transport: transport.send, retryTiming: .immediate)
+
+        do {
+            _ = try await api.profile()
+            Issue.record("The uncertain refresh must reach the caller")
+        } catch let error as URLError {
+            #expect(error.code == code)
+        }
+        #expect(await spent.values == ["refresh-a"], "read replay must not spend a rotating token again")
+        #expect(transport.callCount == (afterRefusal ? 1 : 0))
+        #expect(await invalidatedClient.values == (afterRefusal ? ["client-a"] : []))
+    }
+
     @Test
     @MainActor
     func aClockValidRefusalSpendsTheRefreshTokenOnce() async {

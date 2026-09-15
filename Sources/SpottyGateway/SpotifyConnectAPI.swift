@@ -350,9 +350,10 @@ nonisolated struct SpotifyConnectAPI: Sendable {
     func send(_ command: SpotifyConnectCommand, from sourceID: String, to targetID: String) async throws {
         let path = "connect-state/v1/player/command/from/\(sourceID)/to/\(targetID)"
         let body = try JSONEncoder().encode(SpotifyConnectCommandEnvelope(command: SpotifyConnectWireCommand(command)))
-        let sent = try await credentials.retryingRefusedToken(replay: .unsafe) {
-            try await request(method: "POST", path: path, body: body)
-        }
+        let sent = try await credentials.retryingRefusedToken(
+            replay: .unsafe,
+            prepare: { try await makeRequest(method: "POST", url: Self.baseURL.appending(path: path), body: body) },
+            send: transmit)
         try validate(sent.status)
     }
 
@@ -367,9 +368,10 @@ nonisolated struct SpotifyConnectAPI: Sendable {
             .appending(queryItems: [URLQueryItem(name: "market", value: "from_token")])
         // URLSession is not a browser CORS client. The signed GET does not depend on an
         // unsigned OPTIONS preflight, and issuing one per track doubles cold queue traffic.
-        let sent = try await credentials.retryingRefusedToken(replay: .safe) {
-            try await request(method: "GET", url: url, body: nil)
-        }
+        let sent = try await credentials.retryingRefusedToken(
+            replay: .safe,
+            prepare: { try await makeRequest(method: "GET", url: url, body: nil) },
+            send: transmit)
         try validate(sent.status)
 
         guard let response = try? JSONDecoder().decode(SpotifyConnectTrackResponse.self, from: sent.body),
@@ -398,18 +400,17 @@ nonisolated struct SpotifyConnectAPI: Sendable {
         )
     }
 
-    private func request(method: String, path: String, body: Data?) async throws -> SpotifyCredentials.Attempt {
-        try await request(method: method, url: Self.baseURL.appending(path: path), body: body)
-    }
-
-    private func request(method: String, url: URL, body: Data?) async throws -> SpotifyCredentials.Attempt {
+    private func makeRequest(method: String, url: URL, body: Data?) async throws -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
         try await credentials.sign(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        return request
+    }
 
+    private func transmit(_ request: URLRequest) async throws -> SpotifyCredentials.Attempt {
         let (data, response) = try await credentials.transport(request)
         guard let http = response as? HTTPURLResponse else {
             throw SpotifyConnectAPIError.malformedResponse

@@ -544,9 +544,10 @@ nonisolated struct PartnerAPI: Sendable {
         variables: some Encodable & Sendable,
         replay: SpotifyTransientRetry.Replay,
     ) async throws -> Envelope {
-        let sent = try await credentials.retryingRefusedToken(replay: replay) {
-            try await send(operation, variables: variables)
-        }
+        let sent = try await credentials.retryingRefusedToken(
+            replay: replay,
+            prepare: { try await makeRequest(operation, variables: variables) },
+            send: { try await send($0, operation: operation) })
 
         guard sent.status == 200 else {
             throw Self.failure(operation: operation, status: sent.status)
@@ -557,11 +558,8 @@ nonisolated struct PartnerAPI: Sendable {
 
     /// One attempt, reporting the client token it carried so a refusal can name it.
     private func send(
-        _ operation: PathfinderOperation,
-        variables: some Encodable & Sendable,
+        _ request: URLRequest, operation: PathfinderOperation
     ) async throws -> SpotifyCredentials.Attempt {
-        let request = try await makeRequest(operation, variables: variables)
-
         debugLog("PartnerAPI", "[POST] \(Self.endpoint.absoluteString) \(operation.name)")
 
         try Task.checkCancellation()

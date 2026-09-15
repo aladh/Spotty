@@ -38,19 +38,21 @@ nonisolated struct SpotifyWebPlayerAPI: Sendable {
         let sent = try await SpotifyCredentials.retryingRefusedCredentials(
             replay: .unsafe,
             retryTiming: retryTiming,
-            invalidateAccessToken: invalidateAccessToken
-        ) {
-            var request = URLRequest(url: Self.queueURL)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            try await request.setValue("Bearer \(accessToken())", forHTTPHeaderField: "Authorization")
-
-            let (data, response) = try await transport(request)
-            guard let http = response as? HTTPURLResponse else {
-                throw SpotifyWebPlayerAPIError.malformedResponse
-            }
-            return SpotifyCredentials.Attempt(body: data, http: http, request: request)
-        }
+            invalidateAccessToken: invalidateAccessToken,
+            prepare: {
+                var request = URLRequest(url: Self.queueURL)
+                request.httpMethod = "GET"
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                try await request.setValue("Bearer \(accessToken())", forHTTPHeaderField: "Authorization")
+                return request
+            },
+            send: { request in
+                let (data, response) = try await transport(request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw SpotifyWebPlayerAPIError.malformedResponse
+                }
+                return SpotifyCredentials.Attempt(body: data, http: http, request: request)
+            })
         guard sent.status == 200 else {
             throw SpotifyWebPlayerAPIError.requestFailed(sent.status)
         }

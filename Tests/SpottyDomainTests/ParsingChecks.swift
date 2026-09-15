@@ -4,6 +4,26 @@ import Foundation
 
 @Suite("Parsing")
 struct ParsingTests {
+    @Test(arguments: ["track", "album", "artist", "playlist", "user"])
+    func emptyURIComponentsAreRejected(kind: String) {
+        let valid = "spotify:\(kind):entity"
+        #expect(SpotifyURI.id(from: valid) == "entity")
+        #expect(SpotifyURI.id(from: valid, kind: kind) == "entity")
+        for malformed in [":" + valid, valid + ":", "spotify::\(kind):entity", "spotify:\(kind)::entity"] {
+            #expect(SpotifyURI.id(from: malformed) == nil)
+            #expect(SpotifyURI.id(from: malformed, kind: kind) == nil)
+        }
+    }
+
+    @Test
+    func legacyURIParsingKeepsCompleteComponents() {
+        #expect(SpotifyURI.id(from: "spotify:user:alice:playlist:collection") == "collection")
+        #expect(SpotifyURI.id(from: "spotify:user:alice:playlist:collection", kind: "playlist") == nil)
+        for malformed in ["spotify:user::playlist:collection", "spotify:user:alice:playlist:"] {
+            #expect(SpotifyURI.id(from: malformed) == nil)
+        }
+    }
+
     @Test
     func testParsing() {
         do {

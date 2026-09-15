@@ -4,6 +4,15 @@ import Foundation
 
 @Suite("Playlist Editability")
 struct PlaylistEditabilityTests {
+    @Test(arguments: [
+        "spotify::user:alice", ":spotify:user:alice", "spotify:user:alice:", "spotify:user::alice",
+    ])
+    func malformedIdentityCannotJustifyPlaylistEdits(_ malformed: String) {
+        #expect(PlaylistEditability.normalizeUserURI(malformed) == nil)
+        #expect(!PlaylistEditability.canJustifyEdit(playlistOwnerURI: malformed, profileURI: "spotify:user:alice"))
+        #expect(!PlaylistEditability.canJustifyEdit(playlistOwnerURI: "spotify:user:alice", profileURI: malformed))
+    }
+
     @Test
     func testPlaylistEditability() {
         func track(id: String, uri: String, occurrenceUID: String? = nil) -> CatalogTrack {

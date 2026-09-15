@@ -178,9 +178,9 @@ final class HomeLibraryStore {
         }
 
         begin(section)
+        defer { finish(section, handle: handle) }
         await flight.run(handle) { [weak self] in
             guard let self else { return }
-            defer { self.finish(section, handle: handle) }
             do {
                 let payload = try await operation()
                 guard self.flight.isCurrent(handle) else { return }

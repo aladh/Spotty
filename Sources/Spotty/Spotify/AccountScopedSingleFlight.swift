@@ -67,6 +67,11 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
         case start(Handle)
     }
 
+    private struct Scope {
+        let requestID: UInt64
+        var hasStarted = false
+    }
+
     private struct Flight: Sendable {
         let flightID: UInt64
         let task: Task<Void, Never>
@@ -85,7 +90,7 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
     private var nextRequestID: UInt64 = 0
     private var nextFlightID: UInt64 = 0
     private var nextClaimID: UInt64 = 0
-    private var currentRequestIDs: [Key: UInt64] = [:]
+    private var scopes: [Key: Scope] = [:]
     private var loadedSessions: [Key: CatalogSessionSnapshot] = [:]
     private let flightState = OSAllocatedUnfairLock(initialState: FlightState())
 
@@ -104,7 +109,7 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
     /// Retires every scope and cancels every flight. Account replacement calls this.
     func reset() {
         nextRequestID &+= 1
-        currentRequestIDs.removeAll(keepingCapacity: false)
+        scopes.removeAll(keepingCapacity: false)
         loadedSessions.removeAll(keepingCapacity: false)
         cancelFlights(matching: nil)
     }
@@ -116,7 +121,7 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
     }
 
     func markLoaded(_ handle: Handle) {
-        guard owns(handle) else { return }
+        guard isCurrent(handle, policy: .strict) else { return }
         loadedSessions[handle.key] = session.snapshot
     }
 
@@ -141,7 +146,7 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
         let requestID = nextRequestID
         switch scopePolicy {
         case .singleSelection:
-            currentRequestIDs.removeAll(keepingCapacity: true)
+            scopes.removeAll(keepingCapacity: true)
             loadedSessions.removeAll(keepingCapacity: true)
             cancelFlights(matching: nil)
         case .perKey:
@@ -149,7 +154,7 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
             // section must not make the section look unloaded to a later request.
             cancelFlights(matching: key)
         }
-        currentRequestIDs[key] = requestID
+        scopes[key] = Scope(requestID: requestID)
         return Handle(
             key: key,
             identity: session.requestIdentity(requestID: requestID),
@@ -159,13 +164,8 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
 
     /// Starts the flight and joins it as its first waiter.
     func run(_ handle: Handle, operation: @escaping @MainActor () async -> Void) async {
-        let claim = register(handle, operation: operation, claimedByCaller: true)
-        await withTaskCancellationHandler {
-            await claim.task.value
-        } onCancel: { [flightState] in
-            Self.releaseClaim(claim, flightState: flightState)
-        }
-        Self.releaseClaim(claim, flightState: flightState)
+        guard let claim = register(handle, operation: operation, claimedByCaller: true) else { return }
+        await awaitFlight(claim)
     }
 
     /// Starts the flight without joining it. Fire-and-forget writes use this; because it has no
@@ -185,20 +185,20 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
 
     /// Releases a scope that was opened but never started, so a later request is not refused.
     func abandonUnstarted(_ handle: Handle) {
-        guard owns(handle) else { return }
-        cancelFlights(matching: handle.key)
+        guard owns(handle), scopes[handle.key]?.hasStarted == false else { return }
+        scopes[handle.key] = nil
     }
 
     /// True while this handle still names the latest scope for its key.
     func owns(_ handle: Handle) -> Bool {
-        currentRequestIDs[handle.key] == handle.identity.requestID
+        scopes[handle.key]?.requestID == handle.identity.requestID
     }
 
     /// The publish gate. Pass `policy` to use the other named policy at one site.
     func isCurrent(_ handle: Handle, policy: SingleFlightPublishPolicy? = nil) -> Bool {
         switch policy ?? publishPolicy {
         case .strict:
-            guard let requestID = currentRequestIDs[handle.key] else { return false }
+            guard let requestID = scopes[handle.key]?.requestID else { return false }
             return handle.identity.isCurrent(
                 requestID: requestID,
                 accountEpoch: session.accountEpoch,
@@ -222,15 +222,23 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
         _ handle: Handle,
         operation: @escaping @MainActor () async -> Void,
         claimedByCaller: Bool
-    ) -> WaiterClaim {
+    ) -> WaiterClaim? {
+        // Admission can precede a queued task or suspension. Consume it exactly once at the
+        // owner; a stale or reused handle must never displace another task's cancellation slot.
+        guard isCurrent(handle, policy: .strict),
+            var scope = scopes[handle.key], !scope.hasStarted
+        else { return nil }
+        scope.hasStarted = true
+        scopes[handle.key] = scope
         nextFlightID &+= 1
         let flightID = nextFlightID
         nextClaimID &+= 1
         let ownerClaimID = nextClaimID
         let key = handle.key
         let task = Task { [weak self] in
+            defer { self?.completeFlight(key: key, requestID: handle.identity.requestID, flightID: flightID) }
+            guard self?.isCurrent(handle, policy: .strict) == true else { return }
             await operation()
-            self?.completeFlight(key: key, requestID: handle.identity.requestID, flightID: flightID)
         }
         flightState.withLock { state in
             state.flights[key] = Flight(
@@ -264,7 +272,7 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
     }
 
     private func completeFlight(key: Key, requestID: UInt64, flightID: UInt64) {
-        guard currentRequestIDs[key] == requestID else { return }
+        guard scopes[key]?.requestID == requestID else { return }
         flightState.withLock { state in
             guard state.flights[key]?.flightID == flightID else { return }
             state.flights[key] = nil

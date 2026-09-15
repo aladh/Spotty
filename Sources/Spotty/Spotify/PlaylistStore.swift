@@ -153,6 +153,7 @@ final class PlaylistStore {
 
         guard let id = SpotifyURI.id(from: item.uri, kind: "playlist") else {
             error = "Spotify returned an invalid playlist address."
+            isLoading = false
             flight.abandonUnstarted(handle)
             return
         }

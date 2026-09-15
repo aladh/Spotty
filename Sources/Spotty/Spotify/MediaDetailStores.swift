@@ -85,6 +85,14 @@ final class AlbumDetailStore {
             if !hasLoadedContent { error = nil }
             isLoading = true
             isShowingCachedContent = hasLoadedContent
+            defer {
+                if flight.owns(handle) {
+                    isLoading = false
+                    isShowingCachedContent =
+                        hasLoadedContent
+                        && (loadedSession != session.snapshot || error != nil || !freshness.isCurrent)
+                }
+            }
             guard let id = SpotifyURI.id(from: selected.uri, kind: "album") else {
                 error = "Spotify returned an invalid album address."
                 isLoading = false
@@ -93,14 +101,6 @@ final class AlbumDetailStore {
             }
             await flight.run(handle) { [weak self] in
                 guard let self else { return }
-                defer {
-                    if self.flight.owns(handle) {
-                        isLoading = false
-                        isShowingCachedContent =
-                            hasLoadedContent
-                            && (loadedSession != session.snapshot || error != nil || !freshness.isCurrent)
-                    }
-                }
                 do {
                     let album = try await provider.album(id: id)
                     guard self.isCurrent(handle) else { return }
@@ -269,6 +269,14 @@ final class ArtistDetailStore {
             if !hasLoadedContent { error = nil }
             isLoading = true
             isShowingCachedContent = hasLoadedContent
+            defer {
+                if flight.owns(handle) {
+                    isLoading = false
+                    isShowingCachedContent =
+                        hasLoadedContent
+                        && (loadedSession != session.snapshot || error != nil || !freshness.isCurrent)
+                }
+            }
             guard let id = SpotifyURI.id(from: selected.uri, kind: "artist") else {
                 error = "Spotify returned an invalid artist address."
                 isLoading = false
@@ -277,14 +285,6 @@ final class ArtistDetailStore {
             }
             await flight.run(handle) { [weak self] in
                 guard let self else { return }
-                defer {
-                    if self.flight.owns(handle) {
-                        isLoading = false
-                        isShowingCachedContent =
-                            hasLoadedContent
-                            && (loadedSession != session.snapshot || error != nil || !freshness.isCurrent)
-                    }
-                }
                 do {
                     async let profileRequest = provider.artist(id: id)
                     async let discography = provider.artistDiscography(id: id)

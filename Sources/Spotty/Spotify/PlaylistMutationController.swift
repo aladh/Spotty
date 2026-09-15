@@ -167,14 +167,20 @@ final class PlaylistMutationController {
         // uses the flight's `.sessionOnly` publish policy.
         guard flight.isCurrent(handle) else { return }
         playlistStore.invalidateRetainedPlaylist(playlist.uri)
-        await reconcileIfOpen(playlist)
+        await reconcileIfOpen(playlist, for: handle)
         guard flight.isCurrent(handle) else { return }
         feedback.success(message)
     }
 
-    private func reconcileIfOpen(_ playlist: CatalogItem) async {
-        guard playlistStore.loadedURI == playlist.uri else { return }
-        await playlistStore.load(playlist, force: true)
+    private func reconcileIfOpen(_ playlist: CatalogItem, for handle: Flight.Handle) async {
+        // A sent write can finish after its caller is cancelled. Its reconciling read has a
+        // fresh task lifetime; recheck the captured account and route before read admission.
+        await Task {
+            guard flight.isCurrent(handle, policy: .sessionOnly), playlistStore.loadedURI == playlist.uri else {
+                return
+            }
+            await playlistStore.load(playlist, force: true)
+        }.value
     }
 
     private func reportFailure(_ error: Error) {

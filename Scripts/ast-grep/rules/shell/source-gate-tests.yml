@@ -1,0 +1,56 @@
+---
+id: source-gate-tests
+language: Bash
+severity: error
+message: Run source/test gates in the foreground at program scope and keep errexit enabled.
+files:
+- Scripts/check-source-policy.sh
+note: The independent CI syntax scan rejects hidden/backgrounded gates and shell command
+  wrappers (except command -v). Quoted or escaped command names are rejected except
+  the configured ast-grep executable. Execution fixtures check gate failure propagation;
+  other control flow, aliases, and exit paths still need review.
+rule:
+  kind: program
+  any:
+  - not:
+      has:
+        pattern: python3 -B Scripts/documentation_policy.py
+  - not:
+      has:
+        pattern: python3 -B Scripts/script_tests.py policy
+  - not:
+      has:
+        pattern: npm test --prefix Scripts/agent-review-tests
+  - has:
+      kind: command
+      has:
+        field: name
+        regex: ^set$
+      not:
+        regex: ^set -euo pipefail$
+      stopBy: end
+  - has:
+      kind: command
+      has:
+        field: name
+        regex: ^(command|builtin|time|eval)$
+      not:
+        pattern: command -v $TOOL
+      stopBy: end
+  - has:
+      kind: command
+      precedes:
+        regex: ^&$
+      stopBy: end
+  - has:
+      kind: command
+      has:
+        field: name
+        all:
+        - regex: >-
+            ['"\\]
+        - not:
+            regex: '^"\$ast_grep"$'
+      stopBy: end
+  # The pinned Bash grammar can fold a line-leading escape into the previous argument.
+  - regex: '(?m)^[ \t]*\\'

@@ -37,6 +37,16 @@ Additional owners:
 - Repository text and artifact hygiene: [repository-text checks](../../../Scripts/check-source-policy.sh),
   [artifact hygiene](../../../Scripts/check.sh), the
   [notices preamble prefix check](../../../Scripts/test_notices_policy.py), gitignore, and privacy review.
+- Script-test coverage: [shared discovery](../../../Scripts/script_tests.py) rejects unowned test
+  files and empty suites. [Workflow checks](../../../Scripts/check-ci-workflow.rb) require its
+  Python/Node entry points in unconditional, failing CI lanes; mutation fixtures cover omitted,
+  skipped, relocated, and failure-masking steps. The independent
+  [source-gate rule](../../../Scripts/ast-grep/rules/shell/source-gate-tests.yml) requires shell
+  foreground checks at program scope and rejects errexit changes, command wrappers except
+  `command -v`, and quoted/escaped command names except the configured ast-grep executable.
+  Line-leading escapes fail closed where the pinned parser can misread them.
+  [Execution fixtures](../../../Scripts/test_source_gate_policy.py) check that each
+  failing gate stops both local and CI invocations. Test contents and other control flow still need review.
 - Living documentation size: [documentation policy](../../../Scripts/documentation_policy.py), run
   by Source policies, with [boundary and discovery tests](../../../Scripts/test_documentation_policy.py).
   Limits bound growth, including new files; they cannot detect duplication or justify removing

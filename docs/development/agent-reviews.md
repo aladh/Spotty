@@ -91,7 +91,8 @@ npm ci --ignore-scripts --prefix Scripts/agent-review-tests
 npm test --prefix Scripts/agent-review-tests
 ```
 
-CI runs these fixtures in Source policies. They exercise event admission, input construction,
+Local and CI Source policies run this same suite through [script-test discovery](../../Scripts/script_tests.py).
+The fixtures exercise event admission, input construction,
 publication ordering, failure cleanup, history changes, and missing evidence against isolated Git
 and API fixtures. Exact cases belong in the tests.
 

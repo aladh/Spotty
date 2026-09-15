@@ -28,8 +28,10 @@ UI work also follows [visual fidelity](../product/scope.md#visual-fidelity-and-i
 | `SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh` | Python playback checks and compiled Rust/header checks |
 
 All scopes need Python 3. Full/Swift checks also need Ruby; full/Rust checks need the
-[engine toolchain](setup.md#engine-development) and pinned cbindgen. Source policies need Ruby and
-the ast-grep version in `Scripts/ast-grep/version`. If Homebrew does not provide that version:
+[engine toolchain](setup.md#engine-development) and pinned cbindgen. Source policies also need Ruby,
+Node.js 20+, npm, jq, and the ast-grep version in `Scripts/ast-grep/version`. Install reviewer test
+dependencies with `npm ci --ignore-scripts --prefix Scripts/agent-review-tests`.
+If Homebrew does not provide the pinned ast-grep version:
 
 ```bash
 npm install --prefix /tmp/spotty-ast-grep "@ast-grep/cli@$(cat Scripts/ast-grep/version)"
@@ -40,6 +42,12 @@ Checks neither sign in nor start playback. A source/pin mismatch warns without r
 replacing the published engine. Packaging and Swift checks need no Rust tools.
 [Source policies](../architecture/enforcement/source-checks.md) explain their proof limits;
 [Package.swift](../../Package.swift) owns test targets and platform boundaries.
+
+[Script-test discovery](../../Scripts/script_tests.py) owns Python and Node suite routing for local
+and CI gates. Name Python tests `test_*.py`, `*_test.py`, or `test.py`; keep helpers outside those
+names. New top-level Python tests in `Scripts/` join the policy lane unless playback or watchdog owns them.
+Review tests live directly in `Scripts/agent-review-tests/`. Recognized test
+files outside these owners and empty suites fail instead of being silently skipped.
 
 CI runs source policies, Python playback checks, and the Linux domain job before its single macOS
 job. Documentation-only PRs skip macOS. App-only PRs can skip compiled Rust; main runs it.

@@ -41,7 +41,8 @@ if grep -nE 'security@example\.com|replace this placeholder' \
 fi
 
 "$ast_grep" test --config sgconfig.yml --skip-snapshot-tests
-python3 -B -m unittest discover -s Scripts -p 'test_*policy.py'
+python3 -B Scripts/script_tests.py policy
+npm test --prefix Scripts/agent-review-tests
 # CI's ast-grep action already scans production and emits GitHub annotations.
 if [[ "${1:-}" != --test-only ]]; then
     "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift

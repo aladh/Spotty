@@ -29,7 +29,7 @@ fi
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
 if [[ "$check_scope" != rust && "$check_scope" != rust-compiled ]]; then
-    python3 -B -m unittest "$project_root/Scripts/test_swift_test_watchdog.py"
+    python3 -B "$project_root/Scripts/script_tests.py" watchdog
     "$project_root/Scripts/format-swift-self-test.sh"
     "$project_root/Scripts/format-swift.sh" --check
 fi
@@ -42,7 +42,7 @@ if [[ "$check_scope" != swift ]]; then
     # CI runs these portable source-level checks in parallel on Linux. Full and normal Rust
     # verification retain them so local aggregate behavior remains unchanged.
     if [[ "$check_scope" != rust-compiled ]]; then
-        python3 -B -m unittest discover -s "$project_root/Scripts" -p 'test_playback_*.py'
+        python3 -B "$project_root/Scripts/script_tests.py" playback
     fi
     "$project_root/Scripts/generate-c-header.sh" --check
 

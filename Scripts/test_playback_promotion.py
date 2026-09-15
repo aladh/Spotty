@@ -116,9 +116,11 @@ class PromotionTests(unittest.TestCase):
         for old, new in ((b"--for-publish", b"--for-publish --changed"),
                          (b"contents: read", b"contents: write"),
                          (b"--test-only", b"--skip-tests"),
-                         (b"-p 'test_playback_*.py'", b"-p 'test_playback_fast_*.py'")):
-            with self.subTest(old=old), self.assertRaises(ValueError):
-                promote(**{**self.promotion_inputs(), "trusted_ci": WORKFLOW.replace(old, new)})
+                         (b"Scripts/script_tests.py playback", b"Scripts/script_tests.py policy")):
+            with self.subTest(old=old):
+                self.assertIn(old, WORKFLOW)
+                with self.assertRaises(ValueError):
+                    promote(**{**self.promotion_inputs(), "trusted_ci": WORKFLOW.replace(old, new)})
 
     def test_promotion_rejects_missing_asset(self):
         args = self.promotion_inputs()

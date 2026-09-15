@@ -8,8 +8,9 @@ import Testing
 @Suite("Owned native track table")
 @MainActor
 struct NativeTrackTableChecks {
-    @Test func selectionFollowsDuplicateOccurrenceAcrossSortAndMetadataUpdates() {
-        let fixture = Fixture()
+    @Test(arguments: [TrackTableVariant.playlist, .album])
+    func selectionFollowsDuplicateOccurrenceAcrossSortAndMetadataUpdates(variant: TrackTableVariant) {
+        let fixture = Fixture(variant: variant)
         let first = track(id: "first", title: "A")
         let second = track(id: "second", title: "B")
         fixture.state.selection = [second.id]
@@ -56,8 +57,9 @@ struct NativeTrackTableChecks {
         #expect(fixture.state.selection == [first.id])
     }
 
-    @Test func ownedScrollOffsetRestoresAndClampsWithoutReplacingTheTable() {
-        let fixture = Fixture()
+    @Test(arguments: [TrackTableVariant.playlist, .album])
+    func ownedScrollOffsetRestoresAndClampsWithoutReplacingTheTable(variant: TrackTableVariant) {
+        let fixture = Fixture(variant: variant)
         fixture.state.scrollOffset = 560
         fixture.update((0..<80).map { track(id: "occurrence-\($0)", title: "Track \($0)") })
         #expect(abs(fixture.container.scrollView.contentView.bounds.minY - 560) < 1)
@@ -69,8 +71,9 @@ struct NativeTrackTableChecks {
         #expect(fixture.container.scrollView.contentView.bounds.minY == 0)
     }
 
-    @Test func keyboardRevealKeepsSelectionBelowTheCompactPlaylistHeader() {
-        let fixture = Fixture()
+    @Test(arguments: [TrackTableVariant.playlist, .album])
+    func keyboardRevealKeepsSelectionBelowTheCompactDetailHeader(variant: TrackTableVariant) {
+        let fixture = Fixture(variant: variant)
         fixture.hero = AnyView(Color.clear.frame(height: 300))
         fixture.compact = AnyView(Color.clear.frame(height: 64))
         fixture.state.scrollOffset = 560
@@ -93,6 +96,19 @@ struct NativeTrackTableChecks {
         let document = try #require(fixture.container.scrollView.documentView)
         let columnWidth = fixture.container.table.tableColumns.reduce(0) { $0 + $1.width }
         #expect(document.frame.width >= columnWidth + 16)
+    }
+
+    @Test func albumResizesWithoutPushingDurationBeyondTheViewport() throws {
+        let fixture = Fixture(variant: .album)
+        for width in [900.0, 400.0, 320.0, 700.0] {
+            fixture.container.frame.size.width = width
+            fixture.update((0..<12).map { track(id: "track-\($0)", title: "Track \($0)") })
+            let document = try #require(fixture.container.scrollView.documentView)
+            let viewport = fixture.container.scrollView.contentSize.width
+            #expect(document.frame.width <= viewport)
+            #expect(fixture.container.table.frame.maxX <= viewport - 24)
+            #expect(fixture.container.table.tableColumns.map(\.identifier.rawValue) == ["index", "title", "duration"])
+        }
     }
 
     private func track(id: String, title: String, occurrenceUID: String? = nil) -> CatalogTrack {
@@ -134,7 +150,7 @@ struct NativeTrackTableChecks {
                 sortOrder: Binding(get: { [state] in state.sortOrder }, set: { [state] in state.sortOrder = $0 }),
                 scrollOffset: Binding(
                     get: { [state] in state.scrollOffset }, set: { [state] in state.scrollOffset = $0 }),
-                playlistActions: actions, onSelect: nil, playlistHeader: hero, compactPlaylistHeader: compact
+                playlistActions: actions, onSelect: nil, detailHeader: hero, compactDetailHeader: compact
             )
         }
     }

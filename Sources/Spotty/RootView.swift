@@ -144,6 +144,7 @@ struct RootView: View {
                     store: catalog.albumStore,
                     playback: catalogPlayback,
                     playlistActions: playlistActions(),
+                    onSelect: select,
                     interactionState: navigation.interactionState(for: uri)
                 )
             } else {

@@ -15,8 +15,8 @@ struct NativeTrackTable: NSViewRepresentable {
     @Binding var scrollOffset: CGFloat
     let playlistActions: TrackPlaylistActions?
     let onSelect: ((CatalogItem) -> Void)?
-    let playlistHeader: AnyView?
-    let compactPlaylistHeader: AnyView?
+    let detailHeader: AnyView?
+    let compactDetailHeader: AnyView?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -76,10 +76,10 @@ struct NativeTrackTable: NSViewRepresentable {
             content = next
             displayedRows = next.rows
             container.updateHeaders(
-                hero: next.playlistHeader.map {
+                hero: next.detailHeader.map {
                     AnyView($0.environment(\.artworkAccess, next.artworkAccess).id(next.artworkAccess.accountEpoch))
                 },
-                compact: next.compactPlaylistHeader.map {
+                compact: next.compactDetailHeader.map {
                     AnyView($0.environment(\.artworkAccess, next.artworkAccess).id(next.artworkAccess.accountEpoch))
                 },
                 sortOrder: next.sortOrder,

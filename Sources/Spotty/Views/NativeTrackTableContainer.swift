@@ -2,7 +2,7 @@ import AppKit
 import SpottyDomain
 import SwiftUI
 
-/// The document, playlist hero, column headers and table share one owned scroll coordinate space.
+/// The document, detail hero, column headers and table share one owned scroll coordinate space.
 /// The compact hero is an overlay of that container, independent of SwiftUI's List implementation.
 @MainActor
 final class NativeTrackTableContainer: NSView {
@@ -42,7 +42,7 @@ final class NativeTrackTableContainer: NSView {
         table.backgroundColor = .clear
         table.headerView = nil
         table.intercellSpacing = .zero
-        table.rowHeight = variant == .playlist ? 56 : 32
+        table.rowHeight = variant == .catalog ? 32 : 56
         table.usesAlternatingRowBackgroundColors = false
         table.selectionHighlightStyle = .regular
         table.allowsMultipleSelection = true
@@ -113,9 +113,14 @@ final class NativeTrackTableContainer: NSView {
         super.layout()
         scrollView.frame = bounds
         let viewportWidth = scrollView.contentSize.width
-        let inset: CGFloat = variant == .playlist ? 24 : 8
+        let inset: CGFloat = variant == .catalog ? 8 : 24
         let indexWidth = max(24, CGFloat(String(max(1, rowCount)).count) * 9)
-        let minimumWidth: CGFloat = variant == .playlist ? 576 + indexWidth : 388
+        let minimumWidth: CGFloat =
+            switch variant {
+            case .playlist: 576 + indexWidth
+            case .album: 216 + indexWidth
+            case .catalog: 388
+            }
         let customWidth = catalogColumnWidths?.reduce(0, +) ?? 0
         let proposedWidth = max(minimumWidth, viewportWidth - inset * 2, customWidth)
         configuringColumns = true
@@ -207,6 +212,10 @@ final class NativeTrackTableContainer: NSView {
     }
 
     private func columnWidths(tableWidth: CGFloat) -> [CGFloat] {
+        if variant == .album {
+            let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9) + 24
+            return [index, tableWidth - index - 104, 104]
+        }
         if variant == .playlist {
             let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9)
             let flexible = max(400, tableWidth - 176 - index)

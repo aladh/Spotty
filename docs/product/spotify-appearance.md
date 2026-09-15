@@ -18,6 +18,13 @@ inspected; current native playlist, sidebar, queue, and interaction states remai
 unverified. This reference does not establish parity for those surfaces or replace the comparison
 required by the visual fidelity policy.
 
+Album references from the same Spotify version were inspected on **2026-09-15**: **FIXION** at
+rest and scrolled with a selected row, and **Sun & Moon (Downtempo Version)** at rest. Their large
+artwork/title hierarchy, inline release summary, numbered two-line track rows, and compact scrolled
+header inform the [album presentation contract](navigation.md#window-and-navigation-behavior).
+Spotty omits Spotify's play-count column and unsupported save/download controls; these references
+do not establish full feature or visual parity.
+
 ## Retained anchors
 
 Dimensions are in points. Keep these relationships while applying the responsive behavior in the

@@ -35,6 +35,7 @@ enum NativeTrackColumn: String, CaseIterable {
         switch variant {
         case .catalog: [.title, .artist, .album, .duration]
         case .playlist: [.index, .title, .album, .dateAdded, .duration]
+        case .album: [.index, .title, .duration]
         }
     }
 }
@@ -62,7 +63,7 @@ struct NativeTrackCell: View {
     private var alignment: Alignment {
         switch column {
         case .index: .trailing
-        case .duration where variant == .playlist: .center
+        case .duration where variant != .catalog: .center
         default: .leading
         }
     }
@@ -73,8 +74,8 @@ struct NativeTrackCell: View {
         case .index:
             indexCell
         case .title:
-            if variant == .playlist {
-                playlistTitleCell
+            if variant != .catalog {
+                detailTitleCell
             } else {
                 catalogTitleCell
             }
@@ -125,14 +126,16 @@ struct NativeTrackCell: View {
         )
     }
 
-    private var playlistTitleCell: some View {
+    private var detailTitleCell: some View {
         let isCurrent = playback.currentTrackIndicator.trackURI == row.track.uri
         let titleForeground = isCurrent && !isSelected ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary
         let artistForeground = isCurrent && !isSelected ? SpottyPalette.mediaGreen : SpottyPalette.textSecondary
 
         return HStack(alignment: .center, spacing: 12) {
-            RemoteArtwork(url: row.track.artworkURL, kind: .track, cornerRadius: 4)
-                .frame(width: 40, height: 40)
+            if variant == .playlist {
+                RemoteArtwork(url: row.track.artworkURL, kind: .track, cornerRadius: 4)
+                    .frame(width: 40, height: 40)
+            }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(PlaylistSearch(searchQuery).highlighted(row.track.title))

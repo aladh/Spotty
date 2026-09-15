@@ -179,6 +179,8 @@ before/after baseline. See [runtime acceptance](runtime-acceptance.md) for evide
 The interactive [Demo scenario](../../Tests/BrowsingHarness/demo.json) has 28 playlists: 20 top-level
 rows and two folders containing four playlists each, so the sidebar scrolls. Explicit scenario
 paths and profiling retain their declared fixture size.
+The interactive Home also includes synthetic albums with a long title, a single song, missing
+artwork, and no tracks, for inspecting album headers, track rows, and responsive scrolling.
 The default commands build an isolated Debug Spotty demo with the normal window, root view,
 navigation, commands, and lifecycle.
 It never launches or terminates the live Spotty app. The [version-1 scenario](../../Tests/BrowsingHarness/scenario.json)

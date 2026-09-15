@@ -111,29 +111,13 @@ struct PlaylistDetailView: View {
     }
 
     private var compactHeader: some View {
-        HStack(spacing: 8) {
-            Button {
-                playback.playPlaylist(item)
-            } label: {
-                TransportSymbol(kind: .play)
-                    .foregroundStyle(.black)
-                    .frame(width: 20, height: 20)
-                    .frame(width: 48, height: 48)
-                    .background(SpottyPalette.mediaGreen, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!playback.canStartPlayback)
-            .pointingHandCursor(enabled: playback.canStartPlayback)
-            .accessibilityLabel("Play playlist")
-            Text(displayedItem.title)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(SpottyPalette.textPrimary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
+        CompactMediaDetailHeader(
+            title: displayedItem.title,
+            canPlay: playback.canStartPlayback,
+            playAccessibilityLabel: "Play playlist"
+        ) {
+            playback.playPlaylist(item)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 64)
-        .background(SpottyPalette.selectedControl)
     }
 
     @ViewBuilder
@@ -173,8 +157,8 @@ struct PlaylistDetailView: View {
                         searchQuery: interactionState.searchText,
                         playlistActions: playlistActions,
                         onSelect: onSelect,
-                        playlistHeader: AnyView(expandedHeader),
-                        compactPlaylistHeader: AnyView(compactHeader),
+                        detailHeader: AnyView(expandedHeader),
+                        compactDetailHeader: AnyView(compactHeader),
                         interactionState: interactionState
                     )
                     .id(item.uri)

@@ -13,6 +13,7 @@ the review mode, and file paths:
 - `pr.diff`: the full PR diff (base...head).
 - `changes.diff`: the range under audit. In full mode this equals `pr.diff`. In incremental mode
   it holds the changes since the previous Thermos review, limited to files the PR touches.
+- `pr.md`: the PR title and description, including declared intent and contract or rule changes.
 - `threads.json`: unresolved review threads opened by earlier Thermos reviews on this PR, each
   with its path, current/fallback line, `originalLine`, `diffSide`, and every comment,
   including the author's replies.

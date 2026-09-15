@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -110,6 +111,21 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
         self.assertEqual(self.resolved(), [])
 
+    def test_empty_thread_comments_withhold_approval_without_losing_review(self):
+        self.extra = [{'id': 'unknown-owner', 'isResolved': False, 'comments': {'nodes': []}}]
+        self.run_publish()
+        self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
+        self.assertIn('Thread state is incomplete', self.submitted()[0]['body'])
+        self.assertEqual(self.resolved(), [])
+
+    def test_null_review_keeps_owned_thread_visible(self):
+        self.extra = [{'id': 'legacy-thread', 'isResolved': False, 'comments': {'nodes': [
+            {'author': {'login': 'opencode-agent'}, 'body': self.env['REVIEW_MARKER'] + '\nfinding',
+             'pullRequestReview': None}]}}]
+        self.run_publish()
+        self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
+        self.assertIn('1 earlier thread(s) remain open', self.submitted()[0]['body'])
+
     def test_moved_head_withholds_approval_and_resolution(self):
         self.current_head = 'b' * 40
         self.run_publish()
@@ -208,7 +224,7 @@ class EvidenceTests(unittest.TestCase):
         if '/jobs?' in endpoint:
             return {'total_count': 1, 'jobs': [{'name': 'macOS checks', 'head_sha': self.head, 'steps': [
                     {'name': 'Run checks', 'status': 'completed', 'conclusion': 'success', 'log': 'SECRET'}]}]}
-        return {'workflow_runs': [{'id': 123, 'run_attempt': 2, 'head_sha': self.head,
+        return {'total_count': 1, 'workflow_runs': [{'id': 123, 'run_attempt': 2, 'head_sha': self.head,
                                   'status': 'completed', 'conclusion': 'success'}]}
 
     def test_preflight_supplies_sanitized_settings_and_head_matched_runtime(self):
@@ -242,12 +258,37 @@ class EvidenceTests(unittest.TestCase):
     def test_old_head_or_pending_run_cannot_be_reported_as_passed_current_execution(self):
         def fetch(endpoint):
             if '/workflows/' in endpoint:
-                return {'workflow_runs': [{'id': 999, 'head_sha': 'old'}]}
+                return {'total_count': 1, 'workflow_runs': [{'id': 999, 'head_sha': 'old'}]}
             return self.fetch(endpoint)
         evidence.collect(self.context, self.directory, fetch)
         runtime = json.loads((self.directory / 'ci-runtime.json').read_text())
         self.assertEqual(runtime['data']['status'], 'not_started')
         self.assertEqual(runtime['data']['runs'], [])
+
+    def test_malformed_step_and_missing_git_still_produce_preflight(self):
+        def fetch(endpoint):
+            result = self.fetch(endpoint)
+            if '/jobs?' in endpoint:
+                result['jobs'][0]['steps'] = [None]
+            return result
+        for error in (FileNotFoundError('git'), subprocess.CalledProcessError(128, ['git'])):
+            with self.subTest(error=type(error).__name__):
+                with patch.object(evidence.subprocess, 'check_output', side_effect=error):
+                    result = evidence.collect(self.context, self.directory, fetch)
+                inputs = {item['name']: item for item in result['inputs']}
+                self.assertEqual(inputs['source_and_history']['status'], 'missing')
+                self.assertEqual(inputs['ci_runtime']['status'], 'unavailable')
+                self.assertEqual(inputs['branch_rules']['status'], 'present')
+
+    def test_truncated_run_list_is_unavailable(self):
+        def fetch(endpoint):
+            result = self.fetch(endpoint)
+            if '/workflows/' in endpoint:
+                result['total_count'] = 11
+            return result
+        result = evidence.collect(self.context, self.directory, fetch)
+        runtime = next(item for item in result['inputs'] if item['name'] == 'ci_runtime')
+        self.assertEqual(runtime['status'], 'unavailable')
 
 
 if __name__ == '__main__':

@@ -26,6 +26,8 @@ def github(endpoint):
 
 
 def fields(value, names):
+    if not isinstance(value, dict):
+        raise ValueError("expected an object")
     return {key: value.get(key) for key in names.split()}
 
 
@@ -65,7 +67,7 @@ def collect(context, directory, fetch=github):
             path.write_text(json.dumps({"repository": repo, "head": head, "endpoint": endpoint,
                                         "data": data}, indent=2) + "\n")
             item.update(status="present", path=str(path))
-        except (ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+        except (ValueError, KeyError, TypeError, OSError, subprocess.TimeoutExpired) as error:
             # Collector errors are fixed messages, never raw remote text.
             message = str(error) if isinstance(error, EvidenceUnavailable) and re.fullmatch(r"HTTP \d{3}|gh exited \d+", str(error)) else "response unavailable, invalid, or timed out"
             item.update(status="unavailable", error=message)
@@ -78,11 +80,17 @@ def collect(context, directory, fetch=github):
         path = Path(context[key])
         preflight["inputs"].append({"name": key, "path": str(path),
                                     "status": "present" if path.is_file() else "missing"})
-    actual_head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    history_present = actual_head == head and all(
-        subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"], capture_output=True).returncode == 0
-        for revision in (context["base"], head, context.get("previous_head")) if revision
-    )
+    actual_head = None
+    try:
+        actual_head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True,
+                                              stderr=subprocess.DEVNULL, timeout=10).strip()
+        history_present = actual_head == head and all(
+            subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"],
+                           capture_output=True, timeout=10).returncode == 0
+            for revision in (context["base"], head, context.get("previous_head")) if revision
+        )
+    except (OSError, subprocess.SubprocessError):
+        history_present = False
     preflight["inputs"].append({"name": "source_and_history", "head": actual_head,
                                 "status": "present" if history_present else "missing"})
 
@@ -97,6 +105,8 @@ def collect(context, directory, fetch=github):
     record("check_runs", f"{root}/commits/{head}/check-runs?per_page=100", checks, "check-runs.json")
 
     def runtime(response):
+        if response["total_count"] > len(response["workflow_runs"]):
+            raise ValueError("truncated")
         runs = [run for run in response["workflow_runs"] if run["head_sha"] == head]
         if not runs:
             return {"status": "not_started", "runs": []}

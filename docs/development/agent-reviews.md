@@ -83,7 +83,7 @@ logic, not a credential restriction. Approval is computed from the output files 
 state, not asserted by the agent. Publication code is freshly checked out after the editable agent run and before the App token is
 created. A finding whose inline placement the API rejects is published in
 the review body instead. Reviews refuse to run, or withhold approval, when a PR has more review
-threads than one API page can return.
+threads than one API page can return, or an unresolved thread's original comment is unavailable.
 
 PR changes can affect reviewer configuration, since the workflow reads it from the PR merge
 revision. The agents retain shell, edit, and web tools, so treating source, threads, PR text, and

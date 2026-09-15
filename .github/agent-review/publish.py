@@ -41,7 +41,10 @@ def review_body(env, header, summary):
 
 
 def owns(thread, env):
-    comment = thread["comments"]["nodes"][0]
+    comments = thread["comments"]["nodes"]
+    if not comments:
+        return False
+    comment = comments[0]
     body = comment["body"]
     return comment["author"] is not None and comment["author"]["login"] == env["REVIEWER_LOGIN"] and (
         body.startswith(env["REVIEW_MARKER"]) or
@@ -126,14 +129,15 @@ def publish(env, request=github, sleep=time.sleep):
     current = pr["head"]["sha"] == head and pr["state"] == "open" and not pr["draft"]
     resolving = {action["id"] for action in actions if action["resolve"]} if current else set()
     owned = [thread for thread in connection["nodes"] if not thread["isResolved"] and owns(thread, env)
-             and thread["comments"]["nodes"][0].get("pullRequestReview", {}).get("state") != "PENDING"]
+             and (thread["comments"]["nodes"][0].get("pullRequestReview") or {}).get("state") != "PENDING"]
     resolving &= {thread["id"] for thread in owned}
     remaining = sum(thread["id"] not in resolving for thread in owned)
-    complete = not connection["pageInfo"]["hasNextPage"]
+    complete = not connection["pageInfo"]["hasNextPage"] and all(
+        thread["comments"]["nodes"] for thread in connection["nodes"] if not thread["isResolved"])
     event = "APPROVE" if env["CAN_APPROVE"] == "true" and not findings and remaining == 0 and current and complete else "COMMENT"
     header = f"**{env['REVIEWER_NAME']}** of `{head[:7]}` ({env['REVIEW_REASON']}): {len(findings)} new finding(s)."
     if not complete:
-        header += " Thread state exceeds one page; approval withheld."
+        header += " Thread state is incomplete; approval withheld."
         resolving.clear()
     elif remaining:
         header += f" {remaining} earlier thread(s) remain open."

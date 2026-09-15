@@ -31,7 +31,7 @@ final class CatalogEntityObservation {
     }
 
     func update(
-        uris: Set<String>, apply: @escaping @MainActor ([String: CatalogTrack]) -> Void
+        uris: Set<String>, apply: @escaping @MainActor ([String: CatalogTrackMetadata]) -> Void
     ) {
         guard let provider, session.isAvailable, !uris.isEmpty else {
             reset()
@@ -61,7 +61,7 @@ final class CatalogEntityObservation {
 
     private static func consume(
         _ provider: any CatalogEntityQueryProviding, uris: Set<String>, flight: Flight, handle: Flight.Handle,
-        apply: @escaping @MainActor ([String: CatalogTrack]) -> Void
+        apply: @escaping @MainActor ([String: CatalogTrackMetadata]) -> Void
     ) async {
         guard let subscription = try? await provider.subscribeCatalogEntities(uris) else { return }
         if flight.isCurrent(handle) {
@@ -73,7 +73,7 @@ final class CatalogEntityObservation {
                 else { continue }
                 // A superseded read receives another accumulated change. Other failures retire
                 // this query so a later route load can retry instead of retaining a stuck stream.
-                let entities: [String: CatalogTrack]
+                let entities: [String: CatalogTrackMetadata]
                 do {
                     entities = try await read(change, provider: provider, uris: uris, flight: flight, handle: handle)
                 } catch CatalogEntityQueryFailure.superseded {
@@ -94,10 +94,10 @@ final class CatalogEntityObservation {
     private static func read(
         _ change: CatalogEntityChange, provider: any CatalogEntityQueryProviding, uris: Set<String>,
         flight: Flight, handle: Flight.Handle
-    ) async throws -> [String: CatalogTrack] {
+    ) async throws -> [String: CatalogTrackMetadata] {
         guard change.totalCount >= 0, change.totalCount <= uris.count else { throw InvalidPublication.bounds }
         var offset = 0
-        var entities: [String: CatalogTrack] = [:]
+        var entities: [String: CatalogTrackMetadata] = [:]
         while offset < change.totalCount {
             let page = try await provider.catalogEntityPage(
                 change.token, revision: change.revision, offset: offset, limit: CatalogEntityQueryLimits.pageSize)

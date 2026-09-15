@@ -70,11 +70,11 @@ public struct CatalogEntityPage: Codable, Equatable, Sendable {
     public let nextOffset: Int
     /// Metadata is projected to the requested URI key, even when stored playback metadata was
     /// relinked. Row IDs, added dates and server occurrence UIDs are absent from these entities.
-    public let tracks: [String: CatalogTrack]
+    public let tracks: [String: CatalogTrackMetadata]
 
     public init(
         token: CatalogEntitySubscriptionToken, revision: UInt64, offset: Int,
-        totalCount: Int, nextOffset: Int, tracks: [String: CatalogTrack]
+        totalCount: Int, nextOffset: Int, tracks: [String: CatalogTrackMetadata]
     ) {
         self.token = token
         self.revision = revision

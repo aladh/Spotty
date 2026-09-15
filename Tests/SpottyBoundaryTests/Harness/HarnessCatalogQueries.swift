@@ -11,13 +11,13 @@ actor HarnessCatalogQueries: CatalogEntityQueryProviding {
     }
 
     private struct Publication {
-        let ordered: [CatalogTrack]
+        let ordered: [CatalogTrackMetadata]
     }
 
     private let lifetime = UUID()
     private var queries: [CatalogEntitySubscriptionToken: Query] = [:]
     private var publications: [CatalogEntitySubscriptionToken: [UInt64: Publication]] = [:]
-    private var entities: [String: CatalogTrack] = [:]
+    private var entities: [String: CatalogTrackMetadata] = [:]
     private var revision: UInt64 = 0
     private var failuresRemaining = 0
     private var pageFailuresRemaining = 0
@@ -49,10 +49,11 @@ actor HarnessCatalogQueries: CatalogEntityQueryProviding {
     }
 
     func publish(_ changed: [CatalogTrack]) {
-        for track in changed { entities[track.uri] = track }
+        let metadata = changed.map { CatalogTrackMetadata(track: $0, requestedURI: $0.uri) }
+        for track in metadata { entities[track.uri] = track }
         revision &+= 1
         for (token, query) in queries {
-            emit(changed.filter { query.uris.contains($0.uri) }, token: token, query: query)
+            emit(metadata.filter { query.uris.contains($0.uri) }, token: token, query: query)
         }
     }
 
@@ -104,7 +105,7 @@ actor HarnessCatalogQueries: CatalogEntityQueryProviding {
         publications[token] = nil
     }
 
-    private func emit(_ tracks: [CatalogTrack], token: CatalogEntitySubscriptionToken, query: Query) {
+    private func emit(_ tracks: [CatalogTrackMetadata], token: CatalogEntitySubscriptionToken, query: Query) {
         guard !tracks.isEmpty else { return }
         publications[token, default: [:]][revision] = Publication(ordered: tracks.sorted { $0.uri < $1.uri })
         query.continuation.yield(CatalogEntityChange(token: token, revision: revision, totalCount: tracks.count))

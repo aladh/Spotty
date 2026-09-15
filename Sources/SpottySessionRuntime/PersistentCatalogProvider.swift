@@ -353,14 +353,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             nextOffset: nextOffset,
             tracks: Dictionary(
                 uniqueKeysWithValues: tracks.map { requestedURI, track in
-                    (
-                        requestedURI,
-                        CatalogTrack(
-                            id: requestedURI, uri: requestedURI, title: track.title, artist: track.artist,
-                            album: track.album, duration: track.duration, artworkURL: track.artworkURL,
-                            addedAt: nil, artists: track.artists, albumItem: track.albumItem
-                        )
-                    )
+                    (requestedURI, CatalogTrackMetadata(track: track, requestedURI: requestedURI))
                 })
         )
     }

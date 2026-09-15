@@ -49,11 +49,13 @@ entity IDs remain pending until acknowledged, so coalescing notifications cannot
 Presentation assembles bounded pages from one revision and account lifetime before applying any
 metadata; a superseded revision or retired account cannot publish a partial result.
 
-Entity updates replace labels and other track metadata while preserving requested URI, display
-occurrence identity, server occurrence UID, source order, date added, collection freshness, and
-ownership. For example, metadata learned on album B updates a retained playlist A containing the
-same track without reloading A. Only collections with changed effective metadata receive a new
-version; unrelated collections and playback timeline observation stay unchanged. An entity update
+Entity pages carry a metadata-only value; row IDs, occurrence UIDs and added dates stay with the
+collection. The domain owns the merge policy. Updates replace labels and other metadata while
+preserving requested URI, display occurrence identity, server occurrence UID, source order,
+date added, collection freshness, and ownership. For example, metadata learned on album B updates
+a retained playlist A containing the same track without reloading A. Only collections with changed
+effective metadata receive a new version; unrelated collections and playback timeline observation
+stay unchanged. An entity update
 does not grant fresh collection or mutation authority.
 
 Artwork has a separate account-scoped memory owner rather than being stored in SQLite. Source

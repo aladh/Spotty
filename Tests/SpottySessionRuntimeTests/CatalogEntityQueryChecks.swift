@@ -25,7 +25,7 @@ struct CatalogEntityQueryChecks {
         #expect(first.nextOffset == 500)
         #expect(last.nextOffset == 503)
         #expect(first.tracks.count + last.tracks.count == 502)
-        #expect(first.tracks.values.allSatisfy { $0.id == $0.uri && $0.addedAt == nil && $0.occurrenceUID == nil })
+        #expect(first.tracks.allSatisfy { $0.key == $0.value.uri })
         await fixture.provider.acknowledgeCatalogEntities(subscription.token, revision: initial.revision)
         #expect(await fixture.provider.retire(purge: true))
         #expect(await updates.next() == nil)
@@ -95,9 +95,8 @@ struct CatalogEntityQueryChecks {
         let page = try await fixture.provider.catalogEntityPage(subscription.token, revision: 0, offset: 0, limit: 500)
         let entity = try #require(page.tracks[requested])
         #expect(entity.uri == requested)
-        #expect(entity.id == requested)
         #expect(entity.title == playable.title)
-        #expect(entity.occurrenceUID == nil)
+        #expect(entity == CatalogTrackMetadata(track: playable, requestedURI: requested))
         #expect(await fixture.provider.retire(purge: true))
     }
 

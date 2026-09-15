@@ -24,6 +24,23 @@ public struct CatalogTrackCollection: Sendable {
         version = UUID()
     }
 
+    /// Enrich matching occurrences without changing membership or collection-owned identity.
+    /// A nil result preserves the caller's collection version when no metadata changed.
+    public func applyingMetadata(_ entities: [String: CatalogTrackMetadata]) -> CatalogTrackCollection? {
+        var changed = false
+        let updatedTracks = tracks.map { occurrence in
+            guard let entity = entities[occurrence.uri], entity.uri == occurrence.uri else { return occurrence }
+            let updated = CatalogTrack(
+                id: occurrence.id, uri: occurrence.uri, title: entity.title, artist: entity.artist,
+                album: entity.album, duration: entity.duration, artworkURL: entity.artworkURL,
+                addedAt: occurrence.addedAt, artists: entity.artists, albumItem: entity.albumItem,
+                occurrenceUID: occurrence.occurrenceUID)
+            if updated != occurrence { changed = true }
+            return updated
+        }
+        return changed ? CatalogTrackCollection(tracks: updatedTracks) : nil
+    }
+
     /// A provider can lack occurrence identity even when its entity URI is known. Keep every
     /// duplicate independently selectable; generated display IDs never create mutation authority.
     /// An ordinal only identifies indistinguishable rows within this source ordering.

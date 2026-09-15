@@ -244,14 +244,14 @@ final class PlaylistStore {
         }
     }
 
-    private func applyEntityMetadata(_ entities: [String: CatalogTrack]) {
+    private func applyEntityMetadata(_ entities: [String: CatalogTrackMetadata]) {
         guard !entities.isEmpty else { return }
         let currentVersion = trackCollection.version
-        let currentUpdate = CatalogTrackMetadata.applying(entities, to: trackCollection)
+        let currentUpdate = trackCollection.applyingMetadata(entities)
         retained.updateValues { snapshot in
             let updated =
                 snapshot.collection.version == currentVersion
-                ? currentUpdate : CatalogTrackMetadata.applying(entities, to: snapshot.collection)
+                ? currentUpdate : snapshot.collection.applyingMetadata(entities)
             guard let updated else { return snapshot }
             return Snapshot(
                 item: snapshot.item, collection: updated,

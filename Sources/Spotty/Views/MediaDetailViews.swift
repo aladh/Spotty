@@ -28,6 +28,7 @@ struct AlbumDetailView: View {
                         albumContent
                     }
                 }
+                .id(item.uri)
             } else {
                 albumContent
             }

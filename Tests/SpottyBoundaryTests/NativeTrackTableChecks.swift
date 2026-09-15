@@ -98,16 +98,21 @@ struct NativeTrackTableChecks {
         #expect(document.frame.width >= columnWidth + 16)
     }
 
-    @Test func albumResizesWithoutPushingDurationBeyondTheViewport() throws {
+    @Test(arguments: [NSScroller.Style.overlay, .legacy])
+    func albumResizesWithoutPushingDurationBeyondTheViewport(style: NSScroller.Style) throws {
         let fixture = Fixture(variant: .album)
+        fixture.container.scrollView.scrollerStyle = style
         for width in [900.0, 400.0, 320.0, 700.0] {
             fixture.container.frame.size.width = width
-            fixture.update((0..<12).map { track(id: "track-\($0)", title: "Track \($0)") })
-            let document = try #require(fixture.container.scrollView.documentView)
-            let viewport = fixture.container.scrollView.contentSize.width
-            #expect(document.frame.width <= viewport)
-            #expect(fixture.container.table.frame.maxX <= viewport - 24)
-            #expect(fixture.container.table.tableColumns.map(\.identifier.rawValue) == ["index", "title", "duration"])
+            for rowCount in [12, 0, 1, 12] {
+                fixture.update((0..<rowCount).map { track(id: "track-\($0)", title: "Track \($0)") })
+                let document = try #require(fixture.container.scrollView.documentView)
+                let viewport = fixture.container.scrollView.contentSize.width
+                #expect(document.frame.width <= viewport)
+                #expect(fixture.container.table.frame.maxX <= viewport - 24)
+                #expect(
+                    fixture.container.table.tableColumns.map(\.identifier.rawValue) == ["index", "title", "duration"])
+            }
         }
     }
 

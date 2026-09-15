@@ -198,7 +198,9 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating,
         guard let album = fixtures.album(id: id) else { throw BrowsingFailure.unsupportedAction }
         return album
     }
-    func libraryAlbums() async throws -> [CatalogItem] { fixtures.albums }
+    func libraryAlbums() async throws -> [CatalogItem] {
+        scenario.expandedLibrary == true ? fixtures.albums : []
+    }
     func libraryArtists() async throws -> [CatalogItem] { [] }
     func libraryTracks() async throws -> [CatalogTrack] { [] }
     func searchTracks(_: String, limit _: Int) async throws -> [CatalogTrack] { [] }

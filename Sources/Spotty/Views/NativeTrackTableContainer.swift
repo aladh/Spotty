@@ -34,6 +34,7 @@ final class NativeTrackTableContainer: NSView {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
         scrollView.documentView = document
         table.revealRow = { [weak self] in self?.reveal(row: $0) }
         scrollView.setAccessibilityLabel("Tracks")
@@ -84,6 +85,10 @@ final class NativeTrackTableContainer: NSView {
             self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(viewportResized), name: NSView.frameDidChangeNotification,
+            object: scrollView.contentView
+        )
     }
 
     required init?(coder: NSCoder) { nil }
@@ -112,7 +117,18 @@ final class NativeTrackTableContainer: NSView {
     override func layout() {
         super.layout()
         scrollView.frame = bounds
-        let viewportWidth = scrollView.contentSize.width
+        // Installing the document can reveal legacy scrollers. Settle both axes before
+        // finishing this pass so the first visible frame uses the actual available width.
+        for _ in 0..<3 {
+            let viewportSize = scrollView.contentSize
+            layoutDocument(in: viewportSize)
+            scrollView.tile()
+            if scrollView.contentSize == viewportSize { break }
+        }
+    }
+
+    private func layoutDocument(in viewportSize: NSSize) {
+        let viewportWidth = viewportSize.width
         let inset: CGFloat = variant == .catalog ? 8 : 24
         let indexWidth = max(24, CGFloat(String(max(1, rowCount)).count) * 9)
         let minimumWidth: CGFloat =
@@ -149,7 +165,7 @@ final class NativeTrackTableContainer: NSView {
         columnHeader.frame = NSRect(x: inset, y: heroHeight, width: tableWidth, height: 36)
         catalogHeader.frame = columnHeader.frame
         let tableY = heroHeight + 36
-        let tableHeight = max(CGFloat(rowCount) * table.rowHeight, scrollView.contentSize.height - tableY)
+        let tableHeight = max(CGFloat(rowCount) * table.rowHeight, viewportSize.height - tableY)
         table.frame = NSRect(x: inset, y: tableY, width: tableWidth, height: tableHeight)
         document.frame = NSRect(x: 0, y: 0, width: documentWidth, height: tableY + tableHeight)
         if let compactContent {
@@ -195,6 +211,12 @@ final class NativeTrackTableContainer: NSView {
     @objc private func scrolled(_ notification: Notification) {
         updateCompactHeader()
         onScroll?(scrollView.contentView.bounds.minY)
+    }
+
+    @objc private func viewportResized(_ notification: Notification) {
+        // Legacy scrollers consume space when the document first becomes scrollable.
+        // Reflow the columns for the new clip size, including changes after our layout pass.
+        needsLayout = true
     }
 
     private func updateCompactHeader() {

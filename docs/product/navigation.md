@@ -24,6 +24,9 @@
   durations visible at narrow widths; repeated album names and track thumbnails are omitted.
   Known artist credits navigate to their artist pages. Selection, sorting, keyboard focus, and
   retained scroll position use the same native table behavior as playlists.
+  Album rows truncate durations to whole seconds; the header truncates the sum of the original
+  durations once, matching the Spotify album reference. Fractional seconds can therefore make
+  the header total differ from the sum of the displayed row times.
 - Complete saved playlist and album results can remain useful after an offline, timeout, or
   throttled read once the current process has verified the matching Spotify account. Saved
   content is labelled as possibly out of date, including while refreshing. An account or

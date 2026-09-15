@@ -97,6 +97,7 @@ struct BrowsingHarnessTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let world = try BrowsingWorld(scenario: scenario(), artworkDirectory: root)
         let environment = world.environment
+        #expect(try await world.libraryAlbums().isEmpty)
         for port: AnyObject in [
             environment.account as AnyObject, environment.catalog as AnyObject,
             environment.local as AnyObject, environment.remote as AnyObject,
@@ -127,6 +128,26 @@ struct BrowsingHarnessTests {
         await player.shutdownForTermination()
         #expect(player.accountStore.phase == .signedOut)
         #expect(world.snapshot().requests["engine.synthetic-shutdown"] == 1)
+    }
+
+    @Test
+    func expandedLibraryAlbumsCanBeBrowsedThroughTheInjectedCatalog() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyAlbumDemo-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.expandedLibrary = true
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let home = try await world.home()
+        let albums = try await world.libraryAlbums()
+        #expect(home.sections.last?.items == albums)
+        #expect(!albums.isEmpty)
+        for item in albums {
+            let id = String(item.uri.dropFirst("spotify:album:".count))
+            let album = try await world.album(id: id)
+            #expect(album.item == item)
+            #expect(album.tracks.allSatisfy { $0.albumItem == item })
+        }
+        #expect(world.snapshot().mutationAttempts == 0)
     }
 
     @Test

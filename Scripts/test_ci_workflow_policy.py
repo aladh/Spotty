@@ -143,6 +143,22 @@ class WorkflowInvariantTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('test setup and execution must remain ordered', result.stderr)
 
+    def test_source_gate_syntax_check_cannot_be_skipped_or_moved_out_of_policy(self):
+        for mutation in ('conditional', 'remove', 'move'):
+            with self.subTest(mutation=mutation):
+                variant = copy.deepcopy(self.workflow)
+                steps = variant['jobs']['policy']['steps']
+                scan = next(s for s in steps if s.get('uses', '').startswith('ast-grep/action@'))
+                if mutation == 'conditional':
+                    scan['if'] = 'false'
+                else:
+                    steps.remove(scan)
+                    if mutation == 'move':
+                        variant['jobs']['macos']['steps'].append(scan)
+                result = self.check_workflow(variant)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('independent source scan must run once without a condition', result.stderr)
+
 
     def test_trusted_policy_and_candidate_bindings_are_preserved(self):
         cases = [

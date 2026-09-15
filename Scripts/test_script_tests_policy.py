@@ -1,14 +1,14 @@
 """Prove discovery, suite ownership, and failure propagation with disposable repositories."""
 
 import contextlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 
-from script_tests import inventory
+from script_tests import inventory, is_test
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +37,14 @@ def execute(root, group):
 
 
 class ScriptTestCoverageTests(unittest.TestCase):
+    def test_python_test_names_have_explicit_boundaries(self):
+        for name in ("test.py", "test_feature.py", "feature_test.py", "test_helpers.py"):
+            with self.subTest(name=name):
+                self.assertTrue(is_test(PurePosixPath(name)))
+        for name in ("testing_helper.py", "testimony.py", "helpers.py", "script_tests.py"):
+            with self.subTest(name=name):
+                self.assertFalse(is_test(PurePosixPath(name)))
+
     def test_current_repository_has_exactly_one_owner_per_test(self):
         groups = inventory(ROOT)
         files = [path for paths in groups.values() for path in paths]

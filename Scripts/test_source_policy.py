@@ -309,6 +309,23 @@ class SourcePolicyRoutingTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertIn(f"Missing or empty policy owner: {absent}", result.stderr)
 
+    def test_source_gates_cannot_hide_checks_from_ci_or_disable_errexit(self):
+        path = "Scripts/check-source-policy.sh"
+        source = (ROOT / path).read_text()
+        self.assertEqual(self.scan(path, source), set())
+        guard = 'if [[ "${1:-}" != --test-only ]]; then'
+        for command in ("python3 -B Scripts/documentation_policy.py",
+                        "python3 -B Scripts/script_tests.py policy",
+                        "npm test --prefix Scripts/agent-review-tests"):
+            with self.subTest(command=command):
+                hidden = source.replace(command + "\n", "").replace(guard, guard + "\n    " + command)
+                self.assertIn("source-gate-tests", self.scan(path, hidden))
+        for disable in ("set +e", "set +o errexit"):
+            with self.subTest(disable=disable):
+                masked = source.replace("set -euo pipefail", "set -euo pipefail\n" + disable)
+                self.assertIn("source-gate-tests", self.scan(path, masked))
+        self.assertNotIn("source-gate-tests", self.scan("Scripts/unrelated.sh", "#!/bin/bash\nset -euo pipefail\n"))
+
     def test_policy_still_matches_beside_recovered_swift_syntax(self):
         # The pinned tree-sitter grammar recovers some valid Swift expressions as ERROR nodes.
         # Source policy matching is lexical evidence, never a substitute for swiftc.

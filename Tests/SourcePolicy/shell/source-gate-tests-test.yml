@@ -1,0 +1,59 @@
+---
+id: source-gate-tests
+valid:
+- |
+  set -euo pipefail
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+  if [[ "${1:-}" != --test-only ]]; then
+    scan
+  fi
+- |
+  # set +e is forbidden as code, not as explanatory text.
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+invalid:
+- |
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  if [[ "${1:-}" != --test-only ]]; then
+    npm test --prefix Scripts/agent-review-tests
+  fi
+- |
+  python3 -B Scripts/documentation_policy.py
+  if [[ "${1:-}" != --test-only ]]; then
+    python3 -B Scripts/script_tests.py policy
+  fi
+  npm test --prefix Scripts/agent-review-tests
+- |
+  if [[ "${1:-}" != --test-only ]]; then
+    python3 -B Scripts/documentation_policy.py
+  fi
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  review() { npm test --prefix Scripts/agent-review-tests; }
+- |
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests || true
+- |
+  set -euo pipefail
+  set +e
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  set -euo pipefail
+  python3 -B Scripts/documentation_policy.py
+  if true; then set +o errexit; fi
+  python3 -B Scripts/script_tests.py policy
+  npm test --prefix Scripts/agent-review-tests
+- |
+  python3 -B Scripts/documentation_policy.py
+  python3 -B Scripts/script_tests.py policy
+  # npm test --prefix Scripts/agent-review-tests

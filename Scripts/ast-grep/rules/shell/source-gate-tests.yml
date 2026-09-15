@@ -1,0 +1,29 @@
+---
+id: source-gate-tests
+language: Bash
+severity: error
+message: Run required source/test gates at program scope and keep errexit enabled.
+files:
+- Scripts/check-source-policy.sh
+note: The independent CI syntax scan catches commands hidden in branches/functions or
+  failure-masking lists. Other control flow, aliases, and exit paths still need review.
+rule:
+  kind: program
+  any:
+  - not:
+      has:
+        pattern: python3 -B Scripts/documentation_policy.py
+  - not:
+      has:
+        pattern: python3 -B Scripts/script_tests.py policy
+  - not:
+      has:
+        pattern: npm test --prefix Scripts/agent-review-tests
+  - has:
+      kind: command
+      has:
+        field: name
+        regex: ^set$
+      not:
+        pattern: set -euo pipefail
+      stopBy: end

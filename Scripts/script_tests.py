@@ -16,7 +16,7 @@ NODE_SUFFIXES = {".js", ".mjs", ".cjs"}
 
 def is_test(path: PurePosixPath) -> bool:
     if path.suffix == ".py":
-        return path.name.startswith("test") or path.name.endswith("_test.py")
+        return path.name == "test.py" or path.name.startswith("test_") or path.name.endswith("_test.py")
     if path.suffix in NODE_SUFFIXES | {".ts", ".mts", ".cts"}:
         return (".test." in path.name or ".spec." in path.name
                 or path.name.startswith(("test.", "test_", "test-")))

@@ -25,7 +25,8 @@ check.call(policy_lines.include?('npm test --prefix Scripts/agent-review-tests')
 check.call(policy_lines.include?('python3 -B Scripts/documentation_policy.py'), 'source policy script must enforce documentation size limits')
 review_package = JSON.parse(File.read(File.join(__dir__, 'agent-review-tests/package.json')))
 check.call(review_package.dig('scripts', 'test') == 'python3 -B ../script_tests.py review', 'npm test must run the complete reviewer suite')
-check.call(steps.any? { |s| s.fetch('uses', '').start_with?('ast-grep/action@') && s.dig('with', 'paths') == 'Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift' }, 'source scan must cover every policy root')
+source_scans = policy.fetch('steps', []).select { |step| step.fetch('uses', '').start_with?('ast-grep/action@') }
+check.call(source_scans.length == 1 && !source_scans.first.key?('if') && source_scans.first.dig('with', 'paths') == 'Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift', 'independent source scan must run once without a condition and cover every policy root')
 %w[policy playback_python].each do |id|
   job = jobs.fetch(id, {})
   check.call(!job.key?('if') && !job.key?('continue-on-error'), "#{id} tests must run unconditionally and fail the job")

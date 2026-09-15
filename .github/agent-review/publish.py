@@ -66,8 +66,8 @@ def thread_state(env, pending_review, snapshots, request):
     complete = not connection["pageInfo"]["hasNextPage"] and all(thread["comments"]["nodes"] for thread in unresolved)
     complete = complete and snapshots.keys() <= {thread["id"] for thread in threads}
     # Compare identity, author and body; ignore only replies this publication itself staged.
-    # Also check formerly owned threads so edits/deletions cannot hide them from owns().
-    for thread in unresolved:
+    # Check every snapshot thread, including changed ownership markers or external resolutions.
+    for thread in threads:
         if thread["id"] not in snapshots and thread not in owned:
             continue
         comments = thread["comments"]

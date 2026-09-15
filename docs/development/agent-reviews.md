@@ -89,8 +89,10 @@ created. A finding whose inline placement the API rejects is published in
 the review body instead. Reviews refuse to run, or withhold approval, when a PR has more review
 threads than one API page can return, or an unresolved thread's original comment is unavailable.
 Before submission and again before resolving, publication compares the reviewed comment history
-with the live thread, excluding only its own staged replies. New, edited, deleted, or paginated
-comments withhold approval and resolution; changes arriving during submission leave threads open.
+with live threads, including reviewed threads someone else has resolved, and excluding only its
+own staged replies. Changed or incomplete histories withhold approval and resolution before
+submission; when detected after submission, they withhold the remaining resolution calls.
+These checks are snapshots across separate GitHub requests.
 
 PR changes can affect reviewer configuration, since the workflow reads it from the PR merge
 revision. The agents retain shell, edit, and web tools, so treating source, threads, PR text, and

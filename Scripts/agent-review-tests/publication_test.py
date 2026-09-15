@@ -43,6 +43,7 @@ class PublicationTests(unittest.TestCase):
         self.truncated = False
         self.current_head = self.env['HEAD_SHA']
         self.pending_state = 'PENDING'
+        self.thread_resolved = False
         self.extra = []
         self.comments_truncated = False
         self.live_comments = [{'author': {'login': 'opencode-agent'},
@@ -76,7 +77,7 @@ class PublicationTests(unittest.TestCase):
             if payload['query'].startswith('query'):
                 staged = [dict(comment, pullRequestReview={'id': 'pending-review', 'state': self.pending_state})
                           for comment in self.staged_comments]
-                thread = {'id': 'thread', 'isResolved': False, 'comments': {
+                thread = {'id': 'thread', 'isResolved': self.thread_resolved, 'comments': {
                     'nodes': self.live_comments + staged}}
                 threads = json.loads(json.dumps([thread] + self.extra))
                 limit = int(re.search(r'comments\(first: (\d+)\)', payload['query'])[1])
@@ -153,9 +154,11 @@ class PublicationTests(unittest.TestCase):
         original = json.loads(json.dumps(self.live_comments))
         reply = {'author': {'login': 'author'}, 'body': 'This is still broken.',
                  'url': 'https://example.invalid/objection', 'pullRequestReview': None}
-        for change in ('reply', 'edit', 'removal'):
-            with self.subTest(change=change):
+        for resolved, change in ((resolved, change) for resolved in (False, True)
+                                  for change in ('reply', 'edit', 'removal')):
+            with self.subTest(resolved=resolved, change=change):
                 self.calls.clear()
+                self.thread_resolved = resolved
                 self.live_comments = json.loads(json.dumps(original))
                 if change == 'reply':
                     self.live_comments.append(reply)
@@ -170,8 +173,18 @@ class PublicationTests(unittest.TestCase):
 
     def test_paginated_comments_withhold_approval_and_resolution(self):
         self.comments_truncated = True
+        for resolved in (False, True):
+            with self.subTest(resolved=resolved):
+                self.calls.clear()
+                self.thread_resolved = resolved
+                self.run_publish()
+                self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
+                self.assertEqual(self.resolved(), [])
+
+    def test_external_resolution_with_unchanged_history_allows_approval(self):
+        self.thread_resolved = True
         self.run_publish()
-        self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
+        self.assertEqual(self.submitted()[0]['event'], 'APPROVE')
         self.assertEqual(self.resolved(), [])
 
     def test_own_staged_reply_does_not_count_as_unseen_history(self):

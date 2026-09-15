@@ -161,7 +161,16 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating,
         }
     }
 
-    func home() async throws -> CatalogHomeSnapshot { record("home"); return CatalogMapping.home(fixtures.home) }
+    func home() async throws -> CatalogHomeSnapshot {
+        record("home")
+        let home = CatalogMapping.home(fixtures.home)
+        guard scenario.expandedLibrary == true else { return home }
+        return CatalogHomeSnapshot(
+            greeting: home.greeting,
+            sections: home.sections + [
+                CatalogSection(id: "synthetic-albums", title: "Albums for you", items: fixtures.albums)
+            ])
+    }
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
         record("library")
         let nodes = fixtures.playlists.compactMap(CatalogMapping.item(from:))
@@ -184,7 +193,14 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutating,
         guard let result = fixtures.details[id] else { throw BrowsingFailure.unsupportedAction }
         return CatalogMapping.playlist(result)
     }
-    func libraryAlbums() async throws -> [CatalogItem] { [] }
+    func album(id: String) async throws -> CatalogAlbumSnapshot {
+        record("album.\(id)")
+        guard let album = fixtures.album(id: id) else { throw BrowsingFailure.unsupportedAction }
+        return album
+    }
+    func libraryAlbums() async throws -> [CatalogItem] {
+        scenario.expandedLibrary == true ? fixtures.albums : []
+    }
     func libraryArtists() async throws -> [CatalogItem] { [] }
     func libraryTracks() async throws -> [CatalogTrack] { [] }
     func searchTracks(_: String, limit _: Int) async throws -> [CatalogTrack] { [] }

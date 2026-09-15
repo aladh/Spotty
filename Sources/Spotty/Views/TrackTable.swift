@@ -4,10 +4,11 @@ import SwiftUI
 enum TrackTableVariant: Equatable {
     case catalog
     case playlist
+    case album
 
     var initialSortOrder: [KeyPathComparator<TrackTableRow>] {
         switch self {
-        case .catalog:
+        case .catalog, .album:
             []
         case .playlist:
             [KeyPathComparator(\TrackTableRow.dateAddedSortValue, order: .reverse)]
@@ -15,7 +16,7 @@ enum TrackTableVariant: Equatable {
     }
 }
 
-/// Shared occurrence projection for the directly owned native catalog/playlist table.
+/// Shared occurrence projection for the directly owned native track tables.
 /// Selection and sorting stay in presentation state; AppKit owns control tracking and scrolling.
 struct TrackTable: View {
     let tracks: CatalogTrackCollection
@@ -24,8 +25,8 @@ struct TrackTable: View {
     let searchQuery: String
     var playlistActions: TrackPlaylistActions?
     let onSelect: ((CatalogItem) -> Void)?
-    let playlistHeader: AnyView?
-    let compactPlaylistHeader: AnyView?
+    let detailHeader: AnyView?
+    let compactDetailHeader: AnyView?
     let interactionState: CatalogRouteInteractionState?
     @State private var localInteractionState: CatalogRouteInteractionState
     @State private var displayCache = TrackTableDisplayCache()
@@ -38,8 +39,8 @@ struct TrackTable: View {
         searchQuery: String = "",
         playlistActions: TrackPlaylistActions? = nil,
         onSelect: ((CatalogItem) -> Void)? = nil,
-        playlistHeader: AnyView? = nil,
-        compactPlaylistHeader: AnyView? = nil,
+        detailHeader: AnyView? = nil,
+        compactDetailHeader: AnyView? = nil,
         interactionState: CatalogRouteInteractionState? = nil
     ) {
         self.tracks = tracks
@@ -48,8 +49,8 @@ struct TrackTable: View {
         self.searchQuery = searchQuery
         self.playlistActions = playlistActions
         self.onSelect = onSelect
-        self.playlistHeader = playlistHeader
-        self.compactPlaylistHeader = compactPlaylistHeader
+        self.detailHeader = detailHeader
+        self.compactDetailHeader = compactDetailHeader
         self.interactionState = interactionState
         _localInteractionState = State(initialValue: CatalogRouteInteractionState(isPlaylist: variant == .playlist))
     }
@@ -67,7 +68,7 @@ struct TrackTable: View {
             sortOrder: Binding(get: { interaction.sortOrder }, set: { interaction.sortOrder = $0 }),
             scrollOffset: Binding(get: { interaction.scrollOffset }, set: { interaction.scrollOffset = $0 }),
             playlistActions: playlistActions, onSelect: onSelect,
-            playlistHeader: playlistHeader, compactPlaylistHeader: compactPlaylistHeader
+            detailHeader: detailHeader, compactDetailHeader: compactDetailHeader
         )
         .onChange(of: displayInputs, initial: true) { oldInputs, newInputs in
             _ = displayCache.update(

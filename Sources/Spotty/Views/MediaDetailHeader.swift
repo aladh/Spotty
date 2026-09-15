@@ -4,6 +4,9 @@ import SwiftUI
 enum MediaDetailHeaderStyle: Equatable {
     case standard
     case playlist
+    case album
+
+    var usesLargeHero: Bool { self != .standard }
 }
 
 /// Shared artwork-led identity for albums, artists, and playlists.
@@ -39,14 +42,14 @@ struct MediaDetailHeader: View {
                 availableWidth = newWidth
             }
             .padding(.horizontal, CatalogLayout.contentPadding)
-            .padding(.top, style == .playlist ? 64 : 20)
-            .padding(.bottom, style == .playlist ? 24 : 16)
+            .padding(.top, style.usesLargeHero ? 64 : 20)
+            .padding(.bottom, style.usesLargeHero ? 24 : 16)
     }
 
     @ViewBuilder
     private func headerContent(width: CGFloat) -> some View {
-        if style == .playlist {
-            playlistHeader(width: width)
+        if style.usesLargeHero {
+            largeHeader(width: width)
         } else if width >= CatalogLayout.headerThreshold {
             horizontalHeader(width: width)
         } else {
@@ -55,7 +58,7 @@ struct MediaDetailHeader: View {
     }
 
     @ViewBuilder
-    private func playlistHeader(width: CGFloat) -> some View {
+    private func largeHeader(width: CGFloat) -> some View {
         if width >= 600 {
             HStack(alignment: .bottom, spacing: 24) {
                 artwork(size: width >= 1000 ? 232 : 192)
@@ -111,13 +114,13 @@ struct MediaDetailHeader: View {
         RemoteArtwork(
             url: item.artworkURL,
             kind: item.kind,
-            cornerRadius: item.kind == .artist ? size / 2 : (style == .playlist ? 8 : 10)
+            cornerRadius: item.kind == .artist ? size / 2 : (style.usesLargeHero ? 8 : 10)
         )
         .frame(width: size, height: size)
         .shadow(
-            color: .black.opacity(style == .playlist ? 0.26 : 0.24),
-            radius: style == .playlist ? 12 : 14,
-            y: style == .playlist ? 6 : 7
+            color: .black.opacity(style.usesLargeHero ? 0.26 : 0.24),
+            radius: style.usesLargeHero ? 12 : 14,
+            y: style.usesLargeHero ? 6 : 7
         )
     }
 
@@ -129,11 +132,13 @@ struct MediaDetailHeader: View {
                 .foregroundStyle(SpottyPalette.textSecondary)
 
             Text(item.title)
-                .font(titleFont(for: width))
+                .font(.system(size: titleFontSize(for: width), weight: .heavy))
                 .accessibilityAddTraits(.isHeader)
-                .lineLimit(style == .playlist && width >= 700 ? 1 : 2)
-                .minimumScaleFactor(style == .playlist ? 0.58 : 0.72)
-                .allowsTightening(style == .playlist)
+                .lineLimit(style.usesLargeHero && width >= 700 ? 1 : 2)
+                .minimumScaleFactor(
+                    style == .album ? 32 / titleFontSize(for: width) : (style.usesLargeHero ? 0.58 : 0.72)
+                )
+                .allowsTightening(style.usesLargeHero)
                 .fixedSize(horizontal: false, vertical: true)
 
             if !description.isEmpty {
@@ -144,7 +149,7 @@ struct MediaDetailHeader: View {
             }
 
             if !supportingText.isEmpty {
-                Text(supportingText)
+                supportingLabel
                     .font(.system(size: 14))
                     .foregroundStyle(SpottyPalette.textSecondary)
                     .lineLimit(2)
@@ -154,20 +159,27 @@ struct MediaDetailHeader: View {
         .padding(.bottom, 2)
     }
 
-    private func titleFont(for width: CGFloat) -> Font {
-        guard style == .playlist else { return .system(size: 48, weight: .heavy) }
-        let size: CGFloat =
-            switch width {
-            case ..<620: 40
-            case ..<840: 64
-            default: 96
-            }
-        return .system(size: size, weight: .heavy)
+    private func titleFontSize(for width: CGFloat) -> CGFloat {
+        guard style.usesLargeHero else { return 48 }
+        return switch width {
+        case ..<620: 40
+        case ..<840: 64
+        default: 96
+        }
     }
 
     private var supportingText: String {
         [item.subtitle, detail, itemCount ?? ""]
             .filter { !$0.isEmpty && $0.caseInsensitiveCompare(item.kind.rawValue) != .orderedSame }
             .joined(separator: " · ")
+    }
+
+    private var supportingLabel: Text {
+        guard style == .album, !item.subtitle.isEmpty,
+            item.subtitle.caseInsensitiveCompare(item.kind.rawValue) != .orderedSame
+        else { return Text(supportingText) }
+        let metadata = [detail, itemCount ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+        return Text(item.subtitle).bold().foregroundColor(SpottyPalette.textPrimary)
+            + Text(metadata.isEmpty ? "" : " · \(metadata)")
     }
 }

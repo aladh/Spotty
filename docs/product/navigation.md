@@ -18,6 +18,15 @@
 - Opening a `spotify:` resource URI or an `https://open.spotify.com` link delivered to Spotty
   opens the matching playlist, album, or artist page. Links navigate without starting playback.
   Unsupported resources, malformed addresses, and lookalike hosts leave navigation unchanged.
+- Album pages use an artwork-led hero with a large responsive title and an artist, release-year,
+  song-count, and runtime summary. The hero scrolls with the tracks and gives way to a compact
+  title and Play action. Numbered 56-point rows place artist credits beneath each title and keep
+  durations visible at narrow widths; repeated album names and track thumbnails are omitted.
+  Known artist credits navigate to their artist pages. Selection, sorting, keyboard focus, and
+  retained scroll position use the same native table behavior as playlists.
+  Album rows truncate durations to whole seconds; the header truncates the sum of the original
+  durations once, matching the Spotify album reference. Fractional seconds can therefore make
+  the header total differ from the sum of the displayed row times.
 - Complete saved playlist and album results can remain useful after an offline, timeout, or
   throttled read once the current process has verified the matching Spotify account. Saved
   content is labelled as possibly out of date, including while refreshing. An account or

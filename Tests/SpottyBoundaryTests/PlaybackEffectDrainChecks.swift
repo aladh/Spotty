@@ -10,12 +10,9 @@ struct PlaybackEffectDrainTests {
     func testCooperativeAccountEffectsSettleWithinTheGracePeriod() async {
         let effects = PlaybackEffectRegistry()
         let clock = HarnessClock.parked()
-        effects.replace(
-            .trackMetadata,
-            with: Task {
-                try? await clock.sleep(seconds: 10)
-            }
-        )
+        effects.run(.trackMetadata) {
+            try? await clock.sleep(seconds: 10)
+        }
 
         #expect(await waitUntil { clock.waiterCount == 1 })
 
@@ -34,8 +31,8 @@ struct PlaybackEffectDrainTests {
     func testNonCancelableAccountEffectIsReportedWithoutHangingTeardown() async {
         let effects = PlaybackEffectRegistry()
         let park = SettlementPark()
-        let parked = Task { await park.park() }
-        effects.replace(.trackMetadata, with: parked)
+        effects.run(.trackMetadata) { await park.park() }
+        let parked = effects.settlement(of: .trackMetadata)
         #expect((await waitUntil { park.isParked }) == true, "the operation parks before cancellation")
 
         let report = await effects.cancelAccountScopedAndDrain(timeoutNanoseconds: 50_000_000)
@@ -50,7 +47,7 @@ struct PlaybackEffectDrainTests {
         )
 
         park.release()
-        await parked.value
+        await parked?.wait()
         #expect((park.didFinish) == true, "the fenced operation may finish after the bounded report")
     }
 
@@ -60,11 +57,11 @@ struct PlaybackEffectDrainTests {
         let effects = PlaybackEffectRegistry()
         let originalPark = SettlementPark()
         let replacementPark = SettlementPark()
-        effects.replace(.queueSnapshot, with: Task { await originalPark.park() })
+        effects.run(.queueSnapshot) { await originalPark.park() }
         #expect((await waitUntil { originalPark.isParked }) == true)
 
         let captured = effects.cancelAccountScoped()
-        effects.replace(.queueSnapshot, with: Task { await replacementPark.park() })
+        effects.run(.queueSnapshot) { await replacementPark.park() }
         #expect((await waitUntil { replacementPark.isParked }) == true)
 
         // Release the captured task before draining. This proves drain waits for the exact
@@ -96,14 +93,14 @@ struct PlaybackEffectDrainTests {
         var rows: [[String: Double]] = []
         for _ in 0..<12 {
             let effects = PlaybackEffectRegistry()
-            effects.replace(.trackMetadata, with: Task { try? await HarnessClock.parked().sleep(seconds: 10) })
+            effects.run(.trackMetadata) { try? await HarnessClock.parked().sleep(seconds: 10) }
             var started = ContinuousClock.now
             let cooperative = await effects.cancelAccountScopedAndDrain()
             #expect(cooperative.didSettleAll)
             let cooperativeElapsed = started.duration(to: .now)
             let park = SettlementPark()
-            let parked = Task { await park.park() }
-            effects.replace(.trackMetadata, with: parked)
+            effects.run(.trackMetadata) { await park.park() }
+            let parked = effects.settlement(of: .trackMetadata)
             #expect(await waitUntil { park.isParked })
             started = .now
             let fenced = await effects.cancelAccountScopedAndDrain()
@@ -111,7 +108,7 @@ struct PlaybackEffectDrainTests {
             #expect(fenced.timedOut == Set([PlaybackEffectID.trackMetadata]))
             #expect(effects.settlement(of: .trackMetadata) == nil)
             park.release()
-            await parked.value
+            await parked?.wait()
             #expect(park.didFinish)
             rows.append([
                 "cooperativeMilliseconds": milliseconds(cooperativeElapsed),

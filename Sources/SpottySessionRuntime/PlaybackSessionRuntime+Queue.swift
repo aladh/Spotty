@@ -344,7 +344,6 @@ extension PlaybackSessionRuntime {
         if state.intents.first(where: { $0.command.id == token })?.outcome.isTerminal != false {
             effects.cancel(.commandDeadline(token))
         }
-        effects.complete(.queueReplacement)
     }
 
     private func presentAddToQueueFeedback(requested: Int, completed: Int) {

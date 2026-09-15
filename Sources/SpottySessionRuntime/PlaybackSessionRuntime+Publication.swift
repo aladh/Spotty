@@ -30,20 +30,6 @@ package extension PlaybackSessionRuntime {
     }
 
     func publish() {
-        if sessionAccountEpoch != accountEpoch {
-            sessionAccountEpoch = accountEpoch
-            sessionID = UUID()
-            serviceReceipts = []
-            serviceCommandLedger = [:]
-            serviceIntentIDs = [:]
-            serviceIntentOutcomes = [:]
-            serviceCommandActions = [:]
-            serviceCommandEpochs = [:]
-        }
-        if lastServiceRoute != commandRoute {
-            lastServiceRoute = commandRoute
-            routeRevision &+= 1
-        }
         guard !publicationPending else { return }
         publicationPending = true
         // Publication runs after the current synchronous transition. In particular, account
@@ -55,15 +41,9 @@ package extension PlaybackSessionRuntime {
         guard publicationPending else { return }
         publicationPending = false
         presentationRevision &+= 1
-        synchronizeServiceReceipts()
-        rolloverServiceSessionIfNeeded()
         if !presentationSubscribers.isEmpty {
             let value = presentation()
             for subscriber in presentationSubscribers.values { subscriber.yield(value) }
-        }
-        if !serviceSubscribers.isEmpty {
-            let value = serviceSnapshot()
-            for subscriber in serviceSubscribers.values { subscriber.yield(value) }
         }
     }
 

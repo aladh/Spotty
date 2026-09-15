@@ -19,8 +19,8 @@ nor establish faster rendering. Spotify appearance remains a [product requiremen
 Use the complete gate for boundary changes, retaining independent expected behavior in tests.
 Focus failure tests on the changed ownership boundary:
 
-- Account replacement, cancellation, late publications, snapshot/receipt identity, retirement
-  during I/O, corrupt/unsupported caches, purge failure, and complete versus partial collections.
+- Account replacement, cancellation, late publications, account/engine identity, stamped admission,
+  retirement during I/O, corrupt/unsupported caches, purge failure, and complete versus partial collections.
   Stored owners and occurrence IDs cannot replace fresh mutation admission.
 - Shared artwork fetching across size/tint requests, memory bounds, oversized-image rejection, and
   retirement during fetch/decode. Keep artwork memory-only; request/memory evidence is separate from rendering speed.
@@ -43,7 +43,8 @@ publications, or compilation alone.
 ## Production process
 
 The runtime stays inside the app; a custom session XPC cutover is not an acceptance gate.
-Identity, bounded snapshots, revision gaps, command receipts, and truthful unknown outcomes still apply.
+Verify stamped admission, account/engine identity, and intent settlement: expiration remains distinct
+from observed confirmation, and late observations still update playback truth.
 OAuth storage remains as specified in [PRIVACY.md](../../PRIVACY.md#local-storage). A future Keychain
 migration needs recoverable grant migration plus update, developer-build, lock/unlock, and reinstall
 evidence; old Keychain entries remain untouched.

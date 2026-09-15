@@ -23,7 +23,7 @@ enum HarnessEnvironment {
         lifecycle: any SystemLifecycleEvents = HarnessLifecycleEvents(),
         clock: any PlaybackClock = HarnessClock.sticky(),
         catalog: any CatalogProviding = HarnessCatalog(),
-        playlistMutations: any PlaylistMutating = HarnessPlaylistMutations(),
+        playlistMutations: any PlaylistMutationDispatching = HarnessPlaylistMutations(),
         queueServiceHook: (any QueueServiceHook)? = nil
     ) -> PlaybackEnvironment {
         PlaybackEnvironment(

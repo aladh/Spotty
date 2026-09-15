@@ -999,7 +999,7 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
 }
 
 /// Playlist writes that are unavailable unless a check scripts them, and that record every call.
-final class HarnessPlaylistMutations: PlaylistMutating, @unchecked Sendable {
+final class HarnessPlaylistMutations: PlaylistMutationDispatching, @unchecked Sendable {
     struct AddCall: Sendable, Equatable {
         let playlistId: String
         let trackUris: [String]
@@ -1047,7 +1047,10 @@ final class HarnessPlaylistMutations: PlaylistMutating, @unchecked Sendable {
     var addCalls: [AddCall] { withStorage { $0.addCalls } }
     var removeCalls: [RemoveCall] { withStorage { $0.removeCalls } }
 
-    func addToPlaylist(playlistId: String, trackUris: [String]) async throws {
+    func addToPlaylist(
+        playlistId: String, trackUris: [String], authorization: PlaylistMutationAuthorization
+    ) async throws {
+        try authorization.authorizeDispatch()
         let override = withStorage { storage -> (@Sendable (String, [String]) async throws -> Void)? in
             storage.addCalls.append(AddCall(playlistId: playlistId, trackUris: trackUris))
             return storage.onAdd
@@ -1056,7 +1059,10 @@ final class HarnessPlaylistMutations: PlaylistMutating, @unchecked Sendable {
         try await override(playlistId, trackUris)
     }
 
-    func removeFromPlaylist(playlistId: String, uids: [String]) async throws {
+    func removeFromPlaylist(
+        playlistId: String, uids: [String], authorization: PlaylistMutationAuthorization
+    ) async throws {
+        try authorization.authorizeDispatch()
         let override = withStorage { storage -> (@Sendable (String, [String]) async throws -> Void)? in
             storage.removeCalls.append(RemoveCall(playlistId: playlistId, uids: uids))
             return storage.onRemove

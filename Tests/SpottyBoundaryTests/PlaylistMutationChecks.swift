@@ -60,13 +60,13 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
         return CatalogMapping.playlist(playlist)
     }
 
-    func addToPlaylist(playlistId: String, trackUris: [String]) async throws {
+    func addToPlaylist(playlistId: String, trackUris: [String], context _: PlaylistMutationContext) async throws {
         addCalls.append((playlistId, trackUris))
         if let addError { throw addError }
         try await park()
     }
 
-    func removeFromPlaylist(playlistId: String, uids: [String]) async throws {
+    func removeFromPlaylist(playlistId: String, uids: [String], context _: PlaylistMutationContext) async throws {
         removeCalls.append((playlistId, uids))
         if let removeError { throw removeError }
         try await park()

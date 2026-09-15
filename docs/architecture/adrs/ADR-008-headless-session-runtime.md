@@ -46,6 +46,11 @@ enrichment; playback command dispatch has its own lane. Read retries and uncerta
 distinct. Moving a private interface behind a target does
 not make that interface stable or officially supported.
 
+Playlist requests and authorized gateway writes use separate ports. A rendered account stamp must
+pass runtime admission to obtain the authorization required by the write port. Every gateway client
+rechecks that authorization at wire attempts, including clients supplied by a factory; production
+also checks after waiting for request capacity. No contextless or context-dropping fallback is supported.
+
 The production desktop uses this runtime in process, and the package does not maintain a custom XPC
 session transport or helper. Closing a window keeps the app and runtime alive; quitting terminates
 them. This does not provide playback after app termination or crash. The engine adapter remains the

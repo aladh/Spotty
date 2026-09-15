@@ -4,25 +4,24 @@ import Foundation
 /// authorizes that identity before the gateway begins validation or dispatches a wire attempt.
 public struct PlaylistMutationContext: Sendable {
     public let accountEpoch: UInt64
-    private let admission: PlaylistMutationAdmission?
+    public init(accountEpoch: UInt64) { self.accountEpoch = accountEpoch }
+}
 
-    public init(accountEpoch: UInt64) {
-        self.accountEpoch = accountEpoch
-        admission = nil
-    }
+/// Admission and a rendered account stamp are different capabilities. This value retains the
+/// live fence; it must be checked again at every wire attempt after asynchronous preparation.
+package struct PlaylistMutationAuthorization: Sendable {
+    private let accountEpoch: UInt64
+    private let admission: PlaylistMutationAdmission
 
-    package init(accountEpoch: UInt64, admission: PlaylistMutationAdmission) {
+    fileprivate init(accountEpoch: UInt64, admission: PlaylistMutationAdmission) {
         self.accountEpoch = accountEpoch
         self.admission = admission
     }
 
-    /// This is the dispatch boundary, not a promise that a previously dispatched write can be
-    /// undone. Each retry must check again after any credential or request-capacity suspension.
+    /// Authorization is the dispatch boundary, not a promise that a sent write can be undone.
     package func authorizeDispatch() throws {
         try Task.checkCancellation()
-        guard let admission, admission.allows(accountEpoch: accountEpoch) else {
-            throw CancellationError()
-        }
+        guard admission.allows(accountEpoch: accountEpoch) else { throw CancellationError() }
     }
 }
 
@@ -49,8 +48,8 @@ package final class PlaylistMutationAdmission: @unchecked Sendable {
         }
     }
 
-    package func authorize(_ context: PlaylistMutationContext) throws -> PlaylistMutationContext {
-        let authorized = PlaylistMutationContext(accountEpoch: context.accountEpoch, admission: self)
+    package func authorize(_ context: PlaylistMutationContext) throws -> PlaylistMutationAuthorization {
+        let authorized = PlaylistMutationAuthorization(accountEpoch: context.accountEpoch, admission: self)
         try authorized.authorizeDispatch()
         return authorized
     }

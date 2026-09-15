@@ -2,6 +2,6 @@
   "name": "spotty-agent-review-tests",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test && python3 -m unittest discover -s . -p '*_test.py'" },
+  "scripts": { "test": "python3 -B ../script_tests.py review" },
   "devDependencies": { "@actions/expressions": "0.3.61" }
 }

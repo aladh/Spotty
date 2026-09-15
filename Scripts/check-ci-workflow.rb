@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # Parse topology first; report each protected invariant separately. Additional non-macOS lanes are allowed.
 require 'yaml'
+require 'json'
 
 workflow = YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], aliases: true)
 jobs = workflow.fetch('jobs')
@@ -18,9 +19,38 @@ check.call(policy_commands.include?('git show "$INPUT_BASE_SHA:Scripts/ci_rust_p
 check.call(policy_commands.include?('python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA" >> "$GITHUB_OUTPUT"'), 'trusted-policy execution must receive event and base and publish its outputs')
 policy_script = File.read(File.join(__dir__, 'check-source-policy.sh'))
 check.call(policy_script.include?('"$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift'), 'local source scan must cover every policy root')
-check.call(policy_script.include?("python3 -B -m unittest discover -s Scripts -p 'test_*policy.py'"), 'source policy script must run the Python policy fixtures')
+policy_lines = policy_script.lines.map(&:strip)
+check.call(policy_lines.include?('python3 -B Scripts/script_tests.py policy'), 'source policy script must run the Python policy fixtures')
+check.call(policy_lines.include?('npm test --prefix Scripts/agent-review-tests'), 'source policy script must run the Python and Node reviewer fixtures')
+check.call(policy_lines.include?('python3 -B Scripts/documentation_policy.py'), 'source policy script must enforce documentation size limits')
+review_package = JSON.parse(File.read(File.join(__dir__, 'agent-review-tests/package.json')))
+check.call(review_package.dig('scripts', 'test') == 'python3 -B ../script_tests.py review', 'npm test must run the complete reviewer suite')
 check.call(steps.any? { |s| s.fetch('uses', '').start_with?('ast-grep/action@') && s.dig('with', 'paths') == 'Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift' }, 'source scan must cover every policy root')
-check.call(runs.include?('./Scripts/check-source-policy.sh --test-only'), 'source policy fixtures must run')
+%w[policy playback_python].each do |id|
+  job = jobs.fetch(id, {})
+  check.call(!job.key?('if') && !job.key?('continue-on-error'), "#{id} tests must run unconditionally and fail the job")
+  check.call(job.fetch('steps', []).none? { |step| step.key?('continue-on-error') }, "#{id} test steps must propagate failures")
+end
+required_test_steps = {
+  'policy' => [
+    'npm ci --ignore-scripts --prefix Scripts/agent-review-tests',
+    './Scripts/check-source-policy.sh --test-only',
+  ],
+  'playback_python' => [
+    'python3 -B Scripts/script_tests.py watchdog',
+    'python3 -B Scripts/script_tests.py playback',
+  ],
+}
+required_test_steps.each do |job_id, commands|
+  job_steps = jobs.fetch(job_id, {}).fetch('steps', [])
+  positions = []
+  commands.each do |command|
+    matches = job_steps.select { |step| step['run'] == command }
+    check.call(matches.length == 1 && !matches.first.key?('if'), "#{job_id} must run #{command} once without a condition")
+    positions << job_steps.index(matches.first)
+  end
+  check.call(positions.none?(&:nil?) && positions == positions.sort, "#{job_id} test setup and execution must remain ordered")
+end
 linux = jobs.values.find { |j| j['container'].to_s.start_with?('swift:') }
 check.call(linux && linux.fetch('steps', []).any? { |s| s['run'] == 'swift build --target SpottyDomain' }, 'Linux must compile SpottyDomain')
 check.call(linux && linux.fetch('steps', []).any? { |s| s['run'] == 'swift test --filter SpottyDomainTests' }, 'Linux must run domain tests')
@@ -28,7 +58,7 @@ playback_python = jobs.fetch('playback_python', {})
 check.call(playback_python['name'] == 'Playback script checks' && playback_python['runs-on'] == 'ubuntu-latest', 'playback script checks must remain a portable Linux job')
 playback_runs = playback_python.fetch('steps', []).map { |s| s.fetch('run', '') }.join("\n")
 check.call(playback_runs.include?('apt-get install --no-install-recommends --yes zsh') && playback_runs.include?('zsh --version'), 'playback script checks must install their zsh fixture dependency')
-check.call(playback_python.fetch('steps', []).any? { |s| s['run'] == "python3 -B -m unittest discover -s Scripts -p 'test_playback_*.py'" }, 'Linux must run the playback script checks')
+check.call(playback_python.fetch('steps', []).any? { |s| s['run'] == 'python3 -B Scripts/script_tests.py playback' }, 'Linux must run the playback script checks')
 mac = jobs.fetch('macos', {})
 mac_steps = mac.fetch('steps', [])
 check.call(jobs.values.all? { |job| job['runs-on'].is_a?(String) && !job['runs-on'].include?('${{') }, 'CI runner selection must remain static')

@@ -206,7 +206,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertIn("name: Playback script checks", playback)
         self.assertIn("runs-on: ubuntu-latest", playback)
         self.assertIn("apt-get install --no-install-recommends --yes zsh", playback)
-        self.assertIn("run: python3 -B -m unittest discover -s Scripts -p 'test_playback_*.py'", playback)
+        self.assertIn("run: python3 -B Scripts/script_tests.py playback", playback)
         macos = workflow.split("  macos:\n", 1)[1]
         self.assertNotRegex(macos, r"(?m)^  [^ #\s]",
                             "macOS must remain the final CI job; update the job extractor if this changes")
@@ -292,7 +292,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
 class CheckScopeOwnershipTests(unittest.TestCase):
     def test_playback_source_checks_run_once_and_only_ci_compiled_scope_skips_them(self):
         script = (ROOT / "Scripts/check.sh").read_text()
-        python_check = "python3 -B -m unittest discover -s \"$project_root/Scripts\" -p 'test_playback_*.py'"
+        python_check = 'python3 -B "$project_root/Scripts/script_tests.py" playback'
         header_check = '"$project_root/Scripts/generate-c-header.sh" --check'
         scope_start = script.index('if [[ "$check_scope" != swift ]]; then')
         python_guard = script.index('if [[ "$check_scope" != rust-compiled ]]; then', scope_start)

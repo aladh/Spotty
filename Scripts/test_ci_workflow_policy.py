@@ -26,6 +26,8 @@ class WorkflowInvariantTests(unittest.TestCase):
             scripts.mkdir()
             for name in ('check-ci-workflow.rb', 'check-source-policy.sh', 'playback-candidate-needed.sh'):
                 shutil.copy2(ROOT / 'Scripts' / name, scripts / name)
+            (scripts / 'agent-review-tests').mkdir()
+            shutil.copy2(ROOT / 'Scripts/agent-review-tests/package.json', scripts / 'agent-review-tests')
             if script_edit:
                 name, old, new = script_edit
                 script = scripts / name
@@ -94,6 +96,52 @@ class WorkflowInvariantTests(unittest.TestCase):
                 result = self.check_workflow(variant)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('Swift Run checks must retain its 15-minute timeout', result.stderr)
+
+    def test_script_suites_cannot_be_removed_skipped_moved_or_made_optional(self):
+        for job_id, command in (
+            ('policy', 'npm ci --ignore-scripts --prefix Scripts/agent-review-tests'),
+            ('policy', './Scripts/check-source-policy.sh --test-only'),
+            ('playback_python', 'python3 -B Scripts/script_tests.py watchdog'),
+            ('playback_python', 'python3 -B Scripts/script_tests.py playback'),
+        ):
+            for mutation in ('remove', 'conditional', 'optional', 'move', 'duplicate', 'mask_failure'):
+                with self.subTest(command=command, mutation=mutation):
+                    variant = copy.deepcopy(self.workflow)
+                    job = variant['jobs'][job_id]
+                    step = next(s for s in job['steps'] if s.get('run') == command)
+                    if mutation in ('remove', 'move'):
+                        job['steps'].remove(step)
+                        if mutation == 'move':
+                            variant['jobs']['macos']['steps'].append(step)
+                    elif mutation == 'conditional':
+                        step['if'] = 'false'
+                    elif mutation == 'optional':
+                        step['continue-on-error'] = True
+                    elif mutation == 'duplicate':
+                        job['steps'].append(copy.deepcopy(step))
+                    else:
+                        step['run'] += ' || true'
+                    result = self.check_workflow(variant)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn(job_id, result.stderr)
+        for job_id in ('policy', 'playback_python'):
+            for key in ('if', 'continue-on-error'):
+                with self.subTest(job=job_id, key=key):
+                    variant = copy.deepcopy(self.workflow)
+                    variant['jobs'][job_id][key] = True
+                    result = self.check_workflow(variant)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('tests must run unconditionally', result.stderr)
+
+    def test_reviewer_dependencies_must_be_installed_before_execution(self):
+        variant = copy.deepcopy(self.workflow)
+        steps = variant['jobs']['policy']['steps']
+        install = next(s for s in steps if s.get('run') == 'npm ci --ignore-scripts --prefix Scripts/agent-review-tests')
+        steps.remove(install)
+        steps.append(install)
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('test setup and execution must remain ordered', result.stderr)
 
 
     def test_trusted_policy_and_candidate_bindings_are_preserved(self):
@@ -284,7 +332,10 @@ class WorkflowInvariantTests(unittest.TestCase):
         cases = [
             ('check-source-policy.sh', 'scan --config sgconfig.yml Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift',
              'scan --config sgconfig.yml Sources', 'local source scan must cover'),
-            ('check-source-policy.sh', "-p 'test_*policy.py'", "-p 'missing*.py'", 'Python policy fixtures'),
+            ('check-source-policy.sh', 'python3 -B Scripts/script_tests.py policy', 'true', 'Python policy fixtures'),
+            ('check-source-policy.sh', 'npm test --prefix Scripts/agent-review-tests', 'true', 'Python and Node reviewer fixtures'),
+            ('check-source-policy.sh', 'python3 -B Scripts/documentation_policy.py', 'true', 'documentation size limits'),
+            ('agent-review-tests/package.json', 'python3 -B ../script_tests.py review', 'node --test', 'complete reviewer suite'),
             ('playback-candidate-needed.sh', './Backend/spotty-playback/source-input-digest.sh)',
              'echo stale)', 'compute the engine source input digest'),
             ('playback-candidate-needed.sh', 'echo "candidate_needed=$candidate_needed"',

@@ -82,12 +82,10 @@ jobs:
           config: sgconfig.yml
           paths: Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift
 
-      - name: Check reviewer event behavior
-        run: |
-          npm ci --ignore-scripts --prefix Scripts/agent-review-tests
-          npm test --prefix Scripts/agent-review-tests
+      - name: Install reviewer test dependencies
+        run: npm ci --ignore-scripts --prefix Scripts/agent-review-tests
 
-      - name: Check rule fixtures and policy owners
+      - name: Run source and script tests
         run: ./Scripts/check-source-policy.sh --test-only
 
   # SpottyDomain is portable, Foundation-only policy. Compiling and testing it on Linux is what
@@ -127,7 +125,7 @@ jobs:
           persist-credentials: false
 
       - name: Run Swift test watchdog checks
-        run: python3 -B -m unittest Scripts/test_swift_test_watchdog.py
+        run: python3 -B Scripts/script_tests.py watchdog
 
       - name: Install playback script dependencies
         run: |
@@ -136,7 +134,7 @@ jobs:
           zsh --version
 
       - name: Run playback script checks
-        run: python3 -B -m unittest discover -s Scripts -p 'test_playback_*.py'
+        run: python3 -B Scripts/script_tests.py playback
 
   macos:
     name: macOS checks

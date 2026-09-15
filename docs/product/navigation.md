@@ -34,11 +34,12 @@
   credential failure must not expose another account's content or silently turn a failed
   authorization into cached success. This does not provide offline sign-in or downloaded music.
 - Artist pages use Spotify's full-width banner when available, a large artist name, and known
-  verification and monthly-listener facts. Missing banners use a tinted portrait header; missing
-  statistics or verification are omitted. The hero, Popular tracks, and Discography share one
-  native scroll area with Play and shuffle controls and a compact title and Play action when scrolled. Popular initially shows
-  five ranked 56-point rows, expandable to the returned set, with track artwork, title, play count,
-  and duration. Narrow layouts hide play counts to keep titles and durations usable. Unavailable
+  verification and monthly-listener facts. Missing banners use a tinted header, showing a portrait
+  when artwork is known; missing statistics or verification are omitted. The hero, Popular tracks,
+  and Discography share one native scroll area with Play and shuffle controls and a compact title
+  and Play action when scrolled. Popular initially shows up to five ranked 56-point rows, expandable
+  to the returned set, with track artwork, title, duration, and play count when available.
+  Narrow layouts hide play counts to keep titles and durations usable. Unavailable
   tracks remain labeled and cannot start playback. Native selection, Return, and double-click
   retain the shared table behavior. Discography offers returned popular releases and filters for
   known albums, singles/EPs, and compilations, with year/type labels and Show all expansion.

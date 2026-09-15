@@ -45,7 +45,7 @@ replacing the published engine. Packaging and Swift checks need no Rust tools.
 
 [Script-test discovery](../../Scripts/script_tests.py) owns Python and Node suite routing for local
 and CI gates. Name Python tests `test_*.py`, `*_test.py`, or `test.py`; keep helpers outside those
-names. New top-level tests in `Scripts/` join the policy lane unless playback or watchdog owns them.
+names. New top-level Python tests in `Scripts/` join the policy lane unless playback or watchdog owns them.
 Review tests live directly in `Scripts/agent-review-tests/`. Recognized test
 files outside these owners and empty suites fail instead of being silently skipped.
 

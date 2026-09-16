@@ -53,7 +53,11 @@ struct NavigationSearchField: NSViewRepresentable {
         }
 
         func blur() {
-            if let field, field.currentEditor() != nil { field.window?.makeFirstResponder(nil) }
+            if let field, let window = field.window,
+                window.firstResponder === field || field.currentEditor() != nil
+            {
+                window.makeFirstResponder(nil)
+            }
             isFocused = false
         }
 

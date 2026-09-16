@@ -49,5 +49,8 @@ struct NavigationSearchFieldChecks {
         #expect(controller.isFocused, "native focus updates styling before the first edit")
         #expect(activations == 2)
         controller.blur()
+        #expect(window.firstResponder !== field)
+        #expect(field.currentEditor() == nil)
+        #expect(!controller.isFocused)
     }
 }

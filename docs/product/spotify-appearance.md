@@ -22,8 +22,8 @@ Album references from the same Spotify version were inspected on **2026-09-15**:
 rest and scrolled with a selected row, and **Sun & Moon (Downtempo Version)** at rest. Their large
 artwork/title hierarchy, inline release summary, numbered two-line track rows, and compact scrolled
 header inform the [album presentation contract](navigation.md#window-and-navigation-behavior).
-Spotty omits Spotify's play-count column and unsupported save/download controls; these references
-do not establish full feature or visual parity.
+Spotty shows known play counts, hiding them at narrow widths, and omits unsupported save/download
+controls. These references do not establish full feature or visual parity.
 
 Artist reference: Spotify desktop **1.3.0.277**, **Dan be**, inspected on **2026-09-15** at rest
 and scrolled through Popular and Discography. The full-width photographic banner, oversized artist

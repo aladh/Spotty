@@ -1,12 +1,6 @@
 import SpottyDomain
 import SwiftUI
 
-private struct SearchLoadIdentity: Equatable {
-    let query: String
-    let accountEpoch: UInt64
-    let isConnected: Bool
-}
-
 struct SearchView: View {
     let store: SearchStore
     let playback: CatalogPlaybackAccess
@@ -91,12 +85,8 @@ struct SearchView: View {
             }
         }
         .navigationTitle("Search")
-        .task(
-            id: SearchLoadIdentity(
-                query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
-                accountEpoch: playback.accountEpoch,
-                isConnected: playback.isConnected
-            )
+        .catalogTask(
+            id: searchText.trimmingCharacters(in: .whitespacesAndNewlines), playback: playback
         ) {
             guard playback.isConnected else { return }
             await store.scheduleSearch(searchText)
@@ -164,7 +154,7 @@ struct LibraryView: View {
             }
         }
         .navigationTitle(title)
-        .task(id: playback.accountEpoch) {
+        .catalogTask(id: title, playback: playback) {
             guard playback.isConnected else { return }
             await reload()
         }

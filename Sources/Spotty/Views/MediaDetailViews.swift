@@ -1,12 +1,6 @@
 import SpottyDomain
 import SwiftUI
 
-struct MediaDetailLoadIdentity: Equatable {
-    let uri: String
-    let accountEpoch: UInt64
-    let isConnected: Bool
-}
-
 struct AlbumDetailView: View {
     let item: CatalogItem
     let store: AlbumDetailStore
@@ -34,13 +28,7 @@ struct AlbumDetailView: View {
             }
         }
         .navigationTitle(displayedItem.title)
-        .task(
-            id: MediaDetailLoadIdentity(
-                uri: item.uri,
-                accountEpoch: playback.accountEpoch,
-                isConnected: playback.isConnected
-            )
-        ) {
+        .catalogTask(id: item.uri, playback: playback) {
             await store.load(item)
         }
     }

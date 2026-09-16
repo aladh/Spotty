@@ -59,6 +59,10 @@ if [[ ! -d "$swift_bin_path" ]]; then
     exit 1
 fi
 
+# Match the compiled module's package access; SwiftPM normalizes checkout identities differently
+# from the declared Package name. Missing or inconsistent build metadata must fail closed.
+package_identity="$(python3 "$project_root/Scripts/swift_package_identity.py" "$swift_bin_path")"
+
 # Xcode's SwiftPM build system selects the active Xcode SDK for its Products modules,
 # even when the shell SDKROOT points at a compatible command-line SDK. Match that build.
 if [[ -d "$swift_bin_path/SpottyCore.swiftmodule" ]]; then
@@ -153,7 +157,7 @@ print "PlaybackStore compiler access contract passed: positive reads and ${#nega
 
 # First compile the same desktop import with no selected negative. A missing module or broken
 # dependency must never be mistaken for evidence that its concrete implementation is hidden.
-package_arguments=("${swift_arguments[@]}" -package-name spotty)
+package_arguments=("${swift_arguments[@]}" -package-name "$package_identity")
 "$swiftc_path" "${package_arguments[@]}" "$desktop_negative_fixture"
 desktop_negative_flags=("${(@f)$(awk '/^[[:space:]]*#(if|elseif) NEG_[A-Z_]+$/ { print $2 }' "$desktop_negative_fixture")}")
 if (( ${#desktop_negative_flags} == 0 )) || [[ -z "${desktop_negative_flags[1]}" ]]; then

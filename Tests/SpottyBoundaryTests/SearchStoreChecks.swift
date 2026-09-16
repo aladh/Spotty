@@ -71,6 +71,42 @@ private func commitImmediateSearch(
 
 @Suite("Search Store")
 struct SearchStoreTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    func emptyQueryPresentationWaitsForDebounceAndTheActualResponse(fails: Bool) async throws {
+        let provider = HarnessCatalog()
+        let response = HarnessClock.parked()
+        provider.onSearchTracks = { _, _ in
+            try await response.sleep(seconds: 1)
+            if fails { throw HarnessFailure.unavailable }
+            return []
+        }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let clock = HarnessClock.parked()
+        let store = makeStore(provider: provider, session: session, clock: clock)
+        #expect(!store.isAwaitingResults(for: "  "))
+        #expect(store.isAwaitingResults(for: "first"), "a typed query is pending before the view task starts")
+
+        let search = Task { await store.scheduleSearch(" first ") }
+        defer { clock.releaseAll(); response.releaseAll() }
+        try await requireEventually { clock.waiterCount == 1 }
+        #expect(store.isAwaitingResults(for: "first"))
+        #expect(provider.searchTrackRequestCount == 0)
+        clock.releaseNext()
+        try await requireEventually { response.waiterCount == 1 }
+        #expect(store.isAwaitingResults(for: "first"))
+        response.releaseNext()
+        await search.value
+        #expect(store.isEmpty)
+        #expect(!store.isAwaitingResults(for: " first "))
+        #expect((store.error != nil) == fails)
+        #expect(store.isAwaitingResults(for: "second"), "an older empty result cannot describe the next query")
+        store.reset()
+        #expect(store.isAwaitingResults(for: "first"))
+        session.update(accountEpoch: 1, isAvailable: false)
+        #expect(!store.isAwaitingResults(for: "first"), "disconnected UI takes precedence over pending search")
+    }
+
     @Test
     @MainActor
     func testSearchStore() async {
@@ -206,6 +242,7 @@ struct SearchStoreTests {
             await gate.completeNext(.tracks([second]))
             await stale.value
             #expect((store.isEmpty) == true, "a stale success does not publish")
+            #expect(store.isAwaitingResults(for: "delta"), "a stale success cannot establish an empty result")
             #expect((!store.isSearching) == true, "a stale success is not left searching")
         }
 

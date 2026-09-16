@@ -25,6 +25,7 @@ final class SearchStore {
     private(set) var playlists: [CatalogItem] = []
     private(set) var errors: [Section: String] = [:]
     private(set) var isSearching = false
+    private var completedQuery: String?
 
     // Compatibility projections retained for the small boundary-check executable.
     var error: String? {
@@ -34,6 +35,13 @@ final class SearchStore {
         Section.allCases.filter { self.errors[$0] != nil }
     }
     var isEmpty: Bool { tracks.isEmpty && albums.isEmpty && artists.isEmpty && playlists.isEmpty }
+
+    /// Empty results are meaningful only after this query has completed. Debounce still
+    /// preserves existing rows, but must not briefly label an unrequested query "No results".
+    func isAwaitingResults(for term: String) -> Bool {
+        let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        return session.isAvailable && !query.isEmpty && (isSearching || completedQuery != query)
+    }
 
     /// Delay before a view-driven query is admitted. Try Again calls `search`
     /// directly and must not wait this interval again.
@@ -128,6 +136,7 @@ final class SearchStore {
                 group.addTask { await self.loadArtists(query, handle: handle) }
                 group.addTask { await self.loadPlaylists(query, handle: handle) }
             }
+            if self.flight.isCurrent(handle) { self.completedQuery = query }
         }
         if flight.owns(handle) {
             isSearching = false
@@ -185,6 +194,7 @@ final class SearchStore {
     }
 
     private func clearResults() {
+        completedQuery = nil
         trackCollection.replace([])
         albums = []
         artists = []

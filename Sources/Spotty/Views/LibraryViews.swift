@@ -23,7 +23,8 @@ struct SearchView: View {
                 .padding(CatalogLayout.contentPadding)
             } else {
                 CatalogContentState(
-                    isLoading: store.isSearching, isEmpty: store.isEmpty || query.isEmpty, error: store.error,
+                    isLoading: store.isAwaitingResults(for: query), isEmpty: store.isEmpty || query.isEmpty,
+                    error: store.error,
                     loadingLabel: "Searching Spotify", errorTitle: "Couldn't search Spotify",
                     errorIcon: "exclamationmark.magnifyingglass", placeholderPadding: CatalogLayout.contentPadding,
                     connection: playback,

@@ -64,7 +64,9 @@ struct CatalogContentState<Empty: View, Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        if isLoading && isEmpty {
+        if let connection, let label = connection.connectionLoadingLabel, isEmpty || disconnectOverridesContent {
+            LoadingState(label: label).padding(placeholderPadding)
+        } else if isLoading && isEmpty {
             LoadingState(label: loadingLabel).padding(placeholderPadding)
         } else if let connection, !connection.isConnected, isEmpty || disconnectOverridesContent {
             EmptyState(

@@ -6,8 +6,9 @@
 
 ### Navigation and retained content
 
-- New windows start on Home with search unfocused. Navigation is not restored across launches.
-  Playlists open from the sidebar, without a separate playlist-grid destination.
+- New windows open Home with Search unfocused; navigation resets across launches.
+  Show loading while checking saved login; offer Connect only when sign-in is needed.
+  Playlists open from the sidebar, without a playlist-grid destination.
 - Same-account revisits restore retained playlist, album, and artist content immediately. Playlists
   retain search, table sort, occurrence selection, and scroll. Artists retain scroll, Popular selection and
   expansion, and discography filters, sort, layout and list scroll. Filtering clears hidden selections; removed occurrences never

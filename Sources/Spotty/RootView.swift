@@ -90,6 +90,7 @@ struct RootView: View {
                 NavigationBar(
                     searchText: $navigation.searchText,
                     isHome: selection == .destination(.home),
+                    isSearch: selection == .destination(.search),
                     goHome: { navigation.updateSelection(.destination(.home)) },
                     showSearch: { navigation.updateSelection(.destination(.search)) }
                 )

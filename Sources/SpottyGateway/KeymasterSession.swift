@@ -40,14 +40,40 @@ actor KeymasterSession {
     /// Clears Spotify authentication cookies from the jar the token exchange uses.
     /// Injected so Sign Out cleanup can be checked without mutating the process-wide store.
     private let cookieCleanup: @Sendable () -> Void
-    private var tokens: KeymasterTokens?
+    private enum Grant {
+        case usable(KeymasterTokens)
+        case pendingRotation(KeymasterTokens)
+
+        var tokens: KeymasterTokens {
+            switch self {
+            case .usable(let tokens), .pendingRotation(let tokens): tokens
+            }
+        }
+
+        var unpersistedRotation: KeymasterTokens? {
+            guard case .pendingRotation(let tokens) = self else { return nil }
+            return tokens
+        }
+
+        func replacingTokens(_ tokens: KeymasterTokens) -> Grant {
+            switch self {
+            case .usable: .usable(tokens)
+            case .pendingRotation: .pendingRotation(tokens)
+            }
+        }
+    }
+
+    /// A completed rotation owns the replacement even if disk publication fails. The spent
+    /// refresh token must never become the rollback value for the next request.
+    private var grant: Grant?
+    private var tokens: KeymasterTokens? { grant?.tokens }
     private var loadFailure: KeymasterGrantLoadResult?
     /// Removal owns its result independently of a later adoption attempt. A failed adoption
     /// cannot hide successful deletion; only a newer clear or durable adoption supersedes this owner.
     private var pendingRemovalGeneration: Int?
     /// A replacement grant is kept private until its durable save succeeds. Reads that could
     /// refresh or expose credentials wait for this bounded worker operation rather than racing a
-    /// newer sign-in with the still-committed grant.
+    /// newer sign-in with the previous grant.
     private var adoptionInFlight: Int?
     private var adoptionCompletion: KeymasterPersistenceReceipt<Void>?
     private var hasLoadedStore = false
@@ -165,17 +191,17 @@ actor KeymasterSession {
             _ = try? await refreshInFlight.value
         }
         await waitForAdoption()
-        guard generation == requestedGeneration, let current = tokens else { return }
+        guard generation == requestedGeneration, let currentGrant = grant else { return }
 
         supersedeRefresh()
         let startedAt = generation
-        var marked = current
+        var marked = currentGrant.tokens
         marked.requiresReauthentication = true
         // Keep the in-memory marker visible while the save is pending. A refresh that starts
         // during this await then carries the marker forward instead of overwriting it with a
         // response built from the old in-memory grant. A failed marker write remains actionable
         // for this process; a fresh adoption or explicit grant clear is required to change it.
-        tokens = marked
+        grant = currentGrant.replacingTokens(marked)
         let receipt = persistence.submitSave(marked)
         let result = await receipt.value()
         guard generation == startedAt else { return }
@@ -184,6 +210,11 @@ actor KeymasterSession {
                 "\(KeymasterGrantPersistenceDiagnostics.saveFailed, privacy: .public)"
             )
             return
+        }
+        // A concurrent refresh may already own a newer rotation. This save commits only the
+        // exact pending payload it wrote, never a replacement received while it was suspended.
+        if grant?.unpersistedRotation == marked {
+            grant = .usable(marked)
         }
     }
 
@@ -234,7 +265,7 @@ actor KeymasterSession {
     /// `hasLoadedStore` first, so a stale snapshot is discarded.
     private func applyLoadedGrant(_ result: KeymasterGrantLoadResult, startedAt: Int) {
         guard generation == startedAt, !hasLoadedStore else { return }
-        tokens = result.tokens
+        grant = result.tokens.map(Grant.usable)
         loadFailure =
             switch result {
             case .denied, .failed: result
@@ -269,10 +300,9 @@ actor KeymasterSession {
             throw error
         }
         guard generation == startedAt, adoptionInFlight == startedAt else { return }
-        // Commit memory only after the worker confirms the durable replacement. This leaves the
-        // last committed grant available while a save is blocked and avoids rolling back to a
-        // newer grant that never reached the store when two saves fail in succession.
-        tokens = committed
+        // Replace the previous grant only after the durable save. Failed adoption also preserves
+        // a completed rotation awaiting persistence, so rollback cannot resurrect a spent token.
+        grant = .usable(committed)
         loadFailure = nil
         pendingRemovalGeneration = nil
         adoptionInFlight = nil
@@ -288,7 +318,7 @@ actor KeymasterSession {
         adoptionCompletion = nil
         supersededAdoption?.resolve(())
         let expectedGeneration = generation
-        tokens = nil
+        grant = nil
         loadFailure = nil
         pendingRemovalGeneration = expectedGeneration
         let receipt = persistence.submitClear()
@@ -332,7 +362,11 @@ actor KeymasterSession {
     /// do anything at all, and "not authorized yet" is a state the UI already handles.
     func accessToken(now: Date = Date()) async throws -> String {
         await ensureGrantVisible()
-        guard let current = tokens else {
+        // Join the same flight for persistence retries, rechecking after each suspension.
+        while let pending = grant?.unpersistedRotation {
+            _ = try await refreshed(from: pending)
+        }
+        guard case .usable(let current) = grant else {
             throw KeymasterSessionError.noGrant
         }
 
@@ -340,7 +374,7 @@ actor KeymasterSession {
             do {
                 return try await refreshed(from: current).accessToken
             } catch KeymasterSessionError.noGrant {
-                if let tokens, !tokens.needsRefresh(now: now) {
+                if case .usable(let tokens) = grant, !tokens.needsRefresh(now: now) {
                     return tokens.accessToken
                 }
                 throw KeymasterSessionError.noGrant
@@ -361,7 +395,10 @@ actor KeymasterSession {
     /// once.
     func refreshIgnoringExpiry(rejected: String) async throws -> String {
         await ensureGrantVisible()
-        guard let current = tokens else {
+        while let pending = grant?.unpersistedRotation {
+            _ = try await refreshed(from: pending)
+        }
+        guard case .usable(let current) = grant else {
             throw KeymasterSessionError.noGrant
         }
         guard current.accessToken == rejected else {
@@ -370,7 +407,7 @@ actor KeymasterSession {
         do {
             return try await refreshed(from: current).accessToken
         } catch KeymasterSessionError.noGrant {
-            if let tokens, tokens.accessToken != rejected {
+            if case .usable(let tokens) = grant, tokens.accessToken != rejected {
                 return tokens.accessToken
             }
             throw KeymasterSessionError.noGrant
@@ -410,6 +447,10 @@ actor KeymasterSession {
     }
 
     private func commitRefresh(from current: KeymasterTokens, startedAt: Int) async throws -> KeymasterTokens {
+        guard startedAt == generation else { throw KeymasterSessionError.noGrant }
+        if let pending = grant?.unpersistedRotation {
+            return try await persistRotation(pending, startedAt: startedAt)
+        }
         let renewed: KeymasterTokens
         do {
             renewed = try await refresher(current.refreshToken)
@@ -456,8 +497,13 @@ actor KeymasterSession {
         }
         merged.requiresReauthentication = current.requiresReauthentication
 
+        grant = .pendingRotation(merged)
+        return try await persistRotation(merged, startedAt: startedAt)
+    }
+
+    private func persistRotation(_ rotated: KeymasterTokens, startedAt: Int) async throws -> KeymasterTokens {
         do {
-            let receipt = persistence.submitSave(merged)
+            let receipt = persistence.submitSave(rotated)
             let result = await receipt.value()
             try result.get()
         } catch {
@@ -469,8 +515,8 @@ actor KeymasterSession {
         guard startedAt == generation else {
             throw KeymasterSessionError.noGrant
         }
-        tokens = merged
-        return merged
+        grant = .usable(rotated)
+        return rotated
     }
 
     /// Clears a revoked grant only if the refresh that discovered the revocation still owns the

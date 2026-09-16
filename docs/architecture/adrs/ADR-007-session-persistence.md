@@ -19,6 +19,9 @@ serializes store operations across processes, and a fixed staging file is reclai
 reauthentication marker, and account-lifetime checks. Missing, denied, and corrupt sessions remain
 distinct outcomes.
 
+Completed token rotations remain private until saved. A failed save retains the returned grant for
+persistence retry so the spent refresh token cannot be reused.
+
 Do not read, migrate, or modify old Keychain entries. Upgrading requires one browser authorization;
 subsequent launches restore the file. Sign Out fences the grant immediately and reports failed file
 removal. A failed removal stays fenced in this process until deletion succeeds or a new grant is

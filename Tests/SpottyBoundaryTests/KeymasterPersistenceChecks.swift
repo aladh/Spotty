@@ -35,6 +35,105 @@ struct KeymasterPersistenceTests {
         #expect(cookies.withLock { $0 } == 0)
     }
 
+    @Test(arguments: [false, true]) @MainActor
+    func failedRotationSaveRetriesPersistenceWithoutSpendingTheOldTokenAgain(forced: Bool) async throws {
+        let store = RecordingTokenStore()
+        let spent = Mutex<[String]>([])
+        let session = KeymasterSession(
+            store: store,
+            refresher: { refresh in
+                let count = spent.withLock { values in
+                    values.append(refresh)
+                    return values.count
+                }
+                return persistenceGrant(access: "rotated-\(count)", refresh: "replacement-\(count)")
+            }, cookieCleanup: {})
+        try await session.adopt(
+            persistenceGrant(access: "original-access", refresh: "original-refresh", expiresAt: .distantPast))
+        store.failSaves = true
+        for _ in 0..<2 {
+            await #expect(throws: PersistenceSaveFailure.rejected) {
+                if forced {
+                    _ = try await session.refreshIgnoringExpiry(rejected: "original-access")
+                } else {
+                    _ = try await session.accessToken()
+                }
+            }
+        }
+        store.failSaves = false
+
+        let token =
+            if forced { try await session.refreshIgnoringExpiry(rejected: "original-access") } else {
+                try await session.accessToken()
+            }
+
+        #expect(token == "rotated-1")
+        #expect(spent.withLock { $0 } == ["original-refresh"])
+        #expect(store.stored?.refreshToken == "replacement-1")
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func pendingRotationSurvivesFailedAdoptionAndMarkerWrites(markReauthentication: Bool) async throws {
+        let store = RecordingTokenStore()
+        let spends = Mutex(0)
+        let rotated = persistenceGrant(access: "rotated", refresh: "rotated-refresh")
+        let session = KeymasterSession(
+            store: store,
+            refresher: { _ in
+                spends.withLock { $0 += 1 }
+                return rotated
+            }, cookieCleanup: {})
+        try await session.adopt(
+            persistenceGrant(access: "old", refresh: "old-refresh", expiresAt: .distantPast))
+        store.failSaves = true
+        await #expect(throws: PersistenceSaveFailure.rejected) { try await session.accessToken() }
+
+        if markReauthentication {
+            await session.markReauthenticationRequired()
+        } else {
+            await #expect(throws: PersistenceSaveFailure.rejected) {
+                try await session.adopt(persistenceGrant(access: "unsaved-sign-in", refresh: "unsaved-sign-in-refresh"))
+            }
+        }
+        store.failSaves = false
+
+        #expect(try await session.accessToken() == rotated.accessToken)
+        #expect(spends.withLock { $0 } == 1)
+        #expect(store.stored?.refreshToken == rotated.refreshToken)
+        #expect(store.stored?.requiresReauthentication == markReauthentication)
+        #expect(await session.reauthenticationRequired() == markReauthentication)
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func accountReplacementOwnsPersistenceAfterALateRotationSaveFailure(adopt: Bool) async throws {
+        let original = persistenceGrant(access: "old", refresh: "old-refresh", expiresAt: .distantPast)
+        let store = GatedPersistenceStore(stored: original, failFirstSave: true)
+        let session = KeymasterSession(
+            store: store,
+            refresher: { _ in persistenceGrant(access: "stale-rotation", refresh: "stale-rotation-refresh") },
+            cookieCleanup: {})
+        let generation = await session.credentialGeneration
+        let refresh = Task { try await session.accessToken(expectedGeneration: generation) }
+        await store.waitUntilFirstSaveEntered()
+        let replacement = persistenceGrant(access: "new-account", refresh: "new-account-refresh")
+        let transition = Task {
+            if adopt { try await session.adopt(replacement) } else { #expect(await session.clear()) }
+        }
+        #expect(await waitUntil { await session.credentialGeneration != generation })
+
+        store.releaseFirstSave()
+        await #expect(throws: KeymasterSessionError.noGrant) { try await refresh.value }
+        try await transition.value
+
+        if adopt {
+            #expect(try await session.accessToken() == replacement.accessToken)
+            #expect(store.stored == replacement)
+        } else {
+            await #expect(throws: KeymasterSessionError.noGrant) { try await session.accessToken() }
+            #expect(store.stored == nil)
+        }
+    }
+
     @Test @MainActor
     func lateRemovalFailureDoesNotFenceAReplacementGrantOrClearItsCookies() async throws {
         let store = GatedPersistenceStore(failClear: true)
@@ -200,11 +299,21 @@ private func persistenceGrant(access: String, refresh: String, expiresAt: Date =
 private final class RecordingTokenStore: KeymasterTokenStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var value: KeymasterTokens?
+    private var rejectSaves = false
+    var failSaves: Bool {
+        get { lock.withLock { rejectSaves } }
+        set { lock.withLock { rejectSaves = newValue } }
+    }
     var stored: KeymasterTokens? { lock.withLock { value } }
     func loadResult() -> KeymasterGrantLoadResult {
         lock.withLock { value.map(KeymasterGrantLoadResult.found) ?? .absent }
     }
-    func save(_ tokens: KeymasterTokens) throws { lock.withLock { value = tokens } }
+    func save(_ tokens: KeymasterTokens) throws {
+        try lock.withLock {
+            if rejectSaves { throw PersistenceSaveFailure.rejected }
+            value = tokens
+        }
+    }
     func clear() { lock.withLock { value = nil } }
 }
 
@@ -253,11 +362,17 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
     private let firstSaveGate = DispatchSemaphore(value: 0)
     private let clearGate = DispatchSemaphore(value: 0)
     private let failClear: Bool
+    private let failFirstSave: Bool
     private let parkClear: Bool
     private let failReplacementSave: Bool
     let clearEntered = KeymasterPersistenceReceipt<Void>()
 
-    init(failClear: Bool = false, parkClear: Bool = false, failReplacementSave: Bool = false) {
+    init(
+        stored: KeymasterTokens? = nil, failFirstSave: Bool = false, failClear: Bool = false,
+        parkClear: Bool = false, failReplacementSave: Bool = false
+    ) {
+        value = stored
+        self.failFirstSave = failFirstSave
         self.failClear = failClear
         self.parkClear = parkClear || failClear
         self.failReplacementSave = failReplacementSave
@@ -286,6 +401,7 @@ private final class GatedPersistenceStore: KeymasterTokenStoring, @unchecked Sen
 
         if isFirstSave {
             firstSaveGate.wait()
+            if failFirstSave { throw PersistenceSaveFailure.rejected }
         } else if failReplacementSave {
             throw PersistenceSaveFailure.rejected
         }

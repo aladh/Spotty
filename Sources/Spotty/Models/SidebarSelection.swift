@@ -12,6 +12,7 @@ enum SidebarSelection: Hashable {
     case playlist(String)
     case album(String)
     case artist(String)
+    case discography(String)
 }
 
 extension SidebarSelection: RawRepresentable {
@@ -22,6 +23,8 @@ extension SidebarSelection: RawRepresentable {
             self = .album(String(rawValue.dropFirst("album:".count)))
         } else if rawValue.hasPrefix("artist:") {
             self = .artist(String(rawValue.dropFirst("artist:".count)))
+        } else if rawValue.hasPrefix("discography:") {
+            self = .discography(String(rawValue.dropFirst("discography:".count)))
         } else if rawValue.hasPrefix("destination:"),
             let destination = SidebarDestination(
                 rawValue: String(rawValue.dropFirst("destination:".count))
@@ -43,6 +46,8 @@ extension SidebarSelection: RawRepresentable {
             "album:\(uri)"
         case let .artist(uri):
             "artist:\(uri)"
+        case let .discography(uri):
+            "discography:\(uri)"
         }
     }
 
@@ -54,6 +59,7 @@ extension SidebarSelection: RawRepresentable {
         case .playlist: "media:playlist"
         case .album: "media:album"
         case .artist: "media:artist"
+        case .discography: "media:discography"
         }
     }
 }

@@ -25,6 +25,7 @@ struct ArtistOverviewChecks {
         #expect(snapshot.releases.first?.subtitle == "2024 • Album")
         #expect(snapshot.releaseKinds?["spotify:album:popular"] == .ep)
         #expect(snapshot.releaseKinds?["spotify:album:release"] == .album)
+        #expect(snapshot.releaseDates?["spotify:album:release"]?.hasPrefix("2024") == true)
         let paged = artist.withDiscographyItems([])
         #expect(CatalogMapping.artist(paged).overview?.headerArtworkURL == overview.headerArtworkURL)
     }
@@ -66,6 +67,7 @@ struct ArtistOverviewChecks {
         #expect(store.popularTracks.tracks.isEmpty)
         store.prepare(selected)
         #expect(store.overview == profile.overview)
+        #expect(store.releaseDates == profile.releaseDates)
         #expect(store.popularTracks.version == version)
         #expect(store.artistTracks["spotify:track:second"]?.isPlayable == false)
         provider.onArtistSnapshot = { _ in throw HarnessFailure.unavailable }

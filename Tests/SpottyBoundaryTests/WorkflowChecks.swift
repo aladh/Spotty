@@ -539,7 +539,10 @@ struct WorkflowTests {
             kind: .artist
         )
 
+        albumStore.prepare(album)
+        #expect(!albumStore.hasLoadedContent)
         await albumStore.load(album)
+        #expect(albumStore.hasLoadedContent)
         await albumStore.load(album)
         await artistStore.load(artist)
         await artistStore.load(artist)

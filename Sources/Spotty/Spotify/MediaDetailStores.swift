@@ -35,7 +35,7 @@ final class AlbumDetailStore {
     @ObservationIgnored private let entityObservation: CatalogEntityObservation
     @ObservationIgnored private var loadedSession: CatalogSessionSnapshot?
     @ObservationIgnored private var contentEpoch: UInt64
-    @ObservationIgnored private var hasLoadedContent = false
+    private(set) var hasLoadedContent = false
 
     init(provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability) {
         self.provider = provider
@@ -207,6 +207,7 @@ final class ArtistDetailStore {
         let freshness: CatalogFreshness
         let overview: CatalogArtistOverview?
         let releaseKinds: [String: CatalogArtistReleaseKind]
+        let releaseDates: [String: String]
         let popularTracks: CatalogTrackCollection
         let popularPreview: CatalogTrackCollection
     }
@@ -215,6 +216,7 @@ final class ArtistDetailStore {
     private(set) var releases: [CatalogItem] = []
     private(set) var overview: CatalogArtistOverview?
     private(set) var releaseKinds: [String: CatalogArtistReleaseKind] = [:]
+    private(set) var releaseDates: [String: String] = [:]
     private(set) var popularTracks = CatalogTrackCollection()
     private(set) var popularPreview = CatalogTrackCollection()
     private(set) var artistTracks: [String: CatalogArtistPopularTrack] = [:]
@@ -310,6 +312,9 @@ final class ArtistDetailStore {
                     releaseKinds = (profile.releaseKinds ?? [:]).merging(allReleases.releaseKinds ?? [:]) { _, latest in
                         latest
                     }
+                    releaseDates = (profile.releaseDates ?? [:]).merging(allReleases.releaseDates ?? [:]) { _, latest in
+                        latest
+                    }
                     popularTracks.replace(overview?.popularTracks.map(\.track) ?? [])
                     popularPreview.replace(Array(popularTracks.tracks.prefix(5)))
                     updateArtistTracks()
@@ -322,7 +327,7 @@ final class ArtistDetailStore {
                     retained.store(
                         Snapshot(
                             item: item ?? selected, releases: releases, freshness: freshness,
-                            overview: overview, releaseKinds: releaseKinds,
+                            overview: overview, releaseKinds: releaseKinds, releaseDates: releaseDates,
                             popularTracks: popularTracks, popularPreview: popularPreview), for: selected.uri,
                         cost: releases.count + popularTracks.tracks.count, snapshot: handle.sessionSnapshot
                     )
@@ -346,6 +351,7 @@ final class ArtistDetailStore {
             releases = cached.value.releases
             overview = cached.value.overview
             releaseKinds = cached.value.releaseKinds
+            releaseDates = cached.value.releaseDates
             popularTracks = cached.value.popularTracks
             popularPreview = cached.value.popularPreview
             updateArtistTracks()
@@ -366,6 +372,7 @@ final class ArtistDetailStore {
     private func clearOverview() {
         overview = nil
         releaseKinds = [:]
+        releaseDates = [:]
         popularTracks.replace([])
         popularPreview.replace([])
         artistTracks = [:]

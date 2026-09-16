@@ -10,7 +10,7 @@
   Playlists open from the sidebar, without a separate playlist-grid destination.
 - Same-account revisits restore retained playlist, album, and artist content immediately. Playlists
   retain search, table sort, occurrence selection, and scroll. Artists retain scroll, Popular selection and
-  expansion, and the discography filter and expansion. Filtering clears hidden selections; removed occurrences never
+  expansion, and discography filters, sort, layout and list scroll. Filtering clears hidden selections; removed occurrences never
   regain selection. Account changes clear history and interaction state. Retention is bounded;
   evicted routes reload normally.
 - Track labels learned from playlists/albums update matching tracks in active and retained
@@ -40,8 +40,9 @@
 - Popular shows up to five ranked 56-point rows, expandable to the returned set. Rows have artwork,
   title, duration, and optional play count; hide counts at narrow widths. Label unavailable tracks
   and prevent their playback. Preserve native selection, Return, and double-click behavior.
-- Discography shows returned popular releases, filters for known albums, singles/EPs, and compilations, year/type
-  labels, and Show all expansion. Catalog reads do not add following, saving, or download controls.
+- Discography previews popular releases with type filters and year/type labels. Show all opens a history-aware
+  list/grid page with release filters and date/name sorting. Tracks load when visible without shifting other
+  content. No follow, save or download controls.
 
 ### Window and toolbar
 
@@ -50,7 +51,7 @@
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
   standard window controls, geometry, and hit targets; do not reposition them. Empty toolbar space
   drags the window and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
-  Home and Search controls stay 48 points high with breathing room and native Home focus indication.
+  Home/Search controls stay 48 points high with breathing room and native Home focus.
 - Closing a window leaves Spotty running in the Dock; Dock and standard Window commands reopen it.
   Sign Out remains in the Spotty menu while connecting or failed. Teardown drains accepted
   authorization persistence before clearing the grant.

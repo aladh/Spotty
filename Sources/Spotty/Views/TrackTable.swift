@@ -8,14 +8,6 @@ enum TrackTableVariant: Equatable {
     case album
     case artist
 
-    var initialSortOrder: [KeyPathComparator<TrackTableRow>] {
-        switch self {
-        case .catalog, .album, .artist:
-            []
-        case .playlist:
-            [KeyPathComparator(\TrackTableRow.dateAddedSortValue, order: .reverse)]
-        }
-    }
 }
 
 /// Shared occurrence projection for the directly owned native track tables.

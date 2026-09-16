@@ -128,13 +128,6 @@ struct TrackTableDisplayCacheTests {
             #expect(
                 (dateCache.rows.map(\.sourceIndex)) == ([2, 1, 0]),
                 "playlist source positions stay attached after sorting")
-            #expect(
-                (dateCache.rows.map { dateCache.displayPosition(for: $0) }) == ([1, 2, 3]),
-                "sorted playlist rows receive one-based display positions")
-            #expect(
-                (dateCache.rows.reduce(into: [Int: Int]()) { positions, row in
-                    positions[row.sourceIndex] = dateCache.displayPosition(for: row)
-                }) == ([2: 1, 1: 2, 0: 3]), "display positions map back to source occurrences")
             #expect((dateCache.update(dated, sortOrder: [])) == true, "clearing the projection restores source order")
             #expect(
                 (dated.tracks.map(\.id)) == (["undated", "old", "new"]),
@@ -144,9 +137,6 @@ struct TrackTableDisplayCacheTests {
             #expect(
                 (dateCache.rows.map(\.sourceIndex)) == ([0, 1, 2]),
                 "clearing sorting restores playlist source positions")
-            #expect(
-                (dateCache.rows.map { dateCache.displayPosition(for: $0) }) == ([1, 2, 3]),
-                "clearing sorting restores one-based display positions")
 
             let first = track(id: "uid-a", title: "Zebra")
             let second = CatalogTrack(

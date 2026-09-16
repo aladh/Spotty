@@ -192,7 +192,10 @@ struct NativeTrackTable: NSViewRepresentable {
         }
 
         private var selectedTracks: [CatalogTrack] {
-            PlaylistMutationSelection.orderedTracks(selectedIDs: content.selection, in: displayedRows.map(\.track))
+            guard let table = container?.table else { return [] }
+            return table.selectedRowIndexes.compactMap { row in
+                displayedRows.indices.contains(row) ? displayedRows[row].track : nil
+            }
         }
 
         @objc private func activateClickedRow() {
@@ -201,17 +204,19 @@ struct NativeTrackTable: NSViewRepresentable {
         }
 
         private func activateSelection() {
-            guard content.playback.canStartPlayback, selectedTracks.count == 1,
-                let track = selectedTracks.first, content.artistTracks[track.uri]?.isPlayable != false
+            let tracks = selectedTracks
+            guard content.playback.canStartPlayback, tracks.count == 1,
+                let track = tracks.first, content.artistTracks[track.uri]?.isPlayable != false
             else { return }
             content.playback.playTrack(track)
         }
 
         private func removeSelection() -> Bool {
             guard let actions = content.playlistActions, actions.canRemoveOccurrences else { return false }
-            let ids = PlaylistMutationSelection.occurrenceIDsForRemoval(from: selectedTracks)
+            let tracks = selectedTracks
+            let ids = PlaylistMutationSelection.occurrenceIDsForRemoval(from: tracks)
             guard !ids.isEmpty else { return false }
-            actions.removeOccurrences(selectedTracks.map(\.id))
+            actions.removeOccurrences(tracks.map(\.id))
             return true
         }
 

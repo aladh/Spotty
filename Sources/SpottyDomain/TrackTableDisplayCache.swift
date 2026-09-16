@@ -10,12 +10,6 @@ import Foundation
 /// Recompute when the collection version or SwiftUI comparators change.
 public struct TrackTableDisplayCache: Sendable {
     public private(set) var rows: [TrackTableRow]
-    /// One-based display positions keyed by the immutable source occurrence offset.
-    ///
-    /// `sourceIndex` remains the identity used for deterministic tie-breaking and mutation
-    /// ordering; this separate projection lets table cells render their current sorted position
-    /// without scanning the displayed rows for every cell.
-    private var displayPositions: [Int: Int]
     private var version: UUID
     private var sortOrder: [KeyPathComparator<TrackTableRow>]
 
@@ -29,7 +23,6 @@ public struct TrackTableDisplayCache: Sendable {
             tracks: collection.tracks,
             sortOrder: sortOrder
         )
-        displayPositions = Self.displayPositions(for: rows)
     }
 
     /// Returns whether `rows` were rebuilt from `collection` and `sortOrder`.
@@ -47,16 +40,7 @@ public struct TrackTableDisplayCache: Sendable {
             tracks: collection.tracks,
             sortOrder: sortOrder
         )
-        displayPositions = Self.displayPositions(for: rows)
         return true
-    }
-
-    /// Returns the one-based position of a row in the current displayed projection.
-    ///
-    /// The map is rebuilt alongside `rows`, so this remains constant-time even for large
-    /// playlists and does not conflate display position with source occurrence identity.
-    public func displayPosition(for row: TrackTableRow) -> Int {
-        displayPositions[row.sourceIndex] ?? row.sourceIndex + 1
     }
 
     public static func prunedSelection(
@@ -86,13 +70,6 @@ public struct TrackTableDisplayCache: Sendable {
             }
             return lhs.sourceIndex < rhs.sourceIndex
         }
-    }
-
-    private static func displayPositions(for rows: [TrackTableRow]) -> [Int: Int] {
-        Dictionary(
-            rows.enumerated().map { index, row in (row.sourceIndex, index + 1) },
-            uniquingKeysWith: { _, latest in latest }
-        )
     }
 
     private static func compare(

@@ -39,6 +39,12 @@ struct NativeTrackTableChecks {
         fixture.container.table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
         #expect(fixture.container.table.deleteAction?() == true)
         #expect(removed == [second.id])
+        let third = track(id: "third", title: "A", occurrenceUID: "server-third")
+        fixture.update([first, second, third])
+        fixture.container.table.selectRowIndexes(IndexSet([0, 2]), byExtendingSelection: false)
+        fixture.update([third, second, first])
+        #expect(fixture.container.table.deleteAction?() == true)
+        #expect(removed == [third.id, first.id], "native row order preserves selected duplicate occurrences")
         fixture.actions = nil
         fixture.update([first, second])
         #expect(fixture.container.table.deleteAction?() == false)

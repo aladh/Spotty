@@ -24,7 +24,6 @@ actor LoopbackCallbackServer {
     enum ServerError: Error, LocalizedError {
         case listenerFailed(String)
         case timedOut
-        case malformedRequest
 
         var errorDescription: String? {
             switch self {
@@ -32,8 +31,6 @@ actor LoopbackCallbackServer {
                 "Could not listen for the Spotify redirect: \(message)"
             case .timedOut:
                 "Timed out waiting for the Spotify redirect"
-            case .malformedRequest:
-                "The Spotify redirect could not be read"
             }
         }
     }
@@ -41,18 +38,27 @@ actor LoopbackCallbackServer {
     private var listener: NWListener?
     private var startWaiter: CheckedContinuation<UInt16, Error>?
     private var waiter: CheckedContinuation<URLComponents, Error>?
-    /// A result that arrived before anyone was waiting for it. The browser can redirect faster
-    /// than the caller gets from `start()` to `waitForCallback()`, and a valid authorization
-    /// must not be lost to that race.
-    private var pending: Result<URLComponents, Error>?
-    private var finished = false
+    private enum State {
+        case idle
+        case listening
+        // Retain a callback that beats its waiter; nil means the result was consumed.
+        case finished(Result<URLComponents, Error>?)
+    }
+    private var state = State.idle
     private var timeout: Task<Void, Never>?
+    private var connections: [ObjectIdentifier: NWConnection] = [:]
+    var activeConnectionCount: Int { connections.count }
 
     /// Starts listening on a system-assigned loopback port and returns it.
     ///
     /// Waits for the listener to reach `.ready`: until then the port is a placeholder, and
     /// advertising it would send Spotify a redirect to `127.0.0.1:0`, which reaches nothing.
     func start() async throws -> UInt16 {
+        try Task.checkCancellation()
+        guard case .idle = state else {
+            throw ServerError.listenerFailed("listener already started or stopped")
+        }
+        state = .listening
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         // Loopback only. The redirect never leaves this machine, so nothing else should be
@@ -63,53 +69,78 @@ actor LoopbackCallbackServer {
         do {
             listener = try NWListener(using: parameters)
         } catch {
-            throw ServerError.listenerFailed(String(describing: error))
+            let failure = ServerError.listenerFailed(String(describing: error))
+            finish(.failure(failure))
+            throw failure
         }
 
         listener.newConnectionHandler = { [weak self] connection in
-            connection.start(queue: .global(qos: .userInitiated))
-            Self.receiveRequest(on: connection) { [weak self] result in
-                Task { await self?.deliver(result) }
+            Task {
+                guard let self else { connection.cancel(); return }
+                await self.accept(connection)
             }
         }
 
         self.listener = listener
 
-        let port = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UInt16, Error>) in
-            startWaiter = continuation
-
-            // Weakly, because NWListener retains its own stateUpdateHandler: capturing the
-            // listener strongly here makes a cycle, and every grant would leak its listener
-            // and the continuation it captured.
-            //
-            // Every outcome goes back through the actor rather than resuming from the
-            // callback, so `stop()` and the listener's own state cannot both resume — the
-            // stored continuation is the one-shot guard.
-            listener.stateUpdateHandler = { [weak self, weak listener] state in
-                let result: Result<UInt16, Error>
-                switch state {
-                case .ready:
-                    if let port = listener?.port?.rawValue, port != 0 {
-                        result = .success(port)
-                    } else {
-                        result = .failure(ServerError.listenerFailed("no port assigned"))
+        do {
+            return try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                let port = try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<UInt16, Error>) in
+                    startWaiter = continuation
+                    // Keep observing failures after readiness, without retaining the listener.
+                    listener.stateUpdateHandler = { [weak self, weak listener] state in
+                        let result: Result<UInt16, Error>
+                        switch state {
+                        case .ready:
+                            if let port = listener?.port?.rawValue, port != 0 {
+                                result = .success(port)
+                            } else {
+                                result = .failure(ServerError.listenerFailed("no port assigned"))
+                            }
+                        case let .failed(error):
+                            result = .failure(ServerError.listenerFailed(String(describing: error)))
+                        case .cancelled:
+                            result = .failure(CancellationError())
+                        default:
+                            return
+                        }
+                        Task { await self?.listenerChanged(result) }
                     }
-                case let .failed(error):
-                    result = .failure(ServerError.listenerFailed(String(describing: error)))
-                case .cancelled:
-                    result = .failure(ServerError.listenerFailed("listener cancelled"))
-                default:
-                    return
+                    listener.start(queue: .global(qos: .userInitiated))
                 }
-                Task { await self?.resumeStart(result) }
+                try Task.checkCancellation()
+                guard case .listening = state else { throw CancellationError() }
+                return port
+            } onCancel: {
+                Task { await self.stop() }
             }
-            listener.start(queue: .global(qos: .userInitiated))
+        } catch {
+            finish(.failure(error))
+            throw error
         }
+    }
 
-        // The handler has done its job; leaving it installed keeps the listener — and what it
-        // captured — alive for as long as anything holds the listener.
-        listener.stateUpdateHandler = nil
-        return port
+    private func accept(_ connection: NWConnection) {
+        guard case .listening = state else { connection.cancel(); return }
+        connections[ObjectIdentifier(connection)] = connection
+        connection.start(queue: .global(qos: .userInitiated))
+        Self.receiveRequest(on: connection) { [weak self] callback in
+            Task { await self?.requestCompleted(on: connection, callback: callback) }
+        }
+    }
+
+    private func requestCompleted(on connection: NWConnection, callback: URLComponents?) {
+        guard connections.removeValue(forKey: ObjectIdentifier(connection)) != nil else { return }
+        if let callback { finish(.success(callback)) }
+    }
+
+    private func listenerChanged(_ result: Result<UInt16, Error>) {
+        switch result {
+        case .success: resumeStart(result)
+        case let .failure(error): finish(.failure(error))
+        }
     }
 
     /// Resolves `start()`, at most once.
@@ -130,71 +161,60 @@ actor LoopbackCallbackServer {
     /// it in a task group, so whichever arrives first is the answer and the other cannot leave
     /// a continuation dangling.
     func waitForCallback(timeout duration: Duration? = nil) async throws -> URLComponents {
-        if let duration {
-            timeout = Task { [weak self] in
-                try? await Task.sleep(for: duration)
-                guard !Task.isCancelled else { return }
-                await self?.deliver(.failure(ServerError.timedOut))
-            }
+        guard waiter == nil else {
+            throw ServerError.listenerFailed("callback already awaited")
         }
-
-        defer { stop() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                // A result may already be here: the browser can redirect before the caller
-                // reaches this line, and a cancellation hops onto the actor the same way.
-                // Consuming it here is what stops the caller parking on a continuation
-                // nothing will resume.
-                if let pending {
-                    self.pending = nil
-                    continuation.resume(with: pending)
-                    return
+                if Task.isCancelled { finish(.failure(CancellationError())) }
+                switch state {
+                case .idle:
+                    continuation.resume(throwing: ServerError.listenerFailed("listener not started"))
+                case let .finished(result):
+                    state = .finished(nil)
+                    continuation.resume(with: result ?? .failure(CancellationError()))
+                case .listening:
+                    waiter = continuation
+                    if let duration {
+                        timeout = Task { [weak self] in
+                            try? await Task.sleep(for: duration)
+                            guard !Task.isCancelled else { return }
+                            await self?.finish(.failure(ServerError.timedOut))
+                        }
+                    }
                 }
-                waiter = continuation
             }
         } onCancel: {
-            Task { await self.deliver(.failure(CancellationError())) }
+            Task { await self.stop() }
         }
     }
 
     func stop() {
+        finish(.failure(CancellationError()))
+    }
+
+    /// One terminal transition owns the result and every resource opened for this grant.
+    private func finish(_ result: Result<URLComponents, Error>) {
+        if case .finished = state { return }
+        state = .finished(waiter == nil ? result : nil)
         timeout?.cancel()
         timeout = nil
-
-        // NWListener retains its handlers, so cancelling without clearing them leaves
-        // whatever they captured alive alongside it.
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
         listener?.cancel()
         listener = nil
+        for connection in connections.values { connection.cancel() }
+        connections.removeAll()
 
-        // Explicitly, rather than relying on the `.cancelled` state that clearing the handler
-        // above has just suppressed: a `start()` suspended when this ran would otherwise stay
-        // suspended forever.
-        resumeStart(.failure(ServerError.listenerFailed("listener cancelled")))
-
-        // A caller still parked here would wait forever otherwise.
-        if let waiter {
-            self.waiter = nil
-            finished = true
-            waiter.resume(throwing: ServerError.timedOut)
+        // Clearing the listener handler suppresses its cancellation callback.
+        if case let .failure(error) = result {
+            resumeStart(.failure(error))
+        } else {
+            resumeStart(.failure(CancellationError()))
         }
-    }
-
-    /// The single point where a result becomes *the* result — first one wins, later ones are
-    /// dropped rather than resuming a continuation twice.
-    private func deliver(_ result: Result<URLComponents, Error>) {
-        guard !finished else { return }
-        finished = true
-
-        timeout?.cancel()
-        timeout = nil
-
         if let waiter {
             self.waiter = nil
             waiter.resume(with: result)
-        } else {
-            pending = result
         }
     }
 
@@ -205,21 +225,25 @@ actor LoopbackCallbackServer {
     /// so parsing the first chunk would reject a perfectly good redirect that happened to be
     /// split.
     ///
-    /// Every path here reports once and stops reading; `deliver` is the one-shot guard for
-    /// anything that slips through, so this needs no second one of its own.
+    /// A rejected or broken request ends only its connection. Only a callback completes the grant.
     private nonisolated static func receiveRequest(
         on connection: NWConnection,
-        completion: @escaping @Sendable (Result<URLComponents, Error>) -> Void,
+        completion: @escaping @Sendable (URLComponents?) -> Void,
     ) {
         @Sendable func read(_ accumulated: Data) {
             connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, isComplete, error in
-                if let error {
-                    completion(.failure(ServerError.listenerFailed(String(describing: error))))
+                if error != nil {
                     connection.cancel()
+                    completion(nil)
                     return
                 }
 
                 let buffer = accumulated + (data ?? Data())
+                guard buffer.count <= 8192 else {
+                    connection.cancel()
+                    completion(nil)
+                    return
+                }
 
                 guard let text = String(data: buffer, encoding: .utf8),
                     text.contains("\r\n") || text.contains("\n")
@@ -227,8 +251,8 @@ actor LoopbackCallbackServer {
                     // Not a whole request line yet. Keep reading unless the peer is done or
                     // the request is implausibly large for what a redirect can carry.
                     if isComplete || buffer.count >= 8192 {
-                        completion(.failure(ServerError.malformedRequest))
                         connection.cancel()
+                        completion(nil)
                     } else {
                         read(buffer)
                     }
@@ -239,13 +263,15 @@ actor LoopbackCallbackServer {
                     // A complete request line that is not GET /login must not finish the
                     // one-shot waiter: otherwise GET / or a lookalike wins the first-callback
                     // race and the real redirect is dropped.
-                    reply(on: connection, status: "404 Not Found", body: "Not Found")
+                    reply(on: connection, status: "404 Not Found", body: "Not Found") { completion(nil) }
                     return
                 }
 
                 let body = "<html><body>Spotty is authorized. You can close this tab.</body></html>"
-                reply(on: connection, status: "200 OK", body: body, contentType: "text/html; charset=utf-8")
-                completion(.success(components))
+                // Flush the browser's response before the terminal transition closes all peers.
+                reply(on: connection, status: "200 OK", body: body, contentType: "text/html; charset=utf-8") {
+                    completion(components)
+                }
             }
         }
 
@@ -256,7 +282,8 @@ actor LoopbackCallbackServer {
         on connection: NWConnection,
         status: String,
         body: String,
-        contentType: String = "text/plain; charset=utf-8"
+        contentType: String = "text/plain; charset=utf-8",
+        completion: @escaping @Sendable () -> Void
     ) {
         let response = """
             HTTP/1.1 \(status)\r
@@ -270,6 +297,7 @@ actor LoopbackCallbackServer {
             content: Data(response.utf8),
             completion: .contentProcessed { _ in
                 connection.cancel()
+                completion()
             })
     }
 

@@ -549,7 +549,7 @@ struct WorkflowTests {
 
         #expect((provider.albumRequestCount) == (1), "an empty album is still a completed load")
         #expect((provider.artistRequestCount) == (1), "an empty artist overview is still a completed load")
-        #expect((provider.discographyRequestCount) == (1), "an empty discography is still a completed load")
+        #expect((provider.discographyRequestCount) == (0), "an empty overview does not fetch discography")
 
         session.update(accountEpoch: 1, isAvailable: false)
         session.update(accountEpoch: 1, isAvailable: true)

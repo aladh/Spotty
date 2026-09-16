@@ -173,7 +173,7 @@ struct RootView: View {
         case let .discography(uri):
             if let item = selectedItem(uri: uri, kind: .artist) {
                 ArtistDiscographyView(
-                    item: item, artist: catalog.artistStore, albums: catalog.discographyStore,
+                    item: item, albums: catalog.discographyStore,
                     playback: catalogPlayback, playlistActions: playlistActions(), onSelect: select,
                     interactionState: navigation.interactionState(for: "discography:\(uri)"))
             } else {
@@ -256,7 +256,7 @@ struct RootView: View {
         case let .artist(uri):
             if let item = selectedItem(uri: uri, kind: .artist) { catalog.artistStore.prepare(item) }
         case let .discography(uri):
-            if let item = selectedItem(uri: uri, kind: .artist) { catalog.artistStore.prepare(item) }
+            if let item = selectedItem(uri: uri, kind: .artist) { catalog.discographyStore.artist.prepare(item) }
             catalog.discographyStore.prepare(artistURI: uri)
         case .destination:
             break

@@ -4,13 +4,14 @@ import SwiftUI
 
 struct ArtistDiscographyView: View {
     let item: CatalogItem
-    let artist: ArtistDetailStore
     let albums: DiscographyStore
     let playback: CatalogPlaybackAccess
     let playlistActions: TrackPlaylistActions?
     let onSelect: (CatalogItem) -> Void
     @Bindable var interactionState: CatalogRouteInteractionState
     @State private var trackProjection = DiscographyTrackProjection()
+
+    private var artist: ArtistDetailStore { albums.artist }
 
     private struct GridConfiguration: Hashable {
         let artistURI: String

@@ -8,6 +8,7 @@ import SpottyRuntimeContracts
 @MainActor
 @Observable
 final class DiscographyStore {
+    let artist: ArtistDetailStore
     private(set) var artistURI: String?
     private(set) var albums: [String: AlbumDetailStore] = [:]
     @ObservationIgnored private var order: [String] = []
@@ -16,6 +17,7 @@ final class DiscographyStore {
 
     init(provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability) {
         self.metadata = metadata
+        artist = ArtistDetailStore(provider: provider, session: session, content: .discography)
         makeAlbum = {
             AlbumDetailStore(
                 provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
@@ -24,15 +26,20 @@ final class DiscographyStore {
 
     func prepare(artistURI: String) {
         guard self.artistURI != artistURI else { return }
-        reset()
+        resetAlbums()
         self.artistURI = artistURI
     }
 
     func reset() {
+        artist.reset()
+        resetAlbums()
+        artistURI = nil
+    }
+
+    private func resetAlbums() {
         albums.values.forEach { $0.reset() }
         albums = [:]
         order = []
-        artistURI = nil
         publishMetadata()
     }
 

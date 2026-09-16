@@ -199,6 +199,9 @@ final class AlbumDetailStore {
 @MainActor
 @Observable
 final class ArtistDetailStore {
+    /// Separate instances retain the overview and complete discography independently.
+    enum Content: CaseIterable, Sendable { case overview, discography }
+
     private typealias Flight = AccountScopedSingleFlight<String>
 
     private struct Snapshot {
@@ -225,6 +228,7 @@ final class ArtistDetailStore {
     private(set) var isShowingCachedContent = false
     private(set) var freshness: CatalogFreshness = .current
 
+    @ObservationIgnored private let content: Content
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let session: CatalogSessionAvailability
     @ObservationIgnored private let flight: Flight
@@ -233,7 +237,8 @@ final class ArtistDetailStore {
     @ObservationIgnored private var contentEpoch: UInt64
     @ObservationIgnored private var hasLoadedContent = false
 
-    init(provider: any CatalogProviding, session: CatalogSessionAvailability) {
+    init(provider: any CatalogProviding, session: CatalogSessionAvailability, content: Content = .overview) {
+        self.content = content
         self.provider = provider
         self.session = session
         contentEpoch = session.accountEpoch
@@ -296,32 +301,31 @@ final class ArtistDetailStore {
             await flight.run(handle) { [weak self] in
                 guard let self else { return }
                 do {
-                    async let profileRequest = provider.artist(id: id)
-                    async let discography = provider.artistDiscography(id: id)
-                    let (profile, allReleases) = try await (profileRequest, discography)
+                    let result: CatalogArtistSnapshot
+                    switch content {
+                    case .overview: result = try await provider.artist(id: id)
+                    case .discography: result = try await provider.artistDiscography(id: id)
+                    }
                     guard self.isCurrent(handle) else { return }
-                    item = profile.item?.uri == selected.uri ? (profile.item ?? selected) : selected
-                    releases = allReleases.releases.map { release in
+                    item =
+                        result.item?.uri == selected.uri && result.name != nil ? (result.item ?? selected) : selected
+                    releases = result.releases.map { release in
                         guard release.subtitle.isEmpty else { return release }
                         return CatalogItem(
                             id: release.id, uri: release.uri, title: release.title,
-                            subtitle: profile.name ?? selected.title, artworkURL: release.artworkURL,
+                            subtitle: result.name ?? selected.title, artworkURL: release.artworkURL,
                             kind: release.kind, ownerURI: release.ownerURI)
                     }
-                    overview = profile.overview
-                    releaseKinds = (profile.releaseKinds ?? [:]).merging(allReleases.releaseKinds ?? [:]) { _, latest in
-                        latest
-                    }
-                    releaseDates = (profile.releaseDates ?? [:]).merging(allReleases.releaseDates ?? [:]) { _, latest in
-                        latest
-                    }
+                    overview = result.overview
+                    releaseKinds = result.releaseKinds ?? [:]
+                    releaseDates = result.releaseDates ?? [:]
                     popularTracks.replace(overview?.popularTracks.map(\.track) ?? [])
                     popularPreview.replace(Array(popularTracks.tracks.prefix(5)))
                     updateArtistTracks()
                     loadedSession = session.snapshot
                     hasLoadedContent = true
                     error = nil
-                    freshness = profile.freshness.isCurrent ? allReleases.freshness : profile.freshness
+                    freshness = result.freshness
                     isShowingCachedContent = !freshness.isCurrent
                     if freshness.isCurrent { self.flight.markLoaded(handle) }
                     retained.store(

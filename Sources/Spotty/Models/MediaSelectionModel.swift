@@ -125,7 +125,7 @@ private extension SidebarSelection {
     var mediaURI: String? {
         switch self {
         case .destination: nil
-        case let .playlist(uri), let .album(uri), let .artist(uri): uri
+        case let .playlist(uri), let .album(uri), let .artist(uri), let .discography(uri): uri
         }
     }
 }

@@ -225,47 +225,57 @@ struct NativeTrackTable: NSViewRepresentable {
 
         private func selectionMenu() -> NSMenu? {
             let tracks = selectedTracks
-            guard !tracks.isEmpty else { return nil }
-            let menu = NSMenu()
-            if tracks.count == 1, let track = tracks.first {
-                menu.addAction(
-                    "Play", systemImage: "play.fill",
-                    enabled: content.playback.canStartPlayback && content.artistTracks[track.uri]?.isPlayable != false
-                ) {
-                    [playback = content.playback] in
-                    playback.playTrack(track)
-                }
-            }
-            menu.addAction(
-                "Add to Queue", systemImage: "text.line.first.and.arrowtriangle.forward",
-                enabled: content.playback.canStartPlayback
-            ) {
-                [playback = content.playback] in
-                playback.addToQueue(QueueMutationSelection.addURIs(from: tracks))
-            }
-            if let actions = content.playlistActions {
-                let item = NSMenuItem(title: "Add to Playlist", action: nil, keyEquivalent: "")
-                let submenu = NSMenu(title: item.title)
-                if actions.editablePlaylists.isEmpty {
-                    submenu.addAction("No Editable Playlists", enabled: false) {}
-                } else {
-                    for playlist in actions.editablePlaylists {
-                        submenu.addAction(playlist.title) { actions.addToPlaylist(playlist, tracks) }
-                    }
-                }
-                item.submenu = submenu
-                menu.addItem(item)
-                if actions.canRemoveOccurrences {
-                    let ids = PlaylistMutationSelection.occurrenceIDsForRemoval(from: tracks)
-                    menu.addItem(.separator())
-                    menu.addAction("Remove from Playlist", enabled: !ids.isEmpty) {
-                        actions.removeOccurrences(tracks.map(\.id))
-                    }
-                }
-            }
-            return menu
+            return trackSelectionMenu(
+                tracks: tracks, playback: content.playback, playlistActions: content.playlistActions,
+                isSingleTrackPlayable: tracks.first.map { content.artistTracks[$0.uri]?.isPlayable != false } ?? false)
         }
     }
+}
+
+@MainActor
+func trackSelectionMenu(
+    tracks: [CatalogTrack], playback: CatalogPlaybackAccess, playlistActions: TrackPlaylistActions?,
+    isSingleTrackPlayable: Bool = true
+) -> NSMenu? {
+    guard !tracks.isEmpty else { return nil }
+    let menu = NSMenu()
+    if tracks.count == 1, let track = tracks.first {
+        menu.addAction(
+            "Play", systemImage: "play.fill",
+            enabled: playback.canStartPlayback && isSingleTrackPlayable
+        ) {
+            [playback] in
+            playback.playTrack(track)
+        }
+    }
+    menu.addAction(
+        "Add to Queue", systemImage: "text.line.first.and.arrowtriangle.forward",
+        enabled: playback.canStartPlayback
+    ) {
+        [playback] in
+        playback.addToQueue(QueueMutationSelection.addURIs(from: tracks))
+    }
+    if let actions = playlistActions {
+        let item = NSMenuItem(title: "Add to Playlist", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: item.title)
+        if actions.editablePlaylists.isEmpty {
+            submenu.addAction("No Editable Playlists", enabled: false) {}
+        } else {
+            for playlist in actions.editablePlaylists {
+                submenu.addAction(playlist.title) { actions.addToPlaylist(playlist, tracks) }
+            }
+        }
+        item.submenu = submenu
+        menu.addItem(item)
+        if actions.canRemoveOccurrences {
+            let ids = PlaylistMutationSelection.occurrenceIDsForRemoval(from: tracks)
+            menu.addItem(.separator())
+            menu.addAction("Remove from Playlist", enabled: !ids.isEmpty) {
+                actions.removeOccurrences(tracks.map(\.id))
+            }
+        }
+    }
+    return menu
 }
 
 @MainActor

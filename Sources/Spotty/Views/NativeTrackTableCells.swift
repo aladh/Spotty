@@ -42,6 +42,12 @@ enum NativeTrackColumn: String, CaseIterable {
         case .artist: [.index, .title, .playCount, .duration]
         }
     }
+
+    static func albumWidths(tableWidth: CGFloat, rowCount: Int) -> [CGFloat] {
+        let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9) + 24
+        let plays: CGFloat = tableWidth >= 520 ? 120 : 0
+        return [index, tableWidth - index - 104 - plays, plays, 104]
+    }
 }
 
 /// Hosted cell content reads only the observable facts that its column displays.

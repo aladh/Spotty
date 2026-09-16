@@ -28,11 +28,11 @@ final class PlaylistStore {
     private(set) var trackCollection = CatalogTrackCollection()
     var tracks: [CatalogTrack] { trackCollection.tracks }
     private(set) var totalDuration: TimeInterval = 0
-    var description = ""
+    private(set) var description = ""
     private(set) var loadedURI: String?
     private(set) var ownerURI: String?
-    var isLoading = false
-    var error: String?
+    private(set) var isLoading = false
+    private(set) var error: String?
     private(set) var isShowingCachedContent = false
     private(set) var freshness: CatalogFreshness = .current
     var canEditLoadedContent: Bool {

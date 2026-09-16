@@ -6,8 +6,9 @@
 
 ### Navigation and retained content
 
-- New windows start on Home with search unfocused. Navigation is not restored across launches.
-  Playlists open from the sidebar, without a separate playlist-grid destination.
+- New windows open Home with Search unfocused; navigation resets across launches.
+  Show loading while checking saved login; offer Connect only when sign-in is needed.
+  Playlists open from the sidebar, without a playlist-grid destination.
 - Same-account revisits restore retained playlist, album, and artist content immediately. Playlists
   retain search, table sort, occurrence selection, and scroll. Artists retain scroll, Popular selection and
   expansion, and the discography filter and expansion. Filtering clears hidden selections; removed occurrences never
@@ -50,7 +51,7 @@
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
   standard window controls, geometry, and hit targets; do not reposition them. Empty toolbar space
   drags the window and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
-  Home and Search controls stay 48 points high with breathing room and native Home focus indication.
+  Home/Search controls stay 48 points high with breathing room and native Home focus.
 - Closing a window leaves Spotty running in the Dock; Dock and standard Window commands reopen it.
   Sign Out remains in the Spotty menu while connecting or failed. Teardown drains accepted
   authorization persistence before clearing the grant.

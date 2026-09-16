@@ -16,7 +16,7 @@ import OSLog
 /// boundaries so connection work refuses to start against a session being torn down.
 @SessionRuntimeActor
 final class AccountStore {
-    private(set) var phase: PlaybackSessionPhase = .signedOut {
+    private(set) var phase: PlaybackSessionPhase = .connecting {
         didSet {
             if phase == .ready { environment.playlistMutationAdmission.activate(accountEpoch: epoch) }
             guard oldValue != phase else { return }

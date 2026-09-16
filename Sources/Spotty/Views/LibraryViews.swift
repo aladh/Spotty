@@ -10,7 +10,9 @@ struct SearchView: View {
 
     var body: some View {
         Group {
-            if !playback.isConnected {
+            if let label = playback.connectionLoadingLabel {
+                LoadingState(label: label).padding(CatalogLayout.contentPadding)
+            } else if !playback.isConnected {
                 EmptyState(
                     icon: "person.crop.circle.badge.plus",
                     title: "Connect Spotify",

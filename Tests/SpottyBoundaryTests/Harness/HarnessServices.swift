@@ -391,6 +391,8 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
         var clearCount = 0
         var clearSucceeds = true
         var markCount = 0
+        var parkGrantRead = false
+        var grantReadPark: CheckedContinuation<Void, Never>?
         var parkClear = false
         var clearPark: CheckedContinuation<Void, Never>?
         var continuation: AsyncStream<Void>.Continuation?
@@ -429,6 +431,23 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
     var hasStoredGrant: Bool {
         get { withStorage { $0.hasStoredGrant } }
         set { withStorage { $0.hasStoredGrant = newValue } }
+    }
+
+    var parkGrantRead: Bool {
+        get { withStorage { $0.parkGrantRead } }
+        set { withStorage { $0.parkGrantRead = newValue } }
+    }
+
+    var isGrantReadParked: Bool { withStorage { $0.grantReadPark != nil } }
+
+    func completeGrantRead() {
+        let parked = withStorage { storage -> CheckedContinuation<Void, Never>? in
+            storage.parkGrantRead = false
+            let parked = storage.grantReadPark
+            storage.grantReadPark = nil
+            return parked
+        }
+        parked?.resume()
     }
 
     /// While true, `clear()` suspends until `completeClear()`.
@@ -478,6 +497,14 @@ final class HarnessAccount: AccountSession, @unchecked Sendable {
     func hasGrant() async -> Bool { await grantState() == .available }
 
     func grantState() async -> KeymasterGrantState {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let parked = withStorage { storage in
+                guard storage.parkGrantRead else { return false }
+                storage.grantReadPark = continuation
+                return true
+            }
+            if !parked { continuation.resume() }
+        }
         if let state = withStorage({ $0.grantState }) { return state }
         return hasStoredGrant ? .available : .absent
     }

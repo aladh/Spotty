@@ -2,14 +2,12 @@ import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
-@testable import SpottyGateway
 import SpottyRuntimeContracts
 
-/// Gates `HarnessCatalog.searchTracks` so a check can park and release admitted queries one at a
-/// time, mirroring the pre-harness `GatedSearchCatalog` actor.
+/// Gates `HarnessCatalog.searchTracks` so a check can park and release admitted queries one at a time.
 private actor SearchGate {
     enum Outcome: Sendable {
-        case tracks([PathfinderTrack])
+        case tracks([CatalogTrack])
         case failure
         case cancelled
     }
@@ -19,7 +17,7 @@ private actor SearchGate {
 
     var requestCount: Int { trackQueries.count }
 
-    func searchTracks(_ term: String) async throws -> [PathfinderTrack] {
+    func searchTracks(_ term: String) async throws -> [CatalogTrack] {
         trackQueries.append(term)
         let outcome = await withCheckedContinuation { continuation in
             waiters.append(continuation)
@@ -47,17 +45,6 @@ private func makeGatedSearchCatalog() -> (catalog: HarnessCatalog, gate: SearchG
     return (catalog, gate)
 }
 
-private func decodeTrack(_ json: String) throws -> PathfinderTrack {
-    try JSONDecoder().decode(PathfinderTrack.self, from: Data(json.utf8))
-}
-
-private let firstTrackJSON = """
-    {"uri":"spotify:track:first","name":"First Track","albumOfTrack":{"name":"First Album"},"artists":{"items":[{"profile":{"name":"First Artist"}}]},"duration":{"totalMilliseconds":1000}}
-    """
-private let secondTrackJSON = """
-    {"uri":"spotify:track:second","name":"Second Track","albumOfTrack":{"name":"Second Album"},"artists":{"items":[{"profile":{"name":"Second Artist"}}]},"duration":{"totalMilliseconds":2000}}
-    """
-
 @MainActor
 private func makeStore(
     provider: HarnessCatalog,
@@ -73,7 +60,7 @@ private func commitImmediateSearch(
     _ store: SearchStore,
     gate: SearchGate,
     query: String,
-    tracks: [PathfinderTrack]
+    tracks: [CatalogTrack]
 ) async -> Bool {
     let task = Task { await store.search(query) }
     guard await waitUntil({ await gate.requestCount == 1 }) else { return false }
@@ -87,15 +74,11 @@ struct SearchStoreTests {
     @Test
     @MainActor
     func testSearchStore() async {
-        let first: PathfinderTrack
-        let second: PathfinderTrack
-        do {
-            first = try decodeTrack(firstTrackJSON)
-            second = try decodeTrack(secondTrackJSON)
-        } catch {
-            #expect((false) == true, "synthetic search fixtures decode")
-            return
-        }
+        let first = HarnessFixtures.track(
+            uri: "spotify:track:first", title: "First Track", artist: "First Artist", album: "First Album", duration: 1)
+        let second = HarnessFixtures.track(
+            uri: "spotify:track:second", title: "Second Track", artist: "Second Artist", album: "Second Album",
+            duration: 2)
 
         do {
             let (provider, gate) = makeGatedSearchCatalog()

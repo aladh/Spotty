@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import Testing
 @testable import SpottyCore
-@testable import SpottyGateway
 @testable import SpottySessionRuntime
 
 @Suite("Startup connection presentation")
@@ -10,11 +9,7 @@ import Testing
 struct StartupConnectionChecks {
     @Test func reconnectKeepsTheExistingSearchTableAndSelection() async throws {
         let provider = HarnessCatalog()
-        let track = try JSONDecoder().decode(
-            PathfinderTrack.self,
-            from: Data(
-                #"{"uri":"spotify:track:search-result","name":"Search result","albumOfTrack":{"name":"Album"},"artists":{"items":[{"profile":{"name":"Artist"}}]},"duration":{"totalMilliseconds":1000}}"#
-                    .utf8))
+        let track = HarnessFixtures.track(uri: "spotify:track:search-result", title: "Search result", duration: 1)
         provider.onSearchTracks = { _, _ in [track] }
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
         player.withRuntime {

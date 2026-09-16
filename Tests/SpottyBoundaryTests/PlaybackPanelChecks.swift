@@ -8,6 +8,7 @@ import Foundation
 @testable import SpottyCore
 @testable import SpottyEngineAdapter
 @testable import SpottyGateway
+@testable import SpottySessionRuntime
 import SpottyRuntimeContracts
 import struct SpottyDomain.QueueProtocolTrack
 
@@ -96,20 +97,28 @@ struct PlaybackPanelTests {
 
         do {
             let now = Date(timeIntervalSince1970: 1_000_000)
-            let store = PlaybackHistoryStore()
-            store.notePlayed(uri: "spotify:track:a", title: "A", artist: "X", artworkURL: nil, playedAt: now)
-            #expect((store.entries.first?.playedAt) == (now), "history store records the injected playedAt")
-            store.notePlayed(
-                uri: "spotify:track:a",
-                title: "A",
-                artist: "X",
-                artworkURL: nil,
-                playedAt: now.addingTimeInterval(60)
-            )
-            #expect((store.entries.count) == (1), "history store replay keeps a single row")
+            let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make())
+            player.withRuntime {
+                $0.history.notePlayed(uri: "spotify:track:a", title: "A", artist: "X", artworkURL: nil, playedAt: now)
+            }
+            #expect(player.history.first?.playedAt == now, "the desktop presents the runtime's timestamp")
+            player.withRuntime {
+                $0.history.notePlayed(
+                    uri: "spotify:track:a", title: "A", artist: "X", artworkURL: nil,
+                    playedAt: now.addingTimeInterval(60))
+            }
+            #expect(player.history.count == 1, "a replay publishes one updated occurrence")
             #expect(
-                (store.entries.first?.playedAt) == (now.addingTimeInterval(60)),
-                "history store replay uses the later injected timestamp")
+                player.history.first?.playedAt == now.addingTimeInterval(60),
+                "the desktop presents the runtime's replacement")
+            player.withRuntime {
+                $0.history.applyMetadata(uri: "spotify:track:a", title: "Updated", artist: "Y", artworkURL: nil)
+            }
+            #expect(player.history.first?.title == "Updated")
+            #expect(player.history.first?.artist == "Y")
+            #expect(player.history.first?.playedAt == now.addingTimeInterval(60))
+            player.withRuntime { $0.history.reset() }
+            #expect(player.history.isEmpty)
         }
 
         do {

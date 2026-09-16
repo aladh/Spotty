@@ -25,6 +25,7 @@ func readPlaybackStoreAccess(_ store: PlaybackStore) {
     _ = store.duration
     _ = store.positionAnchorDate
     _ = store.queueNextEntries
+    _ = store.history
     _ = store.connectDevices
     _ = store.localDeviceID
     _ = store.defaultLocalPlaybackDevice

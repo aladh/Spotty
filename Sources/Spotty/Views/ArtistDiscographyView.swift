@@ -10,6 +10,12 @@ struct ArtistDiscographyView: View {
     let playlistActions: TrackPlaylistActions?
     let onSelect: (CatalogItem) -> Void
     @Bindable var interactionState: CatalogRouteInteractionState
+    @State private var trackProjection = DiscographyTrackProjection()
+
+    private struct GridConfiguration: Hashable {
+        let filter: ArtistReleaseFilter
+        let sort: DiscographySort
+    }
 
     private var releases: [CatalogItem] {
         DiscographyReleases.project(
@@ -37,6 +43,9 @@ struct ArtistDiscographyView: View {
                         }
                         .padding(CatalogLayout.contentPadding)
                     }
+                    .id(
+                        GridConfiguration(
+                            filter: interactionState.artistReleaseFilter, sort: interactionState.discographySort))
                 } else {
                     releaseList
                 }
@@ -58,7 +67,7 @@ struct ArtistDiscographyView: View {
             }
             .buttonStyle(.plain)
             .pointingHandCursor()
-            .accessibilityLabel("Back to \(item.title)")
+            .accessibilityLabel("Open \(item.title)")
             Spacer(minLength: 0)
             Menu {
                 Picker(
@@ -121,9 +130,7 @@ struct ArtistDiscographyView: View {
     }
 
     private var releaseList: some View {
-        let sections = releases.map { release -> (CatalogItem, [TrackTableRow]) in
-            (release, albums.albums[release.uri].map { TrackTableDisplayCache($0.trackCollection).rows } ?? [])
-        }
+        let sections = trackProjection.sections(releases, albums: albums.albums)
         let trackRows = sections.flatMap { release, rows in
             rows.map { (id: rowID(release, $0), track: $0.track) }
         }
@@ -278,5 +285,21 @@ private struct DiscographyTrackRow: View {
             }
         }
         .padding(.horizontal, CatalogLayout.contentPadding)
+    }
+}
+
+/// Selection and menu updates reuse row formatting until an album collection changes.
+@MainActor
+private final class DiscographyTrackProjection {
+    private var caches: [String: TrackTableDisplayCache] = [:]
+
+    func sections(_ releases: [CatalogItem], albums: [String: AlbumDetailStore]) -> [(CatalogItem, [TrackTableRow])] {
+        caches = caches.filter { albums[$0.key] != nil }
+        return releases.map { release in
+            guard let album = albums[release.uri] else { return (release, []) }
+            var cache = caches[release.uri] ?? TrackTableDisplayCache()
+            if cache.update(album.trackCollection, sortOrder: []) { caches[release.uri] = cache }
+            return (release, cache.rows)
+        }
     }
 }

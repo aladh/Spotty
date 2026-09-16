@@ -45,6 +45,7 @@ final class DiscographyStore {
         order.append(item.uri)
         trim()
         await album.load(item)
+        guard self.artistURI == artistURI, albums[item.uri] === album else { return }
         trim()
         publishMetadata()
     }

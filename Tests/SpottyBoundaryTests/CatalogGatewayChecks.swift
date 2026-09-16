@@ -7,6 +7,29 @@ import Testing
 @Suite("Catalog Gateway")
 @MainActor
 struct CatalogGatewayTests {
+    @Test(
+        arguments: [
+            (nil, nil), ("9876543210", 9_876_543_210), ("0", 0), ("-1", nil),
+            ("unavailable", nil), ("99999999999999999999", nil),
+        ] as [(String?, Int64?)])
+    func albumPlayCountsPreserveKnownValuesWithoutInventingMissingStatistics(count: String?, expected: Int64?)
+        async throws
+    {
+        let jsonCount = try String(decoding: JSONEncoder().encode(count), as: UTF8.self)
+        let source = Data(
+            """
+            {"data":{"albumUnion":{"uri":"spotify:album:fixture","tracksV2":{
+            "totalCount":1,"items":[{"track":{"uri":"spotify:track:fixture","name":"Fixture Track",
+            "playcount":\(jsonCount)}}]}}}}
+            """.utf8)
+        let catalog: any CatalogProviding = catalogGateway { request in
+            (source, catalogResponse(for: request, status: 200))
+        }
+        let album = try await catalog.album(id: "fixture")
+        #expect(album.tracks.map(\.uri) == ["spotify:track:fixture"])
+        #expect(album.playCounts?["spotify:track:fixture"] == expected)
+    }
+
     @Test
     func publicCatalogContractPreservesPlayableMetadata() async throws {
         let source = try boundaryFixture(named: "search-tracks")

@@ -23,6 +23,7 @@ struct TrackTable: View {
     let compactDetailHeader: AnyView?
     let detailFooter: AnyView?
     let artistTracks: [String: CatalogArtistPopularTrack]
+    let playCounts: [String: Int64]
     let detailHeaderCollapseOffset: CGFloat?
     let interactionState: CatalogRouteInteractionState?
     @State private var localInteractionState: CatalogRouteInteractionState
@@ -39,6 +40,7 @@ struct TrackTable: View {
         compactDetailHeader: AnyView? = nil,
         detailFooter: AnyView? = nil,
         artistTracks: [String: CatalogArtistPopularTrack] = [:],
+        playCounts: [String: Int64] = [:],
         detailHeaderCollapseOffset: CGFloat? = nil,
         interactionState: CatalogRouteInteractionState? = nil
     ) {
@@ -52,6 +54,7 @@ struct TrackTable: View {
         self.compactDetailHeader = compactDetailHeader
         self.detailFooter = detailFooter
         self.artistTracks = artistTracks
+        self.playCounts = playCounts
         self.detailHeaderCollapseOffset = detailHeaderCollapseOffset
         self.interactionState = interactionState
         _localInteractionState = State(initialValue: CatalogRouteInteractionState(isPlaylist: variant == .playlist))
@@ -72,7 +75,7 @@ struct TrackTable: View {
             scrollOffset: Binding(get: { interaction.scrollOffset }, set: { interaction.scrollOffset = $0 }),
             playlistActions: playlistActions, onSelect: onSelect,
             detailHeader: detailHeader, compactDetailHeader: compactDetailHeader,
-            detailFooter: detailFooter, artistTracks: artistTracks,
+            detailFooter: detailFooter, artistTracks: artistTracks, playCounts: playCounts,
             detailHeaderCollapseOffset: detailHeaderCollapseOffset
         )
         .onChange(of: displayInputs, initial: true) { oldInputs, newInputs in

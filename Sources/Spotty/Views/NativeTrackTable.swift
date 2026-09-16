@@ -20,6 +20,7 @@ struct NativeTrackTable: NSViewRepresentable {
     let compactDetailHeader: AnyView?
     var detailFooter: AnyView? = nil
     var artistTracks: [String: CatalogArtistPopularTrack] = [:]
+    var playCounts: [String: Int64] = [:]
     var detailHeaderCollapseOffset: CGFloat? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -137,7 +138,9 @@ struct NativeTrackTable: NSViewRepresentable {
                     variant: content.variant, isSelected: content.selection.contains(displayedRows[row].id),
                     playback: content.playback, searchQuery: content.searchQuery,
                     onSelect: content.onSelect,
-                    artistTrack: content.artistTracks[displayedRows[row].track.uri]
+                    artistTrack: content.artistTracks[displayedRows[row].track.uri],
+                    playCount: content.playCounts[displayedRows[row].track.uri]
+                        ?? content.artistTracks[displayedRows[row].track.uri]?.playCount
                 )
                 .environment(\.artworkAccess, content.artworkAccess)
                 .id("\(content.artworkAccess.accountEpoch):\(displayedRows[row].id)")

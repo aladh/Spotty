@@ -58,7 +58,7 @@ final class NativeTrackTableContainer: NSView {
             let native = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.rawValue))
             native.title = column.title
             native.resizingMask = variant == .catalog ? .userResizingMask : []
-            if variant == .artist && column == .playCount { native.minWidth = 0 }
+            if column == .playCount { native.minWidth = 0 }
             if variant == .catalog {
                 let cell = NativeTrackHeaderCell(textCell: column.title)
                 native.headerCell = cell
@@ -255,15 +255,15 @@ final class NativeTrackTableContainer: NSView {
     }
 
     private func columnWidths(tableWidth: CGFloat) -> [CGFloat] {
+        let plays: CGFloat = tableWidth >= 520 ? 120 : 0
+        table.tableColumns.first { $0.identifier.rawValue == NativeTrackColumn.playCount.rawValue }?.isHidden =
+            plays == 0
         if variant == .artist {
-            let plays: CGFloat = tableWidth >= 520 ? 120 : 0
-            table.tableColumns.first { $0.identifier.rawValue == NativeTrackColumn.playCount.rawValue }?.isHidden =
-                plays == 0
             return [40, tableWidth - 120 - plays, plays, 80]
         }
         if variant == .album {
             let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9) + 24
-            return [index, tableWidth - index - 104, 104]
+            return [index, tableWidth - index - 104 - plays, plays, 104]
         }
         if variant == .playlist {
             let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9)
@@ -289,45 +289,46 @@ private struct NativeTrackColumnHeaders: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(Array(zip(columns, widths)), id: \.0) { column, width in
-                Button {
-                    sort(column)
-                } label: {
-                    HStack(spacing: 8) {
-                        if column == .duration {
-                            Image(systemName: "clock").font(.system(size: 16))
-                        } else {
-                            Text(column.title)
-                        }
-                        if let comparator = column.comparator, let active = sortOrder.first,
-                            active.keyPath == comparator.keyPath
-                        {
-                            Image(
-                                systemName: active.order == .forward
-                                    ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill"
-                            )
-                            .font(.system(size: 8)).foregroundStyle(SpottyPalette.mediaGreen)
-                        }
+            ForEach(Array(zip(columns, widths)).filter { $0.1 > 0 }, id: \.0) { column, width in
+                if column.comparator != nil {
+                    Button {
+                        sort(column)
+                    } label: {
+                        label(column, width: width)
                     }
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: column == .index ? .trailing : (column == .duration ? .center : .leading)
-                    )
-                    .padding(.horizontal, 8)
-                    .frame(width: width, height: 36)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Sort by \(column == .duration ? "duration" : column.title)")
+                    .accessibilityValue(sortDescription(for: column))
+                } else {
+                    label(column, width: width).accessibilityAddTraits(.isHeader)
                 }
-                .buttonStyle(.plain)
-                .disabled(column.comparator == nil)
-                .accessibilityLabel(
-                    column.comparator == nil
-                        ? column.title : "Sort by \(column == .duration ? "duration" : column.title)"
-                )
             }
         }
         .font(.system(size: 14))
         .foregroundStyle(SpottyPalette.dataText)
         .overlay(alignment: .bottom) { Color.white.opacity(0.1).frame(height: 1) }
+    }
+
+    private func label(_ column: NativeTrackColumn, width: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            if column == .duration {
+                Image(systemName: "clock").font(.system(size: 16))
+            } else {
+                Text(column.title)
+            }
+            if let comparator = column.comparator, let active = sortOrder.first,
+                active.keyPath == comparator.keyPath
+            {
+                Image(systemName: active.order == .forward ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                    .font(.system(size: 8)).foregroundStyle(SpottyPalette.mediaGreen)
+            }
+        }
+        .frame(
+            maxWidth: .infinity, alignment: column == .index ? .trailing : (column == .duration ? .center : .leading)
+        )
+        .padding(.horizontal, 8)
+        .frame(width: width, height: 36)
+        .contentShape(Rectangle())
     }
 
     private func sortDescription(for column: NativeTrackColumn) -> String {

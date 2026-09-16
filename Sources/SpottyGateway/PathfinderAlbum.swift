@@ -100,6 +100,7 @@ nonisolated struct PathfinderAlbumTrack: Decodable, Sendable {
     let name: String?
     let trackNumber: Int?
     let discNumber: Int?
+    let playcount: String?
     let duration: PathfinderDuration?
     let artists: PathfinderArtistList?
 

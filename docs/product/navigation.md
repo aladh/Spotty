@@ -28,7 +28,8 @@
 
 - Albums have an artwork header, large responsive title, and artist, release year, song count, and runtime
   summary. The header scrolls into a compact title and Play action. Numbered 56-point rows put
-  linked artist credits below titles and retain durations at narrow widths; omit repeated album
+  linked artist credits below titles and optional play counts before duration. Hide counts at narrow widths
+  while retaining durations; omit repeated album
   names and track thumbnails. Native selection, sorting, focus, and retained scrolling match
   playlists. Truncate row durations to seconds; truncate the sum of original durations once for
   the header, so its total can differ from summed row displays.

@@ -14,26 +14,26 @@
   expansion, and discography filters, sort, layout and list scroll. Filtering clears hidden selections; removed occurrences never
   regain selection. Account changes clear history and interaction state. Retention is bounded;
   evicted routes reload normally.
-- Track labels learned from playlists/albums update matching tracks in active and retained
-  playlists/albums, preserving duplicates, order, and interaction state. Refreshed labels do not
+- Playlists/albums share learned labels for matching tracks across active and retained pages,
+  preserving duplicates, order, and interaction state. Refreshed labels do not
   make saved collections current.
 - Valid `spotify:` resource URIs and `https://open.spotify.com` links open playlist, album, or
   artist details without playback. Unsupported resources, malformed links, and lookalike hosts
   leave navigation unchanged.
-- Complete saved playlist and album results remain usable after offline, timeout, or throttled reads
+- Complete saved playlist/album results remain usable after offline, timeout, or throttled reads
   only after this process verifies the matching account. Label them possibly out of date, including
   during refresh. Credential or account failures cannot become cached success or expose another
-  account's content. This provides neither offline sign-in nor downloaded music.
+  account's content. No offline sign-in or downloaded music.
 
 ### Album and artist pages
 
-- Albums have an artwork header, large responsive title, and artist, release year, song count, and runtime
-  summary. The header scrolls into a compact title and Play action. Numbered 56-point rows put
+- Album headers show artwork, a large responsive title, artist, release year, song count, and runtime.
+  Scrolling compacts the header to title and Play. Numbered 56-point rows put
   linked artist credits below titles and optional play counts before duration. Hide counts at narrow widths
   while retaining durations; omit repeated album
   names and track thumbnails. Native selection, sorting, focus, and retained scrolling match
   playlists. Truncate row durations to seconds; truncate the sum of original durations once for
-  the header, so its total can differ from summed row displays.
+  the header, so totals can differ from summed row displays.
 - Artists use a full-width banner when available, a large name, and known verification and monthly-listener
   facts. Without a banner, use a tinted header with a portrait when known; omit unknown statistics
   and verification. Hero, Popular, and Discography share one native scroll area with Play/shuffle
@@ -72,7 +72,7 @@
   on hover while the rest opens details. Selection is neutral gray with native active/inactive
   behavior; darker hover applies only to unselected rows.
 - The active playlist has a green title and trailing green speaker for local and Connect playback,
-  independent of navigation selection, including while paused. Clear them on disconnect, cleared
+  regardless of navigation selection or paused state. Clear them on disconnect, cleared
   current track, or context change; see [playback state](playback.md#transport-and-progress).
   Home and Search stay in the toolbar; omit separate Your Library destinations and an app-name header.
 

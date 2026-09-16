@@ -28,69 +28,20 @@ extension PlaybackSessionRuntime {
             return
         }
 
-        switch commandRoute {
+        let route = commandRoute
+        switch route {
         case .waitingForLocalIdentity:
             feedback.failure("Spotty is still joining Spotify Connect.")
             return
         case .needsDeviceSelection:
             feedback.failure(QueueMutationRefusal.needsDeviceSelection.feedbackMessage)
             return
-        case let .remote(from, to):
-            let effectID = PlaybackEffectID.queueCommand(UUID())
-            let lifetime = playbackLifetime
-            let route = ConnectCommandRoute.remote(from: from, to: to)
-            effects.run(effectID) { [weak self] in
-                guard let self else { return }
-                var completed = 0
-                for uri in ordered {
-                    guard
-                        let intentID = self.startQueueIntent(
-                            adding: uri, timeoutEffect: effectID, lifetime: lifetime,
-                            remainingRequests: ordered.count - completed - 1)
-                    else { return }
-                    do {
-                        guard
-                            let permit = self.makePlaybackDispatchPermit(
-                                intentID: intentID,
-                                ifStillWanted: {
-                                    self.stillCurrent(lifetime, requiresConnection: true, route: route)
-                                })
-                        else { return }
-                        guard
-                            let outcome = try await self.coordinator.performRemoteCommand(
-                                { client in
-                                    try await client.send(.addToQueue(uri), from: from, to: to)
-                                },
-                                permit: permit
-                            )
-                        else { return }
-                        guard
-                            let accepted = self.finishQueueIntent(
-                                intentID, outcome: outcome, lifetime: lifetime)
-                        else { return }
-                        guard accepted else {
-                            guard self.stillCurrent(lifetime, requiresConnection: true, route: route) else { return }
-                            self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
-                            return
-                        }
-                        completed += 1
-                    } catch {
-                        guard self.stillCurrent(lifetime, requiresConnection: true, route: route) else { return }
-                        self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
-                        return
-                    }
-                }
-                guard self.stillCurrent(lifetime, requiresConnection: true, route: route) else { return }
-                self.presentAddToQueueFeedback(requested: ordered.count, completed: completed)
-            }
-            return
-        case .local:
+        case .local, .remote:
             break
         }
 
         let effectID = PlaybackEffectID.queueCommand(UUID())
         let lifetime = playbackLifetime
-        let route = ConnectCommandRoute.local
         effects.run(effectID) { [weak self] in
             guard let self else { return }
             var completed = 0
@@ -108,12 +59,17 @@ extension PlaybackSessionRuntime {
                         })
                 else { return }
                 do {
-                    guard
-                        let outcome = try await self.coordinator.performLocalCommand(
-                            .addToQueue(uri),
-                            permit: permit
-                        )
-                    else { return }
+                    let outcome: Result<Void, PlaybackCommandFailure>?
+                    switch route {
+                    case .local:
+                        outcome = try await self.coordinator.performLocalCommand(.addToQueue(uri), permit: permit)
+                    case let .remote(from, to):
+                        outcome = try await self.coordinator.performRemoteCommand(
+                            { client in try await client.send(.addToQueue(uri), from: from, to: to) }, permit: permit)
+                    case .waitingForLocalIdentity, .needsDeviceSelection:
+                        return
+                    }
+                    guard let outcome else { return }
                     guard
                         let accepted = self.finishQueueIntent(
                             intentID, outcome: outcome, lifetime: lifetime)

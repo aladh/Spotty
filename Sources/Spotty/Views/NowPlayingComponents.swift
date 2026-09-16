@@ -44,7 +44,6 @@ struct NowPlayingTrackIdentity: View {
 
 struct NowPlayingProgress: View {
     let player: PlaybackStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let accountEpoch = player.semantic.accountEpoch
         let engineEpoch = player.semantic.engineEpoch
@@ -54,7 +53,7 @@ struct NowPlayingProgress: View {
         PlaybackPositionSlider(
             position: player.position, anchoredAt: player.positionAnchorDate, duration: duration,
             isEnabled: player.canStartPlayback && player.hasCurrentTrack && duration > 0,
-            isPlaying: player.showsPauseControl, reduceMotion: reduceMotion
+            isPlaying: player.showsPauseControl
         ) { position in
             // A drag belongs to the track, owner, and lifetime where it began.
             guard player.canStartPlayback, player.hasCurrentTrack,
@@ -155,7 +154,6 @@ struct NowPlayingTimeControls: View {
     let player: PlaybackStore
     @Binding var showsSidePanel: Bool
     @Binding var playbackPanel: PlaybackPanel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var queueIsOpen: Bool { showsSidePanel && playbackPanel == .queue }
     private var connectIsOpen: Bool { showsSidePanel && playbackPanel == .connect }
@@ -192,7 +190,7 @@ struct NowPlayingTimeControls: View {
     }
 
     private func toggle(_ panel: PlaybackPanel) {
-        let update = {
+        withAnimation(.snappy(duration: 0.2)) {
             if showsSidePanel && playbackPanel == panel {
                 showsSidePanel = false
             } else {
@@ -200,7 +198,6 @@ struct NowPlayingTimeControls: View {
                 showsSidePanel = true
             }
         }
-        if reduceMotion { update() } else { withAnimation(.snappy(duration: 0.2), update) }
     }
 }
 

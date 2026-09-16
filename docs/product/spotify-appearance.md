@@ -68,12 +68,10 @@ relevant states, using [authorized synthetic or read-only inspection](safe-testi
   columns must be reachable, and keyboard-selected rows must stay visible below compact headers.
   [NativeTrackTableContainer](../../Sources/Spotty/Views/NativeTrackTableContainer.swift) implements
   that behavior; its geometry still requires visual comparison.
-- **Accessibility and Reduce Motion:** preserve row position, current-track, sort-direction,
+- **Accessibility:** preserve row position, current-track, sort-direction,
   link, and disabled-state announcements; color alone must not carry the actionable state.
-  Verify VoiceOver order through the native/hosted boundary. With Reduce Motion enabled, progress
-  continues to report accepted positions while its continuous interpolation is suppressed, as in
-  [PlaybackPositionSlider](../../Sources/Spotty/Views/PlaybackPositionSlider.swift). Native control
-  and scrolling behavior must remain usable.
+  Verify VoiceOver order through the native/hosted boundary. Native controls and scrolling must
+  remain usable. Spotty maintains one animation behavior, without a custom Reduce Motion variant.
 
 Native headers, rows, queue selection, column resizing, and compact-header scrolling require visual
 comparison. Shared constants and behavior tests do not certify fidelity. Fix mismatches or review

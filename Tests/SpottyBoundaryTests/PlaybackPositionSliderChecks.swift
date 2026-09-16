@@ -171,15 +171,15 @@ struct PlaybackPositionSliderChecks {
                 == .restart(from: 50))
     }
 
-    @Test func staticThumbAdvancesOnUnchangedAnchor() {
+    @Test func detachedSliderAdvancesOnUnchangedAnchor() {
         let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
         var time = Date(timeIntervalSince1970: 1_000)
         slider.now = { time }
         let t0 = time
-        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true, reduceMotion: true)
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true)
         #expect(slider.doubleValue == 60)
         time = t0.addingTimeInterval(2)
-        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true, reduceMotion: true)
+        slider.updatePosition(60, anchoredAt: t0, duration: 180, isPlaying: true)
         #expect(slider.doubleValue == 62)
     }
 

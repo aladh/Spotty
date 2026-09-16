@@ -12,7 +12,6 @@ struct NavigationBar: View {
     @FocusState private var focusedControl: FocusTarget?
     @State private var homeIsHovered = false
     @State private var searchIsHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
@@ -29,7 +28,7 @@ struct NavigationBar: View {
                     )
                     .scaleEffect(homeIsHovered ? 1.04 : 1)
             }
-            .animationIfAllowed(.easeOut(duration: 0.15), value: homeIsHovered, reduceMotion: reduceMotion)
+            .animation(.easeOut(duration: 0.15), value: homeIsHovered)
             .onHover { homeIsHovered = $0 }
             .accessibilityLabel("Home")
             .help("Home")

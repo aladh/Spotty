@@ -58,7 +58,7 @@ architecture work does not imply them. See [product scope](../product/scope.md).
 ## Measurements
 
 Record source and engine identities, scenario, system, display refresh/scale, window size/visibility,
-Reduce Motion, and workload. Compare repeated runs with identical configurations and no concurrent
+and workload. Compare repeated runs with identical configurations and no concurrent
 compilation or UI inspection. Historical Debug samples are not an optimized baseline.
 
 ```bash
@@ -100,7 +100,7 @@ python3 Scripts/summarize_synthetic_trace.py PREFIX
 Name exports `PREFIX-signposts.xml`, `PREFIX-hitches.xml`, `PREFIX-hitches-updates.xml`, and
 `PREFIX-hitches-frame-lifetimes.xml`. The summarizer rejects missing workload markers or app frames.
 Filter to the Demo process and `Demo workload` interval. Do not treat full pipelined frame lifetime
-as a one-refresh deadline. Check visibility, motion settings, and functional results separately.
+as a one-refresh deadline. Check visibility and functional results separately.
 
 For a matched publication control, apply
 [queue-unbatched.patch](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) in a disposable

@@ -9,7 +9,6 @@ struct PlaybackPositionSlider: NSViewRepresentable {
     let duration: Double
     let isEnabled: Bool
     var isPlaying = false
-    var reduceMotion = false
     let commit: (Double) -> Void
 
     func makeNSView(context: Context) -> PositionSlider {
@@ -33,7 +32,7 @@ struct PlaybackPositionSlider: NSViewRepresentable {
         slider.accessibleDuration = duration
         guard !slider.isTrackingPosition else { return }
         slider.updatePosition(
-            position, anchoredAt: anchoredAt, duration: duration, isPlaying: isPlaying, reduceMotion: reduceMotion)
+            position, anchoredAt: anchoredAt, duration: duration, isPlaying: isPlaying)
     }
 
     final class PositionSlider: NSSlider {
@@ -42,7 +41,6 @@ struct PlaybackPositionSlider: NSViewRepresentable {
         private var anchorPosition = 0.0
         private var anchoredAt = Date()
         private var plays = false
-        private var reduceMotion = false
         private var hasDuration = false
         private var hasKeyboardFocus = false
         private weak var observedWindow: NSWindow?
@@ -158,24 +156,24 @@ struct PlaybackPositionSlider: NSViewRepresentable {
 
         /// Convenience for callers (and existing tests) that only have an interpolated position,
         /// not a store anchor date: anchors immediately at `now()`.
-        func updatePosition(_ position: Double, duration: Double, isPlaying: Bool = false, reduceMotion: Bool = false) {
+        func updatePosition(_ position: Double, duration: Double, isPlaying: Bool = false) {
             updatePosition(
-                position, anchoredAt: now(), duration: duration, isPlaying: isPlaying, reduceMotion: reduceMotion)
+                position, anchoredAt: now(), duration: duration, isPlaying: isPlaying)
         }
 
         /// Authoritative updates carry the store's own anchor. When nothing about the anchor,
-        /// duration, or motion state actually changed and Core Animation is carrying the thumb,
+        /// duration, or playback state actually changed and Core Animation is carrying the thumb,
         /// only chrome (enabled/engaged colors) is refreshed so the running animation is left
         /// untouched instead of being restarted every call (e.g. every second from a 1 Hz
         /// `TimelineView`). A static thumb still advances from the same anchor on every call.
         func updatePosition(
-            _ position: Double, anchoredAt: Date, duration: Double, isPlaying: Bool = false, reduceMotion: Bool = false
+            _ position: Double, anchoredAt: Date, duration: Double, isPlaying: Bool = false
         ) {
             let newMaxValue = duration > 0 ? duration : 1
             let newHasDuration = duration > 0
             let newAnchorPosition = min(max(0, position), max(0, duration))
             if newAnchorPosition == anchorPosition, anchoredAt == self.anchoredAt, newMaxValue == maxValue,
-                newHasDuration == hasDuration, isPlaying == plays, reduceMotion == self.reduceMotion
+                newHasDuration == hasDuration, isPlaying == plays
             {
                 if animatesProgress {
                     progressDrawing.refreshChrome(hasTrack: hasDuration, engaged: isEngaged)
@@ -189,7 +187,6 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             anchorPosition = newAnchorPosition
             self.anchoredAt = anchoredAt
             plays = isPlaying
-            self.reduceMotion = reduceMotion
             synchronizePosition()
         }
 
@@ -208,7 +205,7 @@ struct PlaybackPositionSlider: NSViewRepresentable {
 
         /// Mirrors the drawing's own decision to run Core Animation rather than draw a static thumb.
         private var animatesProgress: Bool {
-            plays && !reduceMotion && !isTrackingPosition && hasDuration && window != nil
+            plays && !isTrackingPosition && hasDuration && window != nil
         }
 
         func renderProgress() {
@@ -217,7 +214,7 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             progressDrawing.update(
                 bar: cell.barRect(flipped: isFlipped), knob: cell.knobRect(flipped: isFlipped),
                 remaining: max(0, maxValue - doubleValue), hasTrack: hasDuration, engaged: isEngaged,
-                animates: plays && !reduceMotion && !isTrackingPosition
+                animates: plays && !isTrackingPosition
             )
         }
 

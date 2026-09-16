@@ -157,7 +157,6 @@ struct MediaCard: View {
     let action: () -> Void
 
     @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -223,7 +222,7 @@ struct MediaCard: View {
             .allowsHitTesting(isHovering && playback.canStartPlayback)
             .opacity(isHovering ? 1 : 0)
             .offset(y: isHovering ? 0 : 8)
-            .animationIfAllowed(.easeOut(duration: 0.15), value: isHovering, reduceMotion: reduceMotion)
+            .animation(.easeOut(duration: 0.15), value: isHovering)
             .padding(.top, CatalogLayout.cardPadding + CatalogLayout.cardArtwork - 48 - 8)
             .padding(.trailing, CatalogLayout.cardPadding + 8)
         }

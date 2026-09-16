@@ -22,8 +22,8 @@ Source checks prove syntax and topology, not runtime correctness. Review must st
   asynchronous path.
 - **Memory and boundaries:** allocation/free pairing, borrowed callback strings, lock-safe fan-out,
   and audio ownership transfer. ABI layout and signature checks do not prove these lifetimes.
-- **Native interaction:** focus, keyboard dispatch, selection, accessibility, inactive windows,
-  and Reduce Motion. Model-level view checks cannot establish actual control behavior.
+- **Native interaction:** focus, keyboard dispatch, selection, accessibility, and inactive windows.
+  Model-level view checks cannot establish actual control behavior.
 - **Trust and failure:** credential exposure, private fixtures, cache/promotion provenance, partial
   writes, and useful recovery. Static structure is not proof of authorization or failure handling.
 

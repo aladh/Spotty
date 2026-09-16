@@ -10,8 +10,10 @@ enum DiscographyReleases {
         _ releases: [CatalogItem], kinds: [String: CatalogArtistReleaseKind], dates: [String: String],
         filter: ArtistReleaseFilter, sort: DiscographySort
     ) -> [CatalogItem] {
-        releases.enumerated().filter { _, release in
-            switch (filter, kinds[release.uri]) {
+        var seen = Set<String>()
+        return releases.enumerated().filter { _, release in
+            guard seen.insert(release.uri).inserted else { return false }
+            return switch (filter, kinds[release.uri]) {
             case (.popular, _), (.albums, .album), (.singles, .single), (.singles, .ep), (.compilations, .compilation):
                 true
             default: false

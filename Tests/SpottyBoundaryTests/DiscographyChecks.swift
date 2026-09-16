@@ -72,6 +72,7 @@ struct DiscographyChecks {
         let releases = [
             release("old", title: "Zulu"), release("single", title: "Alpha"), release("new", title: "Beta"),
             release("unknown", title: "Gamma"),
+            release("old", title: "Duplicate release"),
         ]
         let kinds: [String: CatalogArtistReleaseKind] = [
             releases[0].uri: .album, releases[1].uri: .ep, releases[2].uri: .album,

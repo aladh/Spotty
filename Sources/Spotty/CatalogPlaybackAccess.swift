@@ -26,6 +26,14 @@ struct CatalogPlaybackAccess {
         player.playingContextURI == uri
     }
 
+    var connectionLoadingLabel: String? {
+        guard isCurrentAccount, !player.isConnected else { return nil }
+        switch player.phase {
+        case .authorizing, .connecting, .recovering: return player.statusText
+        case .signedOut, .ready, .failed: return nil
+        }
+    }
+
     var statusText: String { player.statusText }
     var requiresReauthentication: Bool { player.requiresReauthentication }
     var connectionActionTitle: String {

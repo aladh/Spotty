@@ -110,47 +110,36 @@ struct PlaylistDetailView: View {
 
     @ViewBuilder
     private var playlistContent: some View {
-        if !playback.isConnected && store.tracks.isEmpty {
-            VStack(spacing: 14) {
-                ContentUnavailableView(
-                    "Reconnect to load this playlist",
-                    systemImage: "wifi.exclamationmark",
-                    description: Text(playback.statusText)
-                )
-                Button(playback.connectionActionTitle) { playback.connect() }
-                    .buttonStyle(.borderedProminent)
-            }
-            .frame(maxWidth: .infinity, minHeight: 240)
-        } else {
-            CatalogContentState(
-                isLoading: store.isLoading, isEmpty: store.tracks.isEmpty, error: store.error,
-                loadingLabel: "Loading \(item.title)", errorTitle: "Couldn't load this playlist",
-                retry: { await store.load(item) }
-            ) {
-                EmptyState(
-                    icon: "music.note.list", title: "This playlist is empty",
-                    message: "Spotify returned no playable tracks.")
-            } content: {
-                VStack(spacing: 0) {
-                    if store.error != nil {
-                        staleRefreshWarning
-                        CatalogTableDivider()
-                    } else if store.isShowingCachedContent {
-                        CachedCatalogNotice(isRefreshing: store.isLoading)
-                    }
-                    TrackTable(
-                        tracks: store.trackCollection,
-                        playback: playback,
-                        variant: .playlist,
-                        searchQuery: interactionState.searchText,
-                        playlistActions: playlistActions,
-                        onSelect: onSelect,
-                        detailHeader: AnyView(expandedHeader),
-                        compactDetailHeader: AnyView(compactHeader),
-                        interactionState: interactionState
-                    )
-                    .id(item.uri)
+        CatalogContentState(
+            isLoading: store.isLoading, isEmpty: store.tracks.isEmpty, error: store.error,
+            loadingLabel: "Loading \(item.title)", errorTitle: "Couldn't load this playlist",
+            connection: playback, connectionIcon: "wifi.exclamationmark",
+            connectionTitle: "Reconnect to load this playlist",
+            retry: { await store.load(item) }
+        ) {
+            EmptyState(
+                icon: "music.note.list", title: "This playlist is empty",
+                message: "Spotify returned no playable tracks.")
+        } content: {
+            VStack(spacing: 0) {
+                if store.error != nil {
+                    staleRefreshWarning
+                    CatalogTableDivider()
+                } else if store.isShowingCachedContent {
+                    CachedCatalogNotice(isRefreshing: store.isLoading)
                 }
+                TrackTable(
+                    tracks: store.trackCollection,
+                    playback: playback,
+                    variant: .playlist,
+                    searchQuery: interactionState.searchText,
+                    playlistActions: playlistActions,
+                    onSelect: onSelect,
+                    detailHeader: AnyView(expandedHeader),
+                    compactDetailHeader: AnyView(compactHeader),
+                    interactionState: interactionState
+                )
+                .id(item.uri)
             }
         }
     }

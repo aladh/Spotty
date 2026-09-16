@@ -53,6 +53,7 @@ struct AlbumDetailView: View {
                     onSelect: onSelect,
                     detailHeader: AnyView(expandedHeader),
                     compactDetailHeader: AnyView(compactHeader),
+                    playCounts: store.playCounts,
                     interactionState: interactionState
                 )
                 .id(item.uri)

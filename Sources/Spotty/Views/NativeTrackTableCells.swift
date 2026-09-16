@@ -38,7 +38,7 @@ enum NativeTrackColumn: String, CaseIterable {
         switch variant {
         case .catalog: [.title, .artist, .album, .duration]
         case .playlist: [.index, .title, .album, .dateAdded, .duration]
-        case .album: [.index, .title, .duration]
+        case .album: [.index, .title, .playCount, .duration]
         case .artist: [.index, .title, .playCount, .duration]
         }
     }
@@ -57,6 +57,7 @@ struct NativeTrackCell: View {
     let searchQuery: String
     let onSelect: ((CatalogItem) -> Void)?
     var artistTrack: CatalogArtistPopularTrack? = nil
+    var playCount: Int64? = nil
     @State private var indexHovered = false
 
     var body: some View {
@@ -110,7 +111,7 @@ struct NativeTrackCell: View {
             .monospacedDigit()
             .foregroundStyle(SpottyPalette.dataText)
         case .playCount:
-            if let count = artistTrack?.playCount {
+            if let count = playCount {
                 Text(count.formatted()).foregroundStyle(SpottyPalette.dataText)
                     .accessibilityLabel("\(count.formatted()) plays")
             }

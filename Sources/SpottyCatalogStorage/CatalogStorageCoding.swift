@@ -83,6 +83,7 @@ struct StoredCollection: Codable, Equatable {
     let description: String
     let ownerURI: String?
     let releaseDate: String
+    let playCounts: [String: Int64]?
 
     init(_ write: CatalogCollectionWrite) {
         completeness = write.completeness
@@ -92,10 +93,12 @@ struct StoredCollection: Codable, Equatable {
         description = write.metadata.description
         ownerURI = write.metadata.ownerURI
         releaseDate = write.metadata.releaseDate
+        playCounts = write.metadata.playCounts
     }
 
     var metadata: CatalogCollectionMetadata {
         CatalogCollectionMetadata(
-            item: item?.value, description: description, ownerURI: ownerURI, releaseDate: releaseDate)
+            item: item?.value, description: description, ownerURI: ownerURI, releaseDate: releaseDate,
+            playCounts: playCounts)
     }
 }

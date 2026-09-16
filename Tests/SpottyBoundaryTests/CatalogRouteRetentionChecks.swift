@@ -108,7 +108,9 @@ struct CatalogRouteRetentionTests {
     @Test func albumAndArtistRevisitsReuseCompletePayloads() async {
         let provider = HarnessCatalog()
         provider.onAlbumSnapshot = { id in
-            CatalogAlbumSnapshot(tracks: [HarnessFixtures.track(uri: "spotify:track:\(id)")], releaseDate: id)
+            CatalogAlbumSnapshot(
+                tracks: [HarnessFixtures.track(uri: "spotify:track:\(id)")], releaseDate: id,
+                playCounts: ["spotify:track:\(id)": 9_876_543_210])
         }
         provider.onArtistSnapshot = { id in CatalogArtistSnapshot(name: id, releases: []) }
         provider.onArtistDiscographySnapshot = { id in
@@ -123,9 +125,14 @@ struct CatalogRouteRetentionTests {
         await album.load(item("second", kind: .album))
         album.prepare(item("first", kind: .album))
         #expect(album.releaseDate == "first")
+        #expect(album.playCounts == ["spotify:track:first": 9_876_543_210])
         #expect(album.trackCollection.version == firstVersion)
         await album.load(item("first", kind: .album))
         #expect(provider.albumRequestCount == 2)
+        album.prepare(item("unloaded", kind: .album))
+        #expect(album.playCounts.isEmpty)
+        album.prepare(item("first", kind: .album))
+        #expect(album.playCounts == ["spotify:track:first": 9_876_543_210])
 
         await artist.load(item("first", kind: .artist))
         await artist.load(item("second", kind: .artist))
@@ -139,6 +146,7 @@ struct CatalogRouteRetentionTests {
         album.prepare(item("first", kind: .album))
         artist.prepare(item("first", kind: .artist))
         #expect(album.tracks.isEmpty)
+        #expect(album.playCounts.isEmpty)
         #expect(artist.releases.isEmpty)
     }
 

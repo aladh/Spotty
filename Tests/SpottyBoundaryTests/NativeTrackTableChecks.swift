@@ -117,7 +117,11 @@ struct NativeTrackTableChecks {
                 #expect(document.frame.width <= viewport)
                 #expect(fixture.container.table.frame.maxX <= viewport - 24)
                 #expect(
-                    fixture.container.table.tableColumns.map(\.identifier.rawValue) == ["index", "title", "duration"])
+                    fixture.container.table.tableColumns.map(\.identifier.rawValue)
+                        == ["index", "title", "playCount", "duration"])
+                let plays = try #require(
+                    fixture.container.table.tableColumns.first { $0.identifier.rawValue == "playCount" })
+                #expect(plays.isHidden == (viewport - 48 < 520))
             }
         }
     }

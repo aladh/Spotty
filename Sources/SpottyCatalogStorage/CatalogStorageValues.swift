@@ -103,12 +103,17 @@ public struct CatalogCollectionMetadata: Equatable, Sendable {
     public let description: String
     public let ownerURI: String?
     public let releaseDate: String
+    public let playCounts: [String: Int64]?
 
-    public init(item: CatalogItem? = nil, description: String = "", ownerURI: String? = nil, releaseDate: String = "") {
+    public init(
+        item: CatalogItem? = nil, description: String = "", ownerURI: String? = nil, releaseDate: String = "",
+        playCounts: [String: Int64]? = nil
+    ) {
         self.item = item
         self.description = description
         self.ownerURI = ownerURI
         self.releaseDate = releaseDate
+        self.playCounts = playCounts
     }
 }
 

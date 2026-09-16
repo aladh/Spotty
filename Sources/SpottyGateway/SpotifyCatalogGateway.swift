@@ -189,6 +189,12 @@ extension CatalogMapping {
                     id: uri, uri: uri, title: value.name ?? "Untitled album",
                     subtitle: value.artists?.items?.compactMap { $0.profile?.name }.joined(separator: ", ") ?? "",
                     artworkURL: value.coverArt?.largestURL.flatMap(URL.init(string:)), kind: .album)
+            },
+            playCounts: value.tracks.reduce(into: [:]) { counts, track in
+                guard let uri = track.uri, !uri.isEmpty,
+                    let count = track.playcount.flatMap(Int64.init), count >= 0
+                else { return }
+                counts[uri] = count
             })
     }
     static func artist(_ value: PathfinderArtistUnion) -> CatalogArtistSnapshot {

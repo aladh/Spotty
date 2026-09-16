@@ -766,10 +766,10 @@ final class HarnessAudioOutput: AudioOutputPreparing, @unchecked Sendable {
 final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unchecked Sendable {
     private struct Storage {
         var entityQueries: (any CatalogEntityQueryProviding)?
-        var onSearchTracks: (@Sendable (String, Int) async throws -> [PathfinderTrack])?
-        var onSearchAlbums: (@Sendable (String, Int) async throws -> [PathfinderAlbum])?
-        var onSearchArtists: (@Sendable (String, Int) async throws -> [PathfinderArtist])?
-        var onSearchPlaylists: (@Sendable (String, Int) async throws -> [PathfinderPlaylist])?
+        var onSearchTracks: (@Sendable (String, Int) async throws -> [CatalogTrack])?
+        var onSearchAlbums: (@Sendable (String, Int) async throws -> [CatalogItem])?
+        var onSearchArtists: (@Sendable (String, Int) async throws -> [CatalogItem])?
+        var onSearchPlaylists: (@Sendable (String, Int) async throws -> [CatalogItem])?
         var onHome: (@Sendable () async throws -> PathfinderHome)?
         var onLibraryPlaylists: (@Sendable () async throws -> [PathfinderPlaylist])?
         var onPlaylistLibrary: (@Sendable () async throws -> [PlaylistLibraryNode])?
@@ -807,22 +807,22 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
         set { withStorage { $0.entityQueries = newValue } }
     }
 
-    var onSearchTracks: (@Sendable (String, Int) async throws -> [PathfinderTrack])? {
+    var onSearchTracks: (@Sendable (String, Int) async throws -> [CatalogTrack])? {
         get { withStorage { $0.onSearchTracks } }
         set { withStorage { $0.onSearchTracks = newValue } }
     }
 
-    var onSearchAlbums: (@Sendable (String, Int) async throws -> [PathfinderAlbum])? {
+    var onSearchAlbums: (@Sendable (String, Int) async throws -> [CatalogItem])? {
         get { withStorage { $0.onSearchAlbums } }
         set { withStorage { $0.onSearchAlbums = newValue } }
     }
 
-    var onSearchArtists: (@Sendable (String, Int) async throws -> [PathfinderArtist])? {
+    var onSearchArtists: (@Sendable (String, Int) async throws -> [CatalogItem])? {
         get { withStorage { $0.onSearchArtists } }
         set { withStorage { $0.onSearchArtists = newValue } }
     }
 
-    var onSearchPlaylists: (@Sendable (String, Int) async throws -> [PathfinderPlaylist])? {
+    var onSearchPlaylists: (@Sendable (String, Int) async throws -> [CatalogItem])? {
         get { withStorage { $0.onSearchPlaylists } }
         set { withStorage { $0.onSearchPlaylists = newValue } }
     }
@@ -928,25 +928,25 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
     func searchTracks(_ term: String, limit: Int) async throws -> [CatalogTrack] {
         counters.record("searchTracks")
         guard let override = onSearchTracks else { throw HarnessFailure.unavailable }
-        return try await override(term, limit).compactMap(CatalogMapping.searchTrack(from:))
+        return try await override(term, limit)
     }
 
     func searchAlbums(_ term: String, limit: Int) async throws -> [CatalogItem] {
         counters.record("searchAlbums")
         guard let override = onSearchAlbums else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(term, limit).compactMap(CatalogMapping.item(from:))
+        return try await override(term, limit)
     }
 
     func searchArtists(_ term: String, limit: Int) async throws -> [CatalogItem] {
         counters.record("searchArtists")
         guard let override = onSearchArtists else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(term, limit).compactMap(CatalogMapping.item(from:))
+        return try await override(term, limit)
     }
 
     func searchPlaylists(_ term: String, limit: Int) async throws -> [CatalogItem] {
         counters.record("searchPlaylists")
         guard let override = onSearchPlaylists else { throw CatalogProviderCapabilityError.unsupported }
-        return try await override(term, limit).compactMap(CatalogMapping.item(from:))
+        return try await override(term, limit)
     }
 
     func home() async throws -> CatalogHomeSnapshot {

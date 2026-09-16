@@ -3,7 +3,6 @@ import SwiftUI
 import Testing
 import SpottyDomain
 @testable import SpottyCore
-@testable import SpottyGateway
 @testable import SpottySessionRuntime
 
 @Suite("Catalog view loading", .serialized)
@@ -14,8 +13,7 @@ struct CatalogViewLoadingTests {
         let provider = HarnessCatalog()
         let queries = HarnessCounters()
         let responseClock = HarnessClock.parked()
-        let result = try JSONDecoder().decode(
-            PathfinderTrack.self, from: Data(#"{"uri":"spotify:track:second","name":"Result"}"#.utf8))
+        let result = HarnessFixtures.track(uri: "spotify:track:second", title: "Result")
         provider.onSearchTracks = { query, _ in
             queries.record(query)
             try await responseClock.sleep(seconds: 1)

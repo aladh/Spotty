@@ -10,20 +10,9 @@ struct SearchView: View {
 
     var body: some View {
         Group {
-            if let label = playback.connectionLoadingLabel {
-                LoadingState(label: label).padding(CatalogLayout.contentPadding)
-            } else if !playback.isConnected {
-                EmptyState(
-                    icon: "person.crop.circle.badge.plus",
-                    title: "Connect Spotify",
-                    message: "Connect your Spotify Premium account to search its track catalog.",
-                    actionTitle: playback.connectionActionTitle,
-                    actionSystemImage: "link"
-                ) {
-                    playback.connect()
-                }
-                .padding(CatalogLayout.contentPadding)
-            } else if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                playback.isConnected || playback.connectionLoadingLabel != nil
+            {
                 EmptyState(
                     icon: "magnifyingglass",
                     title: "Search Spotify",
@@ -35,6 +24,8 @@ struct SearchView: View {
                     isLoading: store.isSearching, isEmpty: store.isEmpty, error: store.error,
                     loadingLabel: "Searching Spotify", errorTitle: "Couldn't search Spotify",
                     errorIcon: "exclamationmark.magnifyingglass", placeholderPadding: CatalogLayout.contentPadding,
+                    connection: playback,
+                    connectionMessage: "Connect your Spotify Premium account to search its track catalog.",
                     retry: { await store.search(searchText) }
                 ) {
                     EmptyState(

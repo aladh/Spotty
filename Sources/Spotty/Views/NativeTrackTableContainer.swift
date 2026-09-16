@@ -262,8 +262,7 @@ final class NativeTrackTableContainer: NSView {
             return [40, tableWidth - 120 - plays, plays, 80]
         }
         if variant == .album {
-            let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9) + 24
-            return [index, tableWidth - index - 104 - plays, plays, 104]
+            return NativeTrackColumn.albumWidths(tableWidth: tableWidth, rowCount: rowCount)
         }
         if variant == .playlist {
             let index = max(24, CGFloat(String(max(1, rowCount)).count) * 9)
@@ -281,16 +280,16 @@ private final class NativeTrackDocumentView: NSView {
     override var isFlipped: Bool { true }
 }
 
-private struct NativeTrackColumnHeaders: View {
+struct NativeTrackColumnHeaders: View {
     let columns: [NativeTrackColumn]
     let widths: [CGFloat]
     let sortOrder: [KeyPathComparator<TrackTableRow>]
-    let sort: (NativeTrackColumn) -> Void
+    let sort: ((NativeTrackColumn) -> Void)?
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(Array(zip(columns, widths)).filter { $0.1 > 0 }, id: \.0) { column, width in
-                if column.comparator != nil {
+                if column.comparator != nil, let sort {
                     Button {
                         sort(column)
                     } label: {

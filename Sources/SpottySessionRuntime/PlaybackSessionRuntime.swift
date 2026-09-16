@@ -210,6 +210,8 @@ package final class PlaybackSessionRuntime: Sendable {
                 await self.loadCatalogForClient?()
             }
         }
+        // A new process must inspect its saved session before it can report signed out.
+        send(.session(accountStore.phase), source: .account)
     }
 
     package func setCatalogLoader(_ load: @escaping @Sendable () async -> Void) {

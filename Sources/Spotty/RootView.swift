@@ -158,8 +158,24 @@ struct RootView: View {
                     store: catalog.artistStore,
                     playback: catalogPlayback,
                     onSelect: select,
+                    onShowDiscography: { filter in
+                        let state = navigation.interactionState(for: "discography:\(uri)")
+                        state.artistReleaseFilter = filter
+                        state.discographyScroll.offset = 0
+                        navigation.updateSelection(.discography(uri))
+                        prepareSelectedRoute()
+                    },
                     interactionState: navigation.interactionState(for: uri)
                 )
+            } else {
+                unavailableMedia("Artist", destination: .artists)
+            }
+        case let .discography(uri):
+            if let item = selectedItem(uri: uri, kind: .artist) {
+                ArtistDiscographyView(
+                    item: item, artist: catalog.artistStore, albums: catalog.discographyStore,
+                    playback: catalogPlayback, playlistActions: playlistActions(), onSelect: select,
+                    interactionState: navigation.interactionState(for: "discography:\(uri)"))
             } else {
                 unavailableMedia("Artist", destination: .artists)
             }
@@ -239,6 +255,9 @@ struct RootView: View {
             if let item = selectedItem(uri: uri, kind: .album) { catalog.albumStore.prepare(item) }
         case let .artist(uri):
             if let item = selectedItem(uri: uri, kind: .artist) { catalog.artistStore.prepare(item) }
+        case let .discography(uri):
+            if let item = selectedItem(uri: uri, kind: .artist) { catalog.artistStore.prepare(item) }
+            catalog.discographyStore.prepare(artistURI: uri)
         case .destination:
             break
         }

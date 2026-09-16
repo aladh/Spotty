@@ -9,19 +9,11 @@ struct SearchView: View {
     let playlistActions: TrackPlaylistActions
 
     var body: some View {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         Group {
-            if !playback.isConnected {
-                EmptyState(
-                    icon: "person.crop.circle.badge.plus",
-                    title: "Connect Spotify",
-                    message: "Connect your Spotify Premium account to search its track catalog.",
-                    actionTitle: playback.connectionActionTitle,
-                    actionSystemImage: "link"
-                ) {
-                    playback.connect()
-                }
-                .padding(CatalogLayout.contentPadding)
-            } else if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if query.isEmpty,
+                playback.isConnected || playback.connectionLoadingLabel != nil
+            {
                 EmptyState(
                     icon: "magnifyingglass",
                     title: "Search Spotify",
@@ -30,9 +22,11 @@ struct SearchView: View {
                 .padding(CatalogLayout.contentPadding)
             } else {
                 CatalogContentState(
-                    isLoading: store.isSearching, isEmpty: store.isEmpty, error: store.error,
+                    isLoading: store.isSearching, isEmpty: store.isEmpty || query.isEmpty, error: store.error,
                     loadingLabel: "Searching Spotify", errorTitle: "Couldn't search Spotify",
                     errorIcon: "exclamationmark.magnifyingglass", placeholderPadding: CatalogLayout.contentPadding,
+                    connection: playback,
+                    connectionMessage: "Connect your Spotify Premium account to search its track catalog.",
                     retry: { await store.search(searchText) }
                 ) {
                     EmptyState(
@@ -85,9 +79,7 @@ struct SearchView: View {
             }
         }
         .navigationTitle("Search")
-        .catalogTask(
-            id: searchText.trimmingCharacters(in: .whitespacesAndNewlines), playback: playback
-        ) {
+        .catalogTask(id: query, playback: playback) {
             guard playback.isConnected else { return }
             await store.scheduleSearch(searchText)
         }
@@ -106,6 +98,7 @@ struct SearchView: View {
             Button("Try Again", systemImage: "arrow.clockwise") {
                 Task { await store.search(searchText) }
             }
+            .disabled(!playback.isConnected)
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))

@@ -7,6 +7,7 @@ struct ArtistDetailView: View {
     let store: ArtistDetailStore
     let playback: CatalogPlaybackAccess
     let onSelect: (CatalogItem) -> Void
+    let onShowDiscography: (ArtistReleaseFilter) -> Void
     @Bindable var interactionState: CatalogRouteInteractionState
     @State private var viewportHeight: CGFloat = 800
 
@@ -123,7 +124,7 @@ struct ArtistDetailView: View {
     private func releases(for filter: ArtistReleaseFilter) -> [CatalogItem] {
         if filter == .popular {
             let popular = store.overview?.popularReleases ?? []
-            return popular.isEmpty || interactionState.artistShowsAllReleases ? store.releases : popular
+            return popular.isEmpty ? store.releases : popular
         }
         return store.releases.filter { release in
             switch (filter, store.releaseKinds[release.uri]) {
@@ -139,18 +140,13 @@ struct ArtistDetailView: View {
             HStack {
                 Text("Discography").font(.system(size: 24, weight: .bold)).accessibilityAddTraits(.isHeader)
                 Spacer()
-                if releases.count > 6 || interactionState.artistShowsAllReleases
-                    || (selectedFilter == .popular && store.releases.count > releases.count)
-                {
-                    Button(interactionState.artistShowsAllReleases ? "Show less" : "Show all") {
-                        interactionState.artistShowsAllReleases.toggle()
-                    }
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(SpottyPalette.textSecondary)
-                    .buttonStyle(.plain)
-                    .pointingHandCursor()
-                    .accessibilityLabel(
-                        interactionState.artistShowsAllReleases ? "Show fewer releases" : "Show all releases")
+                if !store.releases.isEmpty {
+                    Button("Show all") { onShowDiscography(selectedFilter) }
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(SpottyPalette.textSecondary)
+                        .buttonStyle(.plain)
+                        .pointingHandCursor()
+                        .accessibilityLabel("Show all releases")
                 }
             }
             ViewThatFits(in: .horizontal) {
@@ -160,7 +156,7 @@ struct ArtistDetailView: View {
                 }
             }
             LazyVGrid(columns: MediaGridLayout.columns, alignment: .leading, spacing: 18) {
-                ForEach(interactionState.artistShowsAllReleases ? releases : Array(releases.prefix(6))) { release in
+                ForEach(Array(releases.prefix(6))) { release in
                     MediaCard(item: release, playback: playback) { onSelect(release) }
                 }
             }
@@ -172,11 +168,10 @@ struct ArtistDetailView: View {
             let selected = selectedFilter == filter
             let title =
                 filter == .popular
-                    && (interactionState.artistShowsAllReleases || store.overview?.popularReleases.isEmpty != false)
+                    && store.overview?.popularReleases.isEmpty != false
                 ? "All releases" : filter.rawValue
             Button(title) {
                 interactionState.artistReleaseFilter = filter
-                interactionState.artistShowsAllReleases = false
             }
             .font(.system(size: 14))
             .padding(.horizontal, 12)

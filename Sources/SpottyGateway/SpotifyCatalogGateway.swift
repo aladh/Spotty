@@ -232,6 +232,11 @@ extension CatalogMapping {
                     isVerified: value.onPlatformReputationTrait?.verification?.isVerified == true,
                     popularTracks: popularTracks,
                     popularReleases: popularReleases.compactMap { item(from: $0, artist: value.profile?.name ?? "") })
-            }, releaseKinds: kinds)
+            }, releaseKinds: kinds,
+            releaseDates: Dictionary(
+                (value.releases + popularReleases).compactMap { release in
+                    guard let uri = release.uri, let date = release.date?.formatted else { return nil }
+                    return (uri, date)
+                }, uniquingKeysWith: { first, _ in first }))
     }
 }

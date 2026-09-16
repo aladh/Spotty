@@ -18,6 +18,7 @@ final class CatalogStore {
     let playlistStore: PlaylistStore
     let albumStore: AlbumDetailStore
     let artistStore: ArtistDetailStore
+    let discographyStore: DiscographyStore
     let metadata: CatalogMetadataRepository
     let playlistMutations: PlaylistMutationController
 
@@ -38,6 +39,7 @@ final class CatalogStore {
         playlistStore = PlaylistStore(provider: provider, metadata: metadata, session: session)
         albumStore = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
         artistStore = ArtistDetailStore(provider: provider, session: session)
+        discographyStore = DiscographyStore(provider: provider, metadata: metadata, session: session)
         self.playlistMutations = PlaylistMutationController(
             mutations: playlistMutations,
             session: session,
@@ -53,6 +55,7 @@ final class CatalogStore {
         playlistStore.reset()
         albumStore.reset()
         artistStore.reset()
+        discographyStore.reset()
         metadata.reset()
         playlistMutations.reset()
     }

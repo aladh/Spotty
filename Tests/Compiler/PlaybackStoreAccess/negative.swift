@@ -88,5 +88,25 @@ func rejectPlaybackStoreWrite(_ store: PlaybackStore) {
         store.remotePlaybackBanner = store.remotePlaybackBanner
     #elseif NEG_COMMAND_ROUTE
         store.commandRoute = store.commandRoute
+    #elseif NEG_HOME_GREETING
+        store.catalog.homeLibrary.greeting = "Home"
+    #elseif NEG_PROFILE_NAME
+        store.catalog.homeLibrary.profileName = "Name"
+    #elseif NEG_PROFILE_URI
+        store.catalog.homeLibrary.profileURI = nil
+    #elseif NEG_HOME_SECTIONS
+        store.catalog.homeLibrary.homeSections = []
+    #elseif NEG_LIBRARY_PLAYLISTS
+        store.catalog.homeLibrary.playlists = []
+    #elseif NEG_LIBRARY_ALBUMS
+        store.catalog.homeLibrary.albums = []
+    #elseif NEG_LIBRARY_ARTISTS
+        store.catalog.homeLibrary.artists = []
+    #elseif NEG_PLAYLIST_DESCRIPTION
+        store.catalog.playlistStore.description = ""
+    #elseif NEG_PLAYLIST_LOADING
+        store.catalog.playlistStore.isLoading = false
+    #elseif NEG_PLAYLIST_ERROR
+        store.catalog.playlistStore.error = nil
     #endif
 }

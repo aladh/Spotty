@@ -30,14 +30,14 @@ final class HomeLibraryStore {
         case likedTracks = "Liked Songs"
     }
 
-    var greeting = "Home"
-    var profileName = "Spotify Premium"
-    var profileURI: String?
-    var homeSections: [CatalogSection] = []
-    var playlists: [CatalogItem] = []
+    private(set) var greeting = "Home"
+    private(set) var profileName = "Spotify Premium"
+    private(set) var profileURI: String?
+    private(set) var homeSections: [CatalogSection] = []
+    private(set) var playlists: [CatalogItem] = []
     private(set) var playlistLibrary: [PlaylistLibraryNode] = []
-    var albums: [CatalogItem] = []
-    var artists: [CatalogItem] = []
+    private(set) var albums: [CatalogItem] = []
+    private(set) var artists: [CatalogItem] = []
     private(set) var likedTrackCollection = CatalogTrackCollection()
     var likedTracks: [CatalogTrack] { likedTrackCollection.tracks }
     private(set) var loadingSections: Set<Section> = []

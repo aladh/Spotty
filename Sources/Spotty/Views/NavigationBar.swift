@@ -3,13 +3,11 @@ import SwiftUI
 struct NavigationBar: View {
     @Binding var searchText: String
     let isHome: Bool
+    let isSearch: Bool
     let goHome: () -> Void
     let showSearch: () -> Void
-    private enum FocusTarget: Hashable {
-        case home
-        case search
-    }
-    @FocusState private var focusedControl: FocusTarget?
+    @State private var searchField = NavigationSearchField.Controller()
+    @FocusState private var homeIsFocused: Bool
     @State private var homeIsHovered = false
     @State private var searchIsHovered = false
 
@@ -33,39 +31,36 @@ struct NavigationBar: View {
             .accessibilityLabel("Home")
             .help("Home")
             .focusable()
-            .focused($focusedControl, equals: .home)
+            .focused($homeIsFocused)
             HStack(spacing: 12) {
                 Button {
-                    showSearch()
-                    focusedControl = .search
+                    searchField.focus()
                 } label: {
                     NavigationSymbol(kind: .search)
                         .fill(style: FillStyle(eoFill: true))
                         .frame(width: 24, height: 24)
                         .foregroundStyle(
-                            focusedControl == .search || searchIsHovered
+                            searchField.isFocused || searchIsHovered
                                 ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
                         )
                 }
                 .accessibilityLabel("Search")
                 .keyboardShortcut("l", modifiers: .command)
-                TextField("What do you want to play?", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14, weight: .medium))
-                    .focused($focusedControl, equals: .search)
-                    .accessibilityLabel("Search Spotify")
-                    .onSubmit(showSearch)
-                    .onTapGesture { showSearch() }
+                NavigationSearchField(text: $searchText, controller: searchField, onActivate: showSearch)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onHover { searchIsHovered = $0 }
             .padding(.horizontal, 12)
             .frame(maxWidth: 474)
             .frame(height: 48)
-            .background(
-                searchIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl, in: Capsule()
-            )
+            .background {
+                Capsule()
+                    .fill(searchIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl)
+                    .onTapGesture { searchField.focus() }
+            }
             .overlay {
-                Capsule().strokeBorder(focusedControl == .search ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
+                Capsule().strokeBorder(searchField.isFocused ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
+                    .allowsHitTesting(false)
             }
         }
         .labelStyle(.iconOnly)
@@ -76,7 +71,10 @@ struct NavigationBar: View {
         .onChange(of: searchText) {
             if !searchText.isEmpty { showSearch() }
         }
-        .defaultFocus($focusedControl, .home)
+        .onChange(of: isSearch) {
+            if !isSearch { searchField.blur() }
+        }
+        .defaultFocus($homeIsFocused, true)
     }
 }
 

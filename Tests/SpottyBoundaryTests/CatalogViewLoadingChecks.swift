@@ -3,18 +3,23 @@ import SwiftUI
 import Testing
 import SpottyDomain
 @testable import SpottyCore
+@testable import SpottyGateway
 @testable import SpottySessionRuntime
 
 @Suite("Catalog view loading", .serialized)
 @MainActor
 struct CatalogViewLoadingTests {
-    @Test
-    func changingVisibleSearchCancelsOldDebounceAndLoadsTheNewQuery() async throws {
+    @Test(arguments: ["", "first"])
+    func changingVisibleSearchCancelsOldDebounceAndLoadsTheNewQuery(initialQuery: String) async throws {
         let provider = HarnessCatalog()
         let queries = HarnessCounters()
+        let responseClock = HarnessClock.parked()
+        let result = try JSONDecoder().decode(
+            PathfinderTrack.self, from: Data(#"{"uri":"spotify:track:second","name":"Result"}"#.utf8))
         provider.onSearchTracks = { query, _ in
             queries.record(query)
-            return []
+            try await responseClock.sleep(seconds: 1)
+            return [result]
         }
         let clock = HarnessClock.parked()
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(clock: clock, catalog: provider))
@@ -24,20 +29,15 @@ struct CatalogViewLoadingTests {
         }
         let navigation = CatalogNavigation()
         navigation.updateSelection(.destination(.search))
-        navigation.searchText = "first"
+        navigation.searchText = initialQuery
         let host = NSHostingView(
-            rootView: SearchView(
-                store: player.catalog.searchStore, playback: CatalogPlaybackAccess(player: player),
-                searchText: Binding(get: { navigation.searchText }, set: { navigation.searchText = $0 }),
-                onSelect: { _ in },
-                playlistActions: TrackPlaylistActions(
-                    editablePlaylists: [], canRemoveOccurrences: false, addToPlaylist: { _, _ in },
-                    removeOccurrences: { _ in })))
+            rootView: RootView(
+                player: player, catalog: player.catalog, feedback: player.feedback, navigation: navigation))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.borderless],
             backing: .buffered, defer: false)
         window.contentView = host
-        defer { window.contentView = nil; clock.releaseAll() }
+        defer { window.contentView = nil; clock.releaseAll(); responseClock.releaseAll() }
         host.layoutSubtreeIfNeeded()
         try await requireEventually { clock.waiterCount == 1 }
         #expect(provider.searchTrackRequestCount == 0)
@@ -47,6 +47,9 @@ struct CatalogViewLoadingTests {
         try await requireEventually { clock.requestedSleeps.count == 2 && clock.waiterCount == 1 }
         #expect(clock.requestedSleeps == [SearchStore.queryAdmissionDelay, SearchStore.queryAdmissionDelay])
         clock.releaseNext()
+        try await requireEventually { provider.searchTrackRequestCount == 1 && responseClock.waiterCount == 1 }
+        host.layoutSubtreeIfNeeded()
+        responseClock.releaseNext()
         let completed = await waitUntil {
             provider.searchTrackRequestCount == 1 && !player.catalog.searchStore.isSearching
         }
@@ -56,6 +59,7 @@ struct CatalogViewLoadingTests {
         )
         #expect(queries.count("first") == 0)
         #expect(queries.count("second") == 1)
+        #expect(player.catalog.searchStore.tracks.map(\.uri) == ["spotify:track:second"])
         await player.shutdownForTermination()
     }
 

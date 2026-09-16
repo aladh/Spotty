@@ -10,7 +10,8 @@ struct SearchView: View {
 
     var body: some View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        Group {
+        // Keep the task attached while loading and result branches replace each other.
+        ZStack {
             if query.isEmpty,
                 playback.isConnected || playback.connectionLoadingLabel != nil
             {

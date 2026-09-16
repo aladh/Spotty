@@ -410,22 +410,27 @@ struct QueueManagementTests {
         }
     }
 
-    @Test
+    @Test(arguments: [false, true])
     @MainActor
-    func anOrderedMultiTrackAddFinishesWithoutAPlaybackNotice() async {
+    func anOrderedMultiTrackAddFinishesWithoutAPlaybackNotice(useRemote: Bool) async {
+        let engine = HarnessEngine()
         let remote = HarnessRemote(send: .succeed)
         let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
+            environment: HarnessEnvironment.make(engine: engine, remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
-        seedRemoteOwner(player)
-        player.addToQueue(uris: ["spotify:track:one", "spotify:track:one", "spotify:track:two"])
+        if useRemote { seedRemoteOwner(player) } else { seedLocalOwner(player) }
+        let uris = ["spotify:track:one", "spotify:track:one", "spotify:track:two"]
+        player.addToQueue(uris: uris)
         // Dispatch is observed before the coordinator finishes and publishes the batch result.
         #expect((await waitUntil { feedback.message != nil }) == true, "ordered add finished")
-        let endpoints = remote.commands.map(\.endpoint)
-        #expect(
-            (endpoints) == ([.addToQueue, .addToQueue, .addToQueue]),
-            "multi-add sends add_to_queue in visible order, including duplicate URIs")
+        let localURIs = engine.operations.compactMap { operation -> String? in
+            if case let .addToQueue(uri) = operation { return uri }
+            return nil
+        }
+        #expect(localURIs == (useRemote ? [] : uris))
+        #expect(remote.commands.compactMap(\.track?.uri) == (useRemote ? uris : []))
+        #expect(remote.commands.allSatisfy { $0.endpoint == .addToQueue })
         #expect(
             (feedback.message?.text) == ("Queue requests sent for 3 songs"), "multi-add reports a batch success")
         #expect((player.transientCommandError) == (nil), "multi-add success is not a playback notice")
@@ -497,19 +502,26 @@ struct QueueManagementTests {
         await player.shutdownForTermination()
     }
 
-    @Test
+    @Test(arguments: [false, true])
     @MainActor
-    func aPartialAddReportsTheCommandsThatCompletedBeforeFailure() async {
+    func aPartialAddReportsTheCommandsThatCompletedBeforeFailure(useRemote: Bool) async {
+        let engine = HarnessEngine()
+        let calls = HarnessCounters()
+        engine.onExecute = { _ in
+            calls.record("execute")
+            return calls.count("execute") <= 2 ? .ok : .error
+        }
         let remote = HarnessRemote(send: .failAfter(2))
         let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
+            environment: HarnessEnvironment.make(engine: engine, remote: remote, clock: HarnessClock.parked()),
             feedback: feedback)
-        seedRemoteOwner(player)
+        if useRemote { seedRemoteOwner(player) } else { seedLocalOwner(player) }
         let before = player.queueNextEntries
         player.addToQueue(uris: ["spotify:track:one", "spotify:track:two", "spotify:track:three"])
         #expect((await waitUntil { feedback.message?.kind == .informational }) == true, "partial add finished")
-        #expect((remote.sendCount) == (3), "two commands completed before failure")
+        #expect(remote.sendCount == (useRemote ? 3 : 0))
+        #expect(engine.count(.execute) == (useRemote ? 0 : 3))
         #expect(
             (feedback.message?.text) == ("Queue requests sent for 2 of 3 songs"),
             "partial add reports completed versus requested")
@@ -517,13 +529,16 @@ struct QueueManagementTests {
         await player.shutdownForTermination()
 
         let none = HarnessRemote(send: .fail)
+        let noneEngine = HarnessEngine(executeResult: .error)
         let noneFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
         let nonePlayer = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: none, clock: HarnessClock.parked()),
+            environment: HarnessEnvironment.make(engine: noneEngine, remote: none, clock: HarnessClock.parked()),
             feedback: noneFeedback)
-        seedRemoteOwner(nonePlayer)
+        if useRemote { seedRemoteOwner(nonePlayer) } else { seedLocalOwner(nonePlayer) }
         nonePlayer.addToQueue(uris: ["spotify:track:one", "spotify:track:two"])
         #expect((await waitUntil { noneFeedback.message?.kind == .failure }) == true, "zero-success add finished")
+        #expect(none.sendCount == (useRemote ? 1 : 0))
+        #expect(noneEngine.count(.execute) == (useRemote ? 0 : 1))
         #expect(
             (noneFeedback.message?.text) == ("Could not add those tracks to the queue."),
             "zero completed commands keep the batch failure message")

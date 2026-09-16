@@ -31,7 +31,8 @@ final class AppUpdater {
     func start() {
         guard !started else { return }
         let updater = controller.updater
-        // Automatic checking is app policy, including installations that previously opted out.
+        // Matches SUEnableAutomaticChecks in Packaging/Info.plist, enforced by Scripts/validate-app.sh.
+        // Set it before startup to override persisted opt-outs from the removed menu preference.
         updater.automaticallyChecksForUpdates = true
         do {
             try updater.start()

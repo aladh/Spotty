@@ -136,6 +136,11 @@ struct ArtistDiscographyView: View {
         let trackRows = sections.flatMap { release, rows in
             rows.map { (id: rowID(release, $0), track: $0.track) }
         }
+        let loadedSelections = Dictionary(
+            uniqueKeysWithValues: sections.compactMap { release, rows -> (String, Set<String>)? in
+                guard albums.albums[release.uri]?.hasLoadedContent == true else { return nil }
+                return (release.uri, Set(rows.map { rowID(release, $0) }))
+            })
         let selectedTracks: (Set<String>) -> [CatalogTrack] = { ids in
             trackRows.filter { ids.contains($0.id) }.map(\.track)
         }
@@ -177,8 +182,12 @@ struct ArtistDiscographyView: View {
                 trackSelectionMenu(tracks: selectedTracks(ids), playback: playback, playlistActions: playlistActions)
             }
         )
-        .onChange(of: trackRows.map(\.id), initial: true) { _, ids in
-            interactionState.selection.formIntersection(Set(ids))
+        .onChange(of: loadedSelections, initial: true) { _, loaded in
+            guard albums.artistURI == item.uri, artist.item?.uri == item.uri else { return }
+            // An unloaded or evicted album is not evidence that its selected tracks were removed.
+            interactionState.selection = interactionState.selection.filter { id in
+                loaded.allSatisfy { uri, ids in !id.hasPrefix("\(uri):") || ids.contains(id) }
+            }
         }
     }
 

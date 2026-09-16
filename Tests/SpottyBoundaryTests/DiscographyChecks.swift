@@ -28,6 +28,9 @@ struct DiscographyChecks {
             _ = $0.send(.session(.ready), source: .account)
         }
         let interaction = CatalogRouteInteractionState()
+        let restoredTrack = HarnessFixtures.track(uri: "spotify:track:album-0-0")
+        let restoredSelection = "\(releases[0].uri):\(restoredTrack.id)"
+        interaction.selection = [restoredSelection]
         let host = NSHostingView(
             rootView: ArtistDiscographyView(
                 item: artist, artist: player.catalog.artistStore, albums: player.catalog.discographyStore,
@@ -49,7 +52,8 @@ struct DiscographyChecks {
         let album = try #require(player.catalog.discographyStore.albums[releases[0].uri])
         let track = try #require(album.tracks.first)
         let selection = "\(releases[0].uri):\(track.id)"
-        interaction.selection = [selection]
+        #expect(selection == restoredSelection)
+        #expect(interaction.selection == [selection], "retained selection survives mounting before albums load")
         host.layoutSubtreeIfNeeded()
         provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
         await album.load(releases[0], force: true)

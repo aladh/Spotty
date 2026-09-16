@@ -8,6 +8,30 @@ import SpottyRuntimeContracts
 @Suite("Playlist Library")
 struct PlaylistLibraryTests {
     @Test @MainActor
+    func largeFolderLoadsInOneBoundedBatch() async throws {
+        let calls = HarnessCounters()
+        let folderURI = "spotify:user:fixture:folder:large"
+        let entries = (0..<105).map { ("spotify:playlist:item\($0)", "Playlist \($0)") }
+        let api = libraryAPI { request in
+            calls.record("request")
+            let body = try #require(JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
+            let variables = try #require(body["variables"] as? [String: Any])
+            let limit = try #require(variables["limit"] as? Int)
+            #expect((1...200).contains(limit), "startup batching must keep each request bounded")
+            guard variables["folderUri"] as? String == folderURI else {
+                return try libraryPage([(folderURI, "Large folder")], total: 1, request: request)
+            }
+            let offset = try #require(variables["offset"] as? Int)
+            let page = Array(entries.dropFirst(offset).prefix(limit))
+            return try libraryPage(page, total: entries.count, request: request)
+        }
+
+        let tree = try await api.playlistLibrary()
+        #expect(tree.flatMap(\.playlists).map(\.title) == entries.map(\.1))
+        #expect(calls.count("request") == 2, "one root request and one complete folder request")
+    }
+
+    @Test @MainActor
     func customOrderAndNestedFoldersSurvivePagination() async throws {
         let api = libraryAPI { request in
             let body = try #require(JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])

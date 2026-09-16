@@ -17,7 +17,7 @@ playback services, plus artwork hosts returned by Spotify. It has no Spotty-oper
 ## Application updates
 
 Checking for updates contacts GitHub and its download hosts through Sparkle. Automatic checks
-are off by default and can be enabled or disabled in the Spotty menu. Update requests expose
+run on startup and periodically while Spotty is open. Update requests expose
 ordinary connection information such as the IP address and app version; they do not include Spotify
 credentials or listening data. System-profile reporting and automatic installation are disabled.
 Updates require the user to choose installation.

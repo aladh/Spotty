@@ -105,7 +105,7 @@ require(len(public_key) == 32, "Invalid updater public key")
 require(info.get("SURequireSignedFeed") is True, "Update feed must require authentication")
 require(info.get("SUVerifyUpdateBeforeExtraction") is True, "Signed feeds require pre-extraction verification")
 require(info.get("SUAllowsAutomaticUpdates") is False, "Installation must require user action")
-require(info.get("SUEnableAutomaticChecks") is False, "Background checking must default to opt-in")
+require(info.get("SUEnableAutomaticChecks") is True, "Background update checking must be enabled")
 require(info.get("SUSendProfileInfo") is False, "Update system-profile reporting must be disabled")
 require(info.get("SUFeedURL") == "https://github.com/aladh/Spotty/releases/latest/download/appcast.xml", "Incorrect update feed")
 PYTHON

@@ -70,8 +70,8 @@ retain validation. Notes must say macOS will not automatically trust these unnot
 
 ## Built-in updates
 
-**Spotty → Check for Updates…** checks the latest regular GitHub release. Automatic checks default
-off and can be enabled in the same menu. Download and installation require user action; automatic
+Spotty checks the latest regular GitHub release in the background on startup and periodically while
+running. **Spotty → Check for Updates…** checks immediately. Download and installation require user action; automatic
 installation is disabled. Installation follows normal termination, draining playback; restart does
 not start playback. v0.2.0 was the first updater-enabled version and requires manual installation.
 

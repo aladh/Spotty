@@ -58,7 +58,7 @@
 	<key>SUFeedURL</key>
 	<string>https://github.com/aladh/Spotty/releases/latest/download/appcast.xml</string>
 	<key>SUEnableAutomaticChecks</key>
-	<false/>
+	<true/>
 	<key>SUAllowsAutomaticUpdates</key>
 	<false/>
 	<key>SUSendProfileInfo</key>

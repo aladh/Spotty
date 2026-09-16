@@ -387,7 +387,7 @@ nonisolated struct PartnerAPI: Sendable {
             let response: PathfinderLibraryResponse<PathfinderPlaylist> = try await query(
                 .libraryV3,
                 variables: PathfinderLibraryVariables(
-                    filters: [LibraryFilter.playlists], offset: offset,
+                    filters: [LibraryFilter.playlists], offset: offset, limit: LibraryFilter.playlistPageLimit,
                     order: "Custom Order", flatten: false, folderUri: folderURI
                 )
             )

@@ -213,10 +213,12 @@ nonisolated enum LibraryFilter {
     static let artists = "Artists"
     static let albums = "Albums"
 
-    /// What one request returns at most. Measured: 60 followed artists came back as 50 with
-    /// `limit: 50`, and `offset: 50` returned the remaining 10 — so the list pages by offset and
-    /// this is a ceiling rather than a preference.
+    /// Default request size for flat album and artist reads.
     static let pageLimit = 50
+
+    /// Larger bounded pages reduce startup round trips through playlist folders.
+    /// Pagination still advances by returned entries if Spotify caps a response.
+    static let playlistPageLimit = 200
 }
 
 /// The variables `fetchLibraryTracks` takes. It pages the same way, and reports its own

@@ -30,6 +30,9 @@ A PR is ready when all three conditions hold for its latest changes:
 2. Required approvals are satisfied according to repository settings.
 3. Checks are green: every applicable check has passed, with only intentional conditional skips.
 
+Verify the proposed merge against current main: concurrent PRs can pass separately but fail shared
+constraints together. Rerun affected checks on the combined changes before merging.
+
 Reviewers can be adversarial and may suggest unnecessary or out-of-scope work. Evaluate findings
 against the code, requirements, and PR scope; fix valid issues and push back when a suggestion is
 unsupported, unnecessary, or out of scope. Explain the evidence, tradeoff, or scope boundary in the

@@ -22,15 +22,16 @@ struct StartupConnectionChecks {
             _ = $0.send(.session(.ready), source: .account)
         }
         await player.catalog.searchStore.search("Harbor")
-        var observedRecovery = false
+        var query = "Harbor"
+        var observedPhase = player.phase
         func content() -> some View {
             SearchView(
                 store: player.catalog.searchStore, playback: CatalogPlaybackAccess(player: player),
-                searchText: .constant("Harbor"), onSelect: { _ in },
+                searchText: .constant(query), onSelect: { _ in },
                 playlistActions: TrackPlaylistActions(
                     editablePlaylists: [], canRemoveOccurrences: false, addToPlaylist: { _, _ in },
                     removeOccurrences: { _ in })
-            ).onChange(of: player.phase) { _, phase in observedRecovery = phase == .recovering }
+            ).onChange(of: player.phase) { _, phase in observedPhase = phase }
         }
         let host = NSHostingView(rootView: content())
         let window = NSWindow(
@@ -56,11 +57,23 @@ struct StartupConnectionChecks {
         host.rootView = content()
         try await requireEventually {
             host.layoutSubtreeIfNeeded()
-            return observedRecovery
+            return observedPhase == .recovering
         }
         #expect(!player.catalog.searchStore.isEmpty)
         #expect(table(in: host) === original)
         #expect(original.selectedRowIndexes == IndexSet(integer: 0))
+        query = ""
+        player.withRuntime {
+            $0.accountStore.publishPhase(.failed("Offline"))
+            _ = $0.send(.session(.failed("Offline")), source: .account)
+        }
+        host.rootView = content()
+        try await requireEventually {
+            host.layoutSubtreeIfNeeded()
+            return observedPhase == .failed("Offline")
+        }
+        #expect(!player.catalog.searchStore.isEmpty)
+        #expect(table(in: host) == nil, "an empty query cannot display retained results from a previous query")
         await player.shutdownForTermination()
     }
 

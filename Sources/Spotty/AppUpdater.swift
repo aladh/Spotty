@@ -9,37 +9,35 @@ import SwiftUI
 @Observable
 final class AppUpdater {
     private let controller: SPUStandardUpdaterController
-    private var observations: [NSKeyValueObservation] = []
+    private var observation: NSKeyValueObservation?
     private var started = false
     private(set) var canCheckForUpdates = false
-    private(set) var automaticallyChecksForUpdates = false
 
     init() {
         controller = SPUStandardUpdaterController(
             startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
         )
         let updater = controller.updater
-        observations = [
-            updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.refreshState() }
-            },
-            updater.observe(\.automaticallyChecksForUpdates, options: [.initial, .new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.refreshState() }
-            },
-        ]
+        observation = updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.refreshState() }
+        }
     }
 
     private func refreshState() {
         // Read current values after the actor hop; queued notifications must not replay stale state.
         canCheckForUpdates = controller.updater.canCheckForUpdates
-        automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
     }
 
     func start() {
         guard !started else { return }
+        let updater = controller.updater
+        // Automatic checking is app policy, including installations that previously opted out.
+        updater.automaticallyChecksForUpdates = true
         do {
-            try controller.updater.start()
+            try updater.start()
             started = true
+            // Sparkle supports an immediate background check before its scheduled cycle starts.
+            updater.checkForUpdatesInBackground()
         } catch {
             SpottyLog.lifecycle.error("Updater could not start: \(error.localizedDescription, privacy: .public)")
         }
@@ -48,10 +46,6 @@ final class AppUpdater {
     func checkForUpdates() {
         guard controller.updater.canCheckForUpdates else { return }
         controller.checkForUpdates(nil)
-    }
-
-    func setAutomaticallyChecksForUpdates(_ enabled: Bool) {
-        controller.updater.automaticallyChecksForUpdates = enabled
     }
 }
 
@@ -62,13 +56,6 @@ struct UpdateCommands: Commands {
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { updater.checkForUpdates() }
                 .disabled(!updater.canCheckForUpdates)
-            Toggle(
-                "Automatically Check for Updates",
-                isOn: Binding(
-                    get: { updater.automaticallyChecksForUpdates },
-                    set: { updater.setAutomaticallyChecksForUpdates($0) }
-                )
-            )
         }
     }
 }

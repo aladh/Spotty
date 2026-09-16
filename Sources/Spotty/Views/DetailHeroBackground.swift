@@ -15,7 +15,6 @@ struct DetailHeroBackground<Content: View>: View {
     }
 
     private var tint: Color? { loadedTint?.request == tintRequest ? loadedTint?.color : nil }
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(artworkURL: URL?, tintOpacity: Double = 1, @ViewBuilder content: @escaping () -> Content) {
         self.artworkURL = artworkURL
@@ -36,7 +35,7 @@ struct DetailHeroBackground<Content: View>: View {
                 )
                 .background(SpottyPalette.catalogCanvas)
                 .ignoresSafeArea(edges: .horizontal)
-                .animationIfAllowed(.easeInOut(duration: 0.35), value: tint, reduceMotion: reduceMotion)
+                .animation(.easeInOut(duration: 0.35), value: tint)
             }
             .task(id: tintRequest) {
                 loadedTint = nil

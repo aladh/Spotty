@@ -7,16 +7,14 @@ import SwiftUI
 struct TransientFeedbackBanner: View {
     let feedback: TransientFeedbackPresenter
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         Group {
             if let message = feedback.message {
                 banner(message)
-                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: feedback.message?.id)
+        .animation(.snappy(duration: 0.22), value: feedback.message?.id)
         .allowsHitTesting(false)
         .accessibilityRespondsToUserInteraction(false)
         .onChange(of: feedback.message?.id) { _, _ in

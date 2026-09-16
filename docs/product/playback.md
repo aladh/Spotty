@@ -66,8 +66,8 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
   once; track/account/engine/owner changes reject obsolete gestures. Disabled playback cannot seek.
 - Interpolate confirmed playing progress with [Core Animation](../../Sources/Spotty/Views/PlaybackProgressDrawing.swift),
   without per-frame SwiftUI layout. Small drift leaves animation running; larger drift eases to
-  correction. Pause, seek, and track/owner changes re-anchor immediately. Reduce Motion disables
-  interpolation. During interaction the native slider owns position/commit; interpolation neither
+  correction. Pause, seek, and track/owner changes re-anchor immediately. During interaction the native
+  slider owns position/commit; interpolation neither
   changes playback state nor sends seeks.
 - Shuffle is one on/off control with persistent fewer-repeats policy. No style picker: Connect has
   no shuffle-style parameter.

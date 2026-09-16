@@ -5,7 +5,6 @@ struct NowPlayingBar: View {
     let player: PlaybackStore
     @Binding var showsSidePanel: Bool
     @Binding var playbackPanel: PlaybackPanel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,15 +54,13 @@ struct NowPlayingBar: View {
                 RemotePlaybackBanner(device: banner.device, isPlaying: banner.isPlaying)
             }
         }
-        .animationIfAllowed(
+        .animation(
             .snappy(duration: 0.2),
-            value: player.hasCurrentTrack,
-            reduceMotion: reduceMotion
+            value: player.hasCurrentTrack
         )
-        .animationIfAllowed(
+        .animation(
             .snappy(duration: 0.2),
-            value: player.remotePlaybackBanner?.device.id,
-            reduceMotion: reduceMotion
+            value: player.remotePlaybackBanner?.device.id
         )
         .task(id: player.showsPauseControl) {
             guard player.showsPauseControl else { return }

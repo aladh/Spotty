@@ -17,7 +17,7 @@ and the affected [surface contract](../../../docs/product/README.md). Keep suppo
 - Preserve selection, focus, scroll position, artwork/content anchors, and useful content across
   refresh, metadata arrival, tab changes, resize, and window activation. Motion explains continuity;
   it does not delay input or decorate chrome.
-- Verify the affected keyboard focus, VoiceOver labels/order, reduced motion, active/inactive
+- Verify the affected keyboard focus, VoiceOver labels/order, active/inactive
   selection, disabled state, truncation, and narrow/window-resize behavior within the authorized
   acceptance scope.
 - Views render state and invoke narrow actions. Presentation stores own browsing presentation;

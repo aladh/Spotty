@@ -37,7 +37,7 @@ or are filtered out. Account replacement retires that interaction state.
 Direct ownership adds responsibility for cell reuse, row drawing, layout, accessibility,
 tracking, and lifecycle cleanup. It removes reliance on undocumented ancestor discovery, but does
 not by itself prove responsiveness or visual fidelity. Check the affected keyboard, VoiceOver,
-hover, selected, focus, disabled, inactive, narrow, resize, and Reduce Motion behavior against the
+hover, selected, focus, disabled, inactive, narrow, and resize behavior against the
 same Spotify reference or established baseline.
 
 A diffable data source, row reuse, or fewer invalidations is not a frame-rate measurement. Any

@@ -41,8 +41,8 @@
 - Popular shows up to five ranked 56-point rows, expandable to the returned set. Rows have artwork,
   title, duration, and optional play count; hide counts at narrow widths. Label unavailable tracks
   and prevent their playback. Preserve native selection, Return, and double-click behavior.
-- Discography previews popular releases with type filters and year/type labels. Show all opens a history-aware
-  list/grid page with release filters and date/name sorting. Tracks load when visible without shifting other
+- Overviews preview popular releases with type filters and year/type labels. Show all loads full discography:
+  a history-aware list/grid with release filters and date/name sorting. Tracks load when visible without shifting other
   content. No follow, save or download controls.
 
 ### Window and toolbar

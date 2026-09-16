@@ -17,7 +17,13 @@ struct DiscographyChecks {
             kind: .artist)
         let releases = (0..<40).map { release("album-\($0)") }
         provider.onArtistSnapshot = { _ in CatalogArtistSnapshot(name: artist.title, releases: [], item: artist) }
-        provider.onArtistDiscographySnapshot = { _ in CatalogArtistSnapshot(name: nil, releases: releases) }
+        provider.onArtistDiscographySnapshot = { _ in
+            CatalogArtistSnapshot(
+                name: nil, releases: releases,
+                item: CatalogItem(
+                    id: artist.id, uri: artist.uri, title: "Unknown artist", subtitle: "Artist", artworkURL: nil,
+                    kind: .artist))
+        }
         provider.onAlbumSnapshot = { id in
             CatalogAlbumSnapshot(
                 tracks: (0..<3).map { HarnessFixtures.track(uri: "spotify:track:\(id)-\($0)") }, releaseDate: "2026")
@@ -33,7 +39,7 @@ struct DiscographyChecks {
         interaction.selection = [restoredSelection]
         let host = NSHostingView(
             rootView: ArtistDiscographyView(
-                item: artist, artist: player.catalog.artistStore, albums: player.catalog.discographyStore,
+                item: artist, albums: player.catalog.discographyStore,
                 playback: CatalogPlaybackAccess(player: player), playlistActions: nil, onSelect: { _ in },
                 interactionState: interaction))
         let window = NSWindow(
@@ -48,7 +54,10 @@ struct DiscographyChecks {
         }
         #expect(provider.albumRequestCount > 0)
         #expect(provider.albumRequestCount < releases.count)
-        #expect(player.catalog.artistStore.releases.count == releases.count)
+        #expect(player.catalog.discographyStore.artist.releases.count == releases.count)
+        #expect(provider.discographyRequestCount == 1)
+        #expect(provider.artistRequestCount == 0, "the full page does not fetch an unused overview")
+        #expect(player.catalog.discographyStore.artist.item?.title == artist.title)
         let album = try #require(player.catalog.discographyStore.albums[releases[0].uri])
         let track = try #require(album.tracks.first)
         let selection = "\(releases[0].uri):\(track.id)"

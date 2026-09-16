@@ -140,7 +140,7 @@ struct ArtistDetailView: View {
             HStack {
                 Text("Discography").font(.system(size: 24, weight: .bold)).accessibilityAddTraits(.isHeader)
                 Spacer()
-                if !store.releases.isEmpty {
+                if !store.releases.isEmpty || store.overview?.popularReleases.isEmpty == false {
                     Button("Show all") { onShowDiscography(selectedFilter) }
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(SpottyPalette.textSecondary)

@@ -105,21 +105,22 @@ struct CatalogRouteRetentionTests {
         #expect(store.tracks.isEmpty)
     }
 
-    @Test func albumAndArtistRevisitsReuseCompletePayloads() async {
+    @Test(arguments: ArtistDetailStore.Content.allCases)
+    func albumAndArtistRevisitsReuseCompletePayloads(content: ArtistDetailStore.Content) async {
         let provider = HarnessCatalog()
         provider.onAlbumSnapshot = { id in
             CatalogAlbumSnapshot(
                 tracks: [HarnessFixtures.track(uri: "spotify:track:\(id)")], releaseDate: id,
                 playCounts: ["spotify:track:\(id)": 9_876_543_210])
         }
-        provider.onArtistSnapshot = { id in CatalogArtistSnapshot(name: id, releases: []) }
+        provider.onArtistSnapshot = { id in CatalogArtistSnapshot(name: id, releases: [Self.item(id, kind: .album)]) }
         provider.onArtistDiscographySnapshot = { id in
             CatalogArtistSnapshot(name: nil, releases: [Self.item(id, kind: .album)])
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
-        let artist = ArtistDetailStore(provider: provider, session: session)
+        let artist = ArtistDetailStore(provider: provider, session: session, content: content)
         await album.load(item("first", kind: .album))
         let firstVersion = album.trackCollection.version
         await album.load(item("second", kind: .album))
@@ -140,8 +141,8 @@ struct CatalogRouteRetentionTests {
         #expect(artist.releases.map(\.uri) == ["spotify:album:first"])
         #expect(artist.releases.first?.subtitle == "first")
         await artist.load(item("first", kind: .artist))
-        #expect(provider.artistRequestCount == 2)
-        #expect(provider.discographyRequestCount == 2)
+        #expect(provider.artistRequestCount == (content == .overview ? 2 : 0))
+        #expect(provider.discographyRequestCount == (content == .discography ? 2 : 0))
         session.update(accountEpoch: 2, isAvailable: true)
         album.prepare(item("first", kind: .album))
         artist.prepare(item("first", kind: .artist))

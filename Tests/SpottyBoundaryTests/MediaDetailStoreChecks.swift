@@ -67,8 +67,7 @@ private func makeGatedAlbumCatalog() -> (catalog: HarnessCatalog, gate: AlbumGat
     return (catalog, gate)
 }
 
-/// Gates `HarnessCatalog.artist`/`.artistDiscography` so a check can park and release the two
-/// requests independently, mirroring the pre-harness `GatedArtistCatalog` actor.
+/// Gates the artist overview request independently of full-discography loading.
 private actor ArtistGate {
     enum Outcome: Sendable {
         case artist(PathfinderArtistUnion)
@@ -77,70 +76,21 @@ private actor ArtistGate {
         case urlCancelled
     }
 
-    private var overviewWaiters: [CheckedContinuation<Outcome, Never>] = []
-    private var discographyWaiters: [CheckedContinuation<Outcome, Never>] = []
-    private var overviewOutcomes: [Outcome] = []
-    private var discographyOutcomes: [Outcome] = []
+    private var waiters: [CheckedContinuation<Outcome, Never>] = []
+    private var queuedOutcomes: [Outcome] = []
     private var isClosed = false
 
-    var parkedOverviewCount: Int { overviewWaiters.count }
-    var parkedDiscographyCount: Int { discographyWaiters.count }
+    var parkedRequestCount: Int { waiters.count }
 
-    /// Request counting lives on the `HarnessCatalog` itself (`artistRequestCount` and
-    /// `discographyRequestCount`).
+    /// Request counting lives on the `HarnessCatalog` itself (`artistRequestCount`).
     func artist() async throws -> PathfinderArtistUnion {
         if isClosed { throw CancellationError() }
         let outcome: Outcome
-        if overviewOutcomes.isEmpty {
-            outcome = await withCheckedContinuation { overviewWaiters.append($0) }
+        if queuedOutcomes.isEmpty {
+            outcome = await withCheckedContinuation { waiters.append($0) }
         } else {
-            outcome = overviewOutcomes.removeFirst()
+            outcome = queuedOutcomes.removeFirst()
         }
-        return try result(from: outcome)
-    }
-
-    func artistDiscography() async throws -> PathfinderArtistUnion {
-        if isClosed { throw CancellationError() }
-        let outcome: Outcome
-        if discographyOutcomes.isEmpty {
-            outcome = await withCheckedContinuation { discographyWaiters.append($0) }
-        } else {
-            outcome = discographyOutcomes.removeFirst()
-        }
-        return try result(from: outcome)
-    }
-
-    func completeOverview(_ outcome: Outcome) {
-        guard !isClosed else { return }
-        guard !overviewWaiters.isEmpty else {
-            overviewOutcomes.append(outcome)
-            return
-        }
-        overviewWaiters.removeFirst().resume(returning: outcome)
-    }
-
-    func completeDiscography(_ outcome: Outcome) {
-        guard !isClosed else { return }
-        guard !discographyWaiters.isEmpty else {
-            discographyOutcomes.append(outcome)
-            return
-        }
-        discographyWaiters.removeFirst().resume(returning: outcome)
-    }
-
-    func close() {
-        isClosed = true
-        overviewOutcomes.removeAll()
-        discographyOutcomes.removeAll()
-        let pendingOverview = overviewWaiters
-        let pendingDiscography = discographyWaiters
-        overviewWaiters.removeAll()
-        discographyWaiters.removeAll()
-        pendingOverview.forEach { $0.resume(returning: .cancelled) }
-        pendingDiscography.forEach { $0.resume(returning: .cancelled) }
-    }
-
-    private func result(from outcome: Outcome) throws -> PathfinderArtistUnion {
         switch outcome {
         case let .artist(artist):
             return artist
@@ -152,13 +102,29 @@ private actor ArtistGate {
             throw URLError(.cancelled)
         }
     }
+
+    func completeNext(_ outcome: Outcome) {
+        guard !isClosed else { return }
+        guard !waiters.isEmpty else {
+            queuedOutcomes.append(outcome)
+            return
+        }
+        waiters.removeFirst().resume(returning: outcome)
+    }
+
+    func close() {
+        isClosed = true
+        queuedOutcomes.removeAll()
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume(returning: .cancelled) }
+    }
 }
 
 private func makeGatedArtistCatalog() -> (catalog: HarnessCatalog, gate: ArtistGate) {
     let gate = ArtistGate()
     let catalog = HarnessCatalog()
     catalog.onArtist = { [gate] _ in try await gate.artist() }
-    catalog.onArtistDiscography = { [gate] _ in try await gate.artistDiscography() }
     return (catalog, gate)
 }
 
@@ -235,20 +201,16 @@ private func makeArtistStore(
 }
 
 @MainActor
-private func requireArtistPair(
+private func requireArtistRequest(
     _ provider: HarnessCatalog,
     gate: ArtistGate,
-    overview: Int,
-    discography: Int,
-    parkedOverview: Int,
-    parkedDiscography: Int
+    requests: Int,
+    parked: Int
 ) async throws {
     try await requireEventually {
-        let overviewParks = await gate.parkedOverviewCount
-        let discographyParks = await gate.parkedDiscographyCount
-        return provider.artistRequestCount == overview && provider.discographyRequestCount == discography
-            && overviewParks == parkedOverview && discographyParks == parkedDiscography
+        await gate.parkedRequestCount == parked && provider.artistRequestCount == requests
     }
+    #expect(provider.discographyRequestCount == 0, "the overview never fetches the complete discography")
 }
 
 @MainActor
@@ -631,41 +593,33 @@ struct MediaDetailStoreTests {
             let store = makeArtistStore(provider: provider, session: session)
 
             let firstLoad = Task { await store.load(firstArtistItem) }
-            try await requireArtistPair(
-                provider, gate: gate, overview: 1, discography: 1,
-                parkedOverview: 1, parkedDiscography: 1)
+            try await requireArtistRequest(provider, gate: gate, requests: 1, parked: 1)
             let follower = startJoiningArtistLoad(store, item: firstArtistItem)
             #expect((await waitUntil { follower.hasEntered() }) == true, "the duplicate artist caller entered load")
             #expect((provider.artistRequestCount) == (1), "duplicate artist overview is not requested")
-            #expect((provider.discographyRequestCount) == (1), "duplicate artist discography is not requested")
-            #expect((store.isLoading) == true, "the artist stays loading until both fetches finish")
+            #expect((provider.discographyRequestCount) == (0), "the overview does not request discography")
+            #expect((store.isLoading) == true, "the artist stays loading until its overview finishes")
             #expect((!follower.hasFinished()) == true, "the duplicate artist caller is still waiting")
-            #expect((store.releases.map(\.uri)) == ([]), "partial artist completion does not publish yet")
+            #expect((store.releases.map(\.uri)) == ([]), "a pending overview does not publish yet")
 
-            await gate.completeOverview(.artist(firstArtistValue))
-            #expect(await gate.parkedDiscographyCount == 1, "discography still owns the incomplete parallel load")
-            #expect((store.isLoading) == true, "overview alone does not finish loading")
-            #expect((store.releases.map(\.uri)) == ([]), "overview alone does not publish releases")
-            #expect((!follower.hasFinished()) == true, "overview alone does not finish the joined caller")
-
-            await gate.completeDiscography(.artist(firstArtistValue))
+            await gate.completeNext(.artist(firstArtistValue))
             await firstLoad.value
             await follower.task.value
-            #expect((follower.hasFinished()) == true, "the duplicate artist caller finishes after both fetches")
+            #expect((follower.hasFinished()) == true, "the duplicate artist caller finishes with the overview")
             #expect(
                 (store.releases.map(\.uri)) == (["spotify:album:first-release"]),
-                "artist mapping uses the profile name after both fetches complete")
+                "the overview publishes sampled releases")
             #expect(
                 (store.releases.first?.subtitle) == ("2024 • Album"),
                 "artist mapping preserves the release year and type")
-            #expect((!store.isLoading) == true, "parallel artist loading finishes once")
+            #expect((!store.isLoading) == true, "artist loading finishes once")
 
             await store.load(firstArtistItem)
             #expect(
                 (provider.artistRequestCount) == (1), "a completed same-session artist is not fetched again")
             #expect(
-                (provider.discographyRequestCount) == (1),
-                "a completed same-session discography is not fetched again"
+                (provider.discographyRequestCount) == (0),
+                "revisiting the overview never fetches the complete discography"
             )
         }
 
@@ -676,24 +630,20 @@ struct MediaDetailStoreTests {
             let store = makeArtistStore(provider: provider, session: session)
 
             let stale = Task { await store.load(firstArtistItem) }
-            try await requireArtistPair(
-                provider, gate: gate, overview: 1, discography: 1,
-                parkedOverview: 1, parkedDiscography: 1)
+            try await requireArtistRequest(provider, gate: gate, requests: 1, parked: 1)
             let current = Task { await store.load(secondArtistItem) }
-            try await requireArtistPair(
-                provider, gate: gate, overview: 2, discography: 2,
-                parkedOverview: 2, parkedDiscography: 2)
+            try await requireArtistRequest(provider, gate: gate, requests: 2, parked: 2)
             #expect((store.item?.uri) == ("spotify:artist:second"), "the newest artist is presented immediately")
             #expect((store.releases.map(\.uri)) == ([]), "a new artist clears previous releases")
 
-            await gate.completeOverview(.artist(firstArtistValue))
-            await gate.completeDiscography(.artist(firstArtistValue))
-            await stale.value
-            #expect((store.isLoading) == true, "a stale artist pair leaves the new request loading")
-            #expect((store.releases.map(\.uri)) == ([]), "a stale artist pair does not publish")
+            await gate.completeNext(.artist(firstArtistValue))
 
-            await gate.completeOverview(.artist(secondArtistValue))
-            await gate.completeDiscography(.artist(secondArtistValue))
+            await stale.value
+            #expect((store.isLoading) == true, "a stale artist request leaves the new request loading")
+            #expect((store.releases.map(\.uri)) == ([]), "a stale artist request does not publish")
+
+            await gate.completeNext(.artist(secondArtistValue))
+
             await current.value
             #expect(
                 (store.releases.map(\.uri)) == (["spotify:album:second-release"]), "only the current artist publishes")
@@ -709,16 +659,14 @@ struct MediaDetailStoreTests {
             let store = makeArtistStore(provider: provider, session: session)
 
             let inflight = Task { await store.load(firstArtistItem) }
-            try await requireArtistPair(
-                provider, gate: gate, overview: 1, discography: 1,
-                parkedOverview: 1, parkedDiscography: 1)
+            try await requireArtistRequest(provider, gate: gate, requests: 1, parked: 1)
             store.reset()
             #expect((!store.isLoading) == true, "reset clears artist loading")
             #expect((store.item) == nil, "reset clears the current artist")
             #expect((store.releases.map(\.uri)) == ([]), "reset clears releases")
 
-            await gate.completeOverview(.artist(firstArtistValue))
-            await gate.completeDiscography(.artist(firstArtistValue))
+            await gate.completeNext(.artist(firstArtistValue))
+
             await inflight.value
             #expect((store.releases.map(\.uri)) == ([]), "a torn-down artist success cannot publish")
             #expect((!store.isLoading) == true, "a torn-down artist success cannot restore loading")

@@ -55,9 +55,6 @@ struct ArtistOverviewChecks {
         provider.onArtistSnapshot = { id in
             id == "fixture" ? profile : CatalogArtistSnapshot(name: "Other", releases: [])
         }
-        provider.onArtistDiscographySnapshot = { id in
-            id == "fixture" ? profile : CatalogArtistSnapshot(name: nil, releases: [])
-        }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
         let store = ArtistDetailStore(provider: provider, session: session)
         await store.load(selected)
@@ -80,6 +77,25 @@ struct ArtistOverviewChecks {
         #expect(store.popularTracks.tracks.isEmpty)
         #expect(store.artistTracks.isEmpty)
         #expect(store.releaseKinds.isEmpty)
+    }
+
+    @Test func overviewUsesOneReadWithoutDependingOnFullDiscography() async throws {
+        let snapshot = CatalogMapping.artist(try decodedArtist())
+        let selected = try #require(snapshot.item)
+        let provider = HarnessCatalog()
+        provider.onArtistSnapshot = { _ in snapshot }
+        provider.onArtistDiscographySnapshot = { _ in throw HarnessFailure.unavailable }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let store = ArtistDetailStore(provider: provider, session: session)
+
+        await store.load(selected)
+
+        #expect(provider.artistRequestCount == 1)
+        #expect(provider.discographyRequestCount == 0)
+        #expect(store.error == nil)
+        #expect(!store.isLoading)
+        #expect(store.overview == snapshot.overview)
+        #expect(store.releases == snapshot.releases)
     }
 
     private func decodedArtist() throws -> PathfinderArtistUnion {

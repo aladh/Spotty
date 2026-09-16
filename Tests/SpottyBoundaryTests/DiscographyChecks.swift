@@ -27,11 +27,12 @@ struct DiscographyChecks {
             $0.accountStore.publishPhase(.ready)
             _ = $0.send(.session(.ready), source: .account)
         }
+        let interaction = CatalogRouteInteractionState()
         let host = NSHostingView(
             rootView: ArtistDiscographyView(
                 item: artist, artist: player.catalog.artistStore, albums: player.catalog.discographyStore,
                 playback: CatalogPlaybackAccess(player: player), playlistActions: nil, onSelect: { _ in },
-                interactionState: CatalogRouteInteractionState()))
+                interactionState: interaction))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.borderless], backing: .buffered,
             defer: false)
@@ -45,6 +46,21 @@ struct DiscographyChecks {
         #expect(provider.albumRequestCount > 0)
         #expect(provider.albumRequestCount < releases.count)
         #expect(player.catalog.artistStore.releases.count == releases.count)
+        let album = try #require(player.catalog.discographyStore.albums[releases[0].uri])
+        let track = try #require(album.tracks.first)
+        let selection = "\(releases[0].uri):\(track.id)"
+        interaction.selection = [selection]
+        host.layoutSubtreeIfNeeded()
+        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
+        await album.load(releases[0], force: true)
+        try await requireEventually {
+            host.layoutSubtreeIfNeeded()
+            return interaction.selection.isEmpty
+        }
+        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [track], releaseDate: "2026") }
+        await album.load(releases[0], force: true)
+        host.layoutSubtreeIfNeeded()
+        #expect(interaction.selection.isEmpty, "reappearing tracks do not regain a removed selection")
         await player.shutdownForTermination()
     }
 
@@ -103,6 +119,10 @@ struct DiscographyChecks {
         #expect(store.albums[first.uri]?.tracks.count == 1)
         #expect(metadata.knownTrack(for: "spotify:track:first") != nil)
         #expect(metadata.knownTrack(for: "spotify:track:album-page") != nil)
+        metadata.replaceTracks([HarnessFixtures.track(uri: "spotify:track:first", title: "Album page")], from: .album)
+        #expect(metadata.knownTrack(for: "spotify:track:first")?.title == "Album page")
+        #expect(metadata.runtimeTracks["spotify:track:first"]?.title == "Album page")
+        metadata.replaceTracks([HarnessFixtures.track(uri: "spotify:track:album-page")], from: .album)
         for number in 0..<22 { await store.load(release("album-\(number)"), artistURI: "spotify:artist:one") }
         #expect(store.albums.count == 20)
         #expect(store.albums[first.uri] == nil)

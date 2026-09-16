@@ -13,6 +13,7 @@ struct ArtistDiscographyView: View {
     @State private var trackProjection = DiscographyTrackProjection()
 
     private struct GridConfiguration: Hashable {
+        let artistURI: String
         let filter: ArtistReleaseFilter
         let sort: DiscographySort
     }
@@ -45,7 +46,8 @@ struct ArtistDiscographyView: View {
                     }
                     .id(
                         GridConfiguration(
-                            filter: interactionState.artistReleaseFilter, sort: interactionState.discographySort))
+                            artistURI: item.uri, filter: interactionState.artistReleaseFilter,
+                            sort: interactionState.discographySort))
                 } else {
                     releaseList
                 }
@@ -173,7 +175,11 @@ struct ArtistDiscographyView: View {
             },
             contextMenu: { ids in
                 trackSelectionMenu(tracks: selectedTracks(ids), playback: playback, playlistActions: playlistActions)
-            })
+            }
+        )
+        .onChange(of: trackRows.map(\.id), initial: true) { _, ids in
+            interactionState.selection.formIntersection(Set(ids))
+        }
     }
 
     private func rowID(_ release: CatalogItem, _ row: TrackTableRow) -> String {

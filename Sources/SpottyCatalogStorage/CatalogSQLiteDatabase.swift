@@ -17,6 +17,7 @@ enum CatalogSQLiteValue {
 final class CatalogSQLiteDatabase {
     static let filenames = ["catalog.sqlite", "catalog.sqlite-wal", "catalog.sqlite-shm", "catalog.sqlite-journal"]
     private var connection: OpaquePointer?
+    private var statements: [String: CatalogSQLiteStatement] = [:]
     private var lockDescriptor: Int32 = -1
     private var rootLock: CatalogDirectoryLock?
     private let directory: URL
@@ -96,8 +97,7 @@ final class CatalogSQLiteDatabase {
     deinit { close() }
 
     func close() {
-        if let connection { sqlite3_close_v2(connection) }
-        connection = nil
+        closeConnection()
         if lockDescriptor >= 0 {
             flock(lockDescriptor, LOCK_UN)
             Darwin.close(lockDescriptor)
@@ -108,8 +108,7 @@ final class CatalogSQLiteDatabase {
 
     /// Keeps the stable empty lock file so an opener cannot lock an unlinked inode.
     func purge() throws {
-        if let connection { sqlite3_close_v2(connection) }
-        connection = nil
+        closeConnection()
         var failed = false
         for name in Self.filenames {
             let file = directory.appendingPathComponent(name)
@@ -142,55 +141,23 @@ final class CatalogSQLiteDatabase {
 
     func rows(_ sql: String, _ values: [CatalogSQLiteValue] = []) throws -> [[CatalogSQLiteValue]] {
         guard let connection else { throw CatalogStorageError.retired }
-        var statement: OpaquePointer?
-        let prepared = sqlite3_prepare_v2(connection, sql, -1, &statement, nil)
-        guard prepared == SQLITE_OK, let statement else { throw CatalogStorageError.database(prepared) }
-        defer { sqlite3_finalize(statement) }
-        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-        for (offset, value) in values.enumerated() {
-            let index = Int32(offset + 1)
-            let result: Int32
-            switch value {
-            case let .integer(value): result = sqlite3_bind_int64(statement, index, value)
-            case let .text(value):
-                result = value.withCString {
-                    sqlite3_bind_text(statement, index, $0, Int32(value.utf8.count), transient)
-                }
-            case let .blob(value):
-                result = value.withUnsafeBytes {
-                    sqlite3_bind_blob(statement, index, $0.baseAddress, Int32(value.count), transient)
-                }
-            case .null: result = sqlite3_bind_null(statement, index)
-            }
-            guard result == SQLITE_OK else { throw CatalogStorageError.database(result) }
+        let statement: CatalogSQLiteStatement
+        if let cached = statements[sql] {
+            statement = cached
+        } else {
+            statement = try CatalogSQLiteStatement(connection: connection, sql: sql)
+            // SQL is a small fixed vocabulary. Extra statements remain temporary, so new callers
+            // cannot turn dynamically generated SQL into an unbounded connection cache.
+            if statements.count < 64 { statements[sql] = statement }
         }
-        var result: [[CatalogSQLiteValue]] = []
-        while true {
-            let step = sqlite3_step(statement)
-            if step == SQLITE_DONE { return result }
-            guard step == SQLITE_ROW else { throw CatalogStorageError.database(step) }
-            var row: [CatalogSQLiteValue] = []
-            for column in 0..<sqlite3_column_count(statement) {
-                switch sqlite3_column_type(statement, column) {
-                case SQLITE_INTEGER: row.append(.integer(sqlite3_column_int64(statement, column)))
-                case SQLITE_TEXT:
-                    guard let bytes = sqlite3_column_text(statement, column) else {
-                        throw CatalogStorageError.invalidStoredData
-                    }
-                    let count = Int(sqlite3_column_bytes(statement, column))
-                    row.append(.text(String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)))
-                case SQLITE_BLOB:
-                    let count = Int(sqlite3_column_bytes(statement, column))
-                    if let bytes = sqlite3_column_blob(statement, column) {
-                        row.append(.blob(Data(bytes: bytes, count: count)))
-                    } else {
-                        row.append(.blob(Data()))
-                    }
-                default: row.append(.null)
-                }
-            }
-            result.append(row)
-        }
+        return try statement.rows(values)
+    }
+
+    private func closeConnection() {
+        // Finalize statements before closing SQLite and releasing either ownership lock.
+        statements.removeAll()
+        if let connection { sqlite3_close_v2(connection) }
+        connection = nil
     }
 
     private static func prepareDirectory(_ url: URL) throws {

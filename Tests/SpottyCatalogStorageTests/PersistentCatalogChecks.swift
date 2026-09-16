@@ -278,6 +278,9 @@ struct PersistentCatalogChecks {
         }
         #expect(try await catalog.collection(key: "a", scope: catalog.scope)?.occurrences == original.occurrences)
         #expect(try await catalog.tracks(for: [track("rejected").uri], scope: catalog.scope).isEmpty)
+        let replacement = write("a", tracks: [track("accepted")])
+        _ = try await catalog.replaceCollection(replacement, scope: catalog.scope)
+        #expect(try await catalog.collection(key: "a", scope: catalog.scope)?.occurrences == replacement.occurrences)
         try await catalog.retire(scope: catalog.scope)
     }
 
@@ -335,6 +338,9 @@ struct PersistentCatalogChecks {
         }
         #expect(try await catalog.collection(key: "a", scope: catalog.scope)?.occurrences == original.occurrences)
         #expect(try await catalog.tracks(for: [track("two").uri], scope: catalog.scope).isEmpty)
+        let recovered = track("one", title: "Recovered")
+        _ = try await catalog.upsertTracks([recovered], scope: catalog.scope)
+        #expect(try await catalog.tracks(for: [recovered.uri], scope: catalog.scope)[recovered.uri] == recovered)
         try await catalog.retire(scope: catalog.scope)
     }
 

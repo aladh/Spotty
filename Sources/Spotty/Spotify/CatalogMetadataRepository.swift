@@ -18,6 +18,7 @@ final class CatalogMetadataRepository {
         case search
         case playlist
         case album
+        case discography
         case library
     }
 
@@ -31,7 +32,7 @@ final class CatalogMetadataRepository {
     /// Playback publications must not feed themselves back as higher-priority browsing input.
     @ObservationIgnored private(set) var runtimeTracksRevision: UInt64 = 0
 
-    private static let runtimeTrackSources: [TrackSource] = [.search, .playlist, .album, .library]
+    private static let runtimeTrackSources: [TrackSource] = [.search, .playlist, .album, .discography, .library]
 
     @ObservationIgnored private let contentObservation = ObservationRegistrar()
     @ObservationIgnored private let session: CatalogSessionAvailability

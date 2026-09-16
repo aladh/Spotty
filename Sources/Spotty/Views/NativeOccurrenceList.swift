@@ -7,6 +7,7 @@ struct NativeOccurrenceListRow {
     let id: String
     let height: CGFloat
     var isSelectable = true
+    var drawsHover = false
     let content: AnyView
 }
 
@@ -24,6 +25,7 @@ struct NativeOccurrenceList: NSViewRepresentable {
     @Binding var selection: Set<String>
     var allowsMultipleSelection = true
     var drawsSelection = true
+    var preservesVisibleAnchor = false
     let accessibilityLabel: String
     var scrollState: NativeListScrollState?
     var primaryAction: ((Set<String>) -> Void)?
@@ -99,6 +101,16 @@ struct NativeOccurrenceList: NSViewRepresentable {
             let structureChanged =
                 content.rows.map(\.id) != next.rows.map(\.id)
                 || content.rows.map(\.height) != next.rows.map(\.height)
+            var anchor: (id: String, distance: CGFloat)?
+            if next.preservesVisibleAnchor, hasAppliedContent, structureChanged,
+                next.scrollState === content.scrollState,
+                abs(offset - scroll.contentView.bounds.minY) < 0.5
+            {
+                let row = scroll.table.row(at: NSPoint(x: 0, y: offset))
+                if content.rows.indices.contains(row) {
+                    anchor = (content.rows[row].id, offset - scroll.table.rect(ofRow: row).minY)
+                }
+            }
             content = next
             scroll.table.allowsMultipleSelection = next.allowsMultipleSelection
             scroll.table.selectionHighlightStyle = next.drawsSelection ? .regular : .none
@@ -124,7 +136,13 @@ struct NativeOccurrenceList: NSViewRepresentable {
             refreshVisibleRows()
             scroll.layoutSubtreeIfNeeded()
             let maximum = max(0, scroll.table.bounds.height - scroll.contentSize.height)
-            let restored = min(maximum, max(0, offset))
+            let requested =
+                anchor.flatMap { anchor in
+                    next.rows.firstIndex { $0.id == anchor.id }.map {
+                        scroll.table.rect(ofRow: $0).minY + anchor.distance
+                    }
+                } ?? offset
+            let restored = min(maximum, max(0, requested))
             scroll.contentView.scroll(to: NSPoint(x: 0, y: restored))
             scroll.reflectScrolledClipView(scroll.contentView)
             next.scrollState?.offset = restored
@@ -138,8 +156,7 @@ struct NativeOccurrenceList: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             let view = NativeTrackRowView()
-            // These leaves already draw their own artwork/control hover treatment.
-            view.drawsHover = false
+            view.drawsHover = content.rows[row].drawsHover
             return view
         }
 

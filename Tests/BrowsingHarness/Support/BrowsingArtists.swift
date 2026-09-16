@@ -36,7 +36,9 @@ extension BrowsingFixtures {
                 monthlyListeners: index < 3 ? 1_234_567 : nil, isVerified: index < 2,
                 popularTracks: tracks, popularReleases: Array(releases.prefix(6))),
             releaseKinds: Dictionary(
-                uniqueKeysWithValues: releases.enumerated().map { ($0.element.uri, kinds[$0.offset % kinds.count]) }))
+                uniqueKeysWithValues: releases.enumerated().map { ($0.element.uri, kinds[$0.offset % kinds.count]) }),
+            releaseDates: Dictionary(
+                uniqueKeysWithValues: releases.enumerated().map { ($0.element.uri, "\(2026 - $0.offset / 3)-08-21") }))
     }
 
     func artistReleases(index: Int) -> [CatalogItem] {
@@ -62,7 +64,12 @@ extension BrowsingFixtures {
                     album: item.title, duration: 180, artworkURL: item.artworkURL, addedAt: nil,
                     artists: [artists[index]], albumItem: item)
             }
-            return CatalogAlbumSnapshot(tracks: tracks, releaseDate: "2026-08-21", item: item)
+            return CatalogAlbumSnapshot(
+                tracks: tracks, releaseDate: "2026-08-21", item: item,
+                playCounts: Dictionary(
+                    uniqueKeysWithValues: tracks.enumerated().map {
+                        ($0.element.uri, Int64(3_129_748_382 - $0.offset * 92_341))
+                    }))
         }
         return nil
     }

@@ -11,8 +11,10 @@ final class CatalogRouteInteractionState {
     var selection: Set<CatalogTrack.ID> = []
     var visibleItemID: CatalogItem.ID?
     var artistShowsAllTracks = false
-    var artistShowsAllReleases = false
     var artistReleaseFilter = ArtistReleaseFilter.popular
+    var discographySort = DiscographySort.releaseDate
+    var discographyLayout = DiscographyLayout.list
+    let discographyScroll = NativeListScrollState()
     var sortOrder: [KeyPathComparator<TrackTableRow>]
     @ObservationIgnored var scrollOffset: CGFloat = 0
 

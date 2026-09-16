@@ -35,7 +35,7 @@ final class PlaybackStore {
     private(set) var allowsCommands = true
     let thisDeviceName = "This Mac"
     let catalog: CatalogStore
-    let history = PlaybackHistoryStore()
+    private(set) var history: [HistoryEntry] = []
     @ObservationIgnored let feedback: TransientFeedbackPresenter
     @ObservationIgnored let artworkProvider: any ArtworkProviding
     @ObservationIgnored let catalogSession: CatalogSessionAvailability
@@ -158,7 +158,7 @@ final class PlaybackStore {
         catalogSession.update(accountEpoch: value.accountEpoch, isAvailable: value.catalogAvailable)
         if changedAccount {
             catalog.reset()
-            history.reset()
+            history = []
             lastMetadata = []
             lastCatalogInputRevision = nil
             lastCatalogInputEpoch = nil
@@ -187,7 +187,7 @@ final class PlaybackStore {
             catalogPlaybackAvailability = value.catalogPlaybackAvailability
         }
         if playingContextURI != value.playingContextURI { playingContextURI = value.playingContextURI }
-        history.replaceEntries(value.history)
+        if history != value.history { history = value.history }
         if value.catalogAvailable, lastMetadata != value.metadata {
             lastMetadata = value.metadata
             catalog.metadata.replaceTracks(value.metadata, from: .queue)

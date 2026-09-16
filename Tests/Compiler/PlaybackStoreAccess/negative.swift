@@ -46,6 +46,10 @@ func rejectPlaybackStoreWrite(_ store: PlaybackStore) {
         store.positionAnchorDate = store.positionAnchorDate
     #elseif NEG_QUEUE_NEXT_ENTRIES
         store.queueNextEntries = store.queueNextEntries
+    #elseif NEG_HISTORY
+        store.history = store.history
+    #elseif NEG_HISTORY_MUTATION
+        store.history.removeAll()
     #elseif NEG_CONNECT_DEVICES
         store.connectDevices = store.connectDevices
     #elseif NEG_LOCAL_DEVICE_ID

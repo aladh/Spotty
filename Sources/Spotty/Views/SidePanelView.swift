@@ -235,7 +235,7 @@ struct SidePanelView: View {
     @ViewBuilder
     private var historyList: some View {
         let actions = SidePanelPlaybackActions(player: player)
-        if player.history.entries.isEmpty {
+        if player.history.isEmpty {
             EmptyState(
                 icon: "clock.arrow.circlepath",
                 title: "No listening history yet",
@@ -243,7 +243,7 @@ struct SidePanelView: View {
             )
         } else {
             NativeOccurrenceList(
-                rows: player.history.entries.map { entry in
+                rows: player.history.map { entry in
                     NativeOccurrenceListRow(
                         id: entry.id, height: 64, isSelectable: false,
                         content: AnyView(HistoryRow(entry: entry) { actions.play(uri: entry.uri) })

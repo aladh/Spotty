@@ -436,7 +436,7 @@ struct PlaybackEventOutcomeTests {
             #expect(
                 (success.state.currentTrack?.metadataSource) == (.connect), "accepted metadata uses connect provenance")
             #expect(
-                (success.history.entries.first?.title) == ("Resolved"),
+                (success.history.first?.title) == ("Resolved"),
                 "history enrichment waits for reducer acceptance")
             await success.shutdownForTermination()
 
@@ -457,7 +457,7 @@ struct PlaybackEventOutcomeTests {
             #expect(
                 (staleEngine.state.currentTrack?.title) == nil,
                 "stale-engine metadata does not mutate the current title")
-            #expect((staleEngine.history.entries.isEmpty) == true, "stale-engine metadata does not create history")
+            #expect((staleEngine.history.isEmpty) == true, "stale-engine metadata does not create history")
             await staleEngine.shutdownForTermination()
 
             let staleAccountRemote = HarnessRemote(metadata: .park)
@@ -482,7 +482,7 @@ struct PlaybackEventOutcomeTests {
             )
             #expect((staleAccount.state.currentTrack) == nil, "stale-account metadata cannot revive a reset track")
             #expect(
-                (staleAccount.history.entries.first?.title) == ("Unknown track"),
+                (staleAccount.history.first?.title) == ("Unknown track"),
                 "stale-account metadata does not enrich history after reset")
             await staleAccount.shutdownForTermination()
 
@@ -503,7 +503,7 @@ struct PlaybackEventOutcomeTests {
             )
             #expect((cancelled.state.currentTrack?.title) == nil, "cancelled metadata is inert")
             #expect(
-                (cancelled.history.entries.first?.title) == ("Unknown track"),
+                (cancelled.history.first?.title) == ("Unknown track"),
                 "cancelled metadata does not enrich history")
             await cancelled.shutdownForTermination()
 
@@ -535,7 +535,7 @@ struct PlaybackEventOutcomeTests {
                 (rejected.state.currentTrack?.uri) == ("spotify:track:other"),
                 "metadata for a previous track is rejected")
             #expect(
-                (rejected.history.entries.first?.title) == ("Unknown track"),
+                (rejected.history.first?.title) == ("Unknown track"),
                 "rejected metadata does not enrich the prior history row")
             await rejected.shutdownForTermination()
         }
@@ -745,7 +745,7 @@ struct PlaybackEventOutcomeTests {
                 (named.state.currentTrack?.artist) == ("Artist"),
                 "stale named snapshot cannot replace now-playing artist")
             #expect(
-                (named.history.entries.first?.title) == ("Unknown track"),
+                (named.history.first?.title) == ("Unknown track"),
                 "stale named snapshot does not enrich history")
             #expect((namedRemote.requestedURI) == nil, "stale named snapshot does not start metadata resolution")
             await named.shutdownForTermination()
@@ -776,7 +776,7 @@ struct PlaybackEventOutcomeTests {
             #expect((missing.state.currentTrack?.title) == nil, "stale nameless snapshot cannot install a title")
             #expect((missing.state.currentTrack?.uri) == (uri), "stale nameless snapshot keeps the current URI")
             #expect(
-                (missing.history.entries.first?.title) == ("Unknown track"),
+                (missing.history.first?.title) == ("Unknown track"),
                 "stale nameless snapshot does not enrich history")
             #expect(
                 (missingRemote.requestedURI) == nil, "stale nameless snapshot does not launch a metadata resolver"
@@ -1105,7 +1105,7 @@ struct PlaybackEventOutcomeTests {
 
             player.recordPlayed("spotify:track:clocked")
             #expect(
-                (player.history.entries.first?.playedAt) == (clockNow),
+                (player.history.first?.playedAt) == (clockNow),
                 "played history uses the injected orchestration clock")
             #expect(
                 (player.shuffleHistoryCache["spotify:track:clocked"]) == (clockNow.timeIntervalSince1970),

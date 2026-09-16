@@ -1221,7 +1221,7 @@ struct PlaybackCommandFailureTests {
             (localRejected.state.timing) == (priorPlayingTiming), "local play rejection restores exact prior timing"
         )
         #expect(
-            (!localRejected.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (!localRejected.history.contains { $0.uri == trackB.uri }) == true,
             "local play rejection does not record B")
         #expect(
             (localRejected.transientCommandError) == ("Could not play that Spotify URI"),
@@ -1239,12 +1239,12 @@ struct PlaybackCommandFailureTests {
         #expect((localAccepted.state.currentTrack?.uri) == (trackB.uri), "accepted local play keeps B")
         #expect((localAccepted.state.transport) == (.playing), "accepted local play keeps playing")
         #expect(
-            (localAccepted.history.entries.contains { $0.uri == trackB.uri }) == false,
+            (localAccepted.history.contains { $0.uri == trackB.uri }) == false,
             "transport acceptance alone does not record B")
         sendEnginePlayback(
             localAccepted, uri: trackB.uri, transport: .playing,
             timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 1)
-        #expect(localAccepted.history.entries.contains { $0.uri == trackB.uri })
+        #expect(localAccepted.history.contains { $0.uri == trackB.uri })
         await localAccepted.shutdownForTermination()
 
         let rejectedRemote = HarnessRemote(send: .park)
@@ -1270,7 +1270,7 @@ struct PlaybackCommandFailureTests {
             (remoteRejected.state.timing) == (priorPlayingTiming),
             "remote play rejection restores exact prior timing")
         #expect(
-            (!remoteRejected.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (!remoteRejected.history.contains { $0.uri == trackB.uri }) == true,
             "remote play rejection does not record B")
         await remoteRejected.shutdownForTermination()
 
@@ -1284,13 +1284,13 @@ struct PlaybackCommandFailureTests {
         await expectEventually { remoteAccepted.state.pendingCommands[.transport] == nil }
         #expect((remoteAccepted.state.currentTrack?.uri) == (trackB.uri), "accepted remote play keeps B")
         #expect(
-            (remoteAccepted.history.entries.contains { $0.uri == trackB.uri }) == false,
+            (remoteAccepted.history.contains { $0.uri == trackB.uri }) == false,
             "transport acceptance alone does not record B"
         )
         sendEnginePlayback(
             remoteAccepted, uri: trackB.uri, transport: .playing,
             timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 1)
-        #expect(remoteAccepted.history.entries.contains { $0.uri == trackB.uri })
+        #expect(remoteAccepted.history.contains { $0.uri == trackB.uri })
         await remoteAccepted.shutdownForTermination()
 
         let laggingRemote = HarnessRemote(send: .park)
@@ -1320,7 +1320,7 @@ struct PlaybackCommandFailureTests {
         #expect(
             (laggingStore.state.timing) == (priorPlayingTiming), "lagging A then rejection restores exact timing")
         #expect(
-            (!laggingStore.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (!laggingStore.history.contains { $0.uri == trackB.uri }) == true,
             "lagging A then rejection does not record B")
         await laggingStore.shutdownForTermination()
 
@@ -1353,7 +1353,7 @@ struct PlaybackCommandFailureTests {
         #expect((confirmStore.state.currentTrack?.uri) == (trackB.uri), "confirmed B then failure keeps B")
         #expect((confirmStore.transientCommandError) == nil, "confirmed B then failure has no command notice")
         #expect(
-            (confirmStore.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (confirmStore.history.contains { $0.uri == trackB.uri }) == true,
             "confirmed B then failure still records B")
         #expect(
             (confirmStore.state.transportCommandResolutions.isEmpty) == true,
@@ -1389,7 +1389,7 @@ struct PlaybackCommandFailureTests {
             (supersedeStore.state.currentTrack?.uri) == ("spotify:track:c"), "C supersession then failure leaves C")
         #expect((supersedeStore.state.timing) == (trackCTiming), "C supersession then failure keeps C timing")
         #expect(
-            (!supersedeStore.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (!supersedeStore.history.contains { $0.uri == trackB.uri }) == true,
             "C supersession then failure does not record B")
         #expect((supersedeStore.transientCommandError) == nil, "C supersession then failure has no play notice")
         #expect(
@@ -1421,7 +1421,7 @@ struct PlaybackCommandFailureTests {
         await nilStoreSettlement?.wait()
         #expect((nilStore.state.currentTrack) == nil, "nil supersession then failure stays cleared")
         #expect(
-            (!nilStore.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (!nilStore.history.contains { $0.uri == trackB.uri }) == true,
             "nil supersession then failure does not record B")
         await nilStore.shutdownForTermination()
 
@@ -1454,7 +1454,7 @@ struct PlaybackCommandFailureTests {
             "route refusal leaves the current track unchanged")
         #expect((joining.state.timing) == (joiningBefore.timing), "route refusal leaves timing unchanged")
         #expect((joining.state.pendingCommands.isEmpty) == true, "route refusal does not start a pending play")
-        #expect((joining.history.entries.isEmpty) == true, "route refusal does not record B")
+        #expect((joining.history.isEmpty) == true, "route refusal does not record B")
         await joining.shutdownForTermination()
 
         let duplicateRemote = HarnessRemote(send: .sleepUntilCancelled)
@@ -1498,7 +1498,7 @@ struct PlaybackCommandFailureTests {
             (cancelStore.state.currentTrack?.uri) == ("spotify:track:a"), "cancellation restores the captured track"
         )
         #expect((cancelStore.state.pendingCommands[.transport]) == nil, "cancellation clears the pending play")
-        #expect((cancelStore.history.entries.isEmpty) == true, "cancellation does not record B")
+        #expect((cancelStore.history.isEmpty) == true, "cancellation does not record B")
         await cancelStore.shutdownForTermination()
 
         let staleStore = HarnessEnvironment.makePlaybackStore(
@@ -1557,7 +1557,7 @@ struct PlaybackCommandFailureTests {
         await expectEventually { playlistStore.state.pendingCommands[.transport] == nil }
         #expect((playlistStore.state.currentTrack?.uri) == (trackA.uri), "a rejected loaded playlist restores A")
         #expect(
-            (!playlistStore.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (!playlistStore.history.contains { $0.uri == trackB.uri }) == true,
             "a rejected loaded playlist does not record B")
         await playlistStore.shutdownForTermination()
 
@@ -1584,7 +1584,7 @@ struct PlaybackCommandFailureTests {
             (unknownPlaylist.state.currentTrack?.uri) == (trackA.uri),
             "an accepted unknown playlist keeps A until the engine speaks")
         #expect(
-            (unknownPlaylist.history.entries.isEmpty) == true, "an unknown playlist does not record a first track")
+            (unknownPlaylist.history.isEmpty) == true, "an unknown playlist does not record a first track")
         await unknownPlaylist.shutdownForTermination()
 
         let rawURI = HarnessEnvironment.makePlaybackStore(
@@ -1600,7 +1600,7 @@ struct PlaybackCommandFailureTests {
             (rawURI.state.currentTrack?.uri) == (trackA.uri),
             "accepted raw play(uri:) still keeps A until the engine speaks")
         #expect(
-            (rawURI.history.entries.contains { $0.uri == trackB.uri }) == false,
+            (rawURI.history.contains { $0.uri == trackB.uri }) == false,
             "accepted raw play(uri:) waits for observed history")
         sendEnginePlayback(
             rawURI, uri: trackA.uri, transport: .playing,
@@ -1609,7 +1609,7 @@ struct PlaybackCommandFailureTests {
         sendEnginePlayback(
             rawURI, uri: trackB.uri, transport: .playing,
             timing: PlaybackTiming(position: 1, duration: 180, anchoredAt: clockNow), revision: 2)
-        #expect(rawURI.history.entries.contains { $0.uri == trackB.uri })
+        #expect(rawURI.history.contains { $0.uri == trackB.uri })
         await rawURI.shutdownForTermination()
 
         let localEngine = HarnessEngine()
@@ -1634,7 +1634,7 @@ struct PlaybackCommandFailureTests {
         await expectEventually { localRace.state.pendingCommands[.transport] == nil }
         #expect((localRace.state.currentTrack?.uri) == (trackA.uri), "local lagging A then rejection restores A")
         #expect(
-            (!localRace.history.entries.contains { $0.uri == trackB.uri }) == true,
+            (!localRace.history.contains { $0.uri == trackB.uri }) == true,
             "local lagging A then rejection does not record B")
         await localRace.shutdownForTermination()
     }

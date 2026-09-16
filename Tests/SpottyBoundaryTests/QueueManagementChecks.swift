@@ -585,7 +585,7 @@ struct QueueManagementTests {
             (feedback.message?.text) == (QueueMutationRefusal.nowPlayingOrHistory.feedbackMessage),
             "now-playing cannot be removed")
         #expect((remote.sendCount) == (0), "now-playing refusal does not send a command")
-        player.removeUpcomingQueueOccurrences(selectedIDs: Set(player.history.entries.map(\.id)))
+        player.removeUpcomingQueueOccurrences(selectedIDs: Set(player.history.map(\.id)))
         #expect((remote.sendCount == 0) == true, "empty history selection is a no-op or not a mutation")
         await player.shutdownForTermination()
     }

@@ -194,7 +194,7 @@ struct RootView: View {
                 emptyMessage: "Songs you save on Spotify will appear here.",
                 playlistActions: playlistActions()
             )
-            .task(id: catalogPlayback.accountEpoch) {
+            .catalogTask(id: SidebarDestination.liked, playback: catalogPlayback) {
                 guard catalogPlayback.isConnected else { return }
                 await catalog.homeLibrary.loadLikedTracks()
             }

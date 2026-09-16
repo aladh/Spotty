@@ -1,12 +1,6 @@
 import SpottyDomain
 import SwiftUI
 
-private struct PlaylistLoadIdentity: Equatable {
-    let uri: String
-    let accountEpoch: UInt64
-    let isConnected: Bool
-}
-
 struct PlaylistDetailView: View {
     let item: CatalogItem
     let store: PlaylistStore
@@ -22,13 +16,7 @@ struct PlaylistDetailView: View {
 
             playlistContent
         }
-        .task(
-            id: PlaylistLoadIdentity(
-                uri: item.uri,
-                accountEpoch: playback.accountEpoch,
-                isConnected: playback.isConnected
-            )
-        ) {
+        .catalogTask(id: item.uri, playback: playback) {
             await store.load(item)
         }
         .onChange(of: searchFocused) {

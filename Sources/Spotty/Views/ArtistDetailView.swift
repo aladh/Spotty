@@ -32,10 +32,7 @@ struct ArtistDetailView: View {
         } action: {
             viewportHeight = $0
         }
-        .task(
-            id: MediaDetailLoadIdentity(
-                uri: item.uri, accountEpoch: playback.accountEpoch, isConnected: playback.isConnected)
-        ) {
+        .catalogTask(id: item.uri, playback: playback) {
             await store.load(item)
         }
     }

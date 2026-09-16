@@ -7,6 +7,7 @@ struct NavigationBar: View {
     let goHome: () -> Void
     let showSearch: () -> Void
     @State private var searchField = NavigationSearchField.Controller()
+    @FocusState private var homeIsFocused: Bool
     @State private var homeIsHovered = false
     @State private var searchIsHovered = false
 
@@ -30,6 +31,7 @@ struct NavigationBar: View {
             .accessibilityLabel("Home")
             .help("Home")
             .focusable()
+            .focused($homeIsFocused)
             HStack(spacing: 12) {
                 Button {
                     searchField.focus()
@@ -45,16 +47,20 @@ struct NavigationBar: View {
                 .accessibilityLabel("Search")
                 .keyboardShortcut("l", modifiers: .command)
                 NavigationSearchField(text: $searchText, controller: searchField, onActivate: showSearch)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onHover { searchIsHovered = $0 }
             .padding(.horizontal, 12)
             .frame(maxWidth: 474)
             .frame(height: 48)
-            .background(
-                searchIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl, in: Capsule()
-            )
+            .background {
+                Capsule()
+                    .fill(searchIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl)
+                    .onTapGesture { searchField.focus() }
+            }
             .overlay {
                 Capsule().strokeBorder(searchField.isFocused ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
+                    .allowsHitTesting(false)
             }
         }
         .labelStyle(.iconOnly)
@@ -68,6 +74,7 @@ struct NavigationBar: View {
         .onChange(of: isSearch) {
             if !isSearch { searchField.blur() }
         }
+        .defaultFocus($homeIsFocused, true)
     }
 }
 

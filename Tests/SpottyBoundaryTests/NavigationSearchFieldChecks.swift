@@ -31,7 +31,7 @@ struct NavigationSearchFieldChecks {
         editor.insertText("Night transit", replacementRange: editor.selectedRange())
         #expect(query == "Night transit")
         #expect(controller.isFocused)
-        #expect(activations > 0)
+        #expect(activations == 1)
 
         editor.setSelectedRange(NSRange(location: 2, length: 3))
         host.rootView = content()
@@ -41,8 +41,13 @@ struct NavigationSearchFieldChecks {
         controller.focus()
         #expect(editor.selectedRange() == NSRange(location: 0, length: 13))
         #expect(window.firstResponder === editor)
+        #expect(activations == 1, "repeated Command-L selects the query without repeating navigation")
         controller.blur()
         #expect(field.currentEditor() == nil)
         #expect(!controller.isFocused)
+        #expect(window.makeFirstResponder(field))
+        #expect(controller.isFocused, "native focus updates styling before the first edit")
+        #expect(activations == 2)
+        controller.blur()
     }
 }

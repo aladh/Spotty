@@ -18,6 +18,7 @@ struct NavigationSearchField: NSViewRepresentable {
         field.textColor = NSColor(SpottyPalette.textPrimary)
         field.placeholderString = "What do you want to play?"
         field.usesSingleLineMode = true
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setAccessibilityLabel("Search Spotify")
         field.delegate = context.coordinator
@@ -42,17 +43,23 @@ struct NavigationSearchField: NSViewRepresentable {
         @ObservationIgnored var onActivate: () -> Void = {}
 
         func focus() {
-            field?.selectText(nil)
-            activate()
+            guard let field else { return }
+            if let editor = field.currentEditor() {
+                editor.selectAll(nil)
+            } else {
+                field.selectText(nil)
+            }
+            if field.currentEditor() != nil { activate() }
         }
 
         func blur() {
-            guard let field, field.currentEditor() != nil else { return }
-            field.window?.makeFirstResponder(nil)
+            if let field, field.currentEditor() != nil { field.window?.makeFirstResponder(nil) }
+            isFocused = false
         }
 
         func activate() {
-            isFocused = field?.currentEditor() != nil
+            guard !isFocused else { return }
+            isFocused = true
             onActivate()
         }
 
@@ -66,7 +73,7 @@ struct NavigationSearchField: NSViewRepresentable {
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
-            onActivate()
+            activate()
             return true
         }
 

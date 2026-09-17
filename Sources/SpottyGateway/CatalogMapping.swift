@@ -38,7 +38,7 @@ nonisolated enum CatalogMapping {
                 case let .artist(artist):
                     return item(from: artist).map { [$0] } ?? []
                 case let .playlist(playlist):
-                    return item(from: playlist).map { [$0] } ?? []
+                    return playlistRecommendation(from: playlist).map { [$0] } ?? []
                 case let .list(list):
                     return list.entities.compactMap(item(from:))
                 case .unsupported:
@@ -91,6 +91,16 @@ nonisolated enum CatalogMapping {
             kind: .playlist,
             ownerURI: ownerURI(from: playlist.ownerV2?.data?.uri, username: playlist.ownerV2?.data?.username)
         )
+    }
+
+    /// Recommendation shelves describe the music; library and search items keep owner credits.
+    static func playlistRecommendation(from playlist: PathfinderPlaylist) -> CatalogItem? {
+        guard let item = item(from: playlist) else { return nil }
+        let description = PlaylistDescription.plainText(from: playlist.description ?? "")
+        return CatalogItem(
+            id: item.id, uri: item.uri, title: item.title,
+            subtitle: description.isEmpty ? item.subtitle : description,
+            artworkURL: item.artworkURL, kind: .playlist, ownerURI: item.ownerURI)
     }
 
     static func item(from entity: PathfinderHomeEntity) -> CatalogItem? {

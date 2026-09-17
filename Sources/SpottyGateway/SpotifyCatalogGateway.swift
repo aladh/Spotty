@@ -256,12 +256,8 @@ extension CatalogMapping {
     private static func artistPlaylists(_ playlists: PathfinderItems<PathfinderPlaylist>?) -> [CatalogItem] {
         var seen = Set<String>()
         return (playlists?.entities ?? []).compactMap { playlist in
-            guard let item = item(from: playlist), seen.insert(item.uri).inserted else { return nil }
-            let description = PlaylistDescription.plainText(from: playlist.description ?? "")
-            return CatalogItem(
-                id: item.id, uri: item.uri, title: item.title,
-                subtitle: description.isEmpty ? item.subtitle : description,
-                artworkURL: item.artworkURL, kind: .playlist, ownerURI: item.ownerURI)
+            guard let item = playlistRecommendation(from: playlist), seen.insert(item.uri).inserted else { return nil }
+            return item
         }
     }
 }

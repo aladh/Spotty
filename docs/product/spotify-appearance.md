@@ -42,6 +42,9 @@ Discovered on and Artist Playlists follow it. Spotty supports these returned pla
 with the first gallery image, biography and audience counts; gallery paging, city rankings, social links and
 Spotify's profile-authenticity explanation remain outside the supported surface.
 
+On **2026-09-17**, Spotify **1.3.0.277** Home playlist cards showed descriptions. Home recommendations
+prefer readable descriptions, falling back to owner labels or “Playlist”; library credits remain unchanged.
+
 ## Retained anchors
 
 Dimensions are in points. Keep these relationships while applying the responsive behavior in the

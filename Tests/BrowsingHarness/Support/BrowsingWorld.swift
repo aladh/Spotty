@@ -170,6 +170,9 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         return CatalogHomeSnapshot(
             greeting: home.greeting,
             sections: home.sections + [
+                CatalogSection(
+                    id: "synthetic-recommendations", title: "Playlists for you",
+                    items: fixtures.playlists.prefix(10).compactMap(CatalogMapping.playlistRecommendation(from:))),
                 CatalogSection(id: "synthetic-albums", title: "Albums for you", items: fixtures.albums),
                 CatalogSection(id: "synthetic-artists", title: "Artists for you", items: fixtures.artists),
             ])

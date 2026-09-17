@@ -27,8 +27,8 @@ struct CatalogPlaybackActionChecks {
         await player.shutdownForTermination()
     }
 
-    @Test(arguments: [false, true])
-    func retainedRowTargetsItsTrackAfterTheCurrentTrackChanges(published: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func retainedRowTargetsItsTrackAfterTheCurrentTrackChanges(published: Bool, isPlayable: Bool) async throws {
         let remote = HarnessRemote(send: .park)
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: remote))
         let first = HarnessFixtures.track(uri: "spotify:track:first", title: "First", duration: 200)
@@ -42,11 +42,37 @@ struct CatalogPlaybackActionChecks {
             SessionRuntimeActor.sync { seed(runtime, track: second, playing: true) }
             #expect(player.trackURI == first.uri, "the desktop has not consumed the next publication")
         }
-        access.activateTrack(first)
-        try await requireEventually { remote.sendCount == 1 }
-        #expect(remote.endpoints == [.play], "a retained Pause control cannot pause a different track")
-        #expect(remote.commands.first?.context?.uri == first.uri)
+        let before = player.state
+        access.activateTrack(first, isPlayable: isPlayable)
+        if isPlayable {
+            try await requireEventually { remote.sendCount == 1 }
+            #expect(remote.endpoints == [.play], "a retained Pause control cannot pause a different track")
+            #expect(remote.commands.first?.context?.uri == first.uri)
+        } else {
+            #expect(player.state == before, "a retained Pause control cannot start an unavailable track")
+        }
         await player.shutdownForTermination()
+        if !isPlayable { #expect(remote.sendCount == 0) }
+    }
+
+    @Test(arguments: [false, true])
+    func unavailableCurrentTrackCanOnlyBePaused(playing: Bool) async throws {
+        let remote = HarnessRemote(send: .park)
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: remote))
+        let track = HarnessFixtures.track(uri: "spotify:track:unavailable", title: "Unavailable", duration: 200)
+        seed(player, track: track, playing: playing)
+        let access = CatalogPlaybackAccess(player: player)
+        #expect(access.canActivateTrack(track, isPlayable: false) == playing)
+        let before = player.state
+        access.activateTrack(track, isPlayable: false)
+        if playing {
+            try await requireEventually { remote.sendCount == 1 }
+            #expect(remote.endpoints == [.pause])
+        } else {
+            #expect(player.state == before)
+        }
+        await player.shutdownForTermination()
+        if !playing { #expect(remote.sendCount == 0) }
     }
 
     @Test func replacedAccountAndDisconnectedRowsCannotActivate() async {

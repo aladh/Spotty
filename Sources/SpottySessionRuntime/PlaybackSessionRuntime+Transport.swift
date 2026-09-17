@@ -20,12 +20,14 @@ package extension PlaybackSessionRuntime {
         submitPlay(uri: track.uri, expectedTrack: currentTrack(from: track))
     }
 
-    func activateTrack(_ track: CatalogTrack) {
+    func activateTrack(_ track: CatalogTrack, isPlayable: Bool = true) {
         guard canStartPlayback else { return }
         // Choose against runtime authority: the desktop may still display the preceding track.
         if trackURI == track.uri {
+            guard isPlayable || isPlaying else { return }
             togglePlayback()
         } else {
+            guard isPlayable else { return }
             play(track: track)
         }
     }

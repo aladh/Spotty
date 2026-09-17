@@ -26,9 +26,7 @@
   stacked Artist), `Album`, `Date Added`, and `Duration`. Artwork stays in Title. `#` shows the
   one-based display position and becomes a speaker only for a playing current URI. A paused current
   URI keeps its green ordinal; selected rows retain native selection foregrounds. Accessibility
-  exposes the position in either current state. The ordinal is a playback button, also available
-  to accessibility tools without hovering. Hover shows Play, or Pause for the playing current track;
-  activating the paused current track resumes it. Unavailable playback disables the button.
+  exposes the position in either current state. See [row playback controls](#row-playback-controls).
   Playlist row durations round each track to the nearest second for display, and the hero's total
   sums those same rounded per-track seconds. Totals of at least one hour use `hr`/`min` units;
   player and progress formatting retain their existing floor-to-second behavior.
@@ -56,5 +54,14 @@
   mark them possibly stale, and let Retry reload without repeating the mutation.
 - No playlist drag-and-drop or arbitrary reordering. Native table ownership does not add an
   occurrence-aware multi-selection drag mutation. Use the keyboard-accessible context-menu command.
+
+## Row playback controls
+
+Numbered playlist, album, artist and search rows use the ordinal as a playback button, available
+to accessibility tools without hovering. When enabled, hover shows Play, or Pause for the playing
+current track. Activating the playing current track pauses it; activating the paused current track
+resumes it; activating another row starts that track. Unavailable tracks cannot start or resume,
+but the playing current track remains pausable. Announce unavailable tracks alongside their ordinal.
+Disconnected playback and pending commands disable activation.
 
 See [transient mutation feedback](navigation.md#transient-mutation-feedback) for shared banner behavior.

@@ -26,17 +26,19 @@
 
 ### Album and artist pages
 
+Numbered album/artist rows follow [row playback controls](playlists.md#row-playback-controls).
+
 - Album headers show artwork, large responsive titles, artist links, year, song count, and runtime.
-  Credits follow link behavior below. Scrolling compacts headers to title/Play. Numbered 56-point rows show
+  Credits follow links below. Scrolling compacts headers to title/Play. Numbered 56-point rows show
   linked artists below titles and optional play counts before duration; narrow widths hide counts, retaining durations;
   omit repeated album names and thumbnails. Selection, sorting, focus, and retained scrolling match playlists.
   Truncate row durations to seconds; truncate summed original durations once for headers, allowing totals to differ.
-- Artists show a full-width banner, large name, and known verification/monthly listeners. Without a banner,
-  use a tinted hero and known portrait; omit unknown facts. Hero, Popular, Discography, Featuring and About share native
+- Artists show full-width banners, large names and known verification/monthly listeners; absent banners use
+  tinted heroes and known portraits. Omit unknown facts. Hero, Popular, Discography, Featuring and About share native
   scrolling with Play/shuffle, compacting to title/Play.
 - Popular previews up to five ranked 56-point rows, expandable to returned tracks, with artwork, title, duration and
-  optional play counts hidden at narrow widths. Label unavailable tracks and disable playback. Preserve native
-  selection, Return and double-click behavior.
+  optional play counts hidden at narrow widths. Label unavailable tracks; disable starting/resuming them while
+  preserving Pause. Preserve native selection, Return and double-click behavior.
 - Discography previews popular releases in one horizontally scrolling row with type filters and year/type labels.
   Featuring shows Spotify's playlists in order with artwork and descriptions; omit empty rows.
   About follows Featuring: gallery image or portrait, monthly listeners, biography preview.
@@ -77,7 +79,7 @@
 - The active playlist has a green title and trailing green speaker for local and Connect playback,
   regardless of navigation selection or paused state. Clear them on disconnect, cleared
   current track, or context change; see [playback state](playback.md#transport-and-progress).
-  Home and Search stay in the toolbar; omit separate Your Library destinations and an app-name header.
+  Keep Home/Search in the toolbar; omit separate Your Library destinations and app-name headers.
 
 ### Queue inspector and player
 
@@ -99,5 +101,5 @@
 - Playlist/queue mutations share `TransientFeedbackPresenter`.
 - Show one non-modal banner above the player, preserving focus, input, and layout. New messages
   replace old; cancelled dismissal cannot clear replacements.
-- Durable connection, session, playback, and reconciliation status stays with existing owners
+- Durable connection/session/playback/reconciliation status stays with existing owners
   (`PlaybackNotice`/now-playing text), not transient banners.

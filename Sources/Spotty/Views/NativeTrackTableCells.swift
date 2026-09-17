@@ -67,12 +67,14 @@ struct NativeTrackCell: View {
     var playCount: Int64? = nil
     @State private var indexHovered = false
 
+    private var isRowPlayable: Bool { artistTrack?.isPlayable != false }
+
     var body: some View {
         content
             .font(.system(size: 14))
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: alignment)
-            .opacity(artistTrack?.isPlayable == false ? 0.45 : 1)
+            .opacity(isRowPlayable ? 1 : 0.45)
     }
 
     private var alignment: Alignment {
@@ -129,12 +131,11 @@ struct NativeTrackCell: View {
         let indicator = playback.currentTrackIndicator
         let isCurrent = indicator.trackURI == row.track.uri
         let currentForeground = isSelected ? SpottyPalette.textPrimary : SpottyPalette.mediaGreen
-        let canActivate = playback.canActivateTrack(row.track) && artistTrack?.isPlayable != false
+        let canActivate = playback.canActivateTrack(row.track, isPlayable: isRowPlayable)
         let showsPause = isCurrent && indicator.isPlaying
 
         return Button {
-            guard artistTrack?.isPlayable != false else { return }
-            playback.activateTrack(row.track)
+            playback.activateTrack(row.track, isPlayable: isRowPlayable)
         } label: {
             Group {
                 if indexHovered && canActivate {
@@ -159,7 +160,8 @@ struct NativeTrackCell: View {
         .onHover { indexHovered = $0 }
         .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(row.track.title)")
         .accessibilityValue(
-            isCurrent ? "Current track, track \(position) of \(total)" : "Track \(position) of \(total)"
+            (isCurrent ? "Current track, track \(position) of \(total)" : "Track \(position) of \(total)")
+                + (isRowPlayable ? "" : ", unavailable")
         )
     }
 
@@ -180,7 +182,7 @@ struct NativeTrackCell: View {
                     .foregroundStyle(titleForeground)
                     .lineLimit(1)
                     .accessibilityLabel(
-                        artistTrack?.isPlayable == false ? "\(row.track.title), unavailable" : row.track.title)
+                        isRowPlayable ? row.track.title : "\(row.track.title), unavailable")
                 if variant != .artist {
                     CatalogArtistLinks(
                         artists: row.track.artists, fallback: row.track.artist, color: artistForeground,
@@ -191,7 +193,7 @@ struct NativeTrackCell: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityValue(artistTrack?.isPlayable == false ? "Unavailable" : "")
+        .accessibilityValue(isRowPlayable ? "" : "Unavailable")
     }
 
     private var catalogTitleCell: some View {

@@ -6,6 +6,94 @@ import Testing
 @testable import SpottySessionRuntime
 
 struct PersistentCatalogProviderTests {
+    @Test(arguments: [false, true])
+    func olderDetailRefreshCannotReplaceANewerResultEvenWithEqualClockSamples(album: Bool) async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = CatalogProviderSource()
+        let provider = PersistentCatalogProvider(source: source, rootDirectory: root, clock: ProviderClock())
+        await provider.activate()
+        _ = try await provider.profile()
+        let oldTracks = [track("old")]
+        let newTracks = [track("new"), track("new", occurrence: "duplicate")]
+        if album {
+            let gate = CatalogReadGate<CatalogAlbumSnapshot>()
+            await source.holdAlbum(gate)
+            let old = Task { try await provider.album(id: "one") }
+            await gate.waitUntilEntered()
+            await source.setAlbum(.success(CatalogAlbumSnapshot(tracks: newTracks, releaseDate: "New")))
+            _ = try await provider.album(id: "one")
+            await gate.release(CatalogAlbumSnapshot(tracks: oldTracks, releaseDate: "Old"))
+            #expect(try await old.value.tracks == oldTracks, "each live caller still receives its own result")
+            let saved = try #require(try await provider.cachedAlbum(id: "one"))
+            #expect(saved.tracks == newTracks)
+            #expect(saved.releaseDate == "New")
+        } else {
+            let gate = CatalogReadGate<CatalogPlaylistSnapshot>()
+            await source.holdPlaylist(gate)
+            let old = Task { try await provider.playlist(id: "one") }
+            await gate.waitUntilEntered()
+            await source.setPlaylist(.success(playlist(newTracks)))
+            _ = try await provider.playlist(id: "one")
+            await gate.release(playlist(oldTracks))
+            #expect(try await old.value.tracks == oldTracks, "each live caller still receives its own result")
+            #expect(try await provider.cachedPlaylist(id: "one")?.tracks == newTracks)
+        }
+        #expect(await provider.retire(purge: false))
+        let reopened = PersistentCatalogProvider(source: CatalogProviderSource(), rootDirectory: root)
+        await reopened.activate()
+        _ = try await reopened.profile()
+        if album {
+            #expect(try await reopened.cachedAlbum(id: "one")?.tracks == newTracks)
+        } else {
+            #expect(try await reopened.cachedPlaylist(id: "one")?.tracks == newTracks)
+        }
+        #expect(await reopened.retire(purge: true))
+    }
+
+    @Test func overlappingDifferentCollectionsRetainTheirIndependentResults() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = CatalogProviderSource()
+        let provider = PersistentCatalogProvider(source: source, rootDirectory: root, clock: ProviderClock())
+        await provider.activate()
+        _ = try await provider.profile()
+        let gate = CatalogReadGate<CatalogPlaylistSnapshot>()
+        await source.holdPlaylist(gate)
+        let first = Task { try await provider.playlist(id: "one") }
+        await gate.waitUntilEntered()
+        await source.setPlaylist(.success(playlist([track("second")])))
+        _ = try await provider.playlist(id: "two")
+        await source.setAlbum(.success(CatalogAlbumSnapshot(tracks: [track("album")], releaseDate: "2026")))
+        _ = try await provider.album(id: "one")
+        await gate.release(playlist([track("first")]))
+        _ = try await first.value
+        #expect(try await provider.cachedPlaylist(id: "one")?.tracks == [track("first")])
+        #expect(try await provider.cachedPlaylist(id: "two")?.tracks == [track("second")])
+        #expect(try await provider.cachedAlbum(id: "one")?.tracks == [track("album")])
+        #expect(await provider.retire(purge: true))
+    }
+
+    @Test func failedNewerRefreshDoesNotReadmitAnOlderCompletion() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = CatalogProviderSource(playlist: .success(playlist([track("saved")])))
+        let provider = PersistentCatalogProvider(source: source, rootDirectory: root, clock: ProviderClock())
+        await provider.activate()
+        _ = try await provider.profile()
+        _ = try await provider.playlist(id: "one")
+        let gate = CatalogReadGate<CatalogPlaylistSnapshot>()
+        await source.holdPlaylist(gate)
+        let old = Task { try await provider.playlist(id: "one") }
+        await gate.waitUntilEntered()
+        await source.setPlaylist(.failure(.offline))
+        #expect(try await provider.playlist(id: "one").tracks == [track("saved")])
+        await gate.release(playlist([track("superseded")]))
+        _ = try await old.value
+        #expect(try await provider.cachedPlaylist(id: "one")?.tracks == [track("saved")])
+        #expect(await provider.retire(purge: true))
+    }
+
     @Test func supersededLibraryRefreshCannotOverwriteTheNewestTree() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -427,6 +515,7 @@ private actor CatalogProviderSource: CatalogProviding {
     private var albumResult: Result<CatalogAlbumSnapshot, CatalogReadFailure>
     private var playlistGate: CatalogReadGate<CatalogPlaylistSnapshot>?
     private var profileGate: CatalogReadGate<CatalogProfileSnapshot>?
+    private var albumGate: CatalogReadGate<CatalogAlbumSnapshot>?
 
     init(
         profile: CatalogProfileSnapshot = CatalogProfileSnapshot(name: "Account A", uri: "spotify:user:account-a"),
@@ -438,7 +527,15 @@ private actor CatalogProviderSource: CatalogProviding {
         albumResult = album
     }
 
-    func setPlaylist(_ value: Result<CatalogPlaylistSnapshot, CatalogReadFailure>) { playlistResult = value }
+    func setPlaylist(_ value: Result<CatalogPlaylistSnapshot, CatalogReadFailure>) {
+        playlistResult = value
+        playlistGate = nil
+    }
+    func setAlbum(_ value: Result<CatalogAlbumSnapshot, CatalogReadFailure>) {
+        albumResult = value
+        albumGate = nil
+    }
+    func holdAlbum(_ gate: CatalogReadGate<CatalogAlbumSnapshot>) { albumGate = gate }
     func setProfile(_ value: CatalogProfileSnapshot) { profileValue = value }
     func holdPlaylist(_ gate: CatalogReadGate<CatalogPlaylistSnapshot>) { playlistGate = gate }
     func holdProfile(_ gate: CatalogReadGate<CatalogProfileSnapshot>) { profileGate = gate }
@@ -455,7 +552,10 @@ private actor CatalogProviderSource: CatalogProviding {
         if let playlistGate { return await playlistGate.read() }
         return try playlistResult.get()
     }
-    func album(id _: String) throws -> CatalogAlbumSnapshot { try albumResult.get() }
+    func album(id _: String) async throws -> CatalogAlbumSnapshot {
+        if let albumGate { return await albumGate.read() }
+        return try albumResult.get()
+    }
     func searchTracks(_: String, limit _: Int) -> [CatalogTrack] { [] }
     func home() -> CatalogHomeSnapshot { CatalogHomeSnapshot(greeting: "Hello", sections: []) }
     func playlistLibrary() async -> [PlaylistLibraryNode] {

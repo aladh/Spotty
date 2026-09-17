@@ -217,7 +217,7 @@ final class BrowsingRun {
             } else {
                 guard player.accountStore.phase == .ready,
                     player.catalog.homeLibrary.playlists.count == world.fixtures.playlists.count,
-                    player.catalog.homeLibrary.homeSections.count == (world.scenario.expandedLibrary == true ? 3 : 1)
+                    player.catalog.homeLibrary.homeSections.count == (world.scenario.expandedLibrary == true ? 4 : 1)
                 else { throw BrowsingFailure.checkpoint("home.ready") }
                 try await sample("home.ready", started: started)
                 if world.scenario.mode == .playback {

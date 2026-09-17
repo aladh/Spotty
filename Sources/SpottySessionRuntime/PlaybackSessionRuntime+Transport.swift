@@ -20,6 +20,16 @@ package extension PlaybackSessionRuntime {
         submitPlay(uri: track.uri, expectedTrack: currentTrack(from: track))
     }
 
+    func activateTrack(_ track: CatalogTrack) {
+        guard canStartPlayback else { return }
+        // Choose against runtime authority: the desktop may still display the preceding track.
+        if trackURI == track.uri {
+            togglePlayback()
+        } else {
+            play(track: track)
+        }
+    }
+
     func playPlaylist(_ item: CatalogItem, tracks playlistTracks: [CatalogTrack], loadedURI: String?) {
         let orderedTracks = isShuffleEnabled ? fewerRepeatsOrder(playlistTracks) : playlistTracks
         let expectedTrack: CurrentTrack?

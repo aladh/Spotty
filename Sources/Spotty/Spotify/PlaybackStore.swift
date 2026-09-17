@@ -227,6 +227,7 @@ final class PlaybackStore {
 
     func play(uri: String) { performRuntimeCommand { $0.play(uri: uri) } }
     func play(track: CatalogTrack) { performRuntimeCommand { $0.play(track: track) } }
+    func activateTrack(_ track: CatalogTrack) { performRuntimeCommand { $0.activateTrack(track) } }
     func playPlaylist(_ item: CatalogItem) {
         let tracks = catalog.playlistStore.tracks
         let uri = catalog.playlistStore.loadedURI

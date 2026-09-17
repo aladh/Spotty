@@ -59,6 +59,17 @@ struct CatalogPlaybackAccess {
         player.play(track: track)
     }
 
+    func canActivateTrack(_ track: CatalogTrack) -> Bool {
+        guard isCurrentAccount else { return false }
+        return player.trackURI == track.uri ? player.canTogglePlayback : player.canStartPlayback
+    }
+
+    /// A row targets its own track even if playback changes while the control is retained.
+    func activateTrack(_ track: CatalogTrack) {
+        guard isCurrentAccount else { return }
+        player.activateTrack(track)
+    }
+
     func playPlaylist(_ item: CatalogItem) {
         guard isCurrentAccount else { return }
         player.playPlaylist(item)

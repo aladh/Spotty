@@ -129,21 +129,19 @@ struct NativeTrackCell: View {
         let indicator = playback.currentTrackIndicator
         let isCurrent = indicator.trackURI == row.track.uri
         let currentForeground = isSelected ? SpottyPalette.textPrimary : SpottyPalette.mediaGreen
+        let canActivate = playback.canActivateTrack(row.track) && artistTrack?.isPlayable != false
+        let showsPause = isCurrent && indicator.isPlaying
 
-        return Group {
-            if (variant == .artist || variant == .search) && indexHovered && playback.canStartPlayback
-                && artistTrack?.isPlayable != false
-            {
-                Button {
-                    playback.playTrack(row.track)
-                } label: {
-                    TransportSymbol(kind: .play).frame(width: 16, height: 16)
-                }
-                .buttonStyle(.plain)
-                .pointingHandCursor()
-                .accessibilityLabel("Play \(row.track.title)")
-            } else {
-                if isCurrent && indicator.isPlaying {
+        return Button {
+            guard artistTrack?.isPlayable != false else { return }
+            playback.activateTrack(row.track)
+        } label: {
+            Group {
+                if indexHovered && canActivate {
+                    TransportSymbol(kind: showsPause ? .pause : .play)
+                        .frame(width: 16, height: 16)
+                        .foregroundStyle(SpottyPalette.textPrimary)
+                } else if showsPause {
                     Image(systemName: "speaker.wave.2.fill")
                         .foregroundStyle(currentForeground)
                 } else {
@@ -152,10 +150,15 @@ struct NativeTrackCell: View {
                         .foregroundStyle(isCurrent ? currentForeground : SpottyPalette.dataText)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(!canActivate)
+        .pointingHandCursor(enabled: canActivate)
         .onHover { indexHovered = $0 }
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityLabel(
+        .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(row.track.title)")
+        .accessibilityValue(
             isCurrent ? "Current track, track \(position) of \(total)" : "Track \(position) of \(total)"
         )
     }

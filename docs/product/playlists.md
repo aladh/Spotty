@@ -26,7 +26,9 @@
   stacked Artist), `Album`, `Date Added`, and `Duration`. Artwork stays in Title. `#` shows the
   one-based display position and becomes a speaker only for a playing current URI. A paused current
   URI keeps its green ordinal; selected rows retain native selection foregrounds. Accessibility
-  exposes the position in either current state.
+  exposes the position in either current state. The ordinal is a playback button, also available
+  to accessibility tools without hovering. Hover shows Play, or Pause for the playing current track;
+  activating the paused current track resumes it. Unavailable playback disables the button.
   Playlist row durations round each track to the nearest second for display, and the hero's total
   sums those same rounded per-track seconds. Totals of at least one hour use `hr`/`min` units;
   player and progress formatting retain their existing floor-to-second behavior.

@@ -1,6 +1,7 @@
 import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
+@testable import SpottyGateway
 
 extension BrowsingFixtures {
     /// Banner, long name, portrait fallback, missing art, and empty artist pages.
@@ -34,11 +35,22 @@ extension BrowsingFixtures {
             overview: CatalogArtistOverview(
                 headerArtworkURL: index < 2 ? item.artworkURL : nil,
                 monthlyListeners: index < 3 ? 1_234_567 : nil, isVerified: index < 2,
-                popularTracks: tracks, popularReleases: Array(releases.prefix(6))),
+                popularTracks: tracks, popularReleases: Array(releases.prefix(6)),
+                featuringPlaylists: featuringPlaylists(artistIndex: index)),
             releaseKinds: Dictionary(
                 uniqueKeysWithValues: releases.enumerated().map { ($0.element.uri, kinds[$0.offset % kinds.count]) }),
             releaseDates: Dictionary(
                 uniqueKeysWithValues: releases.enumerated().map { ($0.element.uri, "\(2026 - $0.offset / 3)-08-21") }))
+    }
+
+    private func featuringPlaylists(artistIndex: Int) -> [CatalogItem] {
+        guard artistIndex != 4 else { return [] }
+        return playlists.prefix(artistIndex == 0 ? 3 : 1).enumerated().compactMap { index, playlist in
+            guard let item = CatalogMapping.item(from: playlist) else { return nil }
+            return CatalogItem(
+                id: item.id, uri: item.uri, title: item.title, subtitle: Self.playlistDescription(at: index),
+                artworkURL: item.artworkURL, kind: .playlist, ownerURI: item.ownerURI)
+        }
     }
 
     func artistReleases(index: Int) -> [CatalogItem] {
@@ -69,7 +81,7 @@ extension BrowsingFixtures {
                 playCounts: Dictionary(
                     uniqueKeysWithValues: tracks.enumerated().map {
                         ($0.element.uri, Int64(3_129_748_382 - $0.offset * 92_341))
-                    }))
+                    }), artists: [artists[index]])
         }
         return nil
     }

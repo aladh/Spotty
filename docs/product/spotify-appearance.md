@@ -30,10 +30,12 @@ and scrolled through Popular and Discography. The full-width photographic banner
 name, verification/listener lines, numbered artwork rows, compact scrolled header, and discography
 chips inform the [artist presentation contract](navigation.md#window-and-navigation-behavior).
 Spotty uses its shared Play and shuffle controls and omits follow, save, download, Artist pick, and other
-unsupported recommendation/editorial sections. The full discography opens a separate page with list/grid
+unsupported recommendation/editorial sections except Featuring playlists. The full discography opens a separate page with list/grid
 layouts, release-type filters and date/name sorting. Artist play counts are shown when available and hidden at narrow widths.
 Radiohead’s full discography, inspected on the same date, supplies the list/grid reference.
 The reference captures remain local; synthetic Demo artists provide repeatable inspection fixtures.
+The user-supplied **2026-09-16** Dan be screenshot supplies the single-row Discography and Featuring
+playlist reference, including descriptions beneath playlist titles.
 
 ## Retained anchors
 

@@ -27,23 +27,21 @@
 
 ### Album and artist pages
 
-- Album headers show artwork, a large responsive title, artist, release year, song count, and runtime.
-  Scrolling compacts the header to title and Play. Numbered 56-point rows put
-  linked artist credits below titles and optional play counts before duration. Hide counts at narrow widths
-  while retaining durations; omit repeated album
-  names and track thumbnails. Native selection, sorting, focus, and retained scrolling match
-  playlists. Truncate row durations to seconds; truncate the sum of original durations once for
-  the header, so totals can differ from summed row displays.
-- Artists use a full-width banner when available, a large name, and known verification and monthly-listener
-  facts. Without a banner, use a tinted header with a portrait when known; omit unknown statistics
-  and verification. Hero, Popular, and Discography share one native scroll area with Play/shuffle
-  and a compact title/Play action when scrolled.
-- Popular shows up to five ranked 56-point rows, expandable to the returned set. Rows have artwork,
-  title, duration, and optional play count; hide counts at narrow widths. Label unavailable tracks
-  and prevent their playback. Preserve native selection, Return, and double-click behavior.
-- Overviews preview popular releases with type filters and year/type labels. Show all loads full discography:
-  a history-aware list/grid with release filters and date/name sorting. Tracks load when visible without shifting other
-  content. No follow, save or download controls.
+- Album headers show artwork, large responsive titles, artist links, year, song count, and runtime.
+  Credits follow link behavior below. Scrolling compacts headers to title and Play. Numbered 56-point rows show
+  linked artists below titles and optional play counts before duration. Narrow widths hide counts, retaining durations;
+  omit repeated album names and thumbnails. Selection, sorting, focus, and retained scrolling match playlists.
+  Truncate row durations to seconds; truncate summed original durations once for headers, allowing totals to differ.
+- Artists show a full-width banner, large name, and known verification/monthly listeners. Without a banner,
+  use a tinted hero and known portrait; omit unknown facts. Hero, Popular, Discography and Featuring share native
+  scrolling with Play/shuffle, compacting to title/Play.
+- Popular previews up to five ranked 56-point rows, expandable to returned tracks, with artwork, title, duration and
+  optional play counts hidden at narrow widths. Label unavailable tracks and disable playback. Preserve native
+  selection, Return and double-click behavior.
+- Discography previews popular releases in one horizontally scrolling row with type filters and year/type labels.
+  Featuring shows Spotify's playlists in order with artwork and descriptions; omit empty rows.
+  Show all loads full discography: history-aware list/grid, release filters and date/name sorting. Visible tracks load
+  without shifting other content. No follow, save or download controls.
 
 ### Window and toolbar
 
@@ -52,6 +50,7 @@
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
   standard window controls, geometry, and hit targets; do not reposition them. Empty toolbar space
   drags the window and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
+  Enabled history arrows show pointing hands on hover; unavailable directions stay disabled.
   Home/Search controls stay 48 points high with breathing room and native Home focus.
 - Closing a window leaves Spotty running in the Dock; Dock and standard Window commands reopen it.
   Sign Out remains in the Spotty menu while connecting or failed. Teardown drains accepted

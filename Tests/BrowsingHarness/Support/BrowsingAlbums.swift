@@ -32,6 +32,7 @@ extension BrowsingFixtures {
             uniqueKeysWithValues: tracks.enumerated().compactMap { offset, track in
                 offset == 4 ? nil : (track.uri, Int64(3_129_748_382 - offset * 92_341_000))
             })
-        return CatalogAlbumSnapshot(tracks: tracks, releaseDate: "2026-08-21", item: item, playCounts: playCounts)
+        return CatalogAlbumSnapshot(
+            tracks: tracks, releaseDate: "2026-08-21", item: item, playCounts: playCounts, artists: [artist])
     }
 }

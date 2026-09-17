@@ -160,13 +160,14 @@ final class NativeTrackTableContainer: NSView {
         let tableWidth = max(proposedWidth, widths.reduce(0, +))
         let documentWidth = max(viewportWidth, tableWidth + inset * 2)
         if let heroContent {
-            hero.rootView = AnyView(heroContent.frame(width: documentWidth))
-            hero.frame.size.width = documentWidth
+            // The track columns may overflow horizontally; the responsive hero fits the viewport.
+            hero.rootView = AnyView(heroContent.frame(width: viewportWidth))
+            hero.frame.size.width = viewportWidth
             heroHeight = max(0, hero.fittingSize.height)
         } else {
             heroHeight = 0
         }
-        hero.frame = NSRect(x: 0, y: 0, width: documentWidth, height: heroHeight)
+        hero.frame = NSRect(x: scrollView.contentView.bounds.minX, y: 0, width: viewportWidth, height: heroHeight)
         let headers = NativeTrackColumnHeaders(
             columns: NativeTrackColumn.columns(for: variant), widths: widths,
             sortOrder: order, sort: { [weak self] in self?.sort?($0) }
@@ -241,6 +242,7 @@ final class NativeTrackTableContainer: NSView {
     }
 
     private func updateCompactHeader() {
+        hero.frame.origin.x = scrollView.contentView.bounds.minX
         compactHeader.isHidden =
             compactContent == nil || heroHeight <= 64
             || scrollView.contentView.bounds.minY < (collapseOffset ?? heroHeight - 64)

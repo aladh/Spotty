@@ -18,6 +18,7 @@
   The hero and action strip scroll with the tracks. Once they leave the viewport, a 64-point
   compact playlist title and green Play button pin above the column headings; scrolling back
   restores the expanded header without resetting track selection or order.
+  Loading, empty and failed initial loads keep the hero at the same top edge and allow it to scroll at narrow sizes.
   Foregrounds remain readable in inactive windows.
 - The owner, song count, and total duration share the metadata line beside the artwork when the
   current playlist snapshot is authoritative. Song count does not belong in the track table.

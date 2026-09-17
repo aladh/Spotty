@@ -182,7 +182,8 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             await persist(
                 key: "spotify:album:\(id)", tracks: value.tracks,
                 metadata: CatalogCollectionMetadata(
-                    item: value.item, releaseDate: value.releaseDate, playCounts: value.playCounts),
+                    item: value.item, releaseDate: value.releaseDate, playCounts: value.playCounts,
+                    albumArtists: value.artists),
                 stamp: stamp
             )
             try validate(stamp)
@@ -195,7 +196,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             return CatalogAlbumSnapshot(
                 tracks: cached.tracks, releaseDate: cached.page.metadata.releaseDate,
                 item: cached.page.metadata.item, freshness: .cached(fetchedAt: cached.page.fetchedAt),
-                playCounts: cached.page.metadata.playCounts
+                playCounts: cached.page.metadata.playCounts, artists: cached.page.metadata.albumArtists
             )
         }
     }

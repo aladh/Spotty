@@ -132,21 +132,34 @@ private struct QuickAccessCard: View {
 struct MediaShelf: View {
     let section: CatalogSection
     let playback: CatalogPlaybackAccess
+    var titleLineLimit = 1
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(section.title)
                 .font(.system(size: 24, weight: .bold))
+                .accessibilityAddTraits(.isHeader)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(section.items) { item in
-                        MediaCard(item: item, playback: playback) { onSelect(item) }
-                    }
+            MediaCardRow(items: section.items, playback: playback, titleLineLimit: titleLineLimit, onSelect: onSelect)
+        }
+    }
+}
+
+struct MediaCardRow: View {
+    let items: [CatalogItem]
+    let playback: CatalogPlaybackAccess
+    var titleLineLimit = 1
+    let onSelect: (CatalogItem) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 12) {
+                ForEach(items) { item in
+                    MediaCard(item: item, playback: playback, titleLineLimit: titleLineLimit) { onSelect(item) }
                 }
-                .padding(.vertical, 2)
             }
+            .padding(.vertical, 2)
         }
     }
 }
@@ -154,6 +167,7 @@ struct MediaShelf: View {
 struct MediaCard: View {
     let item: CatalogItem
     let playback: CatalogPlaybackAccess
+    var titleLineLimit = 1
     let action: () -> Void
 
     @State private var isHovering = false
@@ -174,7 +188,7 @@ struct MediaCard: View {
                     .foregroundStyle(
                         playback.isPlayingPlaylist(item.uri) ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary
                     )
-                    .lineLimit(1)
+                    .lineLimit(titleLineLimit)
 
                 Text(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)
                     .font(.system(size: 14))

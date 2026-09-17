@@ -151,6 +151,28 @@ struct NativeTrackTableChecks {
         #expect(fixture.container.scrollView.contentView.bounds.minY <= 100)
     }
 
+    @Test func playlistHeroUsesViewportBreakpointsWhileColumnsRemainScrollable() throws {
+        let fixture = Fixture()
+        fixture.hero = AnyView(
+            ViewThatFits(in: .horizontal) {
+                Color.clear.frame(width: 600, height: 100)
+                Color.clear.frame(height: 300)
+            })
+        for width in [900.0, 400.0, 900.0] {
+            fixture.container.frame.size.width = width
+            fixture.update((0..<12).map { track(id: "track-\($0)", title: "Track \($0)") })
+            #expect(fixture.container.table.frame.minY == (width >= 600 ? 136 : 336))
+            let document = try #require(fixture.container.scrollView.documentView)
+            let hero = try #require(document.subviews.first { $0.frame.minY == 0 })
+            #expect(hero.frame.width == fixture.container.scrollView.contentSize.width)
+            if width < 600 {
+                #expect(document.frame.width > width, "all track columns remain reachable")
+                fixture.container.scrollView.contentView.scroll(to: NSPoint(x: 100, y: 0))
+                #expect(hero.frame.minX == 100, "horizontal track scrolling keeps the hero in the viewport")
+            }
+        }
+    }
+
     @Test func artistInitialHostingLayoutRestoresAgainstTheCompleteTrackCount() throws {
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make())
         let state = CatalogRouteInteractionState()

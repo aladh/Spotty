@@ -16,6 +16,8 @@ struct MediaDetailHeader: View {
     let detail: String
     let itemCount: String?
     let style: MediaDetailHeaderStyle
+    let artists: [CatalogItem]
+    let onSelect: ((CatalogItem) -> Void)?
     @State private var availableWidth: CGFloat = 0
 
     init(
@@ -23,13 +25,17 @@ struct MediaDetailHeader: View {
         description: String = "",
         detail: String = "",
         itemCount: String? = nil,
-        style: MediaDetailHeaderStyle = .standard
+        style: MediaDetailHeaderStyle = .standard,
+        artists: [CatalogItem] = [],
+        onSelect: ((CatalogItem) -> Void)? = nil
     ) {
         self.item = item
         self.description = description
         self.detail = detail
         self.itemCount = itemCount
         self.style = style
+        self.artists = artists
+        self.onSelect = onSelect
     }
 
     var body: some View {
@@ -174,12 +180,31 @@ struct MediaDetailHeader: View {
             .joined(separator: " · ")
     }
 
-    private var supportingLabel: Text {
-        guard style == .album, !item.subtitle.isEmpty,
+    @ViewBuilder
+    private var supportingLabel: some View {
+        if style == .album, !item.subtitle.isEmpty,
             item.subtitle.caseInsensitiveCompare(item.kind.rawValue) != .orderedSame
-        else { return Text(supportingText) }
-        let metadata = [detail, itemCount ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
-        return Text(item.subtitle).bold().foregroundColor(SpottyPalette.textPrimary)
-            + Text(metadata.isEmpty ? "" : " · \(metadata)")
+        {
+            let metadata = [detail, itemCount ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) {
+                    artistCredits
+                    Text(metadata.isEmpty ? "" : " · \(metadata)")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    artistCredits
+                    if !metadata.isEmpty { Text(metadata) }
+                }
+            }
+        } else {
+            Text(supportingText)
+        }
+    }
+
+    private var artistCredits: some View {
+        CatalogArtistLinks(
+            artists: artists, fallback: item.subtitle, color: SpottyPalette.textPrimary, onSelect: onSelect
+        )
+        .fontWeight(.bold)
     }
 }

@@ -22,7 +22,8 @@ struct NativeHorizontalScroll<Content: View>: NSViewRepresentable {
 @MainActor
 final class NativeHorizontalScrollView: NSScrollView {
     private let hosting: ShelfHostingView
-    private var forwardsVerticalGesture = false
+    private var forwardsVerticalGesture: Bool?
+    private var pendingGestureStart: NSEvent?
     var hostedSize: NSSize { hosting.fittingSize }
 
     init(content: AnyView) {
@@ -56,15 +57,32 @@ final class NativeHorizontalScrollView: NSScrollView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        // Keep zero-delta phase endings and momentum on the same responder as the gesture.
-        if event.phase.contains(.began) || (event.phase.isEmpty && event.momentumPhase.isEmpty)
-            || event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0
+        // Choose one responder for the entire gesture, including diagonal changes and momentum.
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin)
+            || (event.phase.isEmpty && event.momentumPhase.isEmpty)
         {
+            forwardsVerticalGesture = nil
+            pendingGestureStart = nil
+        }
+        if forwardsVerticalGesture == nil {
+            guard event.scrollingDeltaX != 0 || event.scrollingDeltaY != 0 else {
+                if event.phase.contains(.began) { pendingGestureStart = event }
+                return
+            }
             forwardsVerticalGesture =
                 !event.modifierFlags.contains(.shift)
                 && abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
         }
-        if forwardsVerticalGesture {
+        // A zero-delta begin cannot choose an axis; replay it once the first delta does.
+        if let pendingGestureStart {
+            deliverWheel(pendingGestureStart)
+            self.pendingGestureStart = nil
+        }
+        deliverWheel(event)
+    }
+
+    private func deliverWheel(_ event: NSEvent) {
+        if forwardsVerticalGesture == true {
             nextResponder?.scrollWheel(with: event)
         } else {
             super.scrollWheel(with: event)

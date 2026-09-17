@@ -11,6 +11,7 @@ struct CatalogTextLink: View {
 
     var body: some View {
         if let item, let onSelect {
+            let destination = "Open \(item.kind.rawValue.lowercased()) \(item.title)"
             Button {
                 onSelect(item)
             } label: {
@@ -23,7 +24,8 @@ struct CatalogTextLink: View {
             .pointingHandCursor(isHovering: $isHovering)
             .onDisappear { isHovering = false }
             .accessibilityAddTraits(.isLink)
-            .help("Open \(title)")
+            .help(destination)
+            .accessibilityHint(destination)
         } else {
             Text(PlaylistSearch(searchQuery).highlighted(title)).foregroundStyle(color).lineLimit(1)
         }

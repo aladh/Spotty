@@ -138,7 +138,7 @@ struct ArtistDetailView: View {
     private var hasAbout: Bool {
         guard let overview = store.overview else { return false }
         return overview.biography?.isEmpty == false || overview.aboutArtworkURL != nil
-            || overview.monthlyListeners != nil || overview.followers != nil
+            || overview.monthlyListeners != nil
     }
 
     private var hasReleases: Bool {

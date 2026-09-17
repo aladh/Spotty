@@ -21,10 +21,13 @@ changed entity and collection IDs; identical effective metadata produces no enti
 The runtime's catalog provider opens a partition only after a current live profile verifies the
 account. A stored selector, account hash, or cached playlist owner is not account admission.
 The production cache retains the complete playlist library tree and playlist and album browsing
-results. The sidebar reads its saved tree after profile verification and refreshes in the background;
-Home and other catalog surfaces continue through the live gateway. Offline, timeout, and throttled reads can return a
-complete saved result with cached freshness. Credential refusal, cancellation, and a retired
-account cannot be hidden by a cache hit. An unavailable, corrupt, or unsupported database leaves
+results. After profile verification, the sidebar and first visits to saved playlists or albums
+publish complete cached content while refreshing. In-memory route retention takes precedence over
+disk reads. Home and other catalog surfaces continue through the live gateway. Offline, timeout,
+and throttled reads can return a complete saved result with cached freshness. Credential refusal,
+cancellation, and a retired account cannot be hidden by a cache hit. Credential refusal clears the affected detail store and
+its retained routes, fences suspended provider reads, and requires new profile proof before any
+further cached reads. An unavailable, corrupt, or unsupported database leaves
 live browsing available without trusting or silently migrating unknown stored content.
 
 Each account database has explicit entity, collection, occurrence, page, record, and file-size

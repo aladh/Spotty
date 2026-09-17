@@ -8,5 +8,7 @@
   "dwellMilliseconds": 250,
   "expandedLibrary": true,
   "cachedPlaylistLibrary": true,
-  "playlistRefreshMilliseconds": 15000
+  "playlistRefreshMilliseconds": 15000,
+  "cachedDetails": true,
+  "detailRefreshMilliseconds": 15000
 }

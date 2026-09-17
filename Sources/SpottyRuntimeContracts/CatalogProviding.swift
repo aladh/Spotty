@@ -15,6 +15,9 @@ public protocol CatalogProviding: Sendable {
     func libraryArtists() async throws -> [CatalogItem]
     func libraryTracks() async throws -> [CatalogTrack]
     func profile() async throws -> CatalogProfileSnapshot
+    /// Complete saved details, available only after current account verification.
+    func cachedPlaylist(id: String) async throws -> CatalogPlaylistSnapshot?
+    func cachedAlbum(id: String) async throws -> CatalogAlbumSnapshot?
     func playlist(id: String) async throws -> CatalogPlaylistSnapshot
     func album(id: String) async throws -> CatalogAlbumSnapshot
     func artist(id: String) async throws -> CatalogArtistSnapshot
@@ -24,6 +27,8 @@ public protocol CatalogProviding: Sendable {
 public enum CatalogProviderCapabilityError: Error { case unsupported }
 
 extension CatalogProviding {
+    public func cachedPlaylist(id _: String) async throws -> CatalogPlaylistSnapshot? { nil }
+    public func cachedAlbum(id _: String) async throws -> CatalogAlbumSnapshot? { nil }
     public func cachedPlaylistLibrary() async throws -> CatalogPlaylistLibrarySnapshot? { nil }
     public func searchAlbums(_: String, limit _: Int) async throws -> [CatalogItem] {
         throw CatalogProviderCapabilityError.unsupported

@@ -39,7 +39,7 @@ struct AlbumDetailView: View {
                 CachedCatalogNotice(isRefreshing: store.isLoading)
             }
             CatalogContentState(
-                isLoading: store.isLoading, isEmpty: store.tracks.isEmpty, error: store.error,
+                isLoading: store.isLoadingInitialContent, isEmpty: store.tracks.isEmpty, error: store.error,
                 loadingLabel: "Loading album", errorTitle: "Couldn't load album",
                 retry: { await store.load(item) }
             ) {

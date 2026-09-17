@@ -203,13 +203,43 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     func profile() async throws -> CatalogProfileSnapshot {
         CatalogProfileSnapshot(name: BrowsingFixtures.listenerName(at: 0), uri: "spotify:user:synthetic")
     }
+    private func delayDetailRefresh() async throws {
+        if let delay = scenario.detailRefreshMilliseconds {
+            try await ContinuousClock().sleep(for: .milliseconds(delay))
+        }
+    }
+
+    func cachedPlaylist(id: String) async throws -> CatalogPlaylistSnapshot? {
+        guard scenario.cachedDetails == true, let result = fixtures.details[id] else { return nil }
+        let snapshot = CatalogMapping.playlist(result)
+        return CatalogPlaylistSnapshot(
+            description: snapshot.description, ownerURI: nil, tracks: snapshot.tracks,
+            item: snapshot.item.map {
+                CatalogItem(
+                    id: $0.id, uri: $0.uri, title: $0.title, subtitle: $0.subtitle, artworkURL: $0.artworkURL,
+                    kind: $0.kind)
+            },
+            freshness: .cached(fetchedAt: now()))
+    }
+
+    func cachedAlbum(id: String) async throws -> CatalogAlbumSnapshot? {
+        guard scenario.cachedDetails == true, let album = fixtures.album(id: id) ?? fixtures.artistAlbum(id: id) else {
+            return nil
+        }
+        return CatalogAlbumSnapshot(
+            tracks: album.tracks, releaseDate: album.releaseDate, item: album.item,
+            freshness: .cached(fetchedAt: now()), playCounts: album.playCounts, artists: album.artists)
+    }
+
     func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         record("playlist.\(id)")
+        try await delayDetailRefresh()
         guard let result = fixtures.details[id] else { throw BrowsingFailure.unsupportedAction }
         return CatalogMapping.playlist(result)
     }
     func album(id: String) async throws -> CatalogAlbumSnapshot {
         record("album.\(id)")
+        try await delayDetailRefresh()
         guard let album = fixtures.album(id: id) ?? fixtures.artistAlbum(id: id) else {
             throw BrowsingFailure.unsupportedAction
         }

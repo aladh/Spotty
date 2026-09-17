@@ -18,10 +18,11 @@
   make saved collections current.
 - `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
   playback. Unsupported resources, malformed links, and lookalike hosts do nothing.
-- After this process verifies the matching account, show complete saved playlist/album results,
-  including empty results, during refresh. Offline, timeout, or throttled reads keep saved content
-  labeled potentially outdated. Credential refusal clears saved details and requires renewed proof.
-  Account changes clear retained content. No offline sign-in or downloaded music.
+- After current account verification, show complete saved playlist/album results, including empty
+  results, during refresh. Label saved content potentially outdated during refresh and
+  offline/timeout/throttled failure. Credential refusal clears details pending renewed proof;
+  credential/account failures cannot become cached success or expose another account's content.
+  Account changes clear retention. No offline sign-in or downloaded music.
 
 ### Album and artist pages
 
@@ -43,12 +44,12 @@
   Discovered on and Artist Playlists follow About when returned, preserving order/descriptions.
   Cards use pointing hands; vertical wheel input scrolls the page, horizontal scrolls the shelf.
   Show all opens full discography: history-aware list/grid, release filters and date/name sorting.
-  Loading visible tracks preserves layout. No follow, save or download controls.
+  Loading visible tracks preserves layout. Omit follow/save/download controls.
 
 ### Window and toolbar
 
 - The native resizable sidebar starts near 208 points (180–260); inspector near 280 (260–360).
-  Keep the library visible; a native command toggles the inspector.
+  Keep library visible; a native command toggles inspector.
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
   window controls, geometry, and hit targets; never reposition them. Empty toolbar space
   drags the window and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.

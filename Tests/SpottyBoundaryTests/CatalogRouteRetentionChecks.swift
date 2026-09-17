@@ -143,12 +143,14 @@ struct CatalogRouteRetentionTests {
         #expect(provider.albumRequestCount == 0)
     }
 
-    @Test(arguments: [CatalogReadFailure.offline, .sessionExpired])
-    func refreshFailuresKeepSavedDetailsOnlyWhileAccountProofRemainsValid(failure: CatalogReadFailure) async {
+    @Test(arguments: [CatalogReadFailure.offline, .timedOut, .throttled, .sessionExpired], [false, true])
+    func refreshFailuresKeepSavedDetailsOnlyWhileAccountProofRemainsValid(
+        failure: CatalogReadFailure, empty: Bool
+    ) async {
         let provider = HarnessCatalog()
         let playlistGate = RouteResponseGate<Bool>()
         let albumGate = RouteResponseGate<Bool>()
-        let tracks = [HarnessFixtures.track(uri: "spotify:track:saved")]
+        let tracks = empty ? [] : [HarnessFixtures.track(uri: "spotify:track:saved")]
         provider.onCachedPlaylist = { _ in
             CatalogPlaylistSnapshot(
                 description: "Saved", ownerURI: nil, tracks: tracks, freshness: .cached(fetchedAt: HarnessDates.fixed))
@@ -179,15 +181,18 @@ struct CatalogRouteRetentionTests {
         await playlistLoad.value
         await albumLoad.value
         #expect(playlist.error != nil && album.error != nil)
+        #expect(playlist.isShowingCachedContent == (failure != .sessionExpired))
+        #expect(album.isShowingCachedContent == (failure != .sessionExpired))
+        #expect(!playlist.isLoadingInitialContent && !album.isLoadingInitialContent)
         #expect(!playlist.canEditLoadedContent)
-        #expect(playlist.tracks.isEmpty == (failure == .sessionExpired))
-        #expect(album.tracks.isEmpty == (failure == .sessionExpired))
+        #expect(playlist.tracks.isEmpty == (empty || failure == .sessionExpired))
+        #expect(album.tracks.isEmpty == (empty || failure == .sessionExpired))
         playlist.prepare(item("other", kind: .playlist))
         album.prepare(item("other", kind: .album))
         playlist.prepare(selectedPlaylist)
         album.prepare(selectedAlbum)
-        #expect(playlist.tracks.isEmpty == (failure == .sessionExpired))
-        #expect(album.tracks.isEmpty == (failure == .sessionExpired))
+        #expect(playlist.tracks.isEmpty == (empty || failure == .sessionExpired))
+        #expect(album.tracks.isEmpty == (empty || failure == .sessionExpired))
         #expect(!playlist.canEditLoadedContent)
     }
 

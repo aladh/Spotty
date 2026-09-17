@@ -116,29 +116,27 @@ struct PlaylistDetailView: View {
         }
     }
 
-    @ViewBuilder
     private var playlistContent: some View {
-        CatalogContentState(
-            isLoading: store.isLoadingInitialContent, isEmpty: store.tracks.isEmpty, error: store.error,
-            loadingLabel: "Loading \(item.title)", errorTitle: "Couldn't load this playlist",
-            connection: playback, connectionIcon: "wifi.exclamationmark",
-            connectionTitle: "Reconnect to load this playlist",
-            retry: { await store.load(item) }
-        ) {
-            VStack(spacing: 0) {
-                if store.isShowingCachedContent { CachedCatalogNotice(isRefreshing: store.isLoading) }
+        VStack(spacing: 0) {
+            if store.error != nil && !store.tracks.isEmpty {
+                staleRefreshWarning
+                CatalogTableDivider()
+            } else if store.isShowingCachedContent {
+                // Keep the freshness notice outside the loading/empty/error ladder so an
+                // empty saved result remains labeled when its background refresh fails.
+                CachedCatalogNotice(isRefreshing: store.isLoading)
+            }
+            CatalogContentState(
+                isLoading: store.isLoadingInitialContent, isEmpty: store.tracks.isEmpty, error: store.error,
+                loadingLabel: "Loading \(item.title)", errorTitle: "Couldn't load this playlist",
+                connection: playback, connectionIcon: "wifi.exclamationmark",
+                connectionTitle: "Reconnect to load this playlist",
+                retry: { await store.load(item) }
+            ) {
                 EmptyState(
                     icon: "music.note.list", title: "This playlist is empty",
                     message: "Spotify returned no playable tracks.")
-            }
-        } content: {
-            VStack(spacing: 0) {
-                if store.error != nil {
-                    staleRefreshWarning
-                    CatalogTableDivider()
-                } else if store.isShowingCachedContent {
-                    CachedCatalogNotice(isRefreshing: store.isLoading)
-                }
+            } content: {
                 TrackTable(
                     tracks: store.trackCollection,
                     playback: playback,

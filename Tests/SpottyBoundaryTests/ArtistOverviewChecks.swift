@@ -26,8 +26,17 @@ struct ArtistOverviewChecks {
         #expect(snapshot.releaseKinds?["spotify:album:popular"] == .ep)
         #expect(snapshot.releaseKinds?["spotify:album:release"] == .album)
         #expect(snapshot.releaseDates?["spotify:album:release"]?.hasPrefix("2024") == true)
+        let featuring = try #require(overview.featuringPlaylists)
+        #expect(
+            featuring.map(\.uri) == [
+                "spotify:playlist:this-is", "spotify:playlist:radio", "spotify:playlist:editorial",
+            ])
+        #expect(featuring.map(\.subtitle) == ["Essential tracks.", "With Friends & Guests", "Artist's picks."])
+        #expect(featuring.first?.artworkURL?.absoluteString == "https://example.test/this-is.jpg")
+        #expect(featuring.allSatisfy { $0.kind == .playlist })
         let paged = artist.withDiscographyItems([])
         #expect(CatalogMapping.artist(paged).overview?.headerArtworkURL == overview.headerArtworkURL)
+        #expect(CatalogMapping.artist(paged).overview?.featuringPlaylists == featuring)
     }
 
     @Test func missingOverviewFactsStayAbsent() throws {
@@ -39,10 +48,13 @@ struct ArtistOverviewChecks {
         #expect(result.overview?.monthlyListeners == nil)
         #expect(result.overview?.isVerified == false)
         #expect(result.overview?.popularTracks.isEmpty == true)
+        #expect(result.overview?.featuringPlaylists?.isEmpty == true)
         #expect(result.releases.isEmpty)
         // The new optional fields also remain absent when decoding an older typed snapshot.
         let encoded = try JSONEncoder().encode(CatalogArtistSnapshot(name: "Old", releases: []))
         #expect(try JSONDecoder().decode(CatalogArtistSnapshot.self, from: encoded).overview == nil)
+        let oldOverview = Data(#"{"isVerified":false,"popularTracks":[],"popularReleases":[]}"#.utf8)
+        #expect(try JSONDecoder().decode(CatalogArtistOverview.self, from: oldOverview).featuringPlaylists == nil)
     }
 
     @Test func overviewRestoresWithItsRouteAndRetiresWithItsAccount() async throws {
@@ -111,6 +123,18 @@ struct ArtistOverviewChecks {
             {"url":"https://example.test/banner-large.jpg","maxWidth":1920}]}},
           "stats":{"monthlyListeners":123456},
           "onPlatformReputationTrait":{"verification":{"isVerified":true}},
+          "relatedContent":{"featuringV2":{"items":[
+            {"data":{"__typename":"Playlist","uri":"spotify:playlist:this-is","name":"This Is Fixture Artist",
+              "description":"Essential tracks.","images":{"items":[{"sources":[{"url":"https://example.test/this-is.jpg"}]}]}}},
+            {"data":{"__typename":"Playlist","uri":"spotify:playlist:radio","name":"Fixture Artist Radio",
+              "description":"With Friends &amp; Guests"}},
+            {"data":{"__typename":"Playlist","uri":"spotify:playlist:editorial","name":"Guest's track IDs",
+              "description":"<a href=\"spotify:artist:fixture\">Artist</a>'s picks."}},
+            {"data":{"uri":"spotify:playlist:this-is","name":"Duplicate"}},
+            {"data":{"__typename":"NotFound"}}, {"data":null},
+            {"data":{"uri":"spotify:folder:unsupported","name":"Folder"}},
+            {"data":{"uri":123,"name":"Malformed"}}
+          ],"totalCount":8}},
           "discography":{
             "topTracks":{"items":[
               {"track":{"uri":"spotify:track:first","name":"First","playcount":"9876543210",

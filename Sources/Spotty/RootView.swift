@@ -78,12 +78,14 @@ struct RootView: View {
                     prepareSelectedRoute()
                 }
                 .disabled(navigation.backHistory.isEmpty)
+                .pointingHandCursor(enabled: !navigation.backHistory.isEmpty)
                 .keyboardShortcut("[", modifiers: .command)
                 Button("Go forward", systemImage: "chevron.right") {
                     navigation.goForward()
                     prepareSelectedRoute()
                 }
                 .disabled(navigation.forwardHistory.isEmpty)
+                .pointingHandCursor(enabled: !navigation.forwardHistory.isEmpty)
                 .keyboardShortcut("]", modifiers: .command)
             }
             ToolbarItem(placement: .principal) {

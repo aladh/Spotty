@@ -7,6 +7,27 @@ import Testing
 @Suite("Catalog Gateway")
 @MainActor
 struct CatalogGatewayTests {
+    @Test func albumCreditsComeFromTheAlbumEvenWhenTracksAreEmpty() async throws {
+        let source = Data(
+            #"""
+            {"data":{"albumUnion":{"uri":"spotify:album:fixture","name":"Album","artists":{"items":[
+              {"uri":"spotify:artist:first","profile":{"name":"First Artist"}},
+              {"uri":"spotify:artist:second","profile":{"name":"Second Artist"}},
+              {"uri":"spotify:playlist:invalid","profile":{"name":"Invalid"}},
+              {"profile":{"name":"Unknown destination"}}
+            ]},"tracksV2":{"items":[],"totalCount":0}}}}
+            """#.utf8)
+        let catalog: any CatalogProviding = catalogGateway { request in
+            (source, catalogResponse(for: request, status: 200))
+        }
+        let album = try await catalog.album(id: "fixture")
+        #expect(album.artists?.map(\.uri) == ["spotify:artist:first", "spotify:artist:second"])
+        #expect(album.artists?.map(\.title) == ["First Artist", "Second Artist"])
+        #expect(album.tracks.isEmpty)
+        let old = Data(#"{"freshness":{"current":{}},"tracks":[],"releaseDate":"2026"}"#.utf8)
+        #expect(try JSONDecoder().decode(CatalogAlbumSnapshot.self, from: old).artists == nil)
+    }
+
     @Test(
         arguments: [
             (nil, nil), ("9876543210", 9_876_543_210), ("0", 0), ("-1", nil),

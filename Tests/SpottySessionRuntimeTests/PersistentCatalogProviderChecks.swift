@@ -23,8 +23,11 @@ struct PersistentCatalogProviderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let tracks = [track("one"), track("one", occurrence: "duplicate"), track("two")]
         let playlist = playlist(tracks)
+        let artist = CatalogItem(
+            id: "credit", uri: "spotify:artist:credit", title: "Album Artist", subtitle: "Artist",
+            artworkURL: nil, kind: .artist)
         let album = CatalogAlbumSnapshot(
-            tracks: tracks, releaseDate: "2026-09-01", playCounts: [tracks[0].uri: 9_876_543_210])
+            tracks: tracks, releaseDate: "2026-09-01", playCounts: [tracks[0].uri: 9_876_543_210], artists: [artist])
         let source = CatalogProviderSource(playlist: .success(playlist), album: .success(album))
         let original = PersistentCatalogProvider(source: source, rootDirectory: root, clock: ProviderClock())
         await original.activate()
@@ -50,6 +53,7 @@ struct PersistentCatalogProviderTests {
         #expect(cachedAlbum.tracks == tracks)
         #expect(cachedAlbum.releaseDate == album.releaseDate)
         #expect(cachedAlbum.playCounts == album.playCounts)
+        #expect(cachedAlbum.artists == [artist])
         #expect(cachedAlbum.freshness == .cached(fetchedAt: ProviderClock.instant))
         #expect(await reopened.retire(purge: true))
     }

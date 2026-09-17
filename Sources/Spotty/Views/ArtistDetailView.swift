@@ -94,20 +94,32 @@ struct ArtistDetailView: View {
             }
             CatalogContentState(
                 isLoading: store.isLoading,
-                isEmpty: store.releases.isEmpty && store.popularTracks.tracks.isEmpty,
+                isEmpty: !hasReleases && store.popularTracks.tracks.isEmpty && featuringPlaylists.isEmpty,
                 error: store.error, loadingLabel: "Loading artist", errorTitle: "Couldn't load artist",
                 retry: { await store.load(item) }
             ) {
                 EmptyState(
                     icon: "person.wave.2", title: "No music", message: "Spotify returned no music for this artist.")
             } content: {
-                if !store.releases.isEmpty { discography }
+                if hasReleases { discography }
+                if !featuringPlaylists.isEmpty {
+                    MediaShelf(
+                        section: CatalogSection(
+                            id: "featuring", title: "Featuring \(displayedItem.title)", items: featuringPlaylists),
+                        playback: playback, titleLineLimit: 2, onSelect: onSelect)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, CatalogLayout.contentPadding)
         .padding(.top, 16)
         .padding(.bottom, 40)
+    }
+
+    private var featuringPlaylists: [CatalogItem] { store.overview?.featuringPlaylists ?? [] }
+
+    private var hasReleases: Bool {
+        !store.releases.isEmpty || store.overview?.popularReleases.isEmpty == false
     }
 
     private var availableFilters: [ArtistReleaseFilter] {
@@ -140,7 +152,7 @@ struct ArtistDetailView: View {
             HStack {
                 Text("Discography").font(.system(size: 24, weight: .bold)).accessibilityAddTraits(.isHeader)
                 Spacer()
-                if !store.releases.isEmpty || store.overview?.popularReleases.isEmpty == false {
+                if hasReleases {
                     Button("Show all") { onShowDiscography(selectedFilter) }
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(SpottyPalette.textSecondary)
@@ -155,11 +167,7 @@ struct ArtistDetailView: View {
                     HStack(spacing: 8) { filterButtons }
                 }
             }
-            LazyVGrid(columns: MediaGridLayout.columns, alignment: .leading, spacing: 18) {
-                ForEach(Array(releases.prefix(6))) { release in
-                    MediaCard(item: release, playback: playback) { onSelect(release) }
-                }
-            }
+            MediaCardRow(items: Array(releases.prefix(6)), playback: playback, onSelect: onSelect)
         }
     }
 

@@ -64,7 +64,9 @@ struct AlbumDetailView: View {
     private var expandedHeader: some View {
         DetailHeroBackground(artworkURL: displayedItem.artworkURL) {
             VStack(spacing: 0) {
-                MediaDetailHeader(item: displayedItem, detail: metadataText, style: .album)
+                MediaDetailHeader(
+                    item: displayedItem, detail: metadataText, style: .album,
+                    artists: store.artists, onSelect: onSelect)
                 DetailActionRow(
                     canPlay: playback.canStartPlayback,
                     playAccessibilityLabel: "Play album",

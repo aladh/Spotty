@@ -14,6 +14,7 @@ final class AlbumDetailStore {
         let collection: CatalogTrackCollection
         let releaseDate: String
         let playCounts: [String: Int64]
+        let artists: [CatalogItem]
         let freshness: CatalogFreshness
     }
 
@@ -22,6 +23,7 @@ final class AlbumDetailStore {
     var tracks: [CatalogTrack] { trackCollection.tracks }
     private(set) var releaseDate = ""
     private(set) var playCounts: [String: Int64] = [:]
+    private(set) var artists: [CatalogItem] = []
     private(set) var isLoading = false
     private(set) var error: String?
     private(set) var isShowingCachedContent = false
@@ -58,6 +60,7 @@ final class AlbumDetailStore {
         trackCollection.replace([])
         releaseDate = ""
         playCounts = [:]
+        artists = []
         isLoading = false
         error = nil
         isShowingCachedContent = false
@@ -113,6 +116,7 @@ final class AlbumDetailStore {
                     trackCollection.replace(album.tracks)
                     releaseDate = album.releaseDate
                     playCounts = album.playCounts ?? [:]
+                    artists = album.artists ?? []
                     loadedSession = session.snapshot
                     hasLoadedContent = true
                     error = nil
@@ -122,7 +126,7 @@ final class AlbumDetailStore {
                     retained.store(
                         Snapshot(
                             item: item ?? selected, collection: trackCollection, releaseDate: releaseDate,
-                            playCounts: playCounts,
+                            playCounts: playCounts, artists: artists,
                             freshness: freshness),
                         for: selected.uri, cost: tracks.count, snapshot: handle.sessionSnapshot
                     )
@@ -148,6 +152,7 @@ final class AlbumDetailStore {
             trackCollection = cached.value.collection
             releaseDate = cached.value.releaseDate
             playCounts = cached.value.playCounts
+            artists = cached.value.artists
             loadedSession = cached.needsRefresh ? nil : cached.session
             hasLoadedContent = true
             freshness = cached.value.freshness
@@ -157,6 +162,7 @@ final class AlbumDetailStore {
             trackCollection.replace([])
             releaseDate = ""
             playCounts = [:]
+            artists = []
             loadedSession = nil
             hasLoadedContent = false
             freshness = .current
@@ -183,7 +189,7 @@ final class AlbumDetailStore {
             guard let updated else { return snapshot }
             return Snapshot(
                 item: snapshot.item, collection: updated, releaseDate: snapshot.releaseDate,
-                playCounts: snapshot.playCounts,
+                playCounts: snapshot.playCounts, artists: snapshot.artists,
                 freshness: snapshot.freshness)
         }
         guard let currentUpdate else { return }

@@ -93,15 +93,18 @@ public struct CatalogAlbumSnapshot: Equatable, Codable, Sendable {
     public let releaseDate: String
     /// Album-page statistics keyed by the requested track URI. Absent counts stay unknown.
     public let playCounts: [String: Int64]?
+    /// Album-level credits, independent of guest artists on individual tracks.
+    public let artists: [CatalogItem]?
     public init(
         tracks: [CatalogTrack], releaseDate: String, item: CatalogItem? = nil, freshness: CatalogFreshness = .current,
-        playCounts: [String: Int64]? = nil
+        playCounts: [String: Int64]? = nil, artists: [CatalogItem]? = nil
     ) {
         self.item = item
         self.freshness = freshness
         self.tracks = tracks
         self.releaseDate = releaseDate
         self.playCounts = playCounts
+        self.artists = artists
     }
 }
 

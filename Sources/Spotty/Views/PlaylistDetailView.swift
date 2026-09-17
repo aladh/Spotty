@@ -11,10 +11,18 @@ struct PlaylistDetailView: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            if store.tracks.isEmpty { expandedHeader }
-
-            playlistContent
+        Group {
+            if store.tracks.isEmpty {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        expandedHeader
+                        playlistContent
+                    }
+                }
+                .id(item.uri)
+            } else {
+                playlistContent
+            }
         }
         .catalogTask(id: item.uri, playback: playback) {
             await store.load(item)

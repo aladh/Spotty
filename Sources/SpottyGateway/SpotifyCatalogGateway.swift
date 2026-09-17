@@ -195,6 +195,12 @@ extension CatalogMapping {
                     let count = track.playcount.flatMap(Int64.init), count >= 0
                 else { return }
                 counts[uri] = count
+            },
+            artists: value.artists?.items?.compactMap { artist in
+                guard let uri = artist.uri, SpotifyURI.id(from: uri, kind: "artist") != nil,
+                    let name = artist.profile?.name, !name.isEmpty
+                else { return nil }
+                return CatalogItem(id: uri, uri: uri, title: name, subtitle: "Artist", artworkURL: nil, kind: .artist)
             })
     }
     static func artist(_ value: PathfinderArtistUnion) -> CatalogArtistSnapshot {
@@ -231,12 +237,24 @@ extension CatalogMapping {
                     monthlyListeners: value.stats?.monthlyListeners.flatMap { $0 >= 0 ? $0 : nil },
                     isVerified: value.onPlatformReputationTrait?.verification?.isVerified == true,
                     popularTracks: popularTracks,
-                    popularReleases: popularReleases.compactMap { item(from: $0, artist: value.profile?.name ?? "") })
+                    popularReleases: popularReleases.compactMap { item(from: $0, artist: value.profile?.name ?? "") },
+                    featuringPlaylists: featuringPlaylists(from: value))
             }, releaseKinds: kinds,
             releaseDates: Dictionary(
                 (value.releases + popularReleases).compactMap { release in
                     guard let uri = release.uri, let date = release.date?.formatted else { return nil }
                     return (uri, date)
                 }, uniquingKeysWith: { first, _ in first }))
+    }
+
+    private static func featuringPlaylists(from artist: PathfinderArtistUnion) -> [CatalogItem] {
+        var seen = Set<String>()
+        return (artist.relatedContent?.featuringV2?.entities ?? []).compactMap { playlist in
+            guard let item = item(from: playlist), seen.insert(item.uri).inserted else { return nil }
+            return CatalogItem(
+                id: item.id, uri: item.uri, title: item.title,
+                subtitle: PlaylistDescription.plainText(from: playlist.description ?? ""),
+                artworkURL: item.artworkURL, kind: .playlist, ownerURI: item.ownerURI)
+        }
     }
 }

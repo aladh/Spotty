@@ -19,6 +19,13 @@ struct CatalogViewLoadingTests {
             try await responseClock.sleep(seconds: 1)
             return [result]
         }
+        provider.onSearchAlbums = { _, _ in
+            [
+                CatalogItem(
+                    id: "album", uri: "spotify:album:album", title: "Album", subtitle: "Artist", artworkURL: nil,
+                    kind: .album)
+            ]
+        }
         let clock = HarnessClock.parked()
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(clock: clock, catalog: provider))
         player.withRuntime {
@@ -46,6 +53,7 @@ struct CatalogViewLoadingTests {
         #expect(clock.requestedSleeps == [SearchStore.queryAdmissionDelay, SearchStore.queryAdmissionDelay])
         clock.releaseNext()
         try await requireEventually { provider.searchTrackRequestCount == 1 && responseClock.waiterCount == 1 }
+        try await requireEventually { player.catalog.searchStore.albums.count == 1 }
         host.layoutSubtreeIfNeeded()
         responseClock.releaseNext()
         let completed = await waitUntil {
@@ -58,6 +66,10 @@ struct CatalogViewLoadingTests {
         #expect(queries.count("first") == 0)
         #expect(queries.count("second") == 1)
         #expect(player.catalog.searchStore.tracks.map(\.uri) == ["spotify:track:second"])
+        host.layoutSubtreeIfNeeded()
+        #expect(
+            navigation.searchInteraction.overviewScroll.offset == 0,
+            "later song results must not anchor a new search below the first section")
         await player.shutdownForTermination()
     }
 

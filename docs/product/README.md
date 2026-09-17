@@ -14,6 +14,7 @@ integration may violate Spotify's terms.
 | Product priorities and feature scope | [Scope](scope.md) |
 | Retained Spotify appearance anchors and visual evidence | [Spotify appearance](spotify-appearance.md) |
 | Window, navigation, retained browsing, account presentation, and transient feedback | [Navigation](navigation.md) |
+| Search categories, results, and retained interaction | [Search](search.md) |
 | Connect ownership, transport, and progress | [Playback](playback.md) |
 | Queue ordering, selection, and mutations | [Queue](queue.md) |
 | Playlist presentation, sorting, and editing | [Playlists](playlists.md) |

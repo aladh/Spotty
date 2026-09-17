@@ -14,6 +14,25 @@ struct BrowsingHarnessTests {
         BrowsingScenario(trackCount: 30, artworkCount: 2, artworkPixels: 64, cycles: 1)
     }
 
+    @Test func searchUsesBrowsableSyntheticEntitiesAndHonorsQueryAndLimit() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySearchDemo-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let world = try BrowsingWorld(scenario: scenario(), artworkDirectory: root)
+        let tracks = try await world.searchTracks("HARBOR", limit: 3)
+        #expect(tracks.count == 3)
+        #expect(tracks.allSatisfy { $0.artist == "Harbor Lights" && $0.albumItem != nil })
+        let artists = try await world.searchArtists("harbor", limit: 30)
+        #expect(artists.map(\.title) == ["Harbor Lights"])
+        let albums = try await world.searchAlbums("signals dusk", limit: 30)
+        #expect(albums.map(\.title) == ["Signals at Dusk"])
+        let playlists = try await world.searchPlaylists("moonlit", limit: 30)
+        #expect(playlists.map(\.title) == ["Moonlit Drive"])
+        #expect(try await world.searchTracks("no-such-result", limit: 50).isEmpty)
+        #expect(try await world.searchAlbums("", limit: 30).isEmpty)
+        #expect(try await world.searchTracks("harbor", limit: 0).isEmpty)
+        #expect(world.snapshot().mutationAttempts == 0)
+    }
+
     @Test(arguments: [BrowsingScenario.Mode.browsing, .signedOut])
     func unsupportedClearDoesNotReportAStoredLoginRemovalFailure(mode: BrowsingScenario.Mode) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyBrowsingTests-\(UUID())")

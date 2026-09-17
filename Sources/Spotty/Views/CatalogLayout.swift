@@ -21,7 +21,8 @@ enum MediaGridLayout {
         [
             GridItem(
                 .adaptive(minimum: CatalogLayout.gridMinimumWidth, maximum: CatalogLayout.gridMaximumWidth),
-                spacing: CatalogLayout.gridSpacing
+                spacing: CatalogLayout.gridSpacing,
+                alignment: .top
             )
         ]
     }

@@ -71,6 +71,41 @@ private func commitImmediateSearch(
 
 @Suite("Search Store")
 struct SearchStoreTests {
+    @Test @MainActor
+    func revisitingCompletedSearchPreservesResultsButRetryStillFetches() async {
+        let provider = HarnessCatalog()
+        provider.onSearchTracks = { _, _ in [HarnessFixtures.track(uri: "spotify:track:result", title: "Result")] }
+        let clock = HarnessClock.parked()
+        let store = makeStore(provider: provider, session: CatalogSessionAvailability(isAvailable: true), clock: clock)
+        await store.search("query")
+        let version = store.trackCollection.version
+        await store.scheduleSearch(" query ")
+        #expect(clock.waiterCount == 0)
+        #expect(provider.searchTrackRequestCount == 1)
+        #expect(store.trackCollection.version == version)
+        await store.search("query")
+        #expect(provider.searchTrackRequestCount == 2)
+        #expect(store.trackCollection.version != version)
+    }
+
+    @Test @MainActor
+    func completedSearchCannotBeReusedAcrossSessionChanges() async throws {
+        let provider = HarnessCatalog()
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let clock = HarnessClock.parked()
+        let store = makeStore(provider: provider, session: session, clock: clock)
+        await store.search("query")
+        session.update(accountEpoch: 2, isAvailable: true)
+        #expect(store.isAwaitingResults(for: "query"))
+        let revisit = Task { await store.scheduleSearch("query") }
+        defer { clock.releaseAll() }
+        try await requireEventually { clock.waiterCount == 1 }
+        clock.releaseNext()
+        await revisit.value
+        #expect(provider.searchTrackRequestCount == 2)
+        #expect(!store.isAwaitingResults(for: "query"))
+    }
+
     @Test(arguments: [false, true])
     @MainActor
     func emptyQueryPresentationWaitsForDebounceAndTheActualResponse(fails: Bool) async throws {

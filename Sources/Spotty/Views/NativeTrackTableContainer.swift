@@ -40,8 +40,8 @@ final class NativeTrackTableContainer: NSView {
         scrollView.contentView.postsFrameChangedNotifications = true
         scrollView.documentView = document
         table.revealRow = { [weak self] in self?.reveal(row: $0) }
-        scrollView.setAccessibilityLabel(variant == .artist ? "Artist" : "Tracks")
-        table.setAccessibilityLabel(variant == .artist ? "Popular" : "Tracks")
+        scrollView.setAccessibilityLabel(variant == .artist ? "Artist" : variant == .search ? "Songs" : "Tracks")
+        table.setAccessibilityLabel(variant == .artist ? "Popular" : variant == .search ? "Songs" : "Tracks")
         table.style = .plain
         table.backgroundColor = .clear
         table.headerView = nil
@@ -58,7 +58,7 @@ final class NativeTrackTableContainer: NSView {
             let native = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(column.rawValue))
             native.title = column.title
             native.resizingMask = variant == .catalog ? .userResizingMask : []
-            if column == .playCount { native.minWidth = 0 }
+            if column == .playCount || (variant == .search && column == .album) { native.minWidth = 0 }
             if variant == .catalog {
                 let cell = NativeTrackHeaderCell(textCell: column.title)
                 native.headerCell = cell
@@ -143,7 +143,7 @@ final class NativeTrackTableContainer: NSView {
         let minimumWidth: CGFloat =
             switch variant {
             case .playlist: 576 + indexWidth
-            case .album, .artist: 216 + indexWidth
+            case .album, .artist, .search: 216 + indexWidth
             case .catalog: 388
             }
         let customWidth = catalogColumnWidths?.reduce(0, +) ?? 0
@@ -257,6 +257,14 @@ final class NativeTrackTableContainer: NSView {
     }
 
     private func columnWidths(tableWidth: CGFloat) -> [CGFloat] {
+        if variant == .search {
+            let index: CGFloat = tableWidth < 400 ? 32 : 40
+            let duration: CGFloat = tableWidth < 400 ? 64 : 80
+            let album: CGFloat = tableWidth >= 520 ? (tableWidth - index - duration) * 0.36 : 0
+            table.tableColumns.first { $0.identifier.rawValue == NativeTrackColumn.album.rawValue }?.isHidden =
+                album == 0
+            return [index, tableWidth - index - duration - album, album, duration]
+        }
         let plays: CGFloat = tableWidth >= 520 ? 120 : 0
         table.tableColumns.first { $0.identifier.rawValue == NativeTrackColumn.playCount.rawValue }?.isHidden =
             plays == 0

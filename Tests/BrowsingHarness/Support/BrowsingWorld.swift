@@ -216,7 +216,40 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     }
     func libraryArtists() async throws -> [CatalogItem] { [] }
     func libraryTracks() async throws -> [CatalogTrack] { [] }
-    func searchTracks(_: String, limit _: Int) async throws -> [CatalogTrack] { [] }
+    func searchTracks(_ query: String, limit: Int) async throws -> [CatalogTrack] {
+        record("search.tracks")
+        let tracks = fixtures.albums.flatMap {
+            fixtures.album(id: String($0.uri.split(separator: ":").last ?? ""))?.tracks ?? []
+        }
+        return Array(
+            tracks.filter {
+                matchesSearch(query, text: "\($0.title) \($0.artist) \($0.album)")
+            }.prefix(max(0, limit)))
+    }
+
+    func searchArtists(_ query: String, limit: Int) async throws -> [CatalogItem] {
+        record("search.artists")
+        return searchItems(fixtures.artists, query: query, limit: limit)
+    }
+
+    func searchAlbums(_ query: String, limit: Int) async throws -> [CatalogItem] {
+        record("search.albums")
+        return searchItems(fixtures.albums, query: query, limit: limit)
+    }
+
+    func searchPlaylists(_ query: String, limit: Int) async throws -> [CatalogItem] {
+        record("search.playlists")
+        return searchItems(fixtures.playlists.compactMap(CatalogMapping.item(from:)), query: query, limit: limit)
+    }
+
+    private func searchItems(_ items: [CatalogItem], query: String, limit: Int) -> [CatalogItem] {
+        Array(items.filter { matchesSearch(query, text: "\($0.title) \($0.subtitle)") }.prefix(max(0, limit)))
+    }
+
+    private func matchesSearch(_ query: String, text: String) -> Bool {
+        let words = query.split(whereSeparator: \.isWhitespace)
+        return !words.isEmpty && words.allSatisfy { text.localizedStandardContains(String($0)) }
+    }
     func addToPlaylist(
         playlistId _: String, trackUris _: [String], authorization: PlaylistMutationAuthorization
     ) async throws {

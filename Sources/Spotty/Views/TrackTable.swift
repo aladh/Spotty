@@ -7,6 +7,7 @@ enum TrackTableVariant: Equatable {
     case playlist
     case album
     case artist
+    case search
 
 }
 

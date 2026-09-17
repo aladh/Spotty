@@ -8,7 +8,7 @@ import Testing
 @Suite("Owned native track table")
 @MainActor
 struct NativeTrackTableChecks {
-    @Test(arguments: [TrackTableVariant.playlist, .album, .artist])
+    @Test(arguments: [TrackTableVariant.playlist, .album, .artist, .search])
     func selectionFollowsDuplicateOccurrenceAcrossSortAndMetadataUpdates(variant: TrackTableVariant) {
         let fixture = Fixture(variant: variant)
         let first = track(id: "first", title: "A")
@@ -63,7 +63,7 @@ struct NativeTrackTableChecks {
         #expect(fixture.state.selection == [first.id])
     }
 
-    @Test(arguments: [TrackTableVariant.playlist, .album, .artist])
+    @Test(arguments: [TrackTableVariant.playlist, .album, .artist, .search])
     func ownedScrollOffsetRestoresAndClampsWithoutReplacingTheTable(variant: TrackTableVariant) {
         let fixture = Fixture(variant: variant)
         fixture.state.scrollOffset = 560
@@ -77,7 +77,7 @@ struct NativeTrackTableChecks {
         #expect(fixture.container.scrollView.contentView.bounds.minY == 0)
     }
 
-    @Test(arguments: [TrackTableVariant.playlist, .album, .artist])
+    @Test(arguments: [TrackTableVariant.playlist, .album, .artist, .search])
     func keyboardRevealKeepsSelectionBelowTheCompactDetailHeader(variant: TrackTableVariant) {
         let fixture = Fixture(variant: variant)
         fixture.hero = AnyView(Color.clear.frame(height: 300))
@@ -149,6 +149,24 @@ struct NativeTrackTableChecks {
         fixture.footer = AnyView(Color.clear.frame(height: 100))
         fixture.update([])
         #expect(fixture.container.scrollView.contentView.bounds.minY <= 100)
+    }
+
+    @Test(arguments: [NSScroller.Style.overlay, .legacy])
+    func searchKeepsArtworkTitlesAndDurationWithinNarrowViewport(style: NSScroller.Style) throws {
+        let fixture = Fixture(variant: .search)
+        fixture.container.scrollView.scrollerStyle = style
+        for width in [900.0, 400.0, 320.0, 700.0] {
+            fixture.container.frame.size.width = width
+            fixture.update((0..<50).map { track(id: "track-\($0)", title: "Track \($0)") })
+            let viewport = fixture.container.scrollView.contentSize.width
+            let table = fixture.container.table
+            let document = try #require(fixture.container.scrollView.documentView)
+            #expect(document.frame.width <= viewport)
+            #expect(table.frame.maxX <= viewport - 24)
+            #expect(table.tableColumns.map(\.identifier.rawValue) == ["index", "title", "album", "duration"])
+            #expect(table.tableColumns[2].isHidden == (viewport - 48 < 520))
+            #expect(table.tableColumns[1].width >= 140)
+        }
     }
 
     @Test func playlistHeroUsesViewportBreakpointsWhileColumnsRemainScrollable() throws {

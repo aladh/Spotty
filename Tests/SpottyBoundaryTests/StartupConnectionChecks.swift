@@ -18,11 +18,14 @@ struct StartupConnectionChecks {
         }
         await player.catalog.searchStore.search("Harbor")
         var query = "Harbor"
+        let interaction = SearchInteractionState()
+        interaction.prepare(for: query)
+        interaction.filter = .songs
         var observedPhase = player.phase
         func content() -> some View {
             SearchView(
                 store: player.catalog.searchStore, playback: CatalogPlaybackAccess(player: player),
-                searchText: .constant(query), onSelect: { _ in },
+                searchText: .constant(query), interaction: interaction, onSelect: { _ in },
                 playlistActions: TrackPlaylistActions(
                     editablePlaylists: [], canRemoveOccurrences: false, addToPlaylist: { _, _ in },
                     removeOccurrences: { _ in })

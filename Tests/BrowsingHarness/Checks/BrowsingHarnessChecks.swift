@@ -109,6 +109,9 @@ struct BrowsingHarnessTests {
         input = scenario()
         input.playlistRefreshMilliseconds = 60_001
         #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
+        input.detailRefreshMilliseconds = -1
+        #expect(throws: (any Error).self) { try input.validate() }
         #expect(throws: (any Error).self) { try BrowsingScenario.decode(Data("{}".utf8)) }
         let first = try BrowsingFixtures(scenario: scenario(), artworkDirectory: root.appendingPathComponent("first"))
         let second = try BrowsingFixtures(scenario: scenario(), artworkDirectory: root.appendingPathComponent("second"))
@@ -123,6 +126,23 @@ struct BrowsingHarnessTests {
             CGImageSourceCreateWithData(try Data(contentsOf: first.artworkURLs[0]) as CFData, nil))
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(image.width == 64 && image.height == 64)
+    }
+
+    @Test func savedDetailFixtureReturnsStaleSnapshotsWithoutIssuingLiveRequests() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySavedDemo-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.cachedDetails = true
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let playlist = try #require(try await world.cachedPlaylist(id: "synthetic0"))
+        let albumID = String(world.fixtures.albums[0].uri.dropFirst("spotify:album:".count))
+        let album = try #require(try await world.cachedAlbum(id: albumID))
+        #expect(!playlist.freshness.isCurrent && !album.freshness.isCurrent)
+        #expect(playlist.ownerURI == nil && playlist.item?.ownerURI == nil)
+        #expect(world.snapshot().requests.isEmpty)
+        #expect(try await world.playlist(id: "synthetic0").tracks == playlist.tracks)
+        #expect(try await world.album(id: albumID).tracks == album.tracks)
+        #expect(world.snapshot().mutationAttempts == 0)
     }
 
     @Test func savedSidebarFixturePreservesTheLiveTreeWithoutOwnership() async throws {

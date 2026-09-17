@@ -6,15 +6,15 @@ import Testing
 
 /// Cooperative barrier for the catalog harness override; it intentionally ignores cancellation
 /// so checks prove that the store's lifetime gate rejects a provider that completes too late.
-private actor RouteResponseGate {
-    private var continuation: CheckedContinuation<CatalogPlaylistSnapshot, Never>?
+private actor RouteResponseGate<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value, Never>?
     var isWaiting: Bool { continuation != nil }
 
-    func wait() async -> CatalogPlaylistSnapshot {
+    func wait() async -> Value {
         await withCheckedContinuation { continuation = $0 }
     }
 
-    func finish(_ snapshot: CatalogPlaylistSnapshot) {
+    func finish(_ snapshot: Value) {
         continuation?.resume(returning: snapshot)
         continuation = nil
     }
@@ -23,6 +23,174 @@ private actor RouteResponseGate {
 @Suite("Catalog Route Retention")
 @MainActor
 struct CatalogRouteRetentionTests {
+    @Test(arguments: [false, true])
+    func savedPlaylistAppearsBeforeRefreshIncludingEmptyResults(empty: Bool) async {
+        let provider = HarnessCatalog()
+        let gate = RouteResponseGate<CatalogPlaylistSnapshot>()
+        let savedTracks = empty ? [] : [HarnessFixtures.track(uri: "spotify:track:saved")]
+        provider.onCachedPlaylist = { _ in
+            CatalogPlaylistSnapshot(
+                description: "Saved", ownerURI: "spotify:user:historical", tracks: savedTracks,
+                freshness: .cached(fetchedAt: HarnessDates.fixed))
+        }
+        provider.onPlaylistSnapshot = { _ in await gate.wait() }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let store = makePlaylistStore(provider, session: session)
+        let selected = item("saved", kind: .playlist)
+        let load = Task { await store.load(selected) }
+        #expect(await waitUntil { await gate.isWaiting })
+        #expect(store.isLoading)
+        #expect(!store.isLoadingInitialContent)
+        #expect(store.isShowingCachedContent)
+        #expect(store.description == "Saved")
+        #expect(store.tracks == savedTracks)
+        #expect(store.ownerURI == nil)
+        #expect(!store.canEditLoadedContent)
+        let freshTracks = [HarnessFixtures.track(uri: "spotify:track:fresh")]
+        await gate.finish(
+            CatalogPlaylistSnapshot(description: "Fresh", ownerURI: "spotify:user:owner", tracks: freshTracks))
+        await load.value
+        #expect(store.tracks == freshTracks)
+        #expect(store.description == "Fresh")
+        #expect(!store.isShowingCachedContent)
+        #expect(!store.isLoading)
+        #expect(store.canEditLoadedContent)
+    }
+
+    @Test(arguments: [false, true])
+    func savedAlbumAppearsBeforeRefreshIncludingEmptyResults(empty: Bool) async {
+        let provider = HarnessCatalog()
+        let gate = RouteResponseGate<CatalogAlbumSnapshot>()
+        let tracks = empty ? [] : [HarnessFixtures.track(uri: "spotify:track:saved")]
+        let credits = [item("artist", kind: .artist)]
+        provider.onCachedAlbum = { _ in
+            CatalogAlbumSnapshot(
+                tracks: tracks, releaseDate: "2025", freshness: .cached(fetchedAt: HarnessDates.fixed),
+                playCounts: ["spotify:track:saved": 123], artists: credits)
+        }
+        provider.onAlbumSnapshot = { _ in await gate.wait() }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let store = AlbumDetailStore(
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+        let load = Task { await store.load(item("saved", kind: .album)) }
+        #expect(await waitUntil { await gate.isWaiting })
+        #expect(store.isLoading && !store.isLoadingInitialContent)
+        #expect(store.isShowingCachedContent)
+        #expect(store.tracks == tracks)
+        #expect(store.releaseDate == "2025")
+        #expect(store.playCounts == ["spotify:track:saved": 123])
+        #expect(store.artists == credits)
+        await gate.finish(CatalogAlbumSnapshot(tracks: [], releaseDate: "2026"))
+        await load.value
+        #expect(store.tracks.isEmpty)
+        #expect(store.releaseDate == "2026")
+        #expect(store.playCounts.isEmpty && store.artists.isEmpty)
+        #expect(!store.isShowingCachedContent && !store.isLoading)
+    }
+
+    @Test(arguments: ["route", "account", "cancel"])
+    func lateSavedPlaylistCannotPublishAfterItsLifetimeEnds(boundary: String) async {
+        let provider = HarnessCatalog()
+        let gate = RouteResponseGate<CatalogPlaylistSnapshot>()
+        provider.onCachedPlaylist = { _ in await gate.wait() }
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let store = makePlaylistStore(provider, session: session)
+        let selected = item("saved", kind: .playlist)
+        let load = Task { await store.load(selected) }
+        #expect(await waitUntil { await gate.isWaiting })
+        switch boundary {
+        case "route": store.prepare(item("other", kind: .playlist))
+        case "account":
+            session.update(accountEpoch: 2, isAvailable: true)
+            store.prepare(selected)
+        default: load.cancel()
+        }
+        await gate.finish(
+            CatalogPlaylistSnapshot(
+                description: "Retired", ownerURI: nil, tracks: [HarnessFixtures.track(uri: "spotify:track:retired")],
+                freshness: .cached(fetchedAt: HarnessDates.fixed)))
+        await load.value
+        #expect(store.tracks.isEmpty && store.description.isEmpty)
+        #expect(!store.isShowingCachedContent && !store.canEditLoadedContent)
+        #expect(provider.playlistRequestCount == 0)
+    }
+
+    @Test(arguments: ["route", "account", "cancel"])
+    func lateSavedAlbumCannotPublishAfterItsLifetimeEnds(boundary: String) async {
+        let provider = HarnessCatalog()
+        let gate = RouteResponseGate<CatalogAlbumSnapshot>()
+        provider.onCachedAlbum = { _ in await gate.wait() }
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let store = AlbumDetailStore(
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+        let selected = item("saved", kind: .album)
+        let load = Task { await store.load(selected) }
+        #expect(await waitUntil { await gate.isWaiting })
+        switch boundary {
+        case "route": store.prepare(item("other", kind: .album))
+        case "account":
+            session.update(accountEpoch: 2, isAvailable: true)
+            store.prepare(selected)
+        default: load.cancel()
+        }
+        await gate.finish(
+            CatalogAlbumSnapshot(
+                tracks: [HarnessFixtures.track(uri: "spotify:track:retired")], releaseDate: "Retired",
+                freshness: .cached(fetchedAt: HarnessDates.fixed)))
+        await load.value
+        #expect(store.tracks.isEmpty && store.releaseDate.isEmpty)
+        #expect(!store.isShowingCachedContent)
+        #expect(provider.albumRequestCount == 0)
+    }
+
+    @Test(arguments: [CatalogReadFailure.offline, .sessionExpired])
+    func refreshFailuresKeepSavedDetailsOnlyWhileAccountProofRemainsValid(failure: CatalogReadFailure) async {
+        let provider = HarnessCatalog()
+        let playlistGate = RouteResponseGate<Bool>()
+        let albumGate = RouteResponseGate<Bool>()
+        let tracks = [HarnessFixtures.track(uri: "spotify:track:saved")]
+        provider.onCachedPlaylist = { _ in
+            CatalogPlaylistSnapshot(
+                description: "Saved", ownerURI: nil, tracks: tracks, freshness: .cached(fetchedAt: HarnessDates.fixed))
+        }
+        provider.onCachedAlbum = { _ in
+            CatalogAlbumSnapshot(
+                tracks: tracks, releaseDate: "Saved", freshness: .cached(fetchedAt: HarnessDates.fixed))
+        }
+        provider.onPlaylistSnapshot = { _ in
+            _ = await playlistGate.wait(); throw failure
+        }
+        provider.onAlbumSnapshot = { _ in
+            _ = await albumGate.wait(); throw failure
+        }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let playlist = makePlaylistStore(provider, session: session)
+        let album = AlbumDetailStore(
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+        let selectedPlaylist = item("saved", kind: .playlist)
+        let selectedAlbum = item("saved", kind: .album)
+        let playlistLoad = Task { await playlist.load(selectedPlaylist) }
+        let albumLoad = Task { await album.load(selectedAlbum) }
+        #expect(await waitUntil { await playlistGate.isWaiting })
+        #expect(await waitUntil { await albumGate.isWaiting })
+        #expect(playlist.tracks == tracks && album.tracks == tracks)
+        await playlistGate.finish(true)
+        await albumGate.finish(true)
+        await playlistLoad.value
+        await albumLoad.value
+        #expect(playlist.error != nil && album.error != nil)
+        #expect(!playlist.canEditLoadedContent)
+        #expect(playlist.tracks.isEmpty == (failure == .sessionExpired))
+        #expect(album.tracks.isEmpty == (failure == .sessionExpired))
+        playlist.prepare(item("other", kind: .playlist))
+        album.prepare(item("other", kind: .album))
+        playlist.prepare(selectedPlaylist)
+        album.prepare(selectedAlbum)
+        #expect(playlist.tracks.isEmpty == (failure == .sessionExpired))
+        #expect(album.tracks.isEmpty == (failure == .sessionExpired))
+        #expect(!playlist.canEditLoadedContent)
+    }
+
     @Test func playlistRevisitRestoresContentBeforeAnyNewRequest() async {
         let provider = HarnessCatalog()
         provider.onPlaylistSnapshot = { id in
@@ -49,7 +217,7 @@ struct CatalogRouteRetentionTests {
 
     @Test func cachedRevisitRetiresAnUncooperativeDifferentRoute() async {
         let provider = HarnessCatalog()
-        let gate = RouteResponseGate()
+        let gate = RouteResponseGate<CatalogPlaylistSnapshot>()
         let first = item("first", kind: .playlist)
         let second = item("second", kind: .playlist)
         let firstSnapshot = CatalogPlaylistSnapshot(
@@ -81,7 +249,7 @@ struct CatalogRouteRetentionTests {
 
     @Test func accountReplacementCannotRestoreOrPopulateRetiredRoutes() async {
         let provider = HarnessCatalog()
-        let gate = RouteResponseGate()
+        let gate = RouteResponseGate<CatalogPlaylistSnapshot>()
         let first = item("first", kind: .playlist)
         let second = item("second", kind: .playlist)
         let old = CatalogPlaylistSnapshot(
@@ -208,7 +376,7 @@ struct CatalogRouteRetentionTests {
 
     @Test func acceptedMutationInvalidatesRetainedContentEvenWhenRefreshIsCancelled() async {
         let provider = HarnessCatalog()
-        let gate = RouteResponseGate()
+        let gate = RouteResponseGate<CatalogPlaylistSnapshot>()
         let selected = item("first", kind: .playlist)
         let snapshot = CatalogPlaylistSnapshot(
             description: "Original", ownerURI: "spotify:user:owner",

@@ -21,6 +21,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private var active = false
     private var storage: PersistentCatalog?
     private var accountURI: String?
+    private var accountVerified = false
     private var cleanupFailed = false
     private var retirementInProgress = false
     private var accountMismatch = false
@@ -73,6 +74,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         generation &+= 1
         finishEntitySubscriptions()
         accountURI = nil
+        accountVerified = false
         do {
             if let storage {
                 if purge {
@@ -102,7 +104,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
 
     package func profile() async throws -> CatalogProfileSnapshot {
         let stamp = try admission()
-        let profile = try await source.profile()
+        let profile = try await read { try await $0.profile() }
         try validate(stamp)
         guard let uri = profile.uri, uri.hasPrefix("spotify:user:"), !uri.dropFirst(13).isEmpty else {
             if accountURI != nil {
@@ -134,6 +136,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         // Retain the original account owner after an unavailable open, but retry it when fresh
         // same-account proof arrives. A failed/rejected write is a different state: reopening
         // cannot establish that the cache contains every live result missed in this lifetime.
+        accountVerified = true
         guard entityQueryAvailability == .unbound else { return profile }
         do {
             try await database.open(scope: database.scope)
@@ -151,7 +154,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     package func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         let stamp = try admission()
         do {
-            let value = try await source.playlist(id: id)
+            let value = try await read { try await $0.playlist(id: id) }
             try validate(stamp)
             await persist(
                 key: "spotify:playlist:\(id)", tracks: value.tracks,
@@ -163,22 +166,16 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             return value
         } catch {
             try validate(stamp)
-            guard Self.allowsCachedRead(after: error),
-                let cached = try await cachedCollection("spotify:playlist:\(id)", stamp: stamp)
+            guard Self.allowsCachedRead(after: error), let cached = try await cachedPlaylist(id: id)
             else { throw error }
-            return CatalogPlaylistSnapshot(
-                description: cached.page.metadata.description,
-                ownerURI: nil, tracks: cached.tracks,
-                item: Self.withoutOwnership(cached.page.metadata.item),
-                freshness: .cached(fetchedAt: cached.page.fetchedAt)
-            )
+            return cached
         }
     }
 
     package func album(id: String) async throws -> CatalogAlbumSnapshot {
         let stamp = try admission()
         do {
-            let value = try await source.album(id: id)
+            let value = try await read { try await $0.album(id: id) }
             try validate(stamp)
             await persist(
                 key: "spotify:album:\(id)", tracks: value.tracks,
@@ -191,15 +188,28 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             return value
         } catch {
             try validate(stamp)
-            guard Self.allowsCachedRead(after: error),
-                let cached = try await cachedCollection("spotify:album:\(id)", stamp: stamp)
+            guard Self.allowsCachedRead(after: error), let cached = try await cachedAlbum(id: id)
             else { throw error }
-            return CatalogAlbumSnapshot(
-                tracks: cached.tracks, releaseDate: cached.page.metadata.releaseDate,
-                item: cached.page.metadata.item, freshness: .cached(fetchedAt: cached.page.fetchedAt),
-                playCounts: cached.page.metadata.playCounts, artists: cached.page.metadata.albumArtists
-            )
+            return cached
         }
+    }
+
+    package func cachedPlaylist(id: String) async throws -> CatalogPlaylistSnapshot? {
+        let stamp = try admission()
+        guard let cached = try await cachedCollection("spotify:playlist:\(id)", stamp: stamp) else { return nil }
+        return CatalogPlaylistSnapshot(
+            description: cached.page.metadata.description, ownerURI: nil, tracks: cached.tracks,
+            item: Self.withoutOwnership(cached.page.metadata.item),
+            freshness: .cached(fetchedAt: cached.page.fetchedAt))
+    }
+
+    package func cachedAlbum(id: String) async throws -> CatalogAlbumSnapshot? {
+        let stamp = try admission()
+        guard let cached = try await cachedCollection("spotify:album:\(id)", stamp: stamp) else { return nil }
+        return CatalogAlbumSnapshot(
+            tracks: cached.tracks, releaseDate: cached.page.metadata.releaseDate,
+            item: cached.page.metadata.item, freshness: .cached(fetchedAt: cached.page.fetchedAt),
+            playCounts: cached.page.metadata.playCounts, artists: cached.page.metadata.albumArtists)
     }
 
     package func searchTracks(_ term: String, limit: Int) async throws -> [CatalogTrack] {
@@ -222,9 +232,9 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         libraryReadRevision &+= 1
         let revision = libraryReadRevision
         let fetchedAt = clock.now()
-        let nodes = try await source.playlistLibrary()
+        let nodes = try await read { try await $0.playlistLibrary() }
         try validate(stamp)
-        if revision == libraryReadRevision, let storage {
+        if revision == libraryReadRevision, accountVerified, let storage {
             do {
                 try await storage.replacePlaylistLibrary(
                     CatalogPlaylistLibraryRecord(nodes: nodes, fetchedAt: fetchedAt), scope: storage.scope)
@@ -238,10 +248,11 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
 
     package func cachedPlaylistLibrary() async throws -> CatalogPlaylistLibrarySnapshot? {
         let stamp = try admission()
-        guard let storage, accountURI != nil else { return nil }
+        guard let storage, accountVerified else { return nil }
         do {
-            guard let record = try await storage.playlistLibrary(scope: storage.scope) else { return nil }
+            let saved = try await storage.playlistLibrary(scope: storage.scope)
             try validate(stamp)
+            guard let record = saved else { return nil }
             return CatalogPlaylistLibrarySnapshot(
                 nodes: record.nodes.map(\.withoutOwnership), fetchedAt: record.fetchedAt)
         } catch is CatalogStorageError {
@@ -269,9 +280,21 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         _ operation: @Sendable (any CatalogProviding) async throws -> T
     ) async throws -> T {
         let stamp = try admission()
-        let value = try await operation(source)
-        try validate(stamp)
-        return value
+        do {
+            let value = try await operation(source)
+            try validate(stamp)
+            return value
+        } catch {
+            try validate(stamp)
+            if error as? CatalogReadFailure == .sessionExpired {
+                // A refused grant invalidates the proof that admitted saved content. A later
+                // live profile must verify it again; already suspended cache reads are fenced.
+                accountVerified = false
+                generation &+= 1
+                finishEntitySubscriptions()
+            }
+            throw error
+        }
     }
 
     private func admission() throws -> UInt64 {
@@ -289,7 +312,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private func persist(
         key: String, tracks: [CatalogTrack], metadata: CatalogCollectionMetadata, stamp: UInt64
     ) async {
-        guard active, stamp == generation, let storage else { return }
+        guard active, stamp == generation, accountVerified, let storage else { return }
         cacheRevision &+= 1
         cacheWritesInFlight += 1
         defer {
@@ -318,7 +341,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
 
     package func subscribeCatalogEntities(_ uris: Set<String>) async throws -> CatalogEntitySubscription {
         _ = try admission()
-        guard entityQueryAvailability == .available, storage != nil, accountURI != nil else {
+        guard entityQueryAvailability == .available, storage != nil, accountVerified else {
             throw CatalogEntityQueryFailure.unavailable
         }
         guard uris.count <= CatalogEntityQueryLimits.maximumRequestedURIs,
@@ -448,23 +471,20 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private func cachedCollection(
         _ key: String, stamp: UInt64
     ) async throws -> (page: CatalogCollectionPage, tracks: [CatalogTrack])? {
-        guard let storage, cacheWritesInFlight == 0 else { return nil }
+        guard accountVerified, let storage, cacheWritesInFlight == 0 else { return nil }
         let revision = cacheRevision
         do {
-            guard let first = try await storage.collection(key: key, scope: storage.scope),
-                first.completeness == .complete
-            else { return nil }
+            let saved = try await storage.collection(key: key, scope: storage.scope)
             try validate(stamp)
+            guard let first = saved, first.completeness == .complete else { return nil }
             guard cacheWritesInFlight == 0, cacheRevision == revision else { return nil }
             var tracks = first.occurrences.map(\.track)
             while tracks.count < first.totalCount {
-                guard
-                    let page = try await storage.collection(
-                        key: key, offset: tracks.count, scope: storage.scope
-                    ), page.fetchedAt == first.fetchedAt, page.totalCount == first.totalCount,
-                    !page.occurrences.isEmpty
-                else { return nil }
+                let savedPage = try await storage.collection(key: key, offset: tracks.count, scope: storage.scope)
                 try validate(stamp)
+                guard let page = savedPage, page.fetchedAt == first.fetchedAt,
+                    page.totalCount == first.totalCount, !page.occurrences.isEmpty
+                else { return nil }
                 // Equal clock samples and collection sizes are not a revision. A concurrent
                 // refresh must not splice two accepted results into one cached response.
                 guard cacheWritesInFlight == 0, cacheRevision == revision else { return nil }
@@ -472,6 +492,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             }
             return (first, tracks)
         } catch is CatalogStorageError {
+            try validate(stamp)
             return nil
         }
     }

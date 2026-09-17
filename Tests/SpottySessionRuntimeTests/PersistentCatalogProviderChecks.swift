@@ -114,9 +114,15 @@ struct PersistentCatalogProviderTests {
         let reopened = PersistentCatalogProvider(source: offline, rootDirectory: root)
         await reopened.activate()
         // A disk partition is not evidence that this process holds that account's grant.
+        #expect(try await reopened.cachedPlaylist(id: "one") == nil)
+        #expect(try await reopened.cachedAlbum(id: "one") == nil)
         await #expect(throws: CatalogReadFailure.offline) { try await reopened.playlist(id: "one") }
         _ = try await reopened.profile()
+        let savedPlaylist = try #require(try await reopened.cachedPlaylist(id: "one"))
+        let savedAlbum = try #require(try await reopened.cachedAlbum(id: "one"))
+        #expect(await offline.playlistCalls == 1, "saved reads do not wait for or issue a gateway request")
         let cachedPlaylist = try await reopened.playlist(id: "one")
+        #expect(cachedPlaylist == savedPlaylist)
         #expect(cachedPlaylist.tracks == tracks)
         #expect(cachedPlaylist.description == playlist.description)
         #expect(cachedPlaylist.freshness == .cached(fetchedAt: ProviderClock.instant))
@@ -124,12 +130,40 @@ struct PersistentCatalogProviderTests {
         #expect(cachedPlaylist.item?.ownerURI == nil)
         #expect(cachedPlaylist.item?.title == playlist.item?.title)
         let cachedAlbum = try await reopened.album(id: "one")
+        #expect(cachedAlbum == savedAlbum)
         #expect(cachedAlbum.tracks == tracks)
         #expect(cachedAlbum.releaseDate == album.releaseDate)
         #expect(cachedAlbum.playCounts == album.playCounts)
         #expect(cachedAlbum.artists == [artist])
         #expect(cachedAlbum.freshness == .cached(fetchedAt: ProviderClock.instant))
         #expect(await reopened.retire(purge: true))
+    }
+
+    @Test func credentialRefusalFencesSavedDetailsUntilProfileIsVerifiedAgain() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tracks = [track("one")]
+        let source = CatalogProviderSource(
+            playlist: .success(playlist(tracks)),
+            album: .success(CatalogAlbumSnapshot(tracks: tracks, releaseDate: "2026")))
+        let provider = PersistentCatalogProvider(source: source, rootDirectory: root)
+        await provider.activate()
+        _ = try await provider.profile()
+        _ = try await provider.playlist(id: "one")
+        _ = try await provider.album(id: "one")
+        _ = try await provider.playlistLibrary()
+        await source.setPlaylist(.failure(.sessionExpired))
+        await #expect(throws: CatalogReadFailure.sessionExpired) { try await provider.playlist(id: "one") }
+        #expect(try await provider.cachedPlaylist(id: "one") == nil)
+        #expect(try await provider.cachedAlbum(id: "one") == nil)
+        #expect(try await provider.cachedPlaylistLibrary() == nil)
+        _ = try await provider.profile()
+        #expect(try await provider.cachedPlaylist(id: "one")?.tracks == tracks)
+        #expect(try await provider.cachedAlbum(id: "one")?.tracks == tracks)
+        #expect(try await provider.cachedPlaylistLibrary()?.nodes == [])
+        #expect(await provider.retire(purge: true))
+        await #expect(throws: CatalogReadFailure.sessionExpired) { try await provider.cachedPlaylist(id: "one") }
+        await #expect(throws: CatalogReadFailure.sessionExpired) { try await provider.cachedAlbum(id: "one") }
     }
 
     @Test func verifiedAccountsCannotReadEachOthersRetainedRoutes() async throws {
@@ -146,6 +180,8 @@ struct PersistentCatalogProviderTests {
         let second = PersistentCatalogProvider(source: accountB, rootDirectory: root)
         await second.activate()
         _ = try await second.profile()
+        #expect(try await second.cachedPlaylist(id: "one") == nil)
+        #expect(try await second.cachedAlbum(id: "one") == nil)
         await #expect(throws: CatalogReadFailure.offline) { try await second.playlist(id: "one") }
         #expect(await second.retire(purge: false))
 

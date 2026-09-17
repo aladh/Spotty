@@ -18,10 +18,10 @@
   make saved collections current.
 - `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
   playback. Unsupported resources, malformed links, and lookalike hosts do nothing.
-- Complete saved playlist/album results remain usable after offline, timeout, or throttled reads
-  only after this process verifies the matching account. Label them possibly out of date, including
-  during refresh. Credential or account failures cannot become cached success or expose another
-  account's content. No offline sign-in or downloaded music.
+- After this process verifies the matching account, show complete saved playlist/album results,
+  including empty results, during refresh. Offline, timeout, or throttled reads keep saved content
+  labeled potentially outdated. Credential refusal clears saved details and requires renewed proof.
+  Account changes clear retained content. No offline sign-in or downloaded music.
 
 ### Album and artist pages
 

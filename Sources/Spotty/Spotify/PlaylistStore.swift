@@ -32,6 +32,7 @@ final class PlaylistStore {
     private(set) var loadedURI: String?
     private(set) var ownerURI: String?
     private(set) var isLoading = false
+    var isLoadingInitialContent: Bool { isLoading && !hasLoadedContent }
     private(set) var error: String?
     private(set) var isShowingCachedContent = false
     private(set) var freshness: CatalogFreshness = .current
@@ -47,7 +48,7 @@ final class PlaylistStore {
     @ObservationIgnored private let retained: RetainedCatalogRoutes<Snapshot>
     @ObservationIgnored private let entityObservation: CatalogEntityObservation
     @ObservationIgnored private var contentEpoch: UInt64
-    @ObservationIgnored private var hasLoadedContent = false
+    @ObservationIgnored private(set) var hasLoadedContent = false
     @ObservationIgnored private var loadedSessionSnapshot: CatalogSessionSnapshot?
 
     init(
@@ -170,29 +171,41 @@ final class PlaylistStore {
         handle: Flight.Handle
     ) async {
         do {
+            if !hasLoadedContent, let cached = try await provider.cachedPlaylist(id: id) {
+                guard isCurrent(handle) else { return }
+                apply(cached, selected: item)
+            }
+            guard isCurrent(handle) else { return }
             let playlist = try await provider.playlist(id: id)
             guard isCurrent(handle) else { return }
-            // A page from the previous query may already have returned before a newer full
-            // result completed. Retire that publication scope before replacing its rows.
-            entityObservation.reset()
-            error = nil
-            self.item = playlist.item?.uri == item.uri ? (playlist.item ?? item) : item
-            description = playlist.description
-            ownerURI = playlist.ownerURI ?? item.ownerURI
-            replaceTracks(playlist.tracks)
-            loadedSessionSnapshot = session.snapshot
-            hasLoadedContent = true
-            freshness = playlist.freshness
-            isShowingCachedContent = !freshness.isCurrent
-            retainCurrent()
-            metadata.replaceTracks(tracks, from: .playlist)
+            apply(playlist, selected: item)
         } catch {
             guard flight.shouldReport(error, for: handle), loadedURI == handle.key else { return }
+            if error as? CatalogReadFailure == .sessionExpired {
+                reset()
+                prepare(item)
+            }
             self.error = CatalogErrorPresentation.message(for: error)
             isShowingCachedContent = hasLoadedContent
             // A failed refresh must not become a fresh successful cache hit on revisit.
             retained.markStale(item.uri)
         }
+    }
+
+    private func apply(_ playlist: CatalogPlaylistSnapshot, selected: CatalogItem) {
+        // Retire any page from the previous collection before publishing its replacement.
+        entityObservation.reset()
+        error = nil
+        item = playlist.item?.uri == selected.uri ? (playlist.item ?? selected) : selected
+        description = playlist.description
+        freshness = playlist.freshness
+        ownerURI = freshness.isCurrent ? (playlist.ownerURI ?? selected.ownerURI) : nil
+        replaceTracks(playlist.tracks)
+        loadedSessionSnapshot = session.snapshot
+        hasLoadedContent = true
+        isShowingCachedContent = !freshness.isCurrent
+        retainCurrent()
+        metadata.replaceTracks(tracks, from: .playlist)
     }
 
     private func restore(_ item: CatalogItem) {

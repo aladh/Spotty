@@ -25,6 +25,7 @@ final class AlbumDetailStore {
     private(set) var playCounts: [String: Int64] = [:]
     private(set) var artists: [CatalogItem] = []
     private(set) var isLoading = false
+    var isLoadingInitialContent: Bool { isLoading && !hasLoadedContent }
     private(set) var error: String?
     private(set) var isShowingCachedContent = false
     private(set) var freshness: CatalogFreshness = .current
@@ -108,38 +109,48 @@ final class AlbumDetailStore {
             await flight.run(handle) { [weak self] in
                 guard let self else { return }
                 do {
+                    if !hasLoadedContent, let cached = try await provider.cachedAlbum(id: id) {
+                        guard self.isCurrent(handle) else { return }
+                        apply(cached, selected: selected, handle: handle)
+                    }
+                    guard self.isCurrent(handle) else { return }
                     let album = try await provider.album(id: id)
                     guard self.isCurrent(handle) else { return }
-                    // A full result supersedes even a previously returned entity-query page.
-                    entityObservation.reset()
-                    item = album.item?.uri == selected.uri ? (album.item ?? selected) : selected
-                    trackCollection.replace(album.tracks)
-                    releaseDate = album.releaseDate
-                    playCounts = album.playCounts ?? [:]
-                    artists = album.artists ?? []
-                    loadedSession = session.snapshot
-                    hasLoadedContent = true
-                    error = nil
-                    freshness = album.freshness
-                    isShowingCachedContent = !freshness.isCurrent
-                    if freshness.isCurrent { self.flight.markLoaded(handle) }
-                    retained.store(
-                        Snapshot(
-                            item: item ?? selected, collection: trackCollection, releaseDate: releaseDate,
-                            playCounts: playCounts, artists: artists,
-                            freshness: freshness),
-                        for: selected.uri, cost: tracks.count, snapshot: handle.sessionSnapshot
-                    )
-                    updateEntityObservation()
-                    metadata.replaceTracks(tracks, from: .album)
+                    apply(album, selected: selected, handle: handle)
                 } catch {
                     guard self.flight.shouldReport(error, for: handle), item?.uri == handle.key else { return }
+                    if error as? CatalogReadFailure == .sessionExpired {
+                        reset()
+                        prepare(selected)
+                    }
                     self.error = CatalogErrorPresentation.message(for: error)
                     isShowingCachedContent = hasLoadedContent
                     retained.markStale(selected.uri)
                 }
             }
         }
+    }
+
+    private func apply(_ album: CatalogAlbumSnapshot, selected: CatalogItem, handle: Flight.Handle) {
+        entityObservation.reset()
+        item = album.item?.uri == selected.uri ? (album.item ?? selected) : selected
+        trackCollection.replace(album.tracks)
+        releaseDate = album.releaseDate
+        playCounts = album.playCounts ?? [:]
+        artists = album.artists ?? []
+        loadedSession = session.snapshot
+        hasLoadedContent = true
+        error = nil
+        freshness = album.freshness
+        isShowingCachedContent = !freshness.isCurrent
+        if freshness.isCurrent { flight.markLoaded(handle) }
+        retained.store(
+            Snapshot(
+                item: item ?? selected, collection: trackCollection, releaseDate: releaseDate,
+                playCounts: playCounts, artists: artists, freshness: freshness),
+            for: selected.uri, cost: tracks.count, snapshot: handle.sessionSnapshot)
+        updateEntityObservation()
+        metadata.replaceTracks(tracks, from: .album)
     }
 
     private func restore(_ selected: CatalogItem) {

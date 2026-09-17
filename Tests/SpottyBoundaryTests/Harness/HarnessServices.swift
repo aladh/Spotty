@@ -778,8 +778,10 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
         var onLibraryArtists: (@Sendable () async throws -> [PathfinderArtist])?
         var onLibraryTracks: (@Sendable () async throws -> [PathfinderLibraryTrackItem])?
         var onProfile: (@Sendable () async throws -> PathfinderProfile)?
+        var onCachedPlaylist: (@Sendable (String) async throws -> CatalogPlaylistSnapshot?)?
         var onPlaylistSnapshot: (@Sendable (String) async throws -> CatalogPlaylistSnapshot)?
         var onPlaylist: (@Sendable (String) async throws -> PathfinderPlaylistUnion)?
+        var onCachedAlbum: (@Sendable (String) async throws -> CatalogAlbumSnapshot?)?
         var onAlbumSnapshot: (@Sendable (String) async throws -> CatalogAlbumSnapshot)?
         var onAlbum: (@Sendable (String) async throws -> PathfinderAlbumUnion)?
         var onArtistSnapshot: (@Sendable (String) async throws -> CatalogArtistSnapshot)?
@@ -869,6 +871,11 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
     }
 
     /// Supplies a domain snapshot directly; older wire fixture overrides remain supported.
+    var onCachedPlaylist: (@Sendable (String) async throws -> CatalogPlaylistSnapshot?)? {
+        get { withStorage { $0.onCachedPlaylist } }
+        set { withStorage { $0.onCachedPlaylist = newValue } }
+    }
+
     var onPlaylistSnapshot: (@Sendable (String) async throws -> CatalogPlaylistSnapshot)? {
         get { withStorage { $0.onPlaylistSnapshot } }
         set { withStorage { $0.onPlaylistSnapshot = newValue } }
@@ -880,6 +887,11 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
     }
 
     /// Supplies a domain snapshot directly; older wire fixture overrides remain supported.
+    var onCachedAlbum: (@Sendable (String) async throws -> CatalogAlbumSnapshot?)? {
+        get { withStorage { $0.onCachedAlbum } }
+        set { withStorage { $0.onCachedAlbum = newValue } }
+    }
+
     var onAlbumSnapshot: (@Sendable (String) async throws -> CatalogAlbumSnapshot)? {
         get { withStorage { $0.onAlbumSnapshot } }
         set { withStorage { $0.onAlbumSnapshot = newValue } }
@@ -1004,11 +1016,21 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
         return CatalogMapping.profile(try await override())
     }
 
+    func cachedPlaylist(id: String) async throws -> CatalogPlaylistSnapshot? {
+        counters.record("cachedPlaylist")
+        return try await onCachedPlaylist?(id)
+    }
+
     func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         counters.record("playlist")
         if let override = onPlaylistSnapshot { return try await override(id) }
         guard let override = onPlaylist else { throw HarnessFailure.unavailable }
         return CatalogMapping.playlist(try await override(id))
+    }
+
+    func cachedAlbum(id: String) async throws -> CatalogAlbumSnapshot? {
+        counters.record("cachedAlbum")
+        return try await onCachedAlbum?(id)
     }
 
     func album(id: String) async throws -> CatalogAlbumSnapshot {

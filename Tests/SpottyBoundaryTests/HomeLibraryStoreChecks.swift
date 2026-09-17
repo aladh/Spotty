@@ -99,6 +99,78 @@ private func startJoiningPlaylistLoad(_ store: HomeLibraryStore) -> PlaylistLoad
 
 @Suite("Home Library Store")
 struct HomeLibraryStoreTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    func savedLibraryPublishesBeforeRefreshIncludingAnEmptyLibrary(empty: Bool) async throws {
+        let (provider, gate) = makeGatedPlaylistCatalog()
+        let node = PlaylistLibraryNode(playlist: try #require(CatalogMapping.item(from: firstPlaylist())))
+        let nodes = empty ? [] : [PlaylistLibraryNode(folderURI: "folder:saved", title: "Saved", children: [node])]
+        provider.onCachedPlaylistLibrary = {
+            CatalogPlaylistLibrarySnapshot(nodes: nodes, fetchedAt: HarnessDates.fixed)
+        }
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let store = makeStore(provider: provider, session: session)
+        let loading = Task { await store.loadPlaylists() }
+        try await requireEventually { await gate.requestCount == 1 }
+        #expect(store.playlistLibrary == nodes.map(\.withoutOwnership))
+        #expect(store.playlistLibraryIsCached)
+        #expect(store.isLoading(.playlists))
+        #expect(!store.isLoadingInitialPlaylists)
+        #expect(store.playlists.allSatisfy { $0.ownerURI == nil })
+        await gate.completeNext(.playlists([try secondPlaylist()]))
+        await loading.value
+        #expect(store.playlists.map(\.uri) == ["spotify:playlist:second"])
+        #expect(!store.playlistLibraryIsCached)
+        #expect(!store.isLoading(.playlists))
+    }
+
+    @Test
+    @MainActor
+    func savedLibrarySurvivesFailedRefreshAndCanRetry() async throws {
+        let (provider, gate) = makeGatedPlaylistCatalog()
+        let nodes = [PlaylistLibraryNode(playlist: try #require(CatalogMapping.item(from: firstPlaylist())))]
+        provider.onCachedPlaylistLibrary = {
+            CatalogPlaylistLibrarySnapshot(nodes: nodes, fetchedAt: HarnessDates.fixed)
+        }
+        let store = makeStore(provider: provider, session: CatalogSessionAvailability(isAvailable: true))
+        let loading = Task { await store.loadPlaylists() }
+        try await requireEventually { await gate.requestCount == 1 }
+        await gate.completeNext(.failure)
+        await loading.value
+        #expect(store.playlistLibrary == nodes.map(\.withoutOwnership))
+        #expect(store.playlistLibraryIsCached)
+        #expect(store.error(for: .playlists) != nil)
+        let retry = Task { await store.loadPlaylists() }
+        try await requireEventually { await gate.requestCount == 2 }
+        await gate.completeNext(.playlists([]))
+        await retry.value
+        #expect(store.playlistLibrary.isEmpty)
+        #expect(!store.playlistLibraryIsCached)
+        #expect(store.error(for: .playlists) == nil)
+    }
+
+    @Test
+    @MainActor
+    func retiredAccountCannotPublishDelayedSavedLibrary() async throws {
+        let provider = HarnessCatalog()
+        let clock = HarnessClock.parked()
+        let nodes = [PlaylistLibraryNode(playlist: try #require(CatalogMapping.item(from: firstPlaylist())))]
+        provider.onCachedPlaylistLibrary = {
+            try await clock.sleep(seconds: 1)
+            return CatalogPlaylistLibrarySnapshot(nodes: nodes, fetchedAt: HarnessDates.fixed)
+        }
+        let store = makeStore(provider: provider, session: CatalogSessionAvailability(isAvailable: true))
+        let loading = Task { await store.loadPlaylists() }
+        try await requireEventually { clock.waiterCount == 1 }
+        store.reset()
+        clock.releaseAll()
+        await loading.value
+        #expect(store.playlistLibrary.isEmpty)
+        #expect(!store.playlistLibraryIsCached)
+        #expect(store.loadedSections.isEmpty)
+        #expect(!store.isLoading)
+    }
+
     @Test
     @MainActor
     func testHomeLibraryStore() async {
@@ -202,6 +274,8 @@ struct HomeLibraryStoreTests {
             #expect((await waitUntil { follower.hasEntered() }) == true, "the non-forced caller entered loadPlaylists")
             #expect((await gate.requestCount) == (2), "a non-forced caller joins the in-flight forced refresh")
             #expect((store.isLoading(.playlists)) == true, "the forced refresh keeps loading while the follower waits")
+            #expect(store.playlistLibraryIsCached)
+            #expect(store.playlists.allSatisfy { $0.ownerURI == nil })
             #expect((!follower.hasFinished()) == true, "the non-forced caller is still waiting on the forced refresh")
 
             await gate.completeNext(.playlists([second]))

@@ -176,6 +176,18 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     }
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
         record("library")
+        if let delay = scenario.playlistRefreshMilliseconds {
+            try await ContinuousClock().sleep(for: .milliseconds(delay))
+        }
+        return playlistNodes()
+    }
+
+    func cachedPlaylistLibrary() async throws -> CatalogPlaylistLibrarySnapshot? {
+        guard scenario.cachedPlaylistLibrary == true else { return nil }
+        return CatalogPlaylistLibrarySnapshot(nodes: playlistNodes().map(\.withoutOwnership), fetchedAt: now())
+    }
+
+    private func playlistNodes() -> [PlaylistLibraryNode] {
         let nodes = fixtures.playlists.compactMap(CatalogMapping.item(from:))
             .map(PlaylistLibraryNode.init(playlist:))
         guard scenario.expandedLibrary == true else { return nodes }

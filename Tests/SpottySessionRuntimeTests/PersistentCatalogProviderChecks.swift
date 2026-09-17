@@ -6,6 +6,80 @@ import Testing
 @testable import SpottySessionRuntime
 
 struct PersistentCatalogProviderTests {
+    @Test func supersededLibraryRefreshCannotOverwriteTheNewestTree() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = CatalogProviderSource()
+        let provider = PersistentCatalogProvider(source: source, rootDirectory: root, clock: ProviderClock())
+        await provider.activate()
+        _ = try await provider.profile()
+        let gate = CatalogReadGate<[PlaylistLibraryNode]>()
+        await source.holdLibrary(gate)
+        let old = Task { try await provider.playlistLibrary() }
+        await gate.waitUntilEntered()
+        await source.setLibrary([])
+        #expect(try await provider.playlistLibrary().isEmpty)
+        await gate.release([.init(playlist: try #require(playlist([]).item))])
+        _ = try await old.value
+        #expect(try await provider.cachedPlaylistLibrary()?.nodes == [])
+        #expect(await provider.retire(purge: true))
+    }
+
+    @Test func savedLibraryRequiresAccountProofAndNeverRetainsEditPermission() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let item = try #require(playlist([]).item)
+        let nodes = [PlaylistLibraryNode(folderURI: "folder:one", title: "Folder", children: [.init(playlist: item)])]
+        let source = CatalogProviderSource()
+        await source.setLibrary(nodes)
+        let original = PersistentCatalogProvider(source: source, rootDirectory: root, clock: ProviderClock())
+        await original.activate()
+        _ = try await original.profile()
+        #expect(try await original.playlistLibrary() == nodes)
+        #expect(await original.retire(purge: false))
+
+        let sameAccount = CatalogProviderSource()
+        let reopened = PersistentCatalogProvider(source: sameAccount, rootDirectory: root)
+        await reopened.activate()
+        #expect(try await reopened.cachedPlaylistLibrary() == nil)
+        _ = try await reopened.profile()
+        let cached = try #require(try await reopened.cachedPlaylistLibrary())
+        #expect(cached.nodes == nodes.map(\.withoutOwnership))
+        #expect(cached.fetchedAt == ProviderClock.instant)
+        #expect(await sameAccount.libraryCalls == 0, "the saved read never waits for the live library")
+        #expect(await reopened.retire(purge: false))
+
+        let other = PersistentCatalogProvider(
+            source: CatalogProviderSource(
+                profile: CatalogProfileSnapshot(name: "Other", uri: "spotify:user:other")), rootDirectory: root)
+        await other.activate()
+        _ = try await other.profile()
+        #expect(try await other.cachedPlaylistLibrary() == nil)
+        #expect(await other.retire(purge: true))
+        await #expect(throws: CatalogReadFailure.sessionExpired) { try await other.cachedPlaylistLibrary() }
+    }
+
+    @Test func lateLibraryRefreshCannotPersistAfterRetirement() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = CatalogProviderSource()
+        let provider = PersistentCatalogProvider(source: source, rootDirectory: root)
+        await provider.activate()
+        _ = try await provider.profile()
+        let gate = CatalogReadGate<[PlaylistLibraryNode]>()
+        await source.holdLibrary(gate)
+        let pending = Task { try await provider.playlistLibrary() }
+        await gate.waitUntilEntered()
+        #expect(await provider.retire(purge: true))
+        await gate.release([.init(playlist: try #require(playlist([]).item))])
+        await #expect(throws: CatalogReadFailure.sessionExpired) { try await pending.value }
+        let replacement = PersistentCatalogProvider(source: CatalogProviderSource(), rootDirectory: root)
+        await replacement.activate()
+        _ = try await replacement.profile()
+        #expect(try await replacement.cachedPlaylistLibrary() == nil)
+        #expect(await replacement.retire(purge: true))
+    }
+
     @Test func inactiveProviderRejectsReadsBeforeCallingTheGateway() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -309,6 +383,9 @@ struct PersistentCatalogProviderTests {
 private actor CatalogProviderSource: CatalogProviding {
     private(set) var profileCalls = 0
     private(set) var playlistCalls = 0
+    private(set) var libraryCalls = 0
+    private var library: [PlaylistLibraryNode] = []
+    private var libraryGate: CatalogReadGate<[PlaylistLibraryNode]>?
     private var profileValue: CatalogProfileSnapshot
     private var playlistResult: Result<CatalogPlaylistSnapshot, CatalogReadFailure>
     private var albumResult: Result<CatalogAlbumSnapshot, CatalogReadFailure>
@@ -329,6 +406,8 @@ private actor CatalogProviderSource: CatalogProviding {
     func setProfile(_ value: CatalogProfileSnapshot) { profileValue = value }
     func holdPlaylist(_ gate: CatalogReadGate<CatalogPlaylistSnapshot>) { playlistGate = gate }
     func holdProfile(_ gate: CatalogReadGate<CatalogProfileSnapshot>) { profileGate = gate }
+    func setLibrary(_ nodes: [PlaylistLibraryNode]) { library = nodes; libraryGate = nil }
+    func holdLibrary(_ gate: CatalogReadGate<[PlaylistLibraryNode]>) { libraryGate = gate }
 
     func profile() async -> CatalogProfileSnapshot {
         profileCalls += 1
@@ -343,7 +422,11 @@ private actor CatalogProviderSource: CatalogProviding {
     func album(id _: String) throws -> CatalogAlbumSnapshot { try albumResult.get() }
     func searchTracks(_: String, limit _: Int) -> [CatalogTrack] { [] }
     func home() -> CatalogHomeSnapshot { CatalogHomeSnapshot(greeting: "Hello", sections: []) }
-    func playlistLibrary() -> [PlaylistLibraryNode] { [] }
+    func playlistLibrary() async -> [PlaylistLibraryNode] {
+        libraryCalls += 1
+        if let libraryGate { return await libraryGate.read() }
+        return library
+    }
     func libraryAlbums() -> [CatalogItem] { [] }
     func libraryArtists() -> [CatalogItem] { [] }
     func libraryTracks() -> [CatalogTrack] { [] }

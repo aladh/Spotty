@@ -62,7 +62,7 @@ final class CatalogSQLiteDatabase {
             sqlite3_busy_timeout(connection, 1_000)
             try execute("PRAGMA foreign_keys=ON")
             let version = try rows("PRAGMA user_version").first?.first?.integer ?? -1
-            guard version == 0 || version == 1 else {
+            guard (0...2).contains(version) else {
                 throw CatalogStorageError.unsupportedSchema(Int32(clamping: version))
             }
             if version == 0 {
@@ -84,6 +84,14 @@ final class CatalogSQLiteDatabase {
             _ = try rows("SELECT kind, uri, data, touched FROM entities LIMIT 0")
             _ = try rows("SELECT key, data, touched FROM collections LIMIT 0")
             _ = try rows("SELECT collection_key, position, requested_uri, data FROM occurrences LIMIT 0")
+            if version < 2 {
+                // The only supported upgrade is additive; existing browsing collections survive.
+                try transaction {
+                    try execute("CREATE TABLE playlist_library(id INTEGER PRIMARY KEY CHECK(id=1), data BLOB NOT NULL)")
+                    try execute("PRAGMA user_version=2")
+                }
+            }
+            _ = try rows("SELECT id, data FROM playlist_library LIMIT 0")
             try execute("PRAGMA journal_mode=WAL")
             try execute("PRAGMA synchronous=NORMAL")
             try execute("PRAGMA journal_size_limit=4194304")

@@ -40,6 +40,35 @@ public actor PersistentCatalog {
         _ = try connection(scope)
     }
 
+    public func playlistLibrary(scope: CatalogStorageScope) throws -> CatalogPlaylistLibraryRecord? {
+        let db = try connection(scope)
+        guard let row = try db.rows("SELECT data FROM playlist_library WHERE id=1").first else { return nil }
+        let record = try decode(
+            CatalogPlaylistLibraryRecord.self, storedData(row), maximumBytes: CatalogPlaylistLibraryRecord.maximumBytes)
+        do { try record.validate() } catch { throw CatalogStorageError.invalidStoredData }
+        return record
+    }
+
+    public func replacePlaylistLibrary(_ record: CatalogPlaylistLibraryRecord, scope: CatalogStorageScope) throws {
+        let db = try connection(scope)
+        try record.validate()
+        let data = try encode(record, maximumBytes: CatalogPlaylistLibraryRecord.maximumBytes)
+        try db.transaction {
+            let previous: CatalogPlaylistLibraryRecord?
+            do {
+                previous = try playlistLibrary(scope: scope)
+            } catch CatalogStorageError.invalidStoredData {
+                // A damaged snapshot has no freshness authority. A validated live result
+                // repairs only this record; database, lifetime and scope errors still fail.
+                previous = nil
+            }
+            if let previous, previous.fetchedAt > record.fetchedAt { return }
+            try db.execute(
+                "INSERT INTO playlist_library(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                [.blob(data)])
+        }
+    }
+
     /// Ends this lifetime, retaining browsing data for the next process. Later retirement is a no-op.
     public func close(scope: CatalogStorageScope) throws {
         try validateScope(scope)
@@ -337,6 +366,9 @@ public actor PersistentCatalog {
             throw CatalogStorageError.invalidStoredData
         }
         guard try storedInteger("SELECT COUNT(*) FROM entities", db: db) <= Int64(limits.entities),
+            try storedInteger("SELECT COUNT(*) FROM playlist_library", db: db) <= 1,
+            try storedInteger("SELECT COALESCE(MAX(length(data)),0) FROM playlist_library", db: db)
+                <= Int64(CatalogPlaylistLibraryRecord.maximumBytes),
             try storedInteger("SELECT COUNT(*) FROM collections", db: db) <= Int64(limits.collections),
             try storedInteger(
                 "SELECT COALESCE(MAX(row_count),0) FROM (SELECT COUNT(*) AS row_count FROM occurrences GROUP BY collection_key)",
@@ -376,17 +408,17 @@ public actor PersistentCatalog {
         guard !key.isEmpty, key.utf8.count <= 8_192, !key.contains("\0") else { throw CatalogStorageError.invalidInput }
     }
 
-    private func encode(_ value: some Encodable) throws -> Data {
+    private func encode(_ value: some Encodable, maximumBytes: Int? = nil) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data: Data
         do { data = try encoder.encode(value) } catch { throw CatalogStorageError.invalidInput }
-        guard data.count <= limits.recordBytes else { throw CatalogStorageError.invalidInput }
+        guard data.count <= (maximumBytes ?? limits.recordBytes) else { throw CatalogStorageError.invalidInput }
         return data
     }
 
-    private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
-        guard data.count <= limits.recordBytes else { throw CatalogStorageError.invalidStoredData }
+    private func decode<T: Decodable>(_ type: T.Type, _ data: Data, maximumBytes: Int? = nil) throws -> T {
+        guard data.count <= (maximumBytes ?? limits.recordBytes) else { throw CatalogStorageError.invalidStoredData }
         do { return try JSONDecoder().decode(type, from: data) } catch { throw CatalogStorageError.invalidStoredData }
     }
 }

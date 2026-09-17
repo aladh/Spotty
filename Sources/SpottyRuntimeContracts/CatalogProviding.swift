@@ -9,6 +9,8 @@ public protocol CatalogProviding: Sendable {
     func searchPlaylists(_ term: String, limit: Int) async throws -> [CatalogItem]
     func home() async throws -> CatalogHomeSnapshot
     func playlistLibrary() async throws -> [PlaylistLibraryNode]
+    /// Returns retained browsing metadata only after this lifetime verifies the account.
+    func cachedPlaylistLibrary() async throws -> CatalogPlaylistLibrarySnapshot?
     func libraryAlbums() async throws -> [CatalogItem]
     func libraryArtists() async throws -> [CatalogItem]
     func libraryTracks() async throws -> [CatalogTrack]
@@ -22,6 +24,7 @@ public protocol CatalogProviding: Sendable {
 public enum CatalogProviderCapabilityError: Error { case unsupported }
 
 extension CatalogProviding {
+    public func cachedPlaylistLibrary() async throws -> CatalogPlaylistLibrarySnapshot? { nil }
     public func searchAlbums(_: String, limit _: Int) async throws -> [CatalogItem] {
         throw CatalogProviderCapabilityError.unsupported
     }
@@ -39,6 +42,16 @@ extension CatalogProviding {
     }
     public func artistDiscography(id _: String) async throws -> CatalogArtistSnapshot {
         throw CatalogProviderCapabilityError.unsupported
+    }
+}
+
+public struct CatalogPlaylistLibrarySnapshot: Equatable, Sendable {
+    public let nodes: [PlaylistLibraryNode]
+    public let fetchedAt: Date
+
+    public init(nodes: [PlaylistLibraryNode], fetchedAt: Date) {
+        self.nodes = nodes
+        self.fetchedAt = fetchedAt
     }
 }
 

@@ -24,4 +24,16 @@ public struct PlaylistLibraryNode: Identifiable, Equatable, Codable, Sendable {
         return (children ?? []).flatMap(\.playlists)
     }
 
+    /// Saved labels are useful for navigation, but historical ownership cannot enable editing.
+    public var withoutOwnership: PlaylistLibraryNode {
+        if let item = playlist {
+            return PlaylistLibraryNode(
+                playlist: CatalogItem(
+                    id: item.id, uri: item.uri, title: item.title, subtitle: item.subtitle,
+                    artworkURL: item.artworkURL, kind: item.kind))
+        }
+        return PlaylistLibraryNode(
+            folderURI: id, title: title, children: (children ?? []).map(\.withoutOwnership))
+    }
+
 }

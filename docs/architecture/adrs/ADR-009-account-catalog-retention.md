@@ -20,8 +20,9 @@ changed entity and collection IDs; identical effective metadata produces no enti
 
 The runtime's catalog provider opens a partition only after a current live profile verifies the
 account. A stored selector, account hash, or cached playlist owner is not account admission.
-The production fallback retains complete playlist and album browsing results; other catalog
-surfaces continue through the live gateway. Offline, timeout, and throttled reads can return a
+The production cache retains the complete playlist library tree and playlist and album browsing
+results. The sidebar reads its saved tree after profile verification and refreshes in the background;
+Home and other catalog surfaces continue through the live gateway. Offline, timeout, and throttled reads can return a
 complete saved result with cached freshness. Credential refusal, cancellation, and a retired
 account cannot be hidden by a cache hit. An unavailable, corrupt, or unsupported database leaves
 live browsing available without trusting or silently migrating unknown stored content.
@@ -80,6 +81,6 @@ fallback must reject mixed revisions while paging its database read.
 
 The storage format and retention limits are owned by
 [`SpottyCatalogStorage`](../../../Sources/SpottyCatalogStorage), not duplicated in feature stores.
-Broader persistent search/home/library/artist queries, on-disk artwork retention, or subscriptions
+Broader persistent search/home/album-library/artist queries, on-disk artwork retention, or subscriptions
 that change collection membership require their own measured benefit and privacy/lifetime
 verification.

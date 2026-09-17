@@ -48,6 +48,21 @@ struct NavigationBar: View {
                 .keyboardShortcut("l", modifiers: .command)
                 NavigationSearchField(text: $searchText, controller: searchField, onActivate: showSearch)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                        searchField.focus()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18))
+                            .foregroundStyle(SpottyPalette.textSecondary)
+                            .frame(width: 24, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Clear search")
+                    .help("Clear search")
+                    .pointingHandCursor()
+                }
             }
             .onHover { searchIsHovered = $0 }
             .padding(.horizontal, 12)

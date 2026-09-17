@@ -40,6 +40,7 @@ enum NativeTrackColumn: String, CaseIterable {
         case .playlist: [.index, .title, .album, .dateAdded, .duration]
         case .album: [.index, .title, .playCount, .duration]
         case .artist: [.index, .title, .playCount, .duration]
+        case .search: [.index, .title, .album, .duration]
         }
     }
 
@@ -97,7 +98,7 @@ struct NativeTrackCell: View {
             Text(row.track.artist)
                 .foregroundStyle(SpottyPalette.textSecondary)
         case .album:
-            if variant == .playlist {
+            if variant == .playlist || variant == .search {
                 CatalogTextLink(
                     title: row.track.album, item: row.track.albumItem,
                     color: SpottyPalette.dataText, searchQuery: searchQuery, onSelect: onSelect
@@ -111,7 +112,7 @@ struct NativeTrackCell: View {
                 .foregroundStyle(SpottyPalette.dataText)
         case .duration:
             Text(
-                variant == .playlist
+                variant == .playlist || variant == .search
                     ? formatCatalogDuration(row.track.duration) : formatDuration(row.track.duration)
             )
             .monospacedDigit()
@@ -130,7 +131,9 @@ struct NativeTrackCell: View {
         let currentForeground = isSelected ? SpottyPalette.textPrimary : SpottyPalette.mediaGreen
 
         return Group {
-            if variant == .artist && indexHovered && playback.canStartPlayback && artistTrack?.isPlayable != false {
+            if (variant == .artist || variant == .search) && indexHovered && playback.canStartPlayback
+                && artistTrack?.isPlayable != false
+            {
                 Button {
                     playback.playTrack(row.track)
                 } label: {
@@ -163,7 +166,7 @@ struct NativeTrackCell: View {
         let artistForeground = isCurrent && !isSelected ? SpottyPalette.mediaGreen : SpottyPalette.textSecondary
 
         return HStack(alignment: .center, spacing: 12) {
-            if variant == .playlist || variant == .artist {
+            if variant == .playlist || variant == .artist || variant == .search {
                 RemoteArtwork(url: row.track.artworkURL, kind: .track, cornerRadius: 4)
                     .frame(width: 40, height: 40)
             }

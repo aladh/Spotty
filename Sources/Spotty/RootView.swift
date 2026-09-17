@@ -195,6 +195,7 @@ struct RootView: View {
                 store: catalog.searchStore,
                 playback: catalogPlayback,
                 searchText: Bindable(navigation).searchText,
+                interaction: navigation.searchInteraction,
                 onSelect: select,
                 playlistActions: playlistActions()
             )

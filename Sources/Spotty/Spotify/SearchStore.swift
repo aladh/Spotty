@@ -26,6 +26,7 @@ final class SearchStore {
     private(set) var errors: [Section: String] = [:]
     private(set) var isSearching = false
     private var completedQuery: String?
+    private var completedSession: CatalogSessionSnapshot?
 
     // Compatibility projections retained for the small boundary-check executable.
     var error: String? {
@@ -40,7 +41,8 @@ final class SearchStore {
     /// preserves existing rows, but must not briefly label an unrequested query "No results".
     func isAwaitingResults(for term: String) -> Bool {
         let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        return session.isAvailable && !query.isEmpty && (isSearching || completedQuery != query)
+        return session.isAvailable && !query.isEmpty
+            && (isSearching || completedQuery != query || completedSession != session.snapshot)
     }
 
     /// Delay before a view-driven query is admitted. Try Again calls `search`
@@ -89,6 +91,8 @@ final class SearchStore {
         invalidatePendingAdmission()
         let token = debounceGeneration
         let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Returning from details should restore the current result set and its native position.
+        if completedQuery == query, completedSession == session.snapshot, errors.isEmpty { return }
         let scheduled = session.snapshot
         let task = Task { [weak self] in
             guard let self else { return }
@@ -136,7 +140,10 @@ final class SearchStore {
                 group.addTask { await self.loadArtists(query, handle: handle) }
                 group.addTask { await self.loadPlaylists(query, handle: handle) }
             }
-            if self.flight.isCurrent(handle) { self.completedQuery = query }
+            if self.flight.isCurrent(handle) {
+                self.completedQuery = query
+                self.completedSession = self.session.snapshot
+            }
         }
         if flight.owns(handle) {
             isSearching = false
@@ -195,6 +202,7 @@ final class SearchStore {
 
     private func clearResults() {
         completedQuery = nil
+        completedSession = nil
         trackCollection.replace([])
         albums = []
         artists = []

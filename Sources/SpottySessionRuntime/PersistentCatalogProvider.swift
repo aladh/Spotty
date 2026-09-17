@@ -27,6 +27,15 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private var accountMismatch = false
     private var cacheRevision: UInt64 = 0
     private var cacheWritesInFlight = 0
+    private var cacheWriteWaiters: [CheckedContinuation<Void, Never>] = []
+    // Only outstanding keys are retained; completed requests leave no historical bookkeeping.
+    private var collectionReads: [String: UUID] = [:]
+
+    private struct CollectionRead {
+        let key: String
+        let id = UUID()
+        let fetchedAt: Date
+    }
     private var libraryReadRevision: UInt64 = 0
     private var accountLifetime = UUID()
     private enum EntityQueryAvailability { case unbound, available, degraded }
@@ -58,7 +67,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
 
     package func activate() async {
         guard !active, !cleanupFailed, !retirementInProgress, !accountMismatch else { return }
-        generation &+= 1
+        advanceGeneration()
         accountLifetime = UUID()
         entityQueryAvailability = .unbound
         active = true
@@ -71,7 +80,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         retirementInProgress = true
         defer { retirementInProgress = false }
         active = false
-        generation &+= 1
+        advanceGeneration()
         finishEntitySubscriptions()
         accountURI = nil
         accountVerified = false
@@ -109,7 +118,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         guard let uri = profile.uri, uri.hasPrefix("spotify:user:"), !uri.dropFirst(13).isEmpty else {
             if accountURI != nil {
                 active = false
-                generation &+= 1
+                advanceGeneration()
                 accountMismatch = true
                 finishEntitySubscriptions()
                 throw CatalogReadFailure.sessionExpired
@@ -120,7 +129,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             // A grant changed without its expected retirement. Refuse both accounts until the
             // runtime performs the normal boundary; never rebind live requests by convenience.
             active = false
-            generation &+= 1
+            advanceGeneration()
             accountMismatch = true
             finishEntitySubscriptions()
             throw CatalogReadFailure.sessionExpired
@@ -153,11 +162,13 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
 
     package func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         let stamp = try admission()
+        let request = beginCollectionRead("spotify:playlist:\(id)")
+        defer { finishCollectionRead(request) }
         do {
             let value = try await read { try await $0.playlist(id: id) }
             try validate(stamp)
             await persist(
-                key: "spotify:playlist:\(id)", tracks: value.tracks,
+                request: request, tracks: value.tracks,
                 metadata: CatalogCollectionMetadata(
                     item: value.item, description: value.description, ownerURI: value.ownerURI
                 ), stamp: stamp
@@ -174,11 +185,13 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
 
     package func album(id: String) async throws -> CatalogAlbumSnapshot {
         let stamp = try admission()
+        let request = beginCollectionRead("spotify:album:\(id)")
+        defer { finishCollectionRead(request) }
         do {
             let value = try await read { try await $0.album(id: id) }
             try validate(stamp)
             await persist(
-                key: "spotify:album:\(id)", tracks: value.tracks,
+                request: request, tracks: value.tracks,
                 metadata: CatalogCollectionMetadata(
                     item: value.item, releaseDate: value.releaseDate, playCounts: value.playCounts,
                     albumArtists: value.artists),
@@ -290,7 +303,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
                 // A refused grant invalidates the proof that admitted saved content. A later
                 // live profile must verify it again; already suspended cache reads are fenced.
                 accountVerified = false
-                generation &+= 1
+                advanceGeneration()
                 finishEntitySubscriptions()
             }
             throw error
@@ -309,21 +322,55 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         }
     }
 
+    private func advanceGeneration() {
+        generation &+= 1
+        collectionReads.removeAll(keepingCapacity: false)
+    }
+
+    private func beginCollectionRead(_ key: String) -> CollectionRead {
+        let request = CollectionRead(key: key, fetchedAt: clock.now())
+        collectionReads[key] = request.id
+        return request
+    }
+
+    private func finishCollectionRead(_ request: CollectionRead) {
+        if collectionReads[request.key] == request.id {
+            collectionReads.removeValue(forKey: request.key)
+        }
+    }
+
+    private func beginCacheWrite() async {
+        cacheWritesInFlight += 1
+        guard cacheWritesInFlight > 1 else { return }
+        await withCheckedContinuation { cacheWriteWaiters.append($0) }
+    }
+
+    private func finishCacheWrite() {
+        cacheWritesInFlight -= 1
+        if cacheWriteWaiters.isEmpty {
+            retryEntityPagesAfterWrites()
+        } else {
+            cacheWriteWaiters.removeFirst().resume()
+        }
+    }
+
     private func persist(
-        key: String, tracks: [CatalogTrack], metadata: CatalogCollectionMetadata, stamp: UInt64
+        request: CollectionRead, tracks: [CatalogTrack], metadata: CatalogCollectionMetadata, stamp: UInt64
     ) async {
         guard active, stamp == generation, accountVerified, let storage else { return }
+        // Hold the write turn through the storage await. A newer response cannot commit first
+        // and then be overwritten by a previously queued write, even at equal clock samples.
+        await beginCacheWrite()
+        defer { finishCacheWrite() }
+        guard !Task.isCancelled, active, stamp == generation, accountVerified,
+            collectionReads[request.key] == request.id
+        else { return }
         cacheRevision &+= 1
-        cacheWritesInFlight += 1
-        defer {
-            cacheWritesInFlight -= 1
-            if cacheWritesInFlight == 0 { retryEntityPagesAfterWrites() }
-        }
         do {
             let changes = try await storage.replaceCollection(
                 CatalogCollectionWrite(
-                    key: key, occurrences: CatalogOccurrence.browsingRows(tracks),
-                    completeness: .complete, fetchedAt: clock.now(), metadata: metadata
+                    key: request.key, occurrences: CatalogOccurrence.browsingRows(tracks),
+                    completeness: .complete, fetchedAt: request.fetchedAt, metadata: metadata
                 ), scope: storage.scope
             )
             guard active, stamp == generation else { return }

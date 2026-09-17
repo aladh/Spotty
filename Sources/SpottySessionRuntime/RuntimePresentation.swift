@@ -107,10 +107,11 @@ package final class RuntimeCatalogMetadata {
     }
 
     package func knownTrack(for uri: String) -> CatalogTrack? {
-        for source in Source.allCases.reversed() {
-            if let track = tracks[source]?[uri] { return track }
+        var result: CatalogTrack?
+        for source in Source.allCases {
+            if let track = tracks[source]?[uri] { result = track.fillingMissingLinks(from: result) }
         }
-        return nil
+        return result
     }
 
     package func displayInfo(for uri: String) -> (title: String, artist: String) {
@@ -127,7 +128,7 @@ package final class RuntimeCatalogMetadata {
                     id: track.uri, uri: track.uri, title: track.title, artist: track.artist,
                     album: track.album, duration: track.duration, artworkURL: track.artworkURL,
                     addedAt: nil, artists: track.artists, albumItem: track.albumItem)
-                return (track.uri, entity)
+                return (track.uri, entity.fillingMissingLinks(from: tracks[source]?[track.uri]))
             }, uniquingKeysWith: { _, latest in latest })
         for uri in retained[source] ?? [] where replacement[uri] == nil {
             replacement[uri] = tracks[source]?[uri]
@@ -141,7 +142,7 @@ package final class RuntimeCatalogMetadata {
             for target in [Source.queue, .nowPlaying] {
                 let wanted = retained[target] ?? Set(tracks[target]?.keys.map { $0 } ?? [])
                 for (uri, track) in replacement where wanted.contains(uri) {
-                    tracks[target, default: [:]][uri] = track
+                    tracks[target, default: [:]][uri] = track.fillingMissingLinks(from: tracks[target]?[uri])
                 }
             }
         }

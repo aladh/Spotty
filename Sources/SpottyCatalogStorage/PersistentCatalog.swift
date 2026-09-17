@@ -54,7 +54,15 @@ public actor PersistentCatalog {
         try record.validate()
         let data = try encode(record, maximumBytes: CatalogPlaylistLibraryRecord.maximumBytes)
         try db.transaction {
-            if let previous = try playlistLibrary(scope: scope), previous.fetchedAt > record.fetchedAt { return }
+            let previous: CatalogPlaylistLibraryRecord?
+            do {
+                previous = try playlistLibrary(scope: scope)
+            } catch CatalogStorageError.invalidStoredData {
+                // A damaged snapshot has no freshness authority. A validated live result
+                // repairs only this record; database, lifetime and scope errors still fail.
+                previous = nil
+            }
+            if let previous, previous.fetchedAt > record.fetchedAt { return }
             try db.execute(
                 "INSERT INTO playlist_library(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
                 [.blob(data)])

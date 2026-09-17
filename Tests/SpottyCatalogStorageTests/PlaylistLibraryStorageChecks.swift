@@ -61,7 +61,7 @@ struct PlaylistLibraryStorageChecks {
         try await catalog.retire(scope: catalog.scope)
     }
 
-    @Test func versionOneUpgradeKeepsExistingCollectionsAndRejectsCorruptLibrary() async throws {
+    @Test func versionOneUpgradeKeepsCollectionsAndLiveRefreshRepairsCorruptLibrary() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let original = PersistentCatalog(rootDirectory: root, accountID: "synthetic")
@@ -88,7 +88,14 @@ struct PlaylistLibraryStorageChecks {
             try await corrupt.playlistLibrary(scope: corrupt.scope)
         }
         #expect(try await corrupt.collection(key: "album", scope: corrupt.scope)?.completeness == .complete)
-        try await corrupt.retire(scope: corrupt.scope)
+        let repaired = CatalogPlaylistLibraryRecord(nodes: tree(), fetchedAt: Date(timeIntervalSince1970: 101))
+        try await corrupt.replacePlaylistLibrary(repaired, scope: corrupt.scope)
+        #expect(try await corrupt.playlistLibrary(scope: corrupt.scope) == repaired)
+        try await corrupt.close(scope: corrupt.scope)
+        let reopened = PersistentCatalog(rootDirectory: root, accountID: "synthetic")
+        #expect(try await reopened.playlistLibrary(scope: reopened.scope) == repaired)
+        #expect(try await reopened.collection(key: "album", scope: reopened.scope)?.completeness == .complete)
+        try await reopened.retire(scope: reopened.scope)
     }
 
     private func tree() -> [PlaylistLibraryNode] {

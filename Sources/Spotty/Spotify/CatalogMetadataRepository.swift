@@ -52,7 +52,7 @@ final class CatalogMetadataRepository {
     func replaceTracks(_ tracks: [CatalogTrack], from source: TrackSource) {
         guard acceptCurrentSessionWrite() else { return }
         var replacement = Dictionary(
-            tracks.lazy.map { ($0.uri, $0) },
+            tracks.lazy.map { ($0.uri, $0.fillingMissingLinks(from: self.tracksBySource[source]?[$0.uri])) },
             uniquingKeysWith: { _, latest in latest }
         )
         // Queue metadata is deliberately retained only for the current ordering. Preserve those
@@ -77,9 +77,12 @@ final class CatalogMetadataRepository {
         guard !tracks.isEmpty, acceptCurrentSessionWrite() else { return }
         var updated = tracksBySource
         for track in tracks where !track.uri.isEmpty {
-            updated[source, default: [:]][track.uri] = track
+            updated[source, default: [:]][track.uri] = track.fillingMissingLinks(from: updated[source]?[track.uri])
         }
-        if source != .nowPlaying { promoteRetainedTracks(tracks, excluding: source, in: &updated) }
+        if source != .nowPlaying {
+            let learned = tracks.compactMap { updated[source]?[$0.uri] }
+            promoteRetainedTracks(learned, excluding: source, in: &updated)
+        }
         publishTracks(updated, affectedURIs: Set(tracks.map(\.uri)))
     }
 
@@ -123,7 +126,9 @@ final class CatalogMetadataRepository {
         guard contentEpoch == session.accountEpoch else { return [:] }
         var result: [String: CatalogTrack] = [:]
         for source in Self.runtimeTrackSources {
-            result.merge(tracksBySource[source] ?? [:]) { _, higherPriority in higherPriority }
+            result.merge(tracksBySource[source] ?? [:]) { lowerPriority, higherPriority in
+                higherPriority.fillingMissingLinks(from: lowerPriority)
+            }
         }
         return result
     }
@@ -217,7 +222,7 @@ final class CatalogMetadataRepository {
             guard let wanted = retainedTrackURIsBySource[retainedSource], !wanted.isEmpty else { continue }
             var retained = updated[retainedSource] ?? [:]
             for track in candidates where wanted.contains(track.uri) {
-                retained[track.uri] = track
+                retained[track.uri] = track.fillingMissingLinks(from: retained[track.uri])
             }
             updated[retainedSource] = retained
         }
@@ -228,20 +233,22 @@ final class CatalogMetadataRepository {
         in tracks: [TrackSource: [String: CatalogTrack]],
         excluding source: TrackSource? = nil
     ) -> CatalogTrack? {
-        for candidate in TrackSource.allCases.reversed() where candidate != source {
-            if let track = tracks[candidate]?[uri] { return track }
+        var result: CatalogTrack?
+        for candidate in TrackSource.allCases where candidate != source {
+            if let track = tracks[candidate]?[uri] { result = track.fillingMissingLinks(from: result) }
         }
-        return nil
+        return result
     }
 
     private static func runtimeTrack(
         for uri: String,
         in tracks: [TrackSource: [String: CatalogTrack]]
     ) -> CatalogTrack? {
-        for source in runtimeTrackSources.reversed() {
-            if let track = tracks[source]?[uri] { return track }
+        var result: CatalogTrack?
+        for source in runtimeTrackSources {
+            if let track = tracks[source]?[uri] { result = track.fillingMissingLinks(from: result) }
         }
-        return nil
+        return result
     }
 
     private static func item(

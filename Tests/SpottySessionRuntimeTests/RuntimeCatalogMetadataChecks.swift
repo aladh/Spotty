@@ -4,6 +4,39 @@ import Testing
 @testable import SpottySessionRuntime
 
 struct RuntimeCatalogMetadataTests {
+    @Test func partialBrowsingMetadataKeepsKnownPlayerLinksAcrossRouteReplacement() {
+        SessionRuntimeActor.sync {
+            let metadata = RuntimeCatalogMetadata()
+            let uri = "spotify:track:current"
+            let artist = CatalogItem(
+                id: "artist", uri: "spotify:artist:artist", title: "Artist", subtitle: "", artworkURL: nil,
+                kind: .artist)
+            let album = CatalogItem(
+                id: "album", uri: "spotify:album:album", title: "Album", subtitle: "", artworkURL: nil, kind: .album)
+            let rich = CatalogTrack(
+                id: uri, uri: uri, title: "Track", artist: "Artist", album: "Album", duration: 180,
+                artworkURL: nil, addedAt: nil, artists: [artist], albumItem: album)
+            metadata.replaceTracks([rich], from: .nowPlaying)
+            metadata.retainTracks(from: .queue, for: [uri])
+            let partial = track(uri, title: "Updated title")
+            metadata.replaceTracks([partial], from: .browsing)
+            #expect(metadata.knownTrack(for: uri)?.title == partial.title)
+            #expect(metadata.knownTrack(for: uri)?.artists == [artist])
+            #expect(metadata.knownTrack(for: uri)?.albumItem == album)
+            metadata.replaceTracks([], from: .browsing)
+            #expect(metadata.playbackTracks.first?.artists == [artist])
+            #expect(metadata.playbackTracks.first?.albumItem == album)
+            metadata.replaceTracks([rich], from: .browsing)
+            metadata.replaceTracks([partial], from: .browsing)
+            #expect(metadata.knownTrack(for: uri)?.artists == [artist])
+            #expect(metadata.knownTrack(for: uri)?.albumItem == album)
+            metadata.reset()
+            metadata.replaceTracks([partial], from: .nowPlaying)
+            #expect(metadata.knownTrack(for: uri)?.artists == [])
+            #expect(metadata.knownTrack(for: uri)?.albumItem == nil)
+        }
+    }
+
     @Test func browsingOccurrenceChangesDoNotPublishUnchangedPlaybackLabels() {
         SessionRuntimeActor.sync {
             let metadata = RuntimeCatalogMetadata()

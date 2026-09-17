@@ -3,6 +3,48 @@ import SpottyDomain
 import Testing
 
 struct CatalogTrackMetadataTests {
+    @Test(arguments: ["same", "uri", "artist", "album", "explicit"])
+    func missingLinksBorrowOnlyMatchingIdentityWithoutChangingRowAuthority(change: String) {
+        let known = track(uri: "spotify:track:one", id: "known")
+        let explicitArtist = item("replacement-artist", kind: .artist)
+        let explicitAlbum = item("replacement-album", kind: .album)
+        let partial = CatalogTrack(
+            id: "new-row", uri: change == "uri" ? "spotify:track:other" : known.uri,
+            title: "Updated title", artist: change == "artist" ? "Another artist" : known.artist,
+            album: change == "album" ? "Another album" : known.album, duration: 200, artworkURL: nil,
+            addedAt: Date(timeIntervalSince1970: 5), artists: change == "explicit" ? [explicitArtist] : [],
+            albumItem: change == "explicit" ? explicitAlbum : nil, occurrenceUID: "new-occurrence")
+        let resolved = partial.fillingMissingLinks(from: known)
+        #expect(resolved.id == partial.id && resolved.uri == partial.uri)
+        #expect(resolved.occurrenceUID == partial.occurrenceUID && resolved.addedAt == partial.addedAt)
+        #expect(resolved.title == partial.title && resolved.duration == partial.duration && resolved.artworkURL == nil)
+        #expect(resolved.artist == partial.artist && resolved.album == partial.album)
+        #expect(
+            resolved.artists
+                == (change == "explicit"
+                    ? [explicitArtist] : (["uri", "artist"].contains(change) ? [] : known.artists)))
+        #expect(
+            resolved.albumItem == (change == "explicit" ? explicitAlbum : (change == "same" ? known.albumItem : nil)))
+    }
+
+    @Test func partialEntityUpdatesKeepExistingDestinationsWithoutChangingOccurrences() throws {
+        let known = track(uri: "spotify:track:one", id: "display", uid: "server", addedAt: 1)
+        let partial = CatalogTrack(
+            id: "foreign", uri: known.uri, title: "Updated title", artist: known.artist, album: known.album,
+            duration: 200, artworkURL: nil, addedAt: nil)
+        let original = CatalogTrackCollection(tracks: [known])
+        let updated = try #require(
+            original.applyingMetadata([
+                known.uri: CatalogTrackMetadata(track: partial, requestedURI: known.uri)
+            ]))
+        let row = try #require(updated.tracks.first)
+        #expect(row.title == partial.title && row.duration == partial.duration)
+        #expect(row.artists == known.artists && row.albumItem == known.albumItem)
+        #expect(row.id == known.id && row.occurrenceUID == known.occurrenceUID && row.addedAt == known.addedAt)
+        #expect(
+            updated.applyingMetadata([known.uri: CatalogTrackMetadata(track: partial, requestedURI: known.uri)]) == nil)
+    }
+
     @Test func enrichmentPreservesNormalizedOccurrencesAndSourceOrder() throws {
         let requested = "spotify:track:requested"
         let original = CatalogTrackCollection(tracks: [

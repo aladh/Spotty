@@ -34,7 +34,8 @@ public struct CatalogTrackCollection: Sendable {
                 id: occurrence.id, uri: occurrence.uri, title: entity.title, artist: entity.artist,
                 album: entity.album, duration: entity.duration, artworkURL: entity.artworkURL,
                 addedAt: occurrence.addedAt, artists: entity.artists, albumItem: entity.albumItem,
-                occurrenceUID: occurrence.occurrenceUID)
+                occurrenceUID: occurrence.occurrenceUID
+            ).fillingMissingLinks(from: occurrence)
             if updated != occurrence { changed = true }
             return updated
         }

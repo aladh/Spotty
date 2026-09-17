@@ -21,6 +21,44 @@ struct CatalogMetadataObservationTests {
         return counters
     }
 
+    @Test func partialBrowsingMetadataKeepsKnownLinksWithoutExportingPlaybackAsBrowsing() {
+        let metadata = makeMetadata()
+        let uri = "spotify:track:current"
+        let artist = CatalogItem(
+            id: "artist", uri: "spotify:artist:artist", title: "Artist", subtitle: "", artworkURL: nil, kind: .artist)
+        let album = CatalogItem(
+            id: "album", uri: "spotify:album:album", title: "Album", subtitle: "", artworkURL: nil, kind: .album)
+        let rich = CatalogTrack(
+            id: uri, uri: uri, title: "Track", artist: "Artist", album: "Album", duration: 180,
+            artworkURL: nil, addedAt: nil, artists: [artist], albumItem: album)
+        let partial = CatalogTrack(
+            id: uri, uri: uri, title: "Updated title", artist: "Artist", album: "Album", duration: 180,
+            artworkURL: nil, addedAt: nil)
+        metadata.replaceTracks([rich], from: .nowPlaying)
+        metadata.retainTracks(from: .queue, for: [uri])
+        metadata.replaceTracks([partial], from: .playlist)
+        #expect(metadata.knownTrack(for: uri)?.title == partial.title)
+        #expect(metadata.knownTrack(for: uri)?.artists == [artist])
+        #expect(metadata.knownTrack(for: uri)?.albumItem == album)
+        #expect(
+            metadata.runtimeTracks[uri]?.artists == [], "playback links cannot be re-exported as browsing authority")
+        metadata.replaceTracks([], from: .playlist)
+        #expect(metadata.knownTrack(for: uri)?.artists == [artist])
+        #expect(metadata.knownTrack(for: uri)?.albumItem == album)
+        metadata.replaceTracks([rich], from: .album)
+        metadata.replaceTracks([partial], from: .album)
+        #expect(metadata.runtimeTracks[uri]?.artists == [artist], "genuine browsing links may enrich browsing input")
+        #expect(metadata.runtimeTracks[uri]?.albumItem == album)
+        let revision = metadata.runtimeTracksRevision
+        let reader = observe { _ = metadata.knownTrack(for: uri) }
+        metadata.cacheTracks([partial], from: .album)
+        #expect(reader.count("changes") == 0 && metadata.runtimeTracksRevision == revision)
+        metadata.reset()
+        metadata.replaceTracks([partial], from: .playlist)
+        #expect(metadata.knownTrack(for: uri)?.artists == [])
+        #expect(metadata.knownTrack(for: uri)?.albumItem == nil)
+    }
+
     @Test
     func unrelatedAndUnchangedWritesLeaveTrackReadersAsleep() {
         let metadata = makeMetadata()

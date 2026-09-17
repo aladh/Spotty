@@ -1,13 +1,27 @@
+import SpottyDomain
 import SwiftUI
 
 struct NowPlayingTrackIdentity: View {
     let player: PlaybackStore
+    let onSelect: (CatalogItem) -> Void
 
     var body: some View {
         HStack(spacing: 14) {
             Group {
                 if player.hasCurrentTrack {
-                    RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 3)
+                    if let album = player.catalogCurrentTrack?.albumItem {
+                        Button {
+                            onSelect(album)
+                        } label: {
+                            artwork
+                        }
+                        .buttonStyle(.plain)
+                        .pointingHandCursor()
+                        .accessibilityLabel("Open album \(album.title)")
+                        .accessibilityAddTraits(.isLink)
+                    } else {
+                        artwork
+                    }
                 } else {
                     ZStack {
                         RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.quaternary)
@@ -22,23 +36,31 @@ struct NowPlayingTrackIdentity: View {
             .frame(width: 56, height: 56)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(player.displayedTrackTitle)
-                    .font(.system(size: 14))
-                    .foregroundStyle(SpottyPalette.playerPrimary)
-                    .lineLimit(1)
-                Text(player.displayedArtistName)
-                    .font(.system(size: 12))
-                    .foregroundStyle(SpottyPalette.playerSecondary)
-                    .lineLimit(1)
+                CatalogTextLink(
+                    title: player.displayedTrackTitle, item: player.catalogCurrentTrack?.albumItem,
+                    color: SpottyPalette.playerPrimary, onSelect: onSelect
+                )
+                .font(.system(size: 14))
+                CatalogArtistLinks(
+                    artists: player.catalogCurrentTrack?.artists ?? [], fallback: player.displayedArtistName,
+                    color: SpottyPalette.playerSecondary, onSelect: onSelect
+                )
+                .font(.system(size: 12))
+                .lineLimit(1)
             }
             .contentTransition(.opacity)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(
             player.hasCurrentTrack
                 ? "Now playing \(player.displayedTrackTitle) by \(player.displayedArtistName)"
                 : "No track playing"
         )
+    }
+
+    private var artwork: some View {
+        RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 3)
+            .frame(width: 56, height: 56)
     }
 }
 

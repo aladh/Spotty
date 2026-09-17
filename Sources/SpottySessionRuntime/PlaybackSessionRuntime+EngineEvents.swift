@@ -431,8 +431,9 @@ extension PlaybackSessionRuntime {
                     [
                         CatalogTrack(
                             id: uri, uri: uri, title: metadata.title, artist: metadata.artist,
-                            album: "", duration: metadata.duration, artworkURL: metadata.artworkURL,
-                            addedAt: nil, artists: metadata.artists)
+                            album: metadata.albumItem?.title ?? "", duration: metadata.duration,
+                            artworkURL: metadata.artworkURL,
+                            addedAt: nil, artists: metadata.artists, albumItem: metadata.albumItem)
                     ], from: .nowPlaying)
                 self.history.applyMetadata(
                     uri: uri,

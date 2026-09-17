@@ -6,20 +6,18 @@
 
 ### Navigation and retained content
 
-- New windows open Home with Search unfocused; navigation resets across launches.
-  Show loading while checking saved login; offer Connect only when sign-in is needed.
-  Playlists open from the sidebar, without a playlist-grid destination.
-- Same-account revisits restore retained playlist, album, and artist content immediately. Playlists
-  retain search, table sort, occurrence selection, and scroll. Artists retain scroll, Popular selection and
-  expansion, and discography filters, sort, layout and list scroll. Filtering clears hidden selections; removed occurrences never
-  regain selection. Account changes clear history and interaction state. Retention is bounded;
-  evicted routes reload normally.
+- New windows open Home with Search unfocused; navigation resets on launch.
+  Show loading while checking saved login; offer Connect when sign-in is needed.
+  Sidebar playlists open directly, without grids.
+- Same-account revisits restore retained playlists/albums/artists immediately. Playlists
+  retain search, sort, occurrence selection, and scroll. Artists retain scroll, Popular selection/expansion,
+  and discography filters/sort/layout/list scroll. Filtering clears hidden selections; removed occurrences stay
+  unselected. Account changes clear history/interaction state. Retention is bounded; evicted routes reload normally.
 - Playlists/albums share learned labels for matching tracks across active and retained pages,
   preserving duplicates, order, and interaction state. Refreshed labels do not
   make saved collections current.
-- Valid `spotify:` resource URIs and `https://open.spotify.com` links open playlist, album, or
-  artist details without playback. Unsupported resources, malformed links, and lookalike hosts
-  leave navigation unchanged.
+- Valid `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
+  playback. Unsupported resources, malformed links, and lookalike hosts leave navigation unchanged.
 - Complete saved playlist/album results remain usable after offline, timeout, or throttled reads
   only after this process verifies the matching account. Label them possibly out of date, including
   during refresh. Credential or account failures cannot become cached success or expose another
@@ -28,27 +26,31 @@
 ### Album and artist pages
 
 - Album headers show artwork, large responsive titles, artist links, year, song count, and runtime.
-  Credits follow link behavior below. Scrolling compacts headers to title and Play. Numbered 56-point rows show
-  linked artists below titles and optional play counts before duration. Narrow widths hide counts, retaining durations;
+  Credits follow link behavior below. Scrolling compacts headers to title/Play. Numbered 56-point rows show
+  linked artists below titles and optional play counts before duration; narrow widths hide counts, retaining durations;
   omit repeated album names and thumbnails. Selection, sorting, focus, and retained scrolling match playlists.
   Truncate row durations to seconds; truncate summed original durations once for headers, allowing totals to differ.
 - Artists show a full-width banner, large name, and known verification/monthly listeners. Without a banner,
-  use a tinted hero and known portrait; omit unknown facts. Hero, Popular, Discography and Featuring share native
+  use a tinted hero and known portrait; omit unknown facts. Hero, Popular, Discography, Featuring and About share native
   scrolling with Play/shuffle, compacting to title/Play.
 - Popular previews up to five ranked 56-point rows, expandable to returned tracks, with artwork, title, duration and
   optional play counts hidden at narrow widths. Label unavailable tracks and disable playback. Preserve native
   selection, Return and double-click behavior.
 - Discography previews popular releases in one horizontally scrolling row with type filters and year/type labels.
   Featuring shows Spotify's playlists in order with artwork and descriptions; omit empty rows.
-  Show all loads full discography: history-aware list/grid, release filters and date/name sorting. Visible tracks load
-  without shifting other content. No follow, save or download controls.
+  About follows Featuring: gallery image or portrait, monthly listeners, biography preview.
+  Click for full biography and follower/listener counts; omit empty sections/unknown facts.
+  Discovered on and Artist Playlists follow About when returned, preserving order/descriptions.
+  Cards use pointing hands; vertical wheel input scrolls the page, horizontal scrolls the shelf.
+  Show all opens full discography: history-aware list/grid, release filters and date/name sorting.
+  Loading visible tracks preserves layout. No follow, save or download controls.
 
 ### Window and toolbar
 
-- The native resizable sidebar starts near 208 points (range 180–260); the inspector near 280
-  (260–360). Keep the library visible; a native command toggles the inspector.
+- The native resizable sidebar starts near 208 points (180–260); inspector near 280 (260–360).
+  Keep the library visible; a native command toggles the inspector.
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
-  standard window controls, geometry, and hit targets; do not reposition them. Empty toolbar space
+  window controls, geometry, and hit targets; never reposition them. Empty toolbar space
   drags the window and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
   Enabled history arrows show pointing hands on hover; unavailable directions stay disabled.
   Home/Search controls stay 48 points high with breathing room and native Home focus.
@@ -63,9 +65,7 @@
 ### Library sidebar
 
 - Preserve Spotify's custom playlist order and nested folders across pagination. Expansion is local;
-  folder failure keeps the previous complete library. Share a four-request concurrency limit so
-  collapsed folders need not load serially. Show progress for an empty loading library; retain the
-  flat catalog for navigation and playlist actions.
+  folder failure keeps the previous complete library. Share four concurrent requests across collapsed folders. Show progress for an empty loading library; retain the flat catalog for navigation and playlist actions.
 - Use an opaque near-black surface, 48-point artwork, 16-point titles, muted 14-point owner or fallback
   labels, and native keyboard selection/scrolling. Rows use a pointing hand; artwork reveals Play
   on hover while the rest opens details. Selection is neutral gray with native active/inactive
@@ -77,14 +77,13 @@
 
 ### Queue inspector and player
 
-- Near-black Queue and Recently played text tabs use a green active underline. Rows pair 48-point artwork
-  with title and artist; duration and history timestamps stay accessible without narrowing titles.
+- Near-black Queue and Recently played tabs use green active underlines. Rows pair 48-point artwork
+  with title/artist; duration/history timestamps stay accessible without narrowing titles.
   Playlist queues show “Next from:” with the known playlist link, following accepted context
-  without starting playback. Ordering/history retain playback-owned sources.
-- Known queue artists and playlist-table artists/albums link to details; each artist links
-  separately. Unknown destinations remain text. Links underline, turn white, and use a pointing
-  hand on hover. Queue rows and enabled playback buttons also use the pointer; other playlist
-  cells retain the arrow. Native nested pointer regions restore the parent's cursor on exit.
+  without playback. Ordering/history remain playback-owned.
+- Known queue artists, playlist-table artists/albums, and player artists link to details individually;
+  player title/artwork open the album. Unknown destinations remain noninteractive. Text links underline and turn
+  white on hover; all links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore the parent cursor on exit.
 - Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
   hover. Row clicks select; artwork buttons, Return, and double-click start the deliberate action.
 - Seeking uses a 4-point gray rail and white played portion. Hover, keyboard focus, or dragging
@@ -93,9 +92,9 @@
 
 ## Transient mutation feedback
 
-- User mutations, including playlist management and Add to Queue, share the app-composed
+- Mutations, including playlist management and Add to Queue, share the
   `TransientFeedbackPresenter`.
 - Show one non-modal banner above the player without stealing focus, intercepting unrelated
-  input, or moving layout. New messages replace old ones; cancelled dismissal cannot clear a replacement.
-- Durable connection, session, playback, and reconciliation status stays with its existing owners
+  input, or shifting layout. New messages replace old; cancelled dismissal cannot clear replacements.
+- Durable connection, session, playback, and reconciliation status stays with existing owners
   (`PlaybackNotice`/now-playing text), not transient banners.

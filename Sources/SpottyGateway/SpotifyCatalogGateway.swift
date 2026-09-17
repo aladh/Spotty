@@ -238,7 +238,13 @@ extension CatalogMapping {
                     isVerified: value.onPlatformReputationTrait?.verification?.isVerified == true,
                     popularTracks: popularTracks,
                     popularReleases: popularReleases.compactMap { item(from: $0, artist: value.profile?.name ?? "") },
-                    featuringPlaylists: featuringPlaylists(from: value))
+                    featuringPlaylists: artistPlaylists(value.relatedContent?.featuringV2),
+                    biography: value.profile?.biography?.text.map(PlaylistDescription.plainText),
+                    aboutArtworkURL: (value.visuals?.gallery?.items?.first?.largestURL
+                        ?? value.visuals?.avatarImage?.largestURL).flatMap(URL.init(string:)),
+                    followers: value.stats?.followers.flatMap { $0 >= 0 ? $0 : nil },
+                    discoveredOnPlaylists: artistPlaylists(value.relatedContent?.discoveredOnV2),
+                    artistPlaylists: artistPlaylists(value.profile?.playlistsV2))
             }, releaseKinds: kinds,
             releaseDates: Dictionary(
                 (value.releases + popularReleases).compactMap { release in
@@ -247,13 +253,14 @@ extension CatalogMapping {
                 }, uniquingKeysWith: { first, _ in first }))
     }
 
-    private static func featuringPlaylists(from artist: PathfinderArtistUnion) -> [CatalogItem] {
+    private static func artistPlaylists(_ playlists: PathfinderItems<PathfinderPlaylist>?) -> [CatalogItem] {
         var seen = Set<String>()
-        return (artist.relatedContent?.featuringV2?.entities ?? []).compactMap { playlist in
+        return (playlists?.entities ?? []).compactMap { playlist in
             guard let item = item(from: playlist), seen.insert(item.uri).inserted else { return nil }
+            let description = PlaylistDescription.plainText(from: playlist.description ?? "")
             return CatalogItem(
                 id: item.id, uri: item.uri, title: item.title,
-                subtitle: PlaylistDescription.plainText(from: playlist.description ?? ""),
+                subtitle: description.isEmpty ? item.subtitle : description,
                 artworkURL: item.artworkURL, kind: .playlist, ownerURI: item.ownerURI)
         }
     }

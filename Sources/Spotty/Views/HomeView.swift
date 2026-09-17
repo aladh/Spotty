@@ -153,8 +153,8 @@ struct MediaCardRow: View {
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 12) {
+        NativeHorizontalScroll {
+            HStack(alignment: .top, spacing: 12) {
                 ForEach(items) { item in
                     MediaCard(item: item, playback: playback, titleLineLimit: titleLineLimit) { onSelect(item) }
                 }
@@ -206,6 +206,7 @@ struct MediaCard: View {
         }
         .buttonStyle(.plain)
         .hoverSurface(isHovering: $isHovering)
+        .pointingHandCursor()
         .help(item.kind == .track ? "Play \(item.title)" : "Open \(item.title)")
         .accessibilityLabel("\(item.title), \(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)")
         .accessibilityHint(item.kind == .track ? "Starts playback" : "Opens details")

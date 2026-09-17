@@ -29,13 +29,18 @@ Artist reference: Spotify desktop **1.3.0.277**, **Dan be**, inspected on **2026
 and scrolled through Popular and Discography. The full-width photographic banner, oversized artist
 name, verification/listener lines, numbered artwork rows, compact scrolled header, and discography
 chips inform the [artist presentation contract](navigation.md#window-and-navigation-behavior).
-Spotty uses its shared Play and shuffle controls and omits follow, save, download, Artist pick, and other
-unsupported recommendation/editorial sections except Featuring playlists. The full discography opens a separate page with list/grid
+Spotty uses its shared Play and shuffle controls and omits follow, save, download, Artist pick,
+Fans also like and Appears On. The full discography opens a separate page with list/grid
 layouts, release-type filters and date/name sorting. Artist play counts are shown when available and hidden at narrow widths.
 Radiohead’s full discography, inspected on the same date, supplies the list/grid reference.
 The reference captures remain local; synthetic Demo artists provide repeatable inspection fixtures.
 The user-supplied **2026-09-16** Dan be screenshot supplies the single-row Discography and Featuring
 playlist reference, including descriptions beneath playlist titles.
+On **2026-09-16**, Spotify **1.3.0.277** was inspected read-only on Dan be and Angelo Ferreri:
+About uses a rounded photographic card with a listener count and biography preview, opening a full biography;
+Discovered on and Artist Playlists follow it. Spotty supports these returned playlist rows and an About sheet
+with the first gallery image, biography and audience counts; gallery paging, city rankings, social links and
+Spotify's profile-authenticity explanation remain outside the supported surface.
 
 ## Retained anchors
 

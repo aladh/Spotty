@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NowPlayingBar: View {
     let player: PlaybackStore
+    let onSelect: (CatalogItem) -> Void
     @Binding var showsSidePanel: Bool
     @Binding var playbackPanel: PlaybackPanel
 
@@ -16,7 +17,7 @@ struct NowPlayingBar: View {
 
             GeometryReader { geometry in
                 HStack(spacing: 18) {
-                    NowPlayingTrackIdentity(player: player)
+                    NowPlayingTrackIdentity(player: player, onSelect: onSelect)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(spacing: 8) {

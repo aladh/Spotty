@@ -36,7 +36,16 @@ extension BrowsingFixtures {
                 headerArtworkURL: index < 2 ? item.artworkURL : nil,
                 monthlyListeners: index < 3 ? 1_234_567 : nil, isVerified: index < 2,
                 popularTracks: tracks, popularReleases: Array(releases.prefix(6)),
-                featuringPlaylists: featuringPlaylists(artistIndex: index)),
+                featuringPlaylists: featuringPlaylists(artistIndex: index),
+                biography: index == 4
+                    ? nil
+                    : "\(item.title) brings warm melodies and late-night rhythms to the dance floor. "
+                        + "From intimate rooms to open-air stages, their music follows the moments that bring people together.\n\n"
+                        + "Their latest releases blend live instruments with electronic textures, shaped by years of collaboration and travel.",
+                aboutArtworkURL: index < 3 ? item.artworkURL : nil,
+                followers: index < 3 ? 42_815 : nil,
+                discoveredOnPlaylists: index == 4 ? [] : featuringPlaylists(artistIndex: 0),
+                artistPlaylists: index == 4 ? [] : featuringPlaylists(artistIndex: index)),
             releaseKinds: Dictionary(
                 uniqueKeysWithValues: releases.enumerated().map { ($0.element.uri, kinds[$0.offset % kinds.count]) }),
             releaseDates: Dictionary(

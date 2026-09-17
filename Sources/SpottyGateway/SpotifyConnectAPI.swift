@@ -307,8 +307,13 @@ private nonisolated struct SpotifyConnectTrackResponse: Decodable, Sendable {
             let image: [Image]?
         }
         let coverGroup: CoverGroup?
+        let name: String?
+        let gid: String?
 
-        enum CodingKeys: String, CodingKey { case coverGroup = "cover_group" }
+        enum CodingKeys: String, CodingKey {
+            case coverGroup = "cover_group"
+            case name, gid
+        }
     }
 
     let name: String?
@@ -396,6 +401,14 @@ nonisolated struct SpotifyConnectAPI: Sendable {
                 else { return nil }
                 let uri = "spotify:artist:\(id)"
                 return CatalogItem(id: uri, uri: uri, title: name, subtitle: "Artist", artworkURL: nil, kind: .artist)
+            },
+            albumItem: response.album.flatMap { album in
+                guard let name = album.name, !name.isEmpty, let gid = album.gid,
+                    let id = SpotifyConnectGID.base62(fromHex: gid)
+                else { return nil }
+                let uri = "spotify:album:\(id)"
+                return CatalogItem(
+                    id: uri, uri: uri, title: name, subtitle: "Album", artworkURL: artworkURL, kind: .album)
             }
         )
     }

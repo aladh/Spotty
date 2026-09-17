@@ -9,7 +9,7 @@ private let fixtureURI = "spotify:track:6rqhFgbbKwnb9MLmUQDhG6"
 private let otherFixtureURI = "spotify:track:0000000000000000000001"
 
 private let metadataBody = Data(
-    #"{"name":"Fixture Title","artist":[{"name":"First","gid":"00000000000000000000000000000001"},{"name":"Second","gid":"0000000000000000000000000000003e"}],"album":{"cover_group":{"image":[{"file_id":"small","width":64,"height":64},{"file_id":"large","width":300,"height":300}]}},"duration":123000}"#
+    #"{"name":"Fixture Title","artist":[{"name":"First","gid":"00000000000000000000000000000001"},{"name":"Second","gid":"0000000000000000000000000000003e"}],"album":{"name":"Fixture Album","gid":"0000000000000000000000000000003e","cover_group":{"image":[{"file_id":"small","width":64,"height":64},{"file_id":"large","width":300,"height":300}]}},"duration":123000}"#
         .utf8
 )
 
@@ -35,6 +35,9 @@ struct ConnectMetadataTransportTests {
                     "spotify:artist:0000000000000000000001", "spotify:artist:0000000000000000000010",
                 ])
             #expect(metadata?.artists.map(\.title) == ["First", "Second"])
+            #expect(metadata?.albumItem?.uri == "spotify:album:0000000000000000000010")
+            #expect(metadata?.albumItem?.title == "Fixture Album")
+            #expect(metadata?.albumItem?.artworkURL == metadata?.artworkURL)
             #expect((metadata?.duration) == (123.0), "duration is milliseconds")
             #expect(
                 (metadata?.artworkURL) == (URL(string: "https://i.scdn.co/image/large")),

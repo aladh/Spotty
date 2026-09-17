@@ -29,6 +29,7 @@ struct RemoteArtwork: View {
     let kind: CatalogItem.Kind
     let cornerRadius: CGFloat
     var showsBorder = true
+    var contentMode: ContentMode = .fill
     @Environment(\.artworkAccess) private var artwork
     @Environment(\.displayScale) private var displayScale
     @State private var loaded: LoadedArtwork?
@@ -49,7 +50,7 @@ struct RemoteArtwork: View {
                 if let loaded, loaded.request == request {
                     Image(decorative: loaded.image, scale: displayScale)
                         .resizable()
-                        .scaledToFill()
+                        .aspectRatio(contentMode: contentMode)
                 } else {
                     placeholder
                 }

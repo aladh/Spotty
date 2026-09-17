@@ -6,20 +6,34 @@ struct SidebarView: View {
     let library: [PlaylistLibraryNode]
     let playback: CatalogPlaybackAccess
     var isLoading = false
+    var isCached = false
+    var isRefreshing = false
+    var error: String?
     @State private var expandedFolders: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Your Library")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(SpottyPalette.textPrimary)
-                .padding(.leading, 16)
-                .padding(.vertical, 12)
-                .accessibilityAddTraits(.isHeader)
+            HStack {
+                Text("Your Library")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(SpottyPalette.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                if isCached || error != nil {
+                    Image(systemName: error == nil ? "clock" : "exclamationmark.circle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(SpottyPalette.textSecondary)
+                        .help(libraryStatus)
+                        .accessibilityLabel(libraryStatus)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
 
             NativeOccurrenceList(
                 rows: nativeRows, selection: nativeSelection,
                 allowsMultipleSelection: false, drawsSelection: false,
+                preservesVisibleAnchor: true,
                 accessibilityLabel: "Playlists"
             )
             .overlay {
@@ -31,6 +45,11 @@ struct SidebarView: View {
             }
         }
         .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+    }
+
+    private var libraryStatus: String {
+        if let error { return isCached ? "Showing saved playlists. \(error)" : error }
+        return isRefreshing ? "Showing saved playlists while updating" : "Saved playlists may be out of date"
     }
 
     private var nativeSelection: Binding<Set<String>> {

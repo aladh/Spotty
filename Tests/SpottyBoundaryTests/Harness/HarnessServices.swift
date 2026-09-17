@@ -773,6 +773,7 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
         var onHome: (@Sendable () async throws -> PathfinderHome)?
         var onLibraryPlaylists: (@Sendable () async throws -> [PathfinderPlaylist])?
         var onPlaylistLibrary: (@Sendable () async throws -> [PlaylistLibraryNode])?
+        var onCachedPlaylistLibrary: (@Sendable () async throws -> CatalogPlaylistLibrarySnapshot?)?
         var onLibraryAlbums: (@Sendable () async throws -> [PathfinderAlbum])?
         var onLibraryArtists: (@Sendable () async throws -> [PathfinderArtist])?
         var onLibraryTracks: (@Sendable () async throws -> [PathfinderLibraryTrackItem])?
@@ -840,6 +841,11 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
     var onPlaylistLibrary: (@Sendable () async throws -> [PlaylistLibraryNode])? {
         get { withStorage { $0.onPlaylistLibrary } }
         set { withStorage { $0.onPlaylistLibrary = newValue } }
+    }
+
+    var onCachedPlaylistLibrary: (@Sendable () async throws -> CatalogPlaylistLibrarySnapshot?)? {
+        get { withStorage { $0.onCachedPlaylistLibrary } }
+        set { withStorage { $0.onCachedPlaylistLibrary = newValue } }
     }
 
     var onLibraryAlbums: (@Sendable () async throws -> [PathfinderAlbum])? {
@@ -968,6 +974,10 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
         return try await libraryPlaylists()
             .compactMap(CatalogMapping.item(from:))
             .map(PlaylistLibraryNode.init(playlist:))
+    }
+
+    func cachedPlaylistLibrary() async throws -> CatalogPlaylistLibrarySnapshot? {
+        try await onCachedPlaylistLibrary?()
     }
 
     func libraryAlbums() async throws -> [CatalogItem] {

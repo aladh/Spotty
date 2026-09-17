@@ -36,6 +36,7 @@ final class HomeLibraryStore {
     private(set) var homeSections: [CatalogSection] = []
     private(set) var playlists: [CatalogItem] = []
     private(set) var playlistLibrary: [PlaylistLibraryNode] = []
+    private(set) var playlistLibraryIsCached = false
     private(set) var albums: [CatalogItem] = []
     private(set) var artists: [CatalogItem] = []
     private(set) var likedTrackCollection = CatalogTrackCollection()
@@ -45,6 +46,7 @@ final class HomeLibraryStore {
     private(set) var errors: [Section: String] = [:]
 
     var isLoading: Bool { !loadingSections.isEmpty }
+    var isLoadingInitialPlaylists: Bool { isLoading(.playlists) && !loadedSections.contains(.playlists) }
     var error: String? {
         let messages = Section.allCases.compactMap { section in
             errors[section].map { "\(section.rawValue): \($0)" }
@@ -77,6 +79,7 @@ final class HomeLibraryStore {
         homeSections = []
         playlists = []
         playlistLibrary = []
+        playlistLibraryIsCached = false
         albums = []
         artists = []
         likedTrackCollection.replace([])
@@ -85,8 +88,8 @@ final class HomeLibraryStore {
         errors = [:]
     }
 
-    /// Launch-critical content only: Home, profile, and playlists for the sidebar. These requests
-    /// run concurrently and publish independently; albums, artists, and liked tracks are lazy.
+    /// Home and profile publish independently. The sidebar verifies the profile, restores saved
+    /// content, then refreshes; albums, artists, and liked tracks are lazy.
     func load() async {
         let interval = SpottyLog.catalogSignposter.beginInterval("Initial catalog load")
         defer { SpottyLog.catalogSignposter.endInterval("Initial catalog load", interval) }
@@ -182,6 +185,21 @@ final class HomeLibraryStore {
         await flight.run(handle) { [weak self] in
             guard let self else { return }
             do {
+                if section == .playlists {
+                    // The live profile opens the matching disk partition. Joining the profile
+                    // flight keeps account proof shared with startup and explicit library retries.
+                    await self.loadProfile()
+                    guard self.flight.isCurrent(handle) else { return }
+                    if !self.loadedSections.contains(.playlists),
+                        let cached = try await self.provider.cachedPlaylistLibrary()
+                    {
+                        guard self.flight.isCurrent(handle) else { return }
+                        self.applyPlaylistLibrary(cached.nodes, cached: true)
+                        self.loadedSections.insert(.playlists)
+                        SpottyLog.catalog.info("Saved playlist library restored")
+                    }
+                }
+                guard self.flight.isCurrent(handle) else { return }
                 let payload = try await operation()
                 guard self.flight.isCurrent(handle) else { return }
                 switch payload {
@@ -193,9 +211,7 @@ final class HomeLibraryStore {
                     self.profileName = name
                     self.profileURI = uri
                 case let .playlistLibrary(nodes):
-                    self.playlistLibrary = nodes
-                    self.playlists = nodes.flatMap(\.playlists)
-                    self.updateLibraryItemCache()
+                    self.applyPlaylistLibrary(nodes, cached: false)
                 case let .items(items):
                     if section == .albums { self.albums = items }
                     if section == .artists { self.artists = items }
@@ -215,6 +231,9 @@ final class HomeLibraryStore {
         SpottyLog.catalog.info("Catalog section started: \(section.rawValue, privacy: .public)")
         loadingSections.insert(section)
         errors[section] = nil
+        if section == .playlists, loadedSections.contains(.playlists) {
+            applyPlaylistLibrary(playlistLibrary, cached: true)
+        }
     }
 
     private func succeed(_ section: Section, handle: Flight.Handle) {
@@ -235,6 +254,16 @@ final class HomeLibraryStore {
         handle: Flight.Handle
     ) {
         guard flight.shouldReport(error, for: handle) else { return }
+        if section == .playlists {
+            if error as? CatalogReadFailure == .sessionExpired {
+                applyPlaylistLibrary([], cached: false)
+                loadedSections.remove(.playlists)
+            } else if loadedSections.contains(.playlists) {
+                // Retained rows remain navigable, but cannot offer historical ownership as
+                // current edit permission after a refresh failure.
+                applyPlaylistLibrary(playlistLibrary, cached: true)
+            }
+        }
         SpottyLog.catalog.error(
             "Catalog section failed: \(section.rawValue, privacy: .public); error=\(String(describing: type(of: error)), privacy: .public)"
         )
@@ -244,4 +273,12 @@ final class HomeLibraryStore {
     private func updateLibraryItemCache() {
         metadata.replaceItems(playlists + albums + artists, from: .library)
     }
+
+    private func applyPlaylistLibrary(_ nodes: [PlaylistLibraryNode], cached: Bool) {
+        playlistLibrary = cached ? nodes.map(\.withoutOwnership) : nodes
+        playlists = playlistLibrary.flatMap(\.playlists)
+        playlistLibraryIsCached = cached
+        updateLibraryItemCache()
+    }
+
 }

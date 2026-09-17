@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "mode": "playback",
+  "trackCount": 1000,
+  "artworkCount": 48,
+  "artworkPixels": 640,
+  "cycles": 1,
+  "dwellMilliseconds": 250,
+  "expandedLibrary": true,
+  "cachedPlaylistLibrary": true,
+  "playlistRefreshMilliseconds": 15000
+}

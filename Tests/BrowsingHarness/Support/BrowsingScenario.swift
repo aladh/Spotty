@@ -31,6 +31,9 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var combinedHydration: Bool? = nil
     /// Rich interactive library; omitted in historical measurement scenarios.
     var expandedLibrary: Bool? = nil
+    /// Repeatable saved-sidebar inspection while the synthetic refresh is delayed.
+    var cachedPlaylistLibrary: Bool? = nil
+    var playlistRefreshMilliseconds: Int? = nil
     /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
     var forceSynchronousLayout: Bool? = nil
 
@@ -38,7 +41,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
         guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),
             (combinedHydration != true || mode == .playback), (1...96).contains(artworkCount),
             [64, 640, 1_280].contains(artworkPixels),
-            (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds)
+            (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds),
+            (0...60_000).contains(playlistRefreshMilliseconds ?? 0)
         else { throw BrowsingFailure.invalidScenario }
     }
 

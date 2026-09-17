@@ -106,6 +106,9 @@ struct BrowsingHarnessTests {
         input = scenario()
         input.artworkPixels = 100_000
         #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
+        input.playlistRefreshMilliseconds = 60_001
+        #expect(throws: (any Error).self) { try input.validate() }
         #expect(throws: (any Error).self) { try BrowsingScenario.decode(Data("{}".utf8)) }
         let first = try BrowsingFixtures(scenario: scenario(), artworkDirectory: root.appendingPathComponent("first"))
         let second = try BrowsingFixtures(scenario: scenario(), artworkDirectory: root.appendingPathComponent("second"))
@@ -120,6 +123,19 @@ struct BrowsingHarnessTests {
             CGImageSourceCreateWithData(try Data(contentsOf: first.artworkURLs[0]) as CFData, nil))
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(image.width == 64 && image.height == 64)
+    }
+
+    @Test func savedSidebarFixturePreservesTheLiveTreeWithoutOwnership() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyStartupDemo-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.expandedLibrary = true
+        input.cachedPlaylistLibrary = true
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let cached = try #require(try await world.cachedPlaylistLibrary())
+        #expect(world.snapshot().requests["library"] == nil)
+        #expect(try await world.playlistLibrary().map(\.withoutOwnership) == cached.nodes)
+        #expect(world.snapshot().mutationAttempts == 0)
     }
 
     @Test

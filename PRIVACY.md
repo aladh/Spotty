@@ -34,13 +34,14 @@ Updates require the user to choose installation.
 - Local preferences (`UserDefaults`) also retain a random installation/device identifier and
   playback preferences, including shuffle history. The playback inspector's open/closed state and
   selected panel instead use SwiftUI `@SceneStorage`, not `UserDefaults`.
-- Previously fetched playlist and album browsing metadata is retained in an account-partitioned
+- The playlist library's complete folder tree and previously fetched playlist and album browsing
+  metadata are retained in an account-partitioned
   SQLite catalog under `~/Library/Application Support/Spotty/Catalog/`. Partition names are
   derived from the account identifier; hashing a directory name does not anonymize its contents.
   Private directory and file permissions limit access to the macOS user, but the catalog is not
   encrypted and other processes running as that user can read it. The cache has explicit entity,
   collection, record, and database-size bounds. It stores typed track/item labels, artwork URLs,
-  ordered browsing occurrences, collection metadata, and freshness—not OAuth grants, raw service
+  playlist/folder ordering, ordered browsing occurrences, collection metadata, and freshness—not OAuth grants, raw service
   responses, artwork bytes, or audio. A current live profile must verify the account before that
   process reads its partition; a saved partition cannot authorize sign-in or playlist edits.
 - Completed playlist, album, and artist pages also have bounded in-memory snapshots. Window-local

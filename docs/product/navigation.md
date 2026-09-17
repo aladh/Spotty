@@ -6,8 +6,8 @@
 
 ### Navigation and retained content
 
-- New windows open Home with Search unfocused; navigation resets on launch.
-  Show loading while checking saved login; offer Connect when sign-in is needed.
+- Windows open Home with Search unfocused; launch resets navigation.
+  Show loading while checking saved login; offer Connect for sign-in.
   Sidebar playlists open directly, without grids.
 - Same-account revisits restore retained playlists/albums/artists immediately. Playlists
   retain search, sort, occurrence selection, and scroll. Artists retain scroll, Popular selection/expansion,
@@ -16,8 +16,8 @@
 - Playlists/albums share learned labels for matching tracks across active and retained pages,
   preserving duplicates, order, and interaction state. Refreshed labels do not
   make saved collections current.
-- Valid `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
-  playback. Unsupported resources, malformed links, and lookalike hosts leave navigation unchanged.
+- `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
+  playback. Unsupported resources, malformed links, and lookalike hosts do nothing.
 - Complete saved playlist/album results remain usable after offline, timeout, or throttled reads
   only after this process verifies the matching account. Label them possibly out of date, including
   during refresh. Credential or account failures cannot become cached success or expose another
@@ -64,8 +64,11 @@
 
 ### Library sidebar
 
-- Preserve Spotify's custom playlist order and nested folders across pagination. Expansion is local;
-  folder failure keeps the previous complete library. Share four concurrent requests across collapsed folders. Show progress for an empty loading library; retain the flat catalog for navigation and playlist actions.
+- Preserve custom playlist order and nested folders across pagination, with local expansion and four
+  concurrent folder requests. After account verification, show the complete saved library, even empty,
+  during refresh; otherwise show progress. Failed refresh preserves rows and interaction, with a
+  stale/error indicator. Credential failure clears saved content; cached ownership cannot enable edits.
+  Retain the flat catalog for navigation and playlist actions.
 - Use an opaque near-black surface, 48-point artwork, 16-point titles, muted 14-point owner or fallback
   labels, and native keyboard selection/scrolling. Rows use a pointing hand; artwork reveals Play
   on hover while the rest opens details. Selection is neutral gray with native active/inactive
@@ -92,9 +95,8 @@
 
 ## Transient mutation feedback
 
-- Mutations, including playlist management and Add to Queue, share the
-  `TransientFeedbackPresenter`.
-- Show one non-modal banner above the player without stealing focus, intercepting unrelated
-  input, or shifting layout. New messages replace old; cancelled dismissal cannot clear replacements.
+- Playlist/queue mutations share `TransientFeedbackPresenter`.
+- Show one non-modal banner above the player, preserving focus, input, and layout. New messages
+  replace old; cancelled dismissal cannot clear replacements.
 - Durable connection, session, playback, and reconciliation status stays with existing owners
   (`PlaybackNotice`/now-playing text), not transient banners.

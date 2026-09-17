@@ -26,6 +26,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private var accountMismatch = false
     private var cacheRevision: UInt64 = 0
     private var cacheWritesInFlight = 0
+    private var libraryReadRevision: UInt64 = 0
     private var accountLifetime = UUID()
     private enum EntityQueryAvailability { case unbound, available, degraded }
     private var entityQueryAvailability: EntityQueryAvailability = .unbound
@@ -217,7 +218,36 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         try await read { try await $0.home() }
     }
     package func playlistLibrary() async throws -> [PlaylistLibraryNode] {
-        try await read { try await $0.playlistLibrary() }
+        let stamp = try admission()
+        libraryReadRevision &+= 1
+        let revision = libraryReadRevision
+        let fetchedAt = clock.now()
+        let nodes = try await source.playlistLibrary()
+        try validate(stamp)
+        if revision == libraryReadRevision, let storage {
+            do {
+                try await storage.replacePlaylistLibrary(
+                    CatalogPlaylistLibraryRecord(nodes: nodes, fetchedAt: fetchedAt), scope: storage.scope)
+            } catch {
+                SpottyLog.catalog.warning("Playlist library could not be retained")
+            }
+        }
+        try validate(stamp)
+        return nodes
+    }
+
+    package func cachedPlaylistLibrary() async throws -> CatalogPlaylistLibrarySnapshot? {
+        let stamp = try admission()
+        guard let storage, accountURI != nil else { return nil }
+        do {
+            guard let record = try await storage.playlistLibrary(scope: storage.scope) else { return nil }
+            try validate(stamp)
+            return CatalogPlaylistLibrarySnapshot(
+                nodes: record.nodes.map(\.withoutOwnership), fetchedAt: record.fetchedAt)
+        } catch is CatalogStorageError {
+            try validate(stamp)
+            return nil
+        }
     }
     package func libraryAlbums() async throws -> [CatalogItem] {
         try await read { try await $0.libraryAlbums() }
@@ -462,4 +492,5 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             )
         }
     }
+
 }

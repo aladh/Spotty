@@ -29,7 +29,10 @@ struct RootView: View {
                 SidebarView(
                     selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary,
                     playback: catalogPlayback,
-                    isLoading: catalog.homeLibrary.isLoading(.playlists)
+                    isLoading: catalog.homeLibrary.isLoadingInitialPlaylists,
+                    isCached: catalog.homeLibrary.playlistLibraryIsCached,
+                    isRefreshing: catalog.homeLibrary.isLoading(.playlists),
+                    error: catalog.homeLibrary.error(for: .playlists)
                 )
                 .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
                 .frame(maxHeight: .infinity)

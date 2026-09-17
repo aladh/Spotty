@@ -47,6 +47,45 @@ public struct CatalogRetentionLimits: Sendable {
     }
 }
 
+/// One complete sidebar tree, separate from the evictable track collections. Never write partial
+/// folder pagination here. A bounded whole snapshot makes replacement and reads atomic.
+public struct CatalogPlaylistLibraryRecord: Equatable, Codable, Sendable {
+    public let nodes: [PlaylistLibraryNode]
+    public let fetchedAt: Date
+    public static let maximumBytes = 4 * 1_024 * 1_024
+    public static let maximumNodes = 10_000
+
+    public init(nodes: [PlaylistLibraryNode], fetchedAt: Date) {
+        self.nodes = nodes
+        self.fetchedAt = fetchedAt
+    }
+
+    func validate() throws {
+        guard fetchedAt.timeIntervalSince1970.isFinite, nodes.count <= Self.maximumNodes else {
+            throw CatalogStorageError.invalidInput
+        }
+        var pending = nodes.map { ($0, 0) }
+        var count = 0
+        while let (node, depth) = pending.popLast() {
+            count += 1
+            guard count <= Self.maximumNodes, depth <= 32, !node.id.isEmpty,
+                node.id.utf8.count <= 8_192, !node.id.contains("\0")
+            else { throw CatalogStorageError.invalidInput }
+            if let playlist = node.playlist {
+                guard node.children == nil, playlist.kind == .playlist, playlist.uri == node.id else {
+                    throw CatalogStorageError.invalidInput
+                }
+            } else {
+                guard let children = node.children, children.count <= Self.maximumNodes - count else {
+                    throw CatalogStorageError.invalidInput
+                }
+                pending.append(contentsOf: children.map { ($0, depth + 1) })
+            }
+            guard pending.count <= Self.maximumNodes - count else { throw CatalogStorageError.invalidInput }
+        }
+    }
+}
+
 public enum CatalogCollectionCompleteness: Int, Codable, Sendable {
     case partial
     case complete

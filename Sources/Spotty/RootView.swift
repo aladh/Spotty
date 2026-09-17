@@ -64,7 +64,8 @@ struct RootView: View {
                 TransientFeedbackBanner(feedback: feedback)
             }
 
-            NowPlayingBar(player: player, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel)
+            NowPlayingBar(
+                player: player, onSelect: select, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel)
         }
         .environment(
             \.artworkAccess,

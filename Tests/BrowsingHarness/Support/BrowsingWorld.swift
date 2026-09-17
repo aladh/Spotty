@@ -129,7 +129,8 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
             uri: uri, title: BrowsingFixtures.trackName(at: suffix),
             artist: BrowsingFixtures.artistName(at: suffix),
             artworkURL: fixtures.artworkURLs[suffix % fixtures.artworkURLs.count],
-            duration: 180)
+            duration: 180, artists: suffix == 0 ? [fixtures.artists[0]] : [],
+            albumItem: suffix == 0 ? fixtures.albums[0] : nil)
     }
     func queue() async throws -> [CatalogTrack] { [] }
     func shuffleEnabled() async -> Bool { lock.withLock { shuffle } }

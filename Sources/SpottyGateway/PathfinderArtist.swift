@@ -31,11 +31,16 @@ nonisolated struct PathfinderArtistResponse: Decodable, Sendable {
 /// row that displayed one is gone rather than permanently empty.
 nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
     struct Profile: Decodable, Sendable {
+        struct Biography: Decodable, Sendable { let text: String? }
         let name: String?
+        var biography: Biography? = nil
+        var playlistsV2: PathfinderItems<PathfinderPlaylist>? = nil
     }
 
     struct Visuals: Decodable, Sendable {
+        struct Gallery: Decodable, Sendable { let items: [PathfinderImage]? }
         let avatarImage: PathfinderImage?
+        var gallery: Gallery? = nil
     }
 
     struct HeaderImage: Decodable, Sendable {
@@ -52,6 +57,7 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
 
     struct Stats: Decodable, Sendable {
         let monthlyListeners: Int?
+        var followers: Int? = nil
     }
 
     struct Reputation: Decodable, Sendable {
@@ -63,6 +69,7 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
 
     struct RelatedContent: Decodable, Sendable {
         let featuringV2: PathfinderItems<PathfinderPlaylist>?
+        var discoveredOnV2: PathfinderItems<PathfinderPlaylist>? = nil
     }
 
     struct TopTracks: Decodable, Sendable {

@@ -15,6 +15,12 @@ struct ArtistOverviewChecks {
         #expect(overview.headerArtworkURL?.absoluteString == "https://example.test/banner-large.jpg")
         #expect(overview.monthlyListeners == 123456)
         #expect(overview.isVerified)
+        #expect(overview.biography == "Fixture Artist makes music & mixes.\nA second paragraph.")
+        #expect(overview.aboutArtworkURL?.absoluteString == "https://example.test/gallery-large.jpg")
+        #expect(overview.followers == 6543)
+        #expect(overview.discoveredOnPlaylists?.map(\.uri) == ["spotify:playlist:discovery"])
+        #expect(overview.artistPlaylists?.map(\.uri) == ["spotify:playlist:curated"])
+        #expect(overview.artistPlaylists?.first?.subtitle == "Artist's favorites")
         #expect(overview.popularTracks.map(\.track.uri) == ["spotify:track:first", "spotify:track:second"])
         #expect(overview.popularTracks.first?.playCount == 9_876_543_210)
         #expect(overview.popularTracks.first?.track.duration == 183.7)
@@ -37,6 +43,10 @@ struct ArtistOverviewChecks {
         let paged = artist.withDiscographyItems([])
         #expect(CatalogMapping.artist(paged).overview?.headerArtworkURL == overview.headerArtworkURL)
         #expect(CatalogMapping.artist(paged).overview?.featuringPlaylists == featuring)
+        #expect(CatalogMapping.artist(paged).overview?.biography == overview.biography)
+        #expect(CatalogMapping.artist(paged).overview?.aboutArtworkURL == overview.aboutArtworkURL)
+        #expect(CatalogMapping.artist(paged).overview?.artistPlaylists == overview.artistPlaylists)
+        #expect(CatalogMapping.artist(paged).overview?.discoveredOnPlaylists == overview.discoveredOnPlaylists)
     }
 
     @Test func missingOverviewFactsStayAbsent() throws {
@@ -49,12 +59,35 @@ struct ArtistOverviewChecks {
         #expect(result.overview?.isVerified == false)
         #expect(result.overview?.popularTracks.isEmpty == true)
         #expect(result.overview?.featuringPlaylists?.isEmpty == true)
+        #expect(result.overview?.discoveredOnPlaylists?.isEmpty == true)
+        #expect(result.overview?.artistPlaylists?.isEmpty == true)
+        #expect(result.overview?.biography == nil)
+        #expect(result.overview?.aboutArtworkURL == nil)
+        #expect(result.overview?.followers == nil)
         #expect(result.releases.isEmpty)
         // The new optional fields also remain absent when decoding an older typed snapshot.
         let encoded = try JSONEncoder().encode(CatalogArtistSnapshot(name: "Old", releases: []))
         #expect(try JSONDecoder().decode(CatalogArtistSnapshot.self, from: encoded).overview == nil)
         let oldOverview = Data(#"{"isVerified":false,"popularTracks":[],"popularReleases":[]}"#.utf8)
-        #expect(try JSONDecoder().decode(CatalogArtistOverview.self, from: oldOverview).featuringPlaylists == nil)
+        let old = try JSONDecoder().decode(CatalogArtistOverview.self, from: oldOverview)
+        #expect(old.featuringPlaylists == nil)
+        #expect(old.biography == nil && old.aboutArtworkURL == nil && old.followers == nil)
+        #expect(old.discoveredOnPlaylists == nil && old.artistPlaylists == nil)
+    }
+
+    @Test func aboutUsesPortraitFallbackAndRejectsNegativeAudienceCounts() throws {
+        let data = Data(
+            #"""
+            {"data":{"artistUnion":{"profile":{"name":"Portrait","biography":{"text":"<p> </p>"}},
+              "visuals":{"avatarImage":{"sources":[{"url":"https://example.test/portrait.jpg"}]}},
+              "stats":{"monthlyListeners":-1,"followers":-1}}}}
+            """#.utf8)
+        let response = try JSONDecoder().decode(PathfinderArtistResponse.self, from: data)
+        let artist = try #require(response.data?.artistUnion)
+        let overview = try #require(CatalogMapping.artist(artist).overview)
+        #expect(overview.aboutArtworkURL?.absoluteString == "https://example.test/portrait.jpg")
+        #expect(overview.biography == "")
+        #expect(overview.monthlyListeners == nil && overview.followers == nil)
     }
 
     @Test func overviewRestoresWithItsRouteAndRetiresWithItsAccount() async throws {
@@ -117,11 +150,21 @@ struct ArtistOverviewChecks {
 
     private static let fixture = #"""
         {"data":{"artistUnion":{
-          "uri":"spotify:artist:fixture","profile":{"name":"Fixture Artist"},
+          "uri":"spotify:artist:fixture","profile":{"name":"Fixture Artist",
+            "biography":{"text":"<a href=\"spotify:artist:fixture\">Fixture Artist</a> makes music &amp; mixes.<br>A second paragraph."},
+            "playlistsV2":{"items":[
+              {"data":{"uri":"spotify:playlist:curated","name":"Artist selection","description":"Artist's favorites"}},
+              {"data":{"uri":"spotify:playlist:curated","name":"Duplicate"}},
+              {"data":{"__typename":"GenericError"}}, {"data":null}
+            ]}},
+          "visuals":{"avatarImage":{"sources":[{"url":"https://example.test/portrait.jpg"}]},
+            "gallery":{"items":[{"sources":[
+              {"url":"https://example.test/gallery-small.jpg","width":320},
+              {"url":"https://example.test/gallery-large.jpg","width":1920}]}]}},
           "headerImage":{"data":{"sources":[
             {"url":"https://example.test/banner-small.jpg","maxWidth":320},
             {"url":"https://example.test/banner-large.jpg","maxWidth":1920}]}},
-          "stats":{"monthlyListeners":123456},
+          "stats":{"monthlyListeners":123456,"followers":6543},
           "onPlatformReputationTrait":{"verification":{"isVerified":true}},
           "relatedContent":{"featuringV2":{"items":[
             {"data":{"__typename":"Playlist","uri":"spotify:playlist:this-is","name":"This Is Fixture Artist",
@@ -134,7 +177,13 @@ struct ArtistOverviewChecks {
             {"data":{"__typename":"NotFound"}}, {"data":null},
             {"data":{"uri":"spotify:folder:unsupported","name":"Folder"}},
             {"data":{"uri":123,"name":"Malformed"}}
-          ],"totalCount":8}},
+          ],"totalCount":8},"discoveredOnV2":{"items":[
+            {"data":{"__typename":"GenericError"}},
+            {"data":{"uri":"spotify:playlist:discovery","name":"Discovery","description":"Found here"}},
+            {"data":{"uri":"spotify:playlist:discovery","name":"Duplicate"}},
+            {"data":{"uri":"spotify:album:wrong-kind","name":"Wrong kind"}},
+            {"data":{"uri":123,"name":"Malformed"}}
+          ]}},
           "discography":{
             "topTracks":{"items":[
               {"track":{"uri":"spotify:track:first","name":"First","playcount":"9876543210",

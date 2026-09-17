@@ -413,6 +413,33 @@ struct PlaybackEventOutcomeTests {
 
     @Test
     @MainActor
+    func coldCurrentTrackRetainsAlbumAndArtistNavigation() async throws {
+        let album = CatalogItem(
+            id: "album", uri: "spotify:album:album", title: "Album", subtitle: "Album", artworkURL: nil, kind: .album)
+        let artist = CatalogItem(
+            id: "artist", uri: "spotify:artist:artist", title: "Artist", subtitle: "Artist", artworkURL: nil,
+            kind: .artist)
+        let remote = HarnessRemote()
+        remote.onMetadata = { uri in
+            SpotifyConnectTrackMetadata(
+                uri: uri, title: "Track", artist: artist.title, artworkURL: nil, duration: 180,
+                artists: [artist], albumItem: album)
+        }
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: remote))
+        player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+        }
+        startTrackResolution(player, uri: "spotify:track:cold-links")
+        try await requireEventually { player.catalogCurrentTrack?.albumItem == album }
+        #expect(player.catalogCurrentTrack?.artists == [artist])
+        #expect(player.catalogCurrentTrack?.album == album.title)
+        #expect(remote.commands.isEmpty, "metadata navigation never sends a playback command")
+        await player.shutdownForTermination()
+    }
+
+    @Test
+    @MainActor
     func testPlaybackEventOutcome() async throws {
         do {
             let successRemote = HarnessRemote(metadata: .park)

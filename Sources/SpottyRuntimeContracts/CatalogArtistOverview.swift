@@ -34,11 +34,18 @@ public struct CatalogArtistOverview: Equatable, Codable, Sendable {
     public let popularTracks: [CatalogArtistPopularTrack]
     public let popularReleases: [CatalogItem]
     public let featuringPlaylists: [CatalogItem]?
+    public let biography: String?
+    public let aboutArtworkURL: URL?
+    public let followers: Int?
+    public let discoveredOnPlaylists: [CatalogItem]?
+    public let artistPlaylists: [CatalogItem]?
 
     public init(
         headerArtworkURL: URL? = nil, monthlyListeners: Int? = nil, isVerified: Bool = false,
         popularTracks: [CatalogArtistPopularTrack] = [], popularReleases: [CatalogItem] = [],
-        featuringPlaylists: [CatalogItem]? = nil
+        featuringPlaylists: [CatalogItem]? = nil,
+        biography: String? = nil, aboutArtworkURL: URL? = nil, followers: Int? = nil,
+        discoveredOnPlaylists: [CatalogItem]? = nil, artistPlaylists: [CatalogItem]? = nil
     ) {
         self.headerArtworkURL = headerArtworkURL
         self.monthlyListeners = monthlyListeners
@@ -46,5 +53,10 @@ public struct CatalogArtistOverview: Equatable, Codable, Sendable {
         self.popularTracks = popularTracks
         self.popularReleases = popularReleases
         self.featuringPlaylists = featuringPlaylists
+        self.biography = biography
+        self.aboutArtworkURL = aboutArtworkURL
+        self.followers = followers
+        self.discoveredOnPlaylists = discoveredOnPlaylists
+        self.artistPlaylists = artistPlaylists
     }
 }

@@ -687,11 +687,12 @@ actor QueueService {
             uri: metadata.uri,
             title: metadata.title,
             artist: metadata.artist,
-            album: "",
+            album: metadata.albumItem?.title ?? "",
             duration: metadata.duration,
             artworkURL: metadata.artworkURL,
             addedAt: nil,
-            artists: metadata.artists
+            artists: metadata.artists,
+            albumItem: metadata.albumItem
         )
     }
 

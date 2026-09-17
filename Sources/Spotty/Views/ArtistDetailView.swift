@@ -94,7 +94,8 @@ struct ArtistDetailView: View {
             }
             CatalogContentState(
                 isLoading: store.isLoading,
-                isEmpty: !hasReleases && store.popularTracks.tracks.isEmpty && featuringPlaylists.isEmpty,
+                isEmpty: !hasReleases && store.popularTracks.tracks.isEmpty && featuringPlaylists.isEmpty
+                    && !hasAbout && discoveredOnPlaylists.isEmpty && artistPlaylists.isEmpty,
                 error: store.error, loadingLabel: "Loading artist", errorTitle: "Couldn't load artist",
                 retry: { await store.load(item) }
             ) {
@@ -108,6 +109,21 @@ struct ArtistDetailView: View {
                             id: "featuring", title: "Featuring \(displayedItem.title)", items: featuringPlaylists),
                         playback: playback, titleLineLimit: 2, onSelect: onSelect)
                 }
+                if hasAbout, let overview = store.overview {
+                    ArtistAboutSection(item: displayedItem, overview: overview)
+                }
+                if !discoveredOnPlaylists.isEmpty {
+                    MediaShelf(
+                        section: CatalogSection(
+                            id: "discovered-on", title: "Discovered on", items: discoveredOnPlaylists),
+                        playback: playback, titleLineLimit: 2, onSelect: onSelect)
+                }
+                if !artistPlaylists.isEmpty {
+                    MediaShelf(
+                        section: CatalogSection(
+                            id: "artist-playlists", title: "Artist Playlists", items: artistPlaylists),
+                        playback: playback, titleLineLimit: 2, onSelect: onSelect)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,6 +133,13 @@ struct ArtistDetailView: View {
     }
 
     private var featuringPlaylists: [CatalogItem] { store.overview?.featuringPlaylists ?? [] }
+    private var discoveredOnPlaylists: [CatalogItem] { store.overview?.discoveredOnPlaylists ?? [] }
+    private var artistPlaylists: [CatalogItem] { store.overview?.artistPlaylists ?? [] }
+    private var hasAbout: Bool {
+        guard let overview = store.overview else { return false }
+        return overview.biography?.isEmpty == false || overview.aboutArtworkURL != nil
+            || overview.monthlyListeners != nil
+    }
 
     private var hasReleases: Bool {
         !store.releases.isEmpty || store.overview?.popularReleases.isEmpty == false
@@ -163,7 +186,7 @@ struct ArtistDetailView: View {
             }
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) { filterButtons }
-                ScrollView(.horizontal, showsIndicators: false) {
+                NativeHorizontalScroll {
                     HStack(spacing: 8) { filterButtons }
                 }
             }

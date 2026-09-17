@@ -62,10 +62,11 @@ public struct SpotifyConnectTrackMetadata: Sendable {
     public let artworkURL: URL?
     public let duration: TimeInterval
     public var artists: [CatalogItem]
+    public var albumItem: CatalogItem?
 
     public init(
         uri: String, title: String, artist: String, artworkURL: URL?, duration: TimeInterval,
-        artists: [CatalogItem] = []
+        artists: [CatalogItem] = [], albumItem: CatalogItem? = nil
     ) {
         self.uri = uri
         self.title = title
@@ -73,6 +74,7 @@ public struct SpotifyConnectTrackMetadata: Sendable {
         self.artworkURL = artworkURL
         self.duration = duration
         self.artists = artists
+        self.albumItem = albumItem
     }
 }
 

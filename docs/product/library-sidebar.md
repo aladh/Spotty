@@ -7,6 +7,8 @@
   during refresh; otherwise show progress. Failed refresh preserves rows and interaction, with a
   stale/error indicator. Credential failure clears saved content; cached ownership cannot enable edits.
   Retain the flat catalog for navigation and playlist actions.
+- Arrows select folders without navigating; Return toggles expansion.
+  Navigation clears folder focus; account changes clear focus and expansion.
 - Use opaque near-black backgrounds, 48-point artwork, 16-point titles, muted 14-point owner/fallback
   labels, and native keyboard selection/scrolling. Rows use pointing hands; artwork reveals Play/Pause
   on hover or focus, accessible at rest. Other areas open details. Neutral-gray selection

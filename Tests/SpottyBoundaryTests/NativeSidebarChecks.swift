@@ -7,7 +7,7 @@ import Testing
 @Suite("Owned native sidebar")
 @MainActor
 struct NativeSidebarChecks {
-    @Test func keyboardSelectionSkipsFoldersAndKeepsOnePlaylistSelected() throws {
+    @Test func keyboardSelectionIncludesFoldersAndKeepsOneRowSelected() throws {
         let first = playlist("first")
         let last = playlist("last")
         let folder = PlaylistLibraryNode(folderURI: "folder:fixture", title: "Folder", children: [])
@@ -20,6 +20,9 @@ struct NativeSidebarChecks {
                 context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}",
                 isARepeat: false, keyCode: 125
             ))
+        fixture.scroll.table.keyDown(with: event)
+        #expect(fixture.selection == [folder.id])
+        #expect(fixture.scroll.table.selectedRowIndexes == IndexSet(integer: 1))
         fixture.scroll.table.keyDown(with: event)
         #expect(fixture.selection == [last.id])
         #expect(fixture.scroll.table.selectedRowIndexes == IndexSet(integer: 2))
@@ -87,7 +90,7 @@ struct NativeSidebarChecks {
         private func rows(_ library: [PlaylistLibraryNode], expanded: Set<String>) -> [NativeOccurrenceListRow] {
             PlaylistLibraryNode.visibleRows(library, expanded: expanded).map { row in
                 NativeOccurrenceListRow(
-                    id: row.id, height: 64, isSelectable: row.node.playlist != nil,
+                    id: row.id, height: 64,
                     content: AnyView(Text(row.node.title))
                 )
             }

@@ -12,6 +12,7 @@ struct SidebarView: View {
     var error: String?
     var retry: (() async -> Void)?
     @State private var expandedFolders: Set<String> = []
+    @State private var focusedFolder: FolderFocus?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -36,13 +37,27 @@ struct SidebarView: View {
                 rows: nativeRows, selection: nativeSelection,
                 allowsMultipleSelection: false, drawsSelection: false,
                 preservesVisibleAnchor: true,
-                accessibilityLabel: "Playlists"
+                accessibilityLabel: "Playlists",
+                primaryAction: { ids in
+                    guard ids.count == 1, let id = ids.first else { return }
+                    toggleFolder(id)
+                }
             )
             .overlay {
                 if library.isEmpty { emptyLibraryContent }
             }
         }
         .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+        .onChange(of: selection) {
+            if focusedFolder?.route != selection { focusedFolder = nil }
+        }
+        .onChange(of: visibleRows.map(\.id)) { _, ids in
+            if let focusedFolder, !ids.contains(focusedFolder.id) { self.focusedFolder = nil }
+        }
+        .onChange(of: playback.accountEpoch) {
+            focusedFolder = nil
+            expandedFolders.removeAll()
+        }
     }
 
     @ViewBuilder
@@ -71,18 +86,33 @@ struct SidebarView: View {
 
     private var nativeSelection: Binding<Set<String>> {
         Binding(
-            get: {
-                guard let selection, case let .playlist(uri) = selection else { return [] }
-                return [uri]
-            },
-            set: { selection = $0.first.map(SidebarSelection.playlist) }
+            get: { selectedRowID.map { [$0] } ?? [] },
+            set: { ids in
+                guard ids.count == 1, let row = visibleRows.first(where: { ids.contains($0.id) }) else { return }
+                if let playlist = row.node.playlist {
+                    focusedFolder = nil
+                    selection = .playlist(playlist.uri)
+                } else {
+                    focusedFolder = FolderFocus(id: row.id, route: selection)
+                }
+            }
         )
     }
 
+    private var selectedRowID: String? {
+        if let focusedFolder, focusedFolder.route == selection { return focusedFolder.id }
+        if case let .playlist(uri) = selection { return uri }
+        return nil
+    }
+
+    private var visibleRows: [PlaylistLibraryNode.VisibleRow] {
+        PlaylistLibraryNode.visibleRows(library, expanded: expandedFolders)
+    }
+
     private var nativeRows: [NativeOccurrenceListRow] {
-        PlaylistLibraryNode.visibleRows(library, expanded: expandedFolders).map { row in
+        visibleRows.map { row in
             NativeOccurrenceListRow(
-                id: row.id, height: 64, isSelectable: row.node.playlist != nil,
+                id: row.id, height: 64,
                 content: AnyView(
                     sidebarRow(row)
                         .padding(.leading, CGFloat(row.depth) * 16)
@@ -96,13 +126,28 @@ struct SidebarView: View {
     private func sidebarRow(_ row: PlaylistLibraryNode.VisibleRow) -> some View {
         if let playlist = row.node.playlist {
             SidebarPlaylistRow(
-                playlist: playlist, isSelected: selection == .playlist(playlist.uri), playback: playback
+                playlist: playlist, isSelected: selectedRowID == row.id, playback: playback
             )
         } else {
-            SidebarFolderRow(node: row.node, isExpanded: expandedFolders.contains(row.id)) {
-                if !expandedFolders.insert(row.id).inserted { expandedFolders.remove(row.id) }
+            SidebarFolderRow(
+                node: row.node, isExpanded: expandedFolders.contains(row.id), isSelected: selectedRowID == row.id
+            ) {
+                toggleFolder(row.id)
             }
         }
+    }
+
+    private func toggleFolder(_ id: String) {
+        guard visibleRows.contains(where: { $0.id == id && $0.node.children != nil }) else { return }
+        focusedFolder = FolderFocus(id: id, route: selection)
+        if !expandedFolders.insert(id).inserted { expandedFolders.remove(id) }
+    }
+
+    /// Remember the route at the moment of folder focus so a later navigation takes precedence,
+    /// without an asynchronous route notification clearing a newer native folder selection.
+    private struct FolderFocus {
+        let id: String
+        let route: SidebarSelection?
     }
 }
 
@@ -147,11 +192,17 @@ private struct SidebarLibraryPlaceholder: View {
 private struct SidebarFolderRow: View {
     let node: PlaylistLibraryNode
     let isExpanded: Bool
+    let isSelected: Bool
     let toggle: () -> Void
     @State private var isHovering = false
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    private var selectedBackground: Color {
+        controlActiveState == .inactive ? SpottyPalette.selectedControlInactive : SpottyPalette.selectedControl
+    }
 
     var body: some View {
-        Button(action: toggle) {
+        CatalogCardButton(action: toggle) { _ in
             HStack(spacing: 12) {
                 Image(systemName: "folder")
                     .font(.system(size: 24))
@@ -170,11 +221,14 @@ private struct SidebarFolderRow: View {
             }
             .padding(8)
             .contentShape(Rectangle())
-            .background(isHovering ? SpottyPalette.navigationControl : .clear, in: RoundedRectangle(cornerRadius: 4))
+            .background(
+                isSelected ? selectedBackground : (isHovering ? SpottyPalette.navigationControl : .clear),
+                in: RoundedRectangle(cornerRadius: 4)
+            )
         }
-        .buttonStyle(.plain)
         .pointingHandCursor(isHovering: $isHovering)
         .onDisappear { isHovering = false }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityLabel("\(isExpanded ? "Collapse" : "Expand") \(node.title)")
         .accessibilityValue(node.folderSummary)
     }

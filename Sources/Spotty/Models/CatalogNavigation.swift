@@ -10,6 +10,7 @@ final class CatalogNavigation {
     var rawValue: String { model.rawValue }
     var searchText = ""
     private(set) var searchInteraction = SearchInteractionState()
+    private(set) var homeInteraction = HomeInteractionState()
     private(set) var backHistory: [String] = []
     private(set) var forwardHistory: [String] = []
     @ObservationIgnored private var routeInteractions: [String: CatalogRouteInteractionState] = [:]
@@ -68,6 +69,7 @@ final class CatalogNavigation {
         forwardHistory.removeAll()
         searchText = ""
         searchInteraction = SearchInteractionState()
+        homeInteraction = HomeInteractionState()
         routeInteractions.removeAll()
         interactionOrder.removeAll()
         model = MediaSelectionModel()

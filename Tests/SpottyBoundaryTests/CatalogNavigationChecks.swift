@@ -33,6 +33,43 @@ struct CatalogNavigationTests {
         #expect(navigation.searchInteraction.query.isEmpty)
     }
 
+    @Test @MainActor
+    func homePositionsSurviveNavigationButRetireWithTheAccount() {
+        let navigation = CatalogNavigation()
+        let home = navigation.homeInteraction
+        let section = HomeInteractionState.SectionID(source: "section", ordinal: 0)
+        home.scrollOffset = 320
+        home.shelfScroll(for: section).offset = 410
+        navigation.updateSelection(.playlist("spotify:playlist:detail"))
+        navigation.goBack()
+        #expect(navigation.homeInteraction === home)
+        #expect(navigation.homeInteraction.scrollOffset == 320)
+        #expect(navigation.homeInteraction.shelfScroll(for: section).offset == 410)
+        #expect(CatalogNavigation().homeInteraction.scrollOffset == 0)
+        navigation.reset()
+        #expect(navigation.homeInteraction !== home)
+        home.scrollOffset = 700
+        home.shelfScroll(for: section).offset = 600
+        #expect(navigation.homeInteraction.scrollOffset == 0)
+        #expect(navigation.homeInteraction.shelfScroll(for: section).offset == 0)
+    }
+
+    @Test @MainActor
+    func homeShelvesKeepSeparateRepeatedPositionsAndDiscardRemovedSections() {
+        let home = HomeInteractionState()
+        let first = HomeInteractionState.SectionID(source: "same", ordinal: 0)
+        let repeatID = HomeInteractionState.SectionID(source: "same", ordinal: 1)
+        let original = home.shelfScroll(for: first)
+        original.offset = 210
+        home.shelfScroll(for: repeatID).offset = 420
+        home.retainShelves([first, repeatID])
+        #expect(home.shelfScroll(for: first) === original)
+        #expect(home.shelfScroll(for: repeatID).offset == 420)
+        home.retainShelves([first])
+        #expect(home.shelfScroll(for: first).offset == 210)
+        #expect(home.shelfScroll(for: repeatID).offset == 0)
+    }
+
     @Test func preservesArtistAndAlbumDestinations() throws {
         let data = Data(
             #"{"uri":"spotify:track:track","name":"Song","artists":{"items":[{"uri":"spotify:artist:first","profile":{"name":"First"}},{"uri":"spotify:artist:second","profile":{"name":"Second"}}]},"albumOfTrack":{"uri":"spotify:album:album","name":"Album"}}"#
@@ -48,6 +85,40 @@ struct CatalogNavigationTests {
         let playlistTrack = try #require(CatalogMapping.playlistTrack(from: entry))
         #expect(playlistTrack.artists == mapped.artists)
         #expect(playlistTrack.albumItem == mapped.albumItem)
+    }
+
+    @Test @MainActor
+    func uriLessHomeShelvesKeepTheirOwnOffsetsAfterInsertionAndEmptyFiltering() throws {
+        func section(_ title: String, item: String?) -> String {
+            let data =
+                item.map { "\"uri\":\"spotify:playlist:\($0)\",\"name\":\"Mix\"" } ?? "\"__typename\":\"NotFound\""
+            return """
+                {"data":{"title":{"transformedLabel":"\(title)"}},"sectionItems":{"items":[
+                {"content":{"__typename":"PlaylistResponseWrapper","data":{\(data)}}}]}}
+                """
+        }
+        func mapped(_ sections: [String]) throws -> [CatalogDisplayOccurrence<CatalogSection>] {
+            let data = Data(
+                "{\"sectionContainer\":{\"sections\":{\"items\":[\(sections.joined(separator: ","))]}}}".utf8)
+            let home = try JSONDecoder().decode(PathfinderHome.self, from: data)
+            return CatalogDisplayOccurrence.identifying(CatalogMapping.sections(from: home))
+        }
+        let first = section("First", item: "first")
+        let second = section("Second", item: "second")
+        let state = HomeInteractionState()
+        let original = try mapped([first, second])
+        state.shelfScroll(for: original[0].id).offset = 210
+        state.shelfScroll(for: original[1].id).offset = 420
+        let inserted = try mapped([section("New", item: "new"), first, second])
+        state.retainShelves(inserted.map(\.id))
+        #expect(state.shelfScroll(for: inserted[0].id).offset == 0)
+        #expect(state.shelfScroll(for: inserted[1].id).offset == 210)
+        #expect(state.shelfScroll(for: inserted[2].id).offset == 420)
+        let filtered = try mapped([section("New", item: nil), first, second])
+        state.retainShelves(filtered.map(\.id))
+        #expect(filtered.map(\.element.title) == ["First", "Second"])
+        #expect(state.shelfScroll(for: filtered[0].id).offset == 210)
+        #expect(state.shelfScroll(for: filtered[1].id).offset == 420)
     }
     @Test func incompleteArtistDestinationsPreserveAllCredits() throws {
         let data = Data(

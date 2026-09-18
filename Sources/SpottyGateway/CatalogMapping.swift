@@ -6,6 +6,7 @@
 //
 
 import SpottyDomain
+import CryptoKit
 import Foundation
 import SpottyRuntimeContracts
 
@@ -29,7 +30,7 @@ nonisolated enum CatalogMapping {
     }
 
     static func sections(from home: PathfinderHome) -> [CatalogSection] {
-        home.sections.enumerated().compactMap { index, section in
+        home.sections.compactMap { section in
             let items = section.items.flatMap { entry -> [CatalogItem] in
                 guard let content = entry.content else { return [] }
                 switch content {
@@ -46,12 +47,21 @@ nonisolated enum CatalogMapping {
                 }
             }
             guard !items.isEmpty else { return nil }
+            let title = section.title ?? "Recently played"
             return CatalogSection(
-                id: section.uri ?? "home-section-\(index)",
-                title: section.title ?? "Recently played",
+                id: section.uri ?? homeSectionFallbackID(title: title, items: items),
+                title: title,
                 items: items
             )
         }
+    }
+
+    private static func homeSectionFallbackID(title: String, items: [CatalogItem]) -> String {
+        // No server identity: recognize the same content regardless of ordering, but do not lend
+        // state to a different shelf sharing its title or first item. Keep the fallback bounded.
+        let parts = [title] + items.map(\.id).sorted()
+        let identity = parts.map { "\($0.utf8.count):\($0)" }.joined()
+        return "home-section:\(Data(SHA256.hash(data: Data(identity.utf8))).base64EncodedString())"
     }
 
     static func item(from album: PathfinderAlbum) -> CatalogItem? {

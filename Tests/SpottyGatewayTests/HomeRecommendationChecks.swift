@@ -4,6 +4,30 @@ import Testing
 @testable import SpottyGateway
 
 struct HomeRecommendationTests {
+    @Test func uriLessShelfIdentitySurvivesItemReorderingAndDistinguishesMembership() throws {
+        func section(_ ids: [String], itemTitle: String = "Mix") throws -> CatalogSection {
+            let items = ids.map { id in
+                """
+                {"content":{"__typename":"PlaylistResponseWrapper","data":{
+                  "uri":"spotify:playlist:\(id)","name":"\(itemTitle)"}}}
+                """
+            }.joined(separator: ",")
+            let data = Data(
+                "{\"sectionContainer\":{\"sections\":{\"items\":[{\"sectionItems\":{\"items\":[\(items)]}}]}}}".utf8)
+            let home = try JSONDecoder().decode(PathfinderHome.self, from: data)
+            return try #require(CatalogMapping.sections(from: home).first)
+        }
+        let original = try section(["first", "second", "third"])
+        let reordered = try section(["third", "first", "second"], itemTitle: "New label")
+        #expect(reordered.id == original.id)
+        #expect(
+            reordered.items.map(\.uri) == [
+                "spotify:playlist:third", "spotify:playlist:first", "spotify:playlist:second",
+            ])
+        #expect(try section(["first", "different"]).id != original.id)
+        #expect(try section(["first", "second", "third", "first"]).id != original.id)
+    }
+
     @Test func playlistRecommendationsUseDescriptionsWhileLibraryItemsKeepOwnerCredits() throws {
         let source = Data(
             #"""

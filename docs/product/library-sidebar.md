@@ -21,9 +21,10 @@
 - Show an empty-library message only after a successful result. A live empty library says
   “No playlists yet”; a saved empty library says “No saved playlists” and distinguishes an ongoing
   refresh from potentially outdated content. Do not turn an unknown initial result into empty success.
-- When an initial load fails without rows, show a readable error and Try Again. Retry is available
-  while connected and joins the existing account-scoped request owner. Old-account controls cannot
-  start a retry for a replacement account. Loading replaces this error state; saved rows remain
-  visible throughout refresh and failure.
+- When a load fails and no rows are available, show a readable error and Try Again, including failed
+  refreshes of a saved empty library. Enable retry only while connected and not refreshing, using
+  the existing account-scoped request owner. Old-account controls cannot start a retry for a
+  replacement account. Retrying shows initial progress if no result has loaded, or the saved-empty
+  message during refresh. Populated saved rows remain visible throughout refresh and failure.
 - Keep placeholders compact, centered, and readable within the resizable sidebar. Preserve its
   near-black canvas, muted secondary text, native keyboard focus, and disabled-button semantics.

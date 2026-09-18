@@ -68,11 +68,10 @@ struct AlbumDetailView: View {
                     item: displayedItem, detail: metadataText, style: .album,
                     artists: store.artists, onSelect: onSelect)
                 DetailActionRow(
-                    canPlay: playback.canStartPlayback,
-                    playAccessibilityLabel: "Play album",
-                    playAccessibilityHint: "Starts this album"
+                    canPlay: playback.canActivateItem(item), showsPause: playback.showsPause(for: item),
+                    playAccessibilityLabel: playback.activationLabel(for: displayedItem)
                 ) {
-                    playback.playURI(item.uri)
+                    playback.activateItem(item)
                 }
             }
         }
@@ -81,10 +80,10 @@ struct AlbumDetailView: View {
     private var compactHeader: some View {
         CompactMediaDetailHeader(
             title: displayedItem.title,
-            canPlay: playback.canStartPlayback,
-            playAccessibilityLabel: "Play album"
+            canPlay: playback.canActivateItem(item), showsPause: playback.showsPause(for: item),
+            playAccessibilityLabel: playback.activationLabel(for: displayedItem)
         ) {
-            playback.playURI(item.uri)
+            playback.activateItem(item)
         }
     }
 

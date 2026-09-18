@@ -47,12 +47,14 @@ struct ArtistDetailView: View {
             ) {
                 VStack(alignment: .leading, spacing: 0) {
                     DetailActionRow(
-                        canPlay: playback.canStartPlayback, playAccessibilityLabel: "Play artist",
-                        playAccessibilityHint: "Starts playback for this artist",
-                        shuffle: DetailActionRowShuffle(isEnabled: playback.isShuffleEnabled) {
+                        canPlay: playback.canActivateItem(item), showsPause: playback.showsPause(for: item),
+                        playAccessibilityLabel: playback.activationLabel(for: displayedItem),
+                        shuffle: DetailActionRowShuffle(
+                            isEnabled: playback.isShuffleEnabled, canToggle: playback.canStartPlayback
+                        ) {
                             playback.toggleShuffle()
                         }
-                    ) { playback.playURI(item.uri) }
+                    ) { playback.activateItem(item) }
                     if store.isShowingCachedContent {
                         CachedCatalogNotice(isRefreshing: store.isLoading)
                     }
@@ -71,9 +73,11 @@ struct ArtistDetailView: View {
 
     private var compactHeader: some View {
         CompactMediaDetailHeader(
-            title: displayedItem.title, canPlay: playback.canStartPlayback, playAccessibilityLabel: "Play artist"
+            title: displayedItem.title, canPlay: playback.canActivateItem(item),
+            showsPause: playback.showsPause(for: item),
+            playAccessibilityLabel: playback.activationLabel(for: displayedItem)
         ) {
-            playback.playURI(item.uri)
+            playback.activateItem(item)
         }
     }
 

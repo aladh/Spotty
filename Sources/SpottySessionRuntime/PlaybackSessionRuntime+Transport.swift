@@ -32,6 +32,19 @@ package extension PlaybackSessionRuntime {
         }
     }
 
+    func activateItem(_ item: CatalogItem, tracks: [CatalogTrack], loadedURI: String?) {
+        guard canStartPlayback else { return }
+        // A retained control must target its own selection, even before the desktop catches up.
+        let isCurrent = item.kind == .track ? trackURI == item.uri : playingContextURI == item.uri
+        if isCurrent {
+            togglePlayback()
+        } else if item.kind == .playlist {
+            playPlaylist(item, tracks: tracks, loadedURI: loadedURI)
+        } else {
+            play(uri: item.uri)
+        }
+    }
+
     func playPlaylist(_ item: CatalogItem, tracks playlistTracks: [CatalogTrack], loadedURI: String?) {
         // Home/sidebar actions may target a different playlist from the retained detail page.
         let tracks = loadedURI == item.uri ? playlistTracks : []

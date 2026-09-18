@@ -48,6 +48,8 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   Show all opens full discography: history-aware list/grid, release filters and date/name sorting.
   List release controls pause/resume the current album at its retained position and start other albums;
   their glyph, label, tooltip, and availability follow the same current-context policy as grid cards.
+  List release titles use up to two lines at narrow widths; metadata stays on one line with its full tooltip,
+  preserving artwork size, controls, and track-column alignment.
   Loading visible tracks preserves layout. Omit follow/save/download controls.
 
 ### Window and toolbar

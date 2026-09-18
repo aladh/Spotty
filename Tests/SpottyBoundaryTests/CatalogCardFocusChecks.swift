@@ -93,7 +93,7 @@ struct CatalogCardFocusChecks {
         #expect(requests == 2)
     }
 
-    @Test func nativeRowTraversalOnlyConsumesActualForwardMovement() throws {
+    @Test func nativeRowTraversalOnlyConsumesActualMovement() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
             backing: .buffered, defer: false)
@@ -102,6 +102,7 @@ struct CatalogCardFocusChecks {
         window.autorecalculatesKeyViewLoop = false
         defer { window.contentView = nil }
         let table = NSTableView(frame: NSRect(x: 0, y: 40, width: 200, height: 160))
+        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("fixture")))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
         let anchor = CatalogCardFocusView(frame: NSRect(x: 0, y: 40, width: 48, height: 48))
         root.addSubview(table)
@@ -114,12 +115,17 @@ struct CatalogCardFocusChecks {
         table.nextKeyView = field
         field.nextKeyView = table
         try #require(window.makeFirstResponder(table))
+        try #require(window.firstResponder === table)
+        #expect(!target.leaveControl(backwards: true), "Already being on the table cannot consume Shift-Tab")
         #expect(target.leaveControl(backwards: false))
         #expect(window.firstResponder === field.currentEditor())
         #expect(!target.leaveControl(backwards: false), "Wrapping to the same field must not claim a focus move")
         table.nextKeyView = nil
         #expect(!target.leaveControl(backwards: false), "A missing key-view destination must leave Tab unhandled")
         #expect(window.firstResponder === field.currentEditor())
+        #expect(target.leaveControl(backwards: true))
+        #expect(window.firstResponder === table)
+        #expect(!target.leaveControl(backwards: true), "An unchanged responder must leave Shift-Tab unhandled")
     }
 
     @Test(arguments: ["1:replacement", "2:original"])

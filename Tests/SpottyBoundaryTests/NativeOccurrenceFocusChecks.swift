@@ -59,6 +59,8 @@ struct NativeOccurrenceFocusChecks {
             scroll.table.keyDown(with: tab)
         }
         try await requireEventually { probe.focused == "second" }
+        let artworkResponder = try #require(window.firstResponder)
+        #expect(artworkResponder !== scroll.table && artworkResponder !== nextField.currentEditor())
         #expect(probe.activations == 0)
         #expect(scroll.table.selectedRowIndexes == IndexSet(integer: 1))
 
@@ -76,6 +78,13 @@ struct NativeOccurrenceFocusChecks {
         window.sendEvent(backTab)
         try await requireEventually { window.firstResponder === scroll.table }
         #expect(scroll.table.selectedRowIndexes == IndexSet(integer: 1))
+
+        window.sendEvent(tab)
+        window.sendEvent(backTab)
+        window.sendEvent(tab)
+        try await requireEventually { window.firstResponder === artworkResponder }
+        window.sendEvent(backTab)
+        try await requireEventually { window.firstResponder === scroll.table }
 
         scroll.table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         try #require(window.makeFirstResponder(scroll.table))

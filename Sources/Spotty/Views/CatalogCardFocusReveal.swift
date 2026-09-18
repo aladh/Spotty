@@ -35,10 +35,10 @@ final class NativeRowFocusTarget {
 
     func leaveControl(backwards: Bool) -> Bool {
         guard let table, let window = table.window, ownedControl != nil else { return false }
-        if backwards {
-            return window.makeFirstResponder(table)
-        }
         let previous = window.firstResponder
+        if backwards {
+            return window.makeFirstResponder(table) && window.firstResponder !== previous
+        }
         window.selectKeyView(following: table)
         return window.firstResponder !== previous
     }

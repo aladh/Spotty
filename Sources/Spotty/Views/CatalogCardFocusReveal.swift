@@ -26,7 +26,12 @@ final class NativeRowFocusTarget {
         return control
     }
 
-    func focus() -> Bool { ownedControl?.requestKeyboardFocus() ?? false }
+    func focus() -> Bool {
+        guard ownedControl?.requestKeyboardFocus() == true else { return false }
+        // Commit the hosted FocusState before another key can traverse past its pending destination.
+        host?.layoutSubtreeIfNeeded()
+        return true
+    }
 
     func leaveControl(backwards: Bool) -> Bool {
         guard let table, let window = table.window, ownedControl != nil else { return false }
@@ -42,13 +47,16 @@ final class NativeRowFocusTarget {
 /// An owned geometry anchor reveals focus through both the shelf and the containing page.
 struct CatalogCardFocusReveal: NSViewRepresentable {
     let isFocused: Bool
+    var isKeyboardFocused = false
     var requestKeyboardFocus: (() -> Bool)?
     @Environment(\.nativeRowFocusTarget) private var focusTarget
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeNSView(context: Context) -> CatalogCardFocusView { CatalogCardFocusView() }
 
     func updateNSView(_ view: CatalogCardFocusView, context: Context) {
         view.registerFocus(target: focusTarget, request: requestKeyboardFocus)
+        view.updateKeyboardFocus(isEnabled: isEnabled, isFocused: isKeyboardFocused)
         view.updateFocus(isFocused)
     }
 
@@ -60,20 +68,39 @@ struct CatalogCardFocusReveal: NSViewRepresentable {
 @MainActor
 final class CatalogCardFocusView: NSView {
     private var isFocused = false
+    private var isEnabled = true
+    private var isKeyboardFocused = false
+    private var isKeyboardFocusPending = false
     private var needsReveal = false
     private weak var focusTarget: NativeRowFocusTarget?
     private var keyboardFocusRequest: (() -> Bool)?
 
     func registerFocus(target: NativeRowFocusTarget?, request: (() -> Bool)?) {
-        if focusTarget !== target, focusTarget?.control === self { focusTarget?.control = nil }
+        if focusTarget !== target {
+            if focusTarget?.control === self { focusTarget?.control = nil }
+            isKeyboardFocusPending = false
+        }
+        if request == nil { isKeyboardFocusPending = false }
         focusTarget = target
         target?.control = self
         keyboardFocusRequest = request
     }
 
+    func updateKeyboardFocus(isEnabled: Bool, isFocused: Bool) {
+        self.isEnabled = isEnabled
+        isKeyboardFocused = isFocused
+        if !isEnabled || isFocused { isKeyboardFocusPending = false }
+    }
+
     func requestKeyboardFocus() -> Bool {
-        guard window != nil, !bounds.isEmpty, let keyboardFocusRequest else { return false }
-        return keyboardFocusRequest()
+        guard isEnabled, !isKeyboardFocused, !isKeyboardFocusPending,
+            window != nil, !bounds.isEmpty, let keyboardFocusRequest
+        else { return false }
+        // SwiftUI commits FocusState later; a second Tab must not consume the same request.
+        isKeyboardFocusPending = true
+        let accepted = keyboardFocusRequest()
+        if !accepted { isKeyboardFocusPending = false }
+        return accepted
     }
 
     func updateFocus(_ focused: Bool) {
@@ -85,6 +112,7 @@ final class CatalogCardFocusView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil { isKeyboardFocusPending = false }
         revealIfReady()
     }
 

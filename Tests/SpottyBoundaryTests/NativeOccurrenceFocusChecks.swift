@@ -6,7 +6,8 @@ import Testing
 @Suite("Native occurrence focus continuity")
 @MainActor
 struct NativeOccurrenceFocusChecks {
-    @Test func tabReachesSelectedArtworkInAMultirowListWithoutPointerHover() async throws {
+    @Test(arguments: [false, true])
+    func tabReachesSelectedArtworkInAMultirowListWithoutPointerHover(rapidEntry: Bool) async throws {
         let scroll = NativeOccurrenceScrollView(frame: NSRect(x: 0, y: 40, width: 280, height: 300))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 280, height: 340), styleMask: [.borderless],
@@ -51,6 +52,12 @@ struct NativeOccurrenceFocusChecks {
                 with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
                 context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48))
         scroll.table.keyDown(with: tab)
+        if rapidEntry {
+            window.sendEvent(tab)
+            try await requireEventually { nextField.currentEditor() === window.firstResponder }
+            try #require(window.makeFirstResponder(scroll.table))
+            scroll.table.keyDown(with: tab)
+        }
         try await requireEventually { probe.focused == "second" }
         #expect(probe.activations == 0)
         #expect(scroll.table.selectedRowIndexes == IndexSet(integer: 1))

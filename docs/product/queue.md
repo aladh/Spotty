@@ -4,8 +4,9 @@
 
 ## Queue
 
-- In Queue and Recently played, Tab enters a selected row's available artwork control.
+- In Queue and Recently played, Tab enters the available artwork control of one selected, loaded row.
   Shift-Tab returns to native row selection; another Tab continues through the window's focus order.
+  Multiple selection and rows without a loaded control follow the normal window focus order.
 - A queue refresh started before the first Connect snapshot must preserve and hydrate the newer
   Connect ordering when it arrives, including when the Web request fails. Metadata hydration cannot
   replace that ordering with its captured startup fallback.

@@ -21,7 +21,7 @@ struct CatalogCardButton<Label: View>: View {
             .accessibilityFocused($isAccessibilityFocused)
             .background {
                 CatalogCardFocusReveal(
-                    isFocused: hasFocus,
+                    isFocused: hasFocus, isKeyboardFocused: isFocused,
                     requestKeyboardFocus: {
                         guard isEnabled, !isFocused else { return false }
                         isFocused = true

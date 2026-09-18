@@ -34,8 +34,12 @@ struct CatalogCardFocusChecks {
         root.addSubview(second)
         #expect(target.focus())
         #expect(firstRequests == 1)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: false)
         first.updateFocus(true)
         #expect(target.focus(), "Accessibility reveal alone must not prevent keyboard entry")
+        first.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: false)
         canRequestFirst = false
         #expect(!target.focus(), "A rejected request must not consume Tab even before the anchor is updated")
         first.updateFocus(false)
@@ -53,6 +57,40 @@ struct CatalogCardFocusChecks {
         second.frame.size = NSSize(width: 48, height: 48)
         second.removeFromSuperview()
         #expect(!target.focus())
+    }
+
+    @Test func aPendingKeyboardRequestCannotConsumeASecondTab() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil }
+        let table = NSTableView(frame: root.bounds)
+        root.addSubview(table)
+        let anchor = CatalogCardFocusView(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
+        root.addSubview(anchor)
+        let target = NativeRowFocusTarget()
+        target.table = table
+        target.host = root
+        var requests = 0
+        anchor.registerFocus(target: target) {
+            requests += 1
+            return true
+        }
+        #expect(target.focus())
+        #expect(!target.focus(), "A second Tab before SwiftUI commits must fall through to native traversal")
+        #expect(requests == 1)
+        anchor.updateKeyboardFocus(isEnabled: true, isFocused: false)
+        #expect(!target.focus(), "An unrelated pre-commit update cannot reopen pending focus admission")
+        anchor.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        #expect(!target.focus(), "A committed keyboard focus is already at its destination")
+        anchor.updateKeyboardFocus(isEnabled: false, isFocused: false)
+        #expect(!target.focus(), "Live disabled state overrides a still-accepting stored closure")
+        #expect(requests == 1)
+        anchor.updateKeyboardFocus(isEnabled: true, isFocused: false)
+        #expect(target.focus(), "Re-enabled unfocused controls admit a fresh request")
+        #expect(requests == 2)
     }
 
     @Test func nativeRowTraversalOnlyConsumesActualForwardMovement() throws {
@@ -107,6 +145,8 @@ struct CatalogCardFocusChecks {
             return true
         }
         #expect(retiring.focus())
+        first.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: false)
         cell.prepareFocusTarget(contentID: "1:original", table: table)
         #expect(cell.focusTarget === retiring, "Metadata updates preserve the registered control")
         #expect(cell.focusTarget.focus())

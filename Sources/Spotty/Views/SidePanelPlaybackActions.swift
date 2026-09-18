@@ -44,6 +44,11 @@ struct SidePanelPlaybackActions {
         player.play(uri: entry.uri)
     }
 
+    func openArtist(_ artist: CatalogItem, onSelect: (CatalogItem) -> Void) {
+        guard isCurrentAccount, artist.kind == .artist else { return }
+        onSelect(artist)
+    }
+
     func transfer(to device: ConnectDevice) {
         guard isCurrentAccount else { return }
         player.transferPlayback(to: device)

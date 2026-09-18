@@ -3,7 +3,9 @@ import SwiftUI
 
 struct HistoryListView: View {
     let entries: [HistoryEntry]
+    let metadata: CatalogMetadataRepository
     let actions: SidePanelPlaybackActions
+    let onSelect: (CatalogItem) -> Void
     @Binding var selection: Set<HistoryEntry.ID>
     let scrollState: NativeListScrollState
 
@@ -18,9 +20,11 @@ struct HistoryListView: View {
                     NativeOccurrenceListRow(
                         id: entry.id, height: 64,
                         content: AnyView(
-                            HistoryRow(entry: entry, canPlay: actions.canStartPlayback) {
-                                actions.activateHistorySelection([entry.id])
-                            }))
+                            HistoryRow(
+                                entry: entry, artists: metadata.knownTrack(for: entry.uri)?.artists ?? [],
+                                onSelect: { actions.openArtist($0, onSelect: onSelect) },
+                                canPlay: actions.canStartPlayback,
+                                action: { actions.activateHistorySelection([entry.id]) })))
                 },
                 selection: $selection, allowsMultipleSelection: false, accessibilityLabel: "Recently played",
                 scrollState: scrollState, primaryAction: actions.activateHistorySelection
@@ -33,6 +37,8 @@ struct HistoryListView: View {
 
 private struct HistoryRow: View {
     let entry: HistoryEntry
+    let artists: [CatalogItem]
+    let onSelect: (CatalogItem) -> Void
     let canPlay: Bool
     let action: () -> Void
     @State private var isHovering = false
@@ -62,10 +68,12 @@ private struct HistoryRow: View {
                     .font(.system(size: 16))
                     .foregroundStyle(SpottyPalette.textPrimary)
                     .lineLimit(1)
-                Text(entry.artist)
-                    .font(.system(size: 14))
-                    .foregroundStyle(SpottyPalette.textSecondary)
-                    .lineLimit(1)
+                CatalogArtistLinks(
+                    artists: artists, fallback: entry.artist,
+                    color: isHovering ? SpottyPalette.textPrimary : SpottyPalette.textSecondary,
+                    onSelect: onSelect
+                )
+                .font(.system(size: 14))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

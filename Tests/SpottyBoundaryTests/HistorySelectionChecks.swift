@@ -139,7 +139,8 @@ struct HistorySelectionChecks {
 
         private func content() -> HistoryListView {
             HistoryListView(
-                entries: player.history, actions: SidePanelPlaybackActions(player: player),
+                entries: player.history, metadata: player.catalog.metadata,
+                actions: SidePanelPlaybackActions(player: player), onSelect: { _ in },
                 selection: Binding(get: { [unowned self] in selection }, set: { [unowned self] in selection = $0 }),
                 scrollState: scrollState)
         }

@@ -13,7 +13,26 @@ func homeSectionPresentation(at index: Int) -> HomeSectionPresentation {
 struct HomeView: View {
     let store: HomeLibraryStore
     let playback: CatalogPlaybackAccess
+    let interaction: HomeInteractionState
     let onSelect: (CatalogItem) -> Void
+    @State private var position = ScrollPosition()
+    private let restoredOffset: CGFloat
+
+    init(
+        store: HomeLibraryStore, playback: CatalogPlaybackAccess, interaction: HomeInteractionState,
+        onSelect: @escaping (CatalogItem) -> Void
+    ) {
+        self.store = store
+        self.playback = playback
+        self.interaction = interaction
+        self.onSelect = onSelect
+        // Initial geometry can report zero before appearance; keep the requested offset separately.
+        restoredOffset = interaction.scrollOffset
+    }
+
+    private var sections: [CatalogDisplayOccurrence<CatalogSection>] {
+        CatalogDisplayOccurrence.identifying(store.homeSections)
+    }
 
     var body: some View {
         ScrollView {
@@ -41,12 +60,14 @@ struct HomeView: View {
                         }
                     }
 
-                    ForEach(CatalogDisplayOccurrence.identifying(store.homeSections)) { section in
+                    ForEach(sections) { section in
                         switch homeSectionPresentation(at: section.index) {
                         case .quickAccess:
                             QuickAccessShelf(section: section.element, playback: playback, onSelect: onSelect)
                         case .shelf:
-                            MediaShelf(section: section.element, playback: playback, onSelect: onSelect)
+                            MediaShelf(
+                                section: section.element, playback: playback,
+                                scrollState: interaction.shelfScroll(for: section.id), onSelect: onSelect)
                         }
                     }
                 }
@@ -54,6 +75,16 @@ struct HomeView: View {
             .padding(.horizontal, CatalogLayout.contentPadding)
             .padding(.top, 18)
             .padding(.bottom, 24)
+        }
+        .scrollPosition($position)
+        .onAppear { position.scrollTo(y: restoredOffset) }
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+        } action: { _, offset in
+            interaction.scrollOffset = offset
+        }
+        .onChange(of: sections.dropFirst().map(\.id), initial: true) { _, ids in
+            interaction.retainShelves(ids)
         }
         .navigationTitle("Home")
     }
@@ -126,6 +157,7 @@ struct MediaShelf: View {
     let section: CatalogSection
     let playback: CatalogPlaybackAccess
     var titleLineLimit = 1
+    var scrollState: NativeListScrollState?
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
@@ -134,7 +166,9 @@ struct MediaShelf: View {
                 .font(.system(size: 24, weight: .bold))
                 .accessibilityAddTraits(.isHeader)
 
-            MediaCardRow(items: section.items, playback: playback, titleLineLimit: titleLineLimit, onSelect: onSelect)
+            MediaCardRow(
+                items: section.items, playback: playback, titleLineLimit: titleLineLimit,
+                scrollState: scrollState, onSelect: onSelect)
         }
     }
 }
@@ -143,10 +177,11 @@ struct MediaCardRow: View {
     let items: [CatalogItem]
     let playback: CatalogPlaybackAccess
     var titleLineLimit = 1
+    var scrollState: NativeListScrollState?
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
-        NativeHorizontalScroll {
+        NativeHorizontalScroll(scrollState: scrollState) {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(CatalogDisplayOccurrence.identifying(items)) { occurrence in
                     MediaCard(item: occurrence.element, playback: playback, titleLineLimit: titleLineLimit) {

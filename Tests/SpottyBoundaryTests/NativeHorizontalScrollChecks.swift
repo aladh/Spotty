@@ -79,6 +79,52 @@ struct NativeHorizontalScrollChecks {
         #expect(page.verticalDeltas == [0, -80, -5, 0, -5, -2, 0, -40])
     }
 
+    @Test func retainedPositionSurvivesRecreationAndRetiresWhenItsOwnerChanges() {
+        let state = NativeListScrollState()
+        state.offset = 300
+        let content = AnyView(Color.clear.frame(width: 1200, height: 240))
+        let first = NativeHorizontalScrollView(content: content, scrollState: state)
+        first.frame = NSRect(x: 0, y: 0, width: 600, height: 240)
+        first.layoutSubtreeIfNeeded()
+        #expect(first.contentView.bounds.minX == 300)
+        first.contentView.scroll(to: NSPoint(x: 450, y: 0))
+        #expect(state.offset == 450)
+        first.detachScrollState()
+        first.contentView.scroll(to: .zero)
+        #expect(state.offset == 450)
+
+        let next = NativeHorizontalScrollView(content: content, scrollState: state)
+        next.frame = first.frame
+        next.layoutSubtreeIfNeeded()
+        #expect(next.contentView.bounds.minX == 450)
+        next.update(content: content, scrollState: state)
+        next.layoutSubtreeIfNeeded()
+        #expect(next.contentView.bounds.minX == 450)
+        let replacement = NativeListScrollState()
+        next.update(content: content, scrollState: replacement)
+        next.layoutSubtreeIfNeeded()
+        #expect(next.contentView.bounds.minX == 0)
+        #expect(state.offset == 450)
+    }
+
+    @Test func retainedPositionClampsToResizedAndRefreshedContent() {
+        let state = NativeListScrollState()
+        state.offset = 500
+        let shelf = NativeHorizontalScrollView(
+            content: AnyView(Color.clear.frame(width: 1200, height: 240)), scrollState: state)
+        shelf.frame = NSRect(x: 0, y: 0, width: 600, height: 240)
+        shelf.layoutSubtreeIfNeeded()
+        #expect(state.offset == 500)
+        shelf.update(content: AnyView(Color.clear.frame(width: 800, height: 240)), scrollState: state)
+        shelf.layoutSubtreeIfNeeded()
+        #expect(shelf.contentView.bounds.minX == 200)
+        #expect(state.offset == 200)
+        shelf.frame.size.width = 1000
+        shelf.layoutSubtreeIfNeeded()
+        #expect(shelf.contentView.bounds.minX == 0)
+        #expect(state.offset == 0)
+    }
+
     private func wheel(
         x: Int32, y: Int32, phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase = .none
     ) throws -> NSEvent {

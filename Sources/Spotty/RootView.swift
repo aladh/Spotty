@@ -192,7 +192,11 @@ struct RootView: View {
     private func destinationView(_ destination: SidebarDestination) -> some View {
         switch destination {
         case .home, .playlists:
-            HomeView(store: catalog.homeLibrary, playback: catalogPlayback, onSelect: select)
+            HomeView(
+                store: catalog.homeLibrary, playback: catalogPlayback,
+                interaction: navigation.homeInteraction, onSelect: select
+            )
+            .id(ObjectIdentifier(navigation.homeInteraction))
         case .search:
             SearchView(
                 store: catalog.searchStore,

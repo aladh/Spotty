@@ -6,20 +6,20 @@
 
 ### Navigation and retained content
 
-- Windows open Home with Search unfocused; launch resets navigation.
-  Show loading while checking saved login; offer Connect for sign-in.
-  Sidebar playlists open directly, without grids.
-- Same-account revisits restore retained playlists/albums/artists immediately. Playlists
+- Launch resets navigation to Home with Search unfocused. Check saved login with progress;
+  offer Connect for sign-in. Sidebar playlists open directly, without grids.
+  Home retains page and shelf scroll across navigation, clamped to content.
+- Same-account revisits immediately restore retained playlists/albums/artists. Playlists
   retain search, sort, occurrence selection, and scroll. Artists retain scroll, Popular selection/expansion,
   and discography filters/sort/layout/list scroll. Filtering clears hidden selections; removed occurrences stay
-  unselected. Account changes clear history/interaction state. Retention is bounded; evicted routes reload normally.
-- Playlists/albums share learned labels for matching tracks across active and retained pages,
-  preserving duplicates, order, and interaction state. Refreshed labels do not
+  unselected. Account changes clear history/interaction. Retention is bounded; evicted routes reload.
+- Playlists/albums share learned labels for matching tracks across active/retained pages,
+  preserving duplicates, order, and interaction. Refreshed labels do not
   make saved collections current.
 - `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
   playback. Unsupported resources, malformed links, and lookalike hosts do nothing.
-- After current account verification, show complete saved playlist/album results, including empty
-  results, during refresh. Label saved content potentially outdated during refresh and
+- After verifying the current account, show complete saved playlists/albums, including empty results,
+  during refresh. Label saved content potentially outdated during refresh and
   offline/timeout/throttled failure. Credential refusal clears details pending renewed proof;
   credential/account failures cannot become cached success or expose another account's content.
   Account changes clear retention. No offline sign-in or downloaded music.
@@ -54,7 +54,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   Keep library visible; a native command toggles inspector.
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
   window controls, geometry, and hit targets; never reposition them. Empty toolbar space
-  drags the window and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
+  drags windows and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
   Enabled history arrows show pointing hands on hover; unavailable directions stay disabled.
   Home/Search controls stay 48 points high with breathing room and native Home focus.
 - Closing a window leaves Spotty running in the Dock; Dock and standard Window commands reopen it.
@@ -88,8 +88,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   Playlist queues show “Next from:” with the known playlist link, following accepted context
   without playback. Ordering/history remain playback-owned.
 - Known queue artists, playlist-table artists/albums, and player artists link to details individually;
-  player title/artwork open the album. Unknown destinations remain noninteractive. Text links underline and turn
-  white on hover; all links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore the parent cursor on exit.
+  player title/artwork open the album. Unknown destinations remain noninteractive. Hovered text links are white and underlined; links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore parent cursors on exit.
 - Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
   hover. Row clicks select; artwork buttons, Return, and double-click start the deliberate action.
 - Seeking uses a 4-point gray rail and white played portion. Hover, keyboard focus, or dragging

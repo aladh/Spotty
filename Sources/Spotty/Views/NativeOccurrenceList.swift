@@ -11,7 +11,7 @@ struct NativeOccurrenceListRow {
     let content: AnyView
 }
 
-/// Kept by the presentation across rail-tab changes; native scrolling never invalidates SwiftUI.
+/// Kept by presentation across navigation; native scrolling never invalidates SwiftUI.
 @MainActor
 final class NativeListScrollState {
     var offset: CGFloat = 0

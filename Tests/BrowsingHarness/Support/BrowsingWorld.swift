@@ -54,10 +54,12 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         }
     }
 
-    private func record(_ name: String) {
+    @discardableResult
+    private func record(_ name: String) -> Int {
         lock.withLock {
             requestCounts[name, default: 0] += 1
             if trace.count < 256 { trace.append(name) }
+            return requestCounts[name, default: 0]
         }
     }
 
@@ -179,10 +181,11 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
             ])
     }
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
-        record("library")
+        let request = record("library")
         if let delay = scenario.playlistRefreshMilliseconds {
             try await ContinuousClock().sleep(for: .milliseconds(delay))
         }
+        if request <= (scenario.playlistFailures ?? 0) { throw CatalogReadFailure.offline }
         return playlistNodes()
     }
 
@@ -192,6 +195,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     }
 
     private func playlistNodes() -> [PlaylistLibraryNode] {
+        guard scenario.emptyPlaylistLibrary != true else { return [] }
         let nodes = fixtures.playlists.compactMap(CatalogMapping.item(from:))
             .map(PlaylistLibraryNode.init(playlist:))
         guard scenario.expandedLibrary == true else { return nodes }

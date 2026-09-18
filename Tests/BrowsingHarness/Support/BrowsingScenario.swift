@@ -36,6 +36,9 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     /// Repeatable saved-sidebar inspection while the synthetic refresh is delayed.
     var cachedPlaylistLibrary: Bool? = nil
     var playlistRefreshMilliseconds: Int? = nil
+    /// Empty and recoverable failure states without changing a real library or connection.
+    var emptyPlaylistLibrary: Bool? = nil
+    var playlistFailures: Int? = nil
     var cachedDetails: Bool? = nil
     var detailRefreshMilliseconds: Int? = nil
     /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
@@ -47,6 +50,7 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
             [64, 640, 1_280].contains(artworkPixels),
             (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds),
             (0...60_000).contains(playlistRefreshMilliseconds ?? 0),
+            (0...3).contains(playlistFailures ?? 0),
             (0...60_000).contains(detailRefreshMilliseconds ?? 0)
         else { throw BrowsingFailure.invalidScenario }
     }

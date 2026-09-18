@@ -59,8 +59,9 @@
 
 Numbered playlist, album, artist and search rows use the ordinal as a playback button, available
 to accessibility tools without hovering. When enabled, hover shows Play, or Pause for the playing
-current track. Activating the playing current track pauses it; activating the paused current track
-resumes it; activating another row starts that track. Unavailable tracks cannot start or resume,
+current track. Pressing this button pauses the playing current track, resumes a paused current track,
+or starts another track. Return, double-click, and the context-menu Play command start the chosen
+track from the beginning. Unavailable tracks cannot start or resume,
 but the playing current track remains pausable. Announce unavailable tracks alongside their ordinal.
 Disconnected playback and pending commands disable activation.
 

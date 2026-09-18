@@ -6,6 +6,7 @@
 //
 
 import SpottyDomain
+import CryptoKit
 import Foundation
 import SpottyRuntimeContracts
 
@@ -45,17 +46,22 @@ nonisolated enum CatalogMapping {
                     return []
                 }
             }
-            guard let first = items.first else { return nil }
+            guard !items.isEmpty else { return nil }
             let title = section.title ?? "Recently played"
-            // URI-less shelves have no server identity. Anchor to their content rather than a
-            // changing page index, so inserting a recommendation cannot borrow another shelf's state.
-            let fallbackID = "home-section:\(title.utf8.count):\(title):\(first.id)"
             return CatalogSection(
-                id: section.uri ?? fallbackID,
+                id: section.uri ?? homeSectionFallbackID(title: title, items: items),
                 title: title,
                 items: items
             )
         }
+    }
+
+    private static func homeSectionFallbackID(title: String, items: [CatalogItem]) -> String {
+        // No server identity: recognize the same content regardless of ordering, but do not lend
+        // state to a different shelf sharing its title or first item. Keep the fallback bounded.
+        let parts = [title] + items.map(\.id).sorted()
+        let identity = parts.map { "\($0.utf8.count):\($0)" }.joined()
+        return "home-section:\(Data(SHA256.hash(data: Data(identity.utf8))).base64EncodedString())"
     }
 
     static func item(from album: PathfinderAlbum) -> CatalogItem? {

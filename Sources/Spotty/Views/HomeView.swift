@@ -50,7 +50,7 @@ struct HomeView: View {
                 }
             }
         }
-        .onChange(of: sections.dropFirst().map(\.id), initial: true) { _, ids in
+        .onChange(of: sections.map(\.id), initial: true) { _, ids in
             interaction.retainShelves(ids)
         }
         .navigationTitle("Home")

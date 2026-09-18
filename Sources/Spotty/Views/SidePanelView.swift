@@ -370,7 +370,7 @@ private struct HistoryRow: View {
     }
 
     var body: some View {
-        CatalogCardButton(action: action) { isFocused in
+        Button(action: action) {
             HStack(spacing: 12) {
                 RemoteArtwork(url: entry.artworkURL, kind: .track, cornerRadius: 4)
                     .frame(width: 48, height: 48)
@@ -391,10 +391,11 @@ private struct HistoryRow: View {
             .padding(8)
             .contentShape(Rectangle())
             .background(
-                SpottyPalette.historySurface(isHovering: canPlay && (isHovering || isFocused)),
+                SpottyPalette.historySurface(isHovering: canPlay && isHovering),
                 in: RoundedRectangle(cornerRadius: 4, style: .continuous)
             )
         }
+        .buttonStyle(.plain)
         .disabled(!canPlay)
         .pointingHandCursor(enabled: canPlay)
         .hoverSurface(isHovering: $isHovering)

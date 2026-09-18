@@ -79,8 +79,6 @@ The [library sidebar](library-sidebar.md) contract owns saved content, folders, 
   player title/artwork open the album. Unknown destinations remain noninteractive. Hovered text links are white and underlined; links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore parent cursors on exit.
 - Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
   hover or focus, accessible at rest. Row clicks select; artwork buttons, Return, and double-click activate.
-- Recently played actions join Tab navigation, show their highlight on focus, and activate once with
-  Space. Unavailable playback disables their pointer, keyboard, and accessibility actions.
 - Seeking uses a 4-point gray rail and white played portion. Hover, keyboard focus, or dragging
   reveals a 12-point white handle and green played portion. Enabled seeking uses a pointing hand;
   disabled seeking keeps the rail without an active handle. Preserve native focus/disabled semantics.

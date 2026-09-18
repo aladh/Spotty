@@ -11,6 +11,7 @@ struct SidePanelPlaybackActionTests {
         player.withRuntime { seedReady($0) }
         let oldRowsAndMenu = SidePanelPlaybackActions(player: player)
         #expect(oldRowsAndMenu.canStartPlayback)
+        #expect(oldRowsAndMenu.canTogglePlayback)
 
         // Unlike a delayed runtime publication, the desktop already displays the replacement.
         // Native menu tracking and old hosted row actions still retain their original account.
@@ -20,10 +21,13 @@ struct SidePanelPlaybackActionTests {
             seedReady($0)
         }
         #expect(player.canStartPlayback)
+        #expect(player.canTogglePlayback)
         let replacement = player.state
 
         oldRowsAndMenu.play(uri: "spotify:track:old-history-or-queue-row")
         oldRowsAndMenu.togglePlayback()
+        oldRowsAndMenu.activateQueueSelection([SidePanelPlaybackActions.currentRowID])
+        oldRowsAndMenu.activateQueueSelection(["old-occurrence"])
         oldRowsAndMenu.transfer(to: ConnectDevice(id: "remote", name: "Speaker", type: "speaker", isActive: false))
         #expect(!oldRowsAndMenu.removeUpcomingQueue(selectedIDs: ["old-occurrence"]))
 
@@ -59,5 +63,17 @@ struct SidePanelPlaybackActionTests {
                     devices: [PlaybackDevice(id: "mac", name: "Mac", type: "computer", isActive: true)],
                     localDeviceID: "mac", revision: 1)),
             source: .engineDevices, revision: 1)
+        let timing = PlaybackTiming(position: 42, duration: 200, anchoredAt: HarnessDates.fixed)
+        _ = runtime.send(
+            .enginePlayback(
+                EnginePlaybackSnapshot(
+                    transport: .paused, trackURI: "spotify:track:current", timing: timing,
+                    contextURI: "spotify:playlist:mix", isActiveDevice: true)), source: .enginePlayback, revision: 1)
+        _ = runtime.send(
+            .presentation(
+                PlaybackPresentationSnapshot(
+                    currentTrack: CurrentTrack(
+                        uri: "spotify:track:current", title: "Current", artist: "Artist", duration: 200,
+                        metadataSource: .catalog), transport: .paused, timing: timing)), source: .user)
     }
 }

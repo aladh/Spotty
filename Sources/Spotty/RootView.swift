@@ -8,7 +8,7 @@ struct RootView: View {
     let feedback: TransientFeedbackPresenter
 
     @State private var navigation: CatalogNavigation
-    @State private var upcomingQueueSelection: Set<QueueEntry.ID> = []
+    @State private var queueSelection: Set<QueueEntry.ID> = []
     @SceneStorage("showsPlaybackInspector") private var showsSidePanel = false
     @SceneStorage("playbackInspectorPanel") private var playbackPanel = PlaybackPanel.queue
 
@@ -53,7 +53,7 @@ struct RootView: View {
                     metadata: catalog.metadata,
                     player: player,
                     panel: playbackPanel,
-                    upcomingSelection: $upcomingQueueSelection,
+                    selection: $queueSelection,
                     onSelect: select,
                     onClose: { showsSidePanel = false }
                 )
@@ -109,14 +109,20 @@ struct RootView: View {
         }
         .onChange(of: player.accountEpoch) {
             navigation.reset()
-            upcomingQueueSelection.removeAll()
+            queueSelection.removeAll()
         }
-        .onChange(of: player.queueNextEntries.map(\.id)) { _, ids in
-            upcomingQueueSelection.formIntersection(Set(ids))
+        .onChange(of: queueRowIDs) { _, ids in
+            queueSelection.formIntersection(ids)
         }
         .onChange(of: navigation.rawValue) {
             SpottyLog.ui.info("Navigation state updated: \(mediaSelection.diagnosticLabel, privacy: .public)")
         }
+    }
+
+    private var queueRowIDs: Set<QueueEntry.ID> {
+        var ids = Set(player.queueNextEntries.map(\.id))
+        if player.hasCurrentTrack { ids.insert(SidePanelPlaybackActions.currentRowID) }
+        return ids
     }
 
     @ViewBuilder

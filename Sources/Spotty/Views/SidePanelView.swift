@@ -22,7 +22,7 @@ struct SidePanelView: View {
     let metadata: CatalogMetadataRepository
     let player: PlaybackStore
     let panel: PlaybackPanel
-    @Binding var upcomingSelection: Set<QueueEntry.ID>
+    @Binding var selection: Set<QueueEntry.ID>
     let onSelect: (CatalogItem) -> Void
     let onClose: () -> Void
 
@@ -127,9 +127,9 @@ struct SidePanelView: View {
             )
         } else {
             NativeOccurrenceList(
-                rows: queueRows(entries, actions: actions), selection: $upcomingSelection, accessibilityLabel: "Queue",
+                rows: queueRows(entries, actions: actions), selection: $selection, accessibilityLabel: "Queue",
                 scrollState: queueScrollState,
-                primaryAction: { playQueueSelection($0, actions: actions) },
+                primaryAction: actions.activateQueueSelection,
                 deleteAction: { actions.removeUpcomingQueue(selectedIDs: $0) },
                 contextMenu: { queueSelectionMenu($0, actions: actions) }
             )
@@ -146,7 +146,7 @@ struct SidePanelView: View {
                 ))
             rows.append(
                 NativeOccurrenceListRow(
-                    id: "current", height: 64, isSelectable: false,
+                    id: SidePanelPlaybackActions.currentRowID, height: 64,
                     content: AnyView(
                         CurrentTrackRow(player: player, metadata: metadata, actions: actions, onSelect: onSelect))
                 ))
@@ -179,19 +179,13 @@ struct SidePanelView: View {
         return rows
     }
 
-    private func playQueueSelection(_ selectedIDs: Set<QueueEntry.ID>, actions: SidePanelPlaybackActions) {
-        let selected = QueueMutationSelection.orderedUpcoming(selectedIDs: selectedIDs, in: player.queueNextEntries)
-        guard selected.count == 1, let entry = selected.first, actions.canStartPlayback else { return }
-        actions.play(uri: entry.uri)
-    }
-
     private func queueSelectionMenu(_ selectedIDs: Set<QueueEntry.ID>, actions: SidePanelPlaybackActions) -> NSMenu? {
         let selected = QueueMutationSelection.orderedUpcoming(selectedIDs: selectedIDs, in: player.queueNextEntries)
         guard !selected.isEmpty else { return nil }
         let menu = NSMenu()
-        if selected.count == 1 {
+        if selectedIDs.count == 1, selected.count == 1 {
             menu.addAction("Play", systemImage: "play.fill", enabled: actions.canStartPlayback) {
-                playQueueSelection(selectedIDs, actions: actions)
+                actions.activateQueueSelection(selectedIDs)
             }
         }
         menu.addAction("Remove from Queue", enabled: actions.canRemoveUpcomingQueue(selectedIDs: selectedIDs)) {

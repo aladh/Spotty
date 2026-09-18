@@ -5,6 +5,54 @@ import Testing
 
 @MainActor
 struct SidePanelPlaybackActionTests {
+    @Test func artistLinksNavigateWithoutPlaybackAndRejectRetiredAccountActions() async {
+        let engine = HarnessEngine()
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine))
+        player.withRuntime { seedReady($0) }
+        let actions = SidePanelPlaybackActions(player: player)
+        let navigation = CatalogNavigation()
+        let artist = CatalogItem(
+            id: "artist", uri: "spotify:artist:artist", title: "Artist", subtitle: "",
+            artworkURL: nil, kind: .artist)
+        var destinations: [CatalogItem] = []
+        let onSelect: (CatalogItem) -> Void = { item in
+            destinations.append(item)
+            _ = navigation.select(item)
+        }
+        let before = player.state
+        actions.openArtist(artist, onSelect: onSelect)
+        #expect(navigation.selection == .artist(artist.uri))
+        #expect(destinations == [artist])
+        #expect(player.state == before)
+
+        // A malformed non-artist cannot reach RootView's track-playback selection path.
+        actions.openArtist(
+            CatalogItem(
+                id: "track", uri: "spotify:track:track", title: "Track", subtitle: "",
+                artworkURL: nil, kind: .track), onSelect: onSelect)
+        #expect(destinations == [artist])
+
+        player.withRuntime { _ = $0.send(.session(.failed("offline")), source: .account) }
+        #expect(!actions.canStartPlayback)
+        actions.openArtist(artist, onSelect: onSelect)
+        #expect(destinations == [artist, artist], "known destinations remain browsable when playback is unavailable")
+
+        player.withRuntime {
+            $0.accountStore.advanceEpoch()
+            _ = $0.send(.reset(session: .ready), source: .account)
+            seedReady($0)
+        }
+        navigation.reset()
+        actions.openArtist(artist, onSelect: onSelect)
+        #expect(navigation.selection == .destination(.home))
+        #expect(destinations == [artist, artist])
+        SidePanelPlaybackActions(player: player).openArtist(artist, onSelect: onSelect)
+        #expect(navigation.selection == .artist(artist.uri))
+        #expect(destinations == [artist, artist, artist])
+        #expect(engine.operations.isEmpty)
+        await player.shutdownForTermination()
+    }
+
     @Test func retainedRowsAndMenusCannotCommandTheReplacementAccount() async {
         let engine = HarnessEngine()
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine))

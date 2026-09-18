@@ -229,7 +229,8 @@ struct SidePanelView: View {
 
     private var historyList: some View {
         HistoryListView(
-            entries: player.history, actions: SidePanelPlaybackActions(player: player),
+            entries: player.history, metadata: metadata, actions: SidePanelPlaybackActions(player: player),
+            onSelect: onSelect,
             selection: $historySelection, scrollState: historyScrollState)
     }
 }
@@ -271,7 +272,7 @@ private struct QueueUpcomingRow: View {
             artist: metadata.knownTrack(for: entry.uri) == nil && metadata.knownItem(for: entry.uri) == nil
                 ? entry.sourceLabel : info.artist,
             artists: metadata.knownTrack(for: entry.uri)?.artists ?? [],
-            onSelect: onSelect,
+            onSelect: { actions.openArtist($0, onSelect: onSelect) },
             artworkURL: metadata.knownTrack(for: entry.uri)?.artworkURL,
             duration: metadata.knownTrack(for: entry.uri)?.duration,
             isCurrent: false,
@@ -350,7 +351,7 @@ private struct CurrentTrackRow: View {
             title: player.displayedTrackTitle,
             artist: player.displayedArtistName,
             artists: metadata.knownTrack(for: player.trackURI)?.artists ?? [],
-            onSelect: onSelect,
+            onSelect: { actions.openArtist($0, onSelect: onSelect) },
             artworkURL: player.displayedArtworkURL,
             duration: player.duration,
             isCurrent: true,

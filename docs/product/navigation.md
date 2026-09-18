@@ -75,7 +75,7 @@ The [library sidebar](library-sidebar.md) contract owns saved content, folders, 
   with title/artist; duration/history timestamps stay accessible without narrowing titles.
   Playlist queues show “Next from:” with the known playlist link, following accepted context
   without playback. Ordering/history remain playback-owned.
-- Known queue artists, playlist-table artists/albums, and player artists link to details individually;
+- Known queue/history artists, playlist-table artists/albums, and player artists link to details individually;
   player title/artwork open the album. Unknown destinations remain noninteractive. Hovered text links are white and underlined; links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore parent cursors on exit.
 - Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
   hover or focus, accessible at rest. Row clicks select; artwork buttons, Return, and double-click activate.

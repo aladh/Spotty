@@ -9,11 +9,14 @@
   replace that ordering with its captured startup fallback.
 - Playback is the queue's ordering authority. Catalog and Web API metadata may enrich names but
   cannot reorder it; resolvable entries progressively replace fallback `Unknown` labels.
-- Upcoming queue rows use a native selectable list. Delete/Backspace and **Remove from Queue**
+- Current and upcoming queue rows use a native selectable list. Selection alone never plays;
+  Tab reaches the selected row's artwork control. Return/double-click on the current row pauses
+  or resumes at the retained position; on one upcoming row it starts that track. Multiple selected
+  rows do not activate playback. Delete/Backspace and **Remove from Queue**
   remove only selected *upcoming* occurrences by queue identity (Connect occurrence uid when
   present), never by track URI. Duplicate URIs or duplicate UIDs that cannot be proven fail
-  closed. The now-playing row and Recently played tab are not removable queue entries. Play from the queue
-  remains a deliberate primary action (Return/double-click), not a single-click.
+  closed. The now-playing row and Recently played tab are not removable queue entries; a selection
+  mixing current and upcoming rows cannot remove either.
 - Selection follows a valid Connect occurrence UID through reorder and metadata enrichment and
   survives closing/reopening the inspector. Removed occurrences are pruned even while it is closed;
   account replacement clears selection. Position-based fallback rows cannot promise continuity

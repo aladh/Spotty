@@ -5,6 +5,7 @@ import SpottyDomain
 /// the current runtime lifetime and destination when admitting the command.
 @MainActor
 struct SidePanelPlaybackActions {
+    static let currentRowID = "current"
     private let player: PlaybackStore
     private let accountEpoch: UInt64
 
@@ -25,6 +26,15 @@ struct SidePanelPlaybackActions {
     func togglePlayback() {
         guard isCurrentAccount else { return }
         player.togglePlayback()
+    }
+
+    func activateQueueSelection(_ selectedIDs: Set<QueueEntry.ID>) {
+        guard isCurrentAccount, selectedIDs.count == 1, let selectedID = selectedIDs.first else { return }
+        if selectedID == Self.currentRowID {
+            if canTogglePlayback { player.togglePlayback() }
+        } else if canStartPlayback, let entry = player.queueNextEntries.first(where: { $0.id == selectedID }) {
+            player.play(uri: entry.uri)
+        }
     }
 
     func transfer(to device: ConnectDevice) {

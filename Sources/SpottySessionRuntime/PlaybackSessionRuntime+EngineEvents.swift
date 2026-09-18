@@ -119,11 +119,11 @@ extension PlaybackSessionRuntime {
         )
         guard reduction.accepted else { return }
 
-        if reduction.acceptedSources.contains(.enginePlayback), let rawPlayback = cluster.playback {
+        if reduction.acceptedSources.contains(.enginePlayback), let playback {
             hasReceivedPlaybackSnapshot = true
             if reduction.currentTrackURIChanged, let uri = state.currentTrack?.uri {
                 adoptTrackMetadata(for: uri, force: true)
-                if !isInitial, rawPlayback.isActiveDevice, state.transport == .playing {
+                if !isInitial, playback.transport == .playing {
                     recordPlayed(uri)
                 }
             } else if state.currentTrack == nil {
@@ -174,7 +174,7 @@ extension PlaybackSessionRuntime {
             guard snapshot.event.sessionGeneration == sessionGeneration else { continue }
             receiveEngineEvent(snapshot.event, receivedAt: snapshot.receivedAt)
             if isTearingDown { break }
-            // Replayed local snapshots are history restoration, never a new listening event.
+            // Replayed snapshots are history restoration, never a new listening event.
             hasReceivedPlaybackSnapshot = false
         }
         hasReceivedPlaybackSnapshot = state.sourceRevisions[.enginePlayback] != nil
@@ -236,10 +236,6 @@ extension PlaybackSessionRuntime {
     func receive(_ state: RustPlaybackState, revision: UInt64, receivedAt: Date) {
         guard !isTearingDown else { return }
         let isInitialSnapshot = !hasReceivedPlaybackSnapshot
-        // This fact belongs to the same Connect player observation as the transport and
-        // identity below. Reading the store's owner here would make projection depend on
-        // callback arrival order.
-        let snapshotIsActiveDevice = state.isActiveDevice
         let snapshot = playbackSnapshot(state, receivedAt: receivedAt, isInitial: isInitialSnapshot)
         // Identity change is the reducer's answer, not a comparison against the published
         // projection: a held optimistic play target means a lagging sample changes nothing.
@@ -260,10 +256,9 @@ extension PlaybackSessionRuntime {
             effects.cancel(.trackMetadata)
         }
 
-        // A later cluster update can start Spotty remotely. Count that transition, but never turn
-        // the initial account snapshot into fresh listening history merely because the app opened.
+        // Local and remote Connect listening use the same accepted observation, never optimistic
+        // transport. Opening the app must not turn an initial snapshot into a fresh listening event.
         if !isInitialSnapshot,
-            snapshotIsActiveDevice,
             snapshot.transport == .playing,
             let acceptedTrackURI
         {

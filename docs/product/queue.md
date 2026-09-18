@@ -26,6 +26,12 @@
   the beginning, including the current track. Playback controls disable when unavailable.
   History selection follows the track through metadata updates/reordering and inspector reopening;
   removed entries and account changes clear it. History never offers queue removal.
+- History records observed changes to a playing track for local and remote Connect playback after
+  the first playback snapshot. The first snapshot, recovery replays, paused observations, and
+  rejected/stale events do not create entries. Known Play/Resume targets enter history only after
+  observed confirmation. Timing and metadata updates do not rewrite the played time; account
+  replacement clears session history. The accessibility value announces the recorded date and time,
+  remaining truthful while idle without periodic row updates.
 - Authoritative ordering and cached labels appear immediately. Missing metadata arrives in batches
   no more often than every 50 ms; one stalled lookup must not hold completed labels until the whole
   queue finishes. Shared refresh work survives panel cancellation when it can still serve a matching

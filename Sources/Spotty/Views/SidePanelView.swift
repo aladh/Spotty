@@ -23,6 +23,7 @@ struct SidePanelView: View {
     let player: PlaybackStore
     let panel: PlaybackPanel
     @Binding var selection: Set<QueueEntry.ID>
+    @Binding var historySelection: Set<HistoryEntry.ID>
     let onSelect: (CatalogItem) -> Void
     let onClose: () -> Void
 
@@ -226,31 +227,10 @@ struct SidePanelView: View {
 
     // MARK: - History
 
-    @ViewBuilder
     private var historyList: some View {
-        let actions = SidePanelPlaybackActions(player: player)
-        if player.history.isEmpty {
-            EmptyState(
-                icon: "clock.arrow.circlepath",
-                title: "No listening history yet",
-                message: "Tracks you play will appear here."
-            )
-        } else {
-            NativeOccurrenceList(
-                rows: player.history.map { entry in
-                    NativeOccurrenceListRow(
-                        id: entry.id, height: 64, isSelectable: false,
-                        content: AnyView(
-                            HistoryRow(entry: entry, canPlay: actions.canStartPlayback) { actions.play(uri: entry.uri) }
-                        )
-                    )
-                },
-                selection: .constant([]), drawsSelection: false, accessibilityLabel: "Recently played",
-                scrollState: historyScrollState
-            )
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-        }
+        HistoryListView(
+            entries: player.history, actions: SidePanelPlaybackActions(player: player),
+            selection: $historySelection, scrollState: historyScrollState)
     }
 }
 
@@ -355,53 +335,6 @@ private struct QueueTrackRow: View {
         .onDisappear { isHovering = false }
         .accessibilityElement(children: .contain)
         .accessibilityValue(duration.map(formatPlaylistDuration) ?? "")
-    }
-}
-
-private struct HistoryRow: View {
-    let entry: HistoryEntry
-    let canPlay: Bool
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    private var relativeTime: String {
-        entry.playedAt.formatted(.relative(presentation: .named))
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                RemoteArtwork(url: entry.artworkURL, kind: .track, cornerRadius: 4)
-                    .frame(width: 48, height: 48)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.title)
-                        .font(.system(size: 16))
-                        .lineLimit(1)
-                    Text(entry.artist)
-                        .font(.system(size: 14))
-                        .foregroundStyle(SpottyPalette.textSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-
-            }
-            .padding(8)
-            .contentShape(Rectangle())
-            .background(
-                SpottyPalette.historySurface(isHovering: canPlay && isHovering),
-                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(!canPlay)
-        .pointingHandCursor(enabled: canPlay)
-        .hoverSurface(isHovering: $isHovering)
-        .help("Play \(entry.title)")
-        .accessibilityLabel("Play \(entry.title) by \(entry.artist)")
-        .accessibilityValue("Played \(relativeTime)")
     }
 }
 

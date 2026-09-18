@@ -129,6 +129,7 @@ struct CurrentQueueSelectionChecks {
                 rootView: SidePanelView(
                     metadata: player.catalog.metadata, player: player, panel: .queue,
                     selection: Binding(get: { [unowned self] in selection }, set: { [unowned self] in selection = $0 }),
+                    historySelection: .constant([]),
                     onSelect: { _ in }, onClose: {}))
             window.contentView = host
         }

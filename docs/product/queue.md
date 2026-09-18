@@ -21,6 +21,11 @@
   survives closing/reopening the inspector. Removed occurrences are pruned even while it is closed;
   account replacement clears selection. Position-based fallback rows cannot promise continuity
   when no stable occurrence identity is available.
+- Recently played uses single native selection. Clicking a row or moving with arrows never plays;
+  Tab reaches its artwork Play control, while Return/double-click starts the selected track from
+  the beginning, including the current track. Playback controls disable when unavailable.
+  History selection follows the track through metadata updates/reordering and inspector reopening;
+  removed entries and account changes clear it. History never offers queue removal.
 - Authoritative ordering and cached labels appear immediately. Missing metadata arrives in batches
   no more often than every 50 ms; one stalled lookup must not hold completed labels until the whole
   queue finishes. Shared refresh work survives panel cancellation when it can still serve a matching

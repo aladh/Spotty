@@ -232,8 +232,14 @@ struct BrowsingHarnessTests {
         let artist = try #require(world.fixtures.artists.first)
         let artistID = try #require(artist.uri.split(separator: ":").last).description
         let initial = try await world.artist(id: artistID)
+        let discography = try await world.artistDiscography(id: artistID)
+        #expect(discography.releases == initial.releases, "Each independently loaded surface starts successfully")
         await #expect(throws: CatalogReadFailure.offline) { try await world.artist(id: artistID) }
+        await #expect(throws: CatalogReadFailure.offline) { try await world.artistDiscography(id: artistID) }
         #expect(try await world.artist(id: artistID).releases == initial.releases)
+        #expect(try await world.artistDiscography(id: artistID).releases == discography.releases)
+        #expect(world.snapshot().requests["artist.\(artistID)"] == 3)
+        #expect(world.snapshot().requests["artist-discography.\(artistID)"] == 3)
         #expect(world.snapshot().mutationAttempts == 0)
     }
 

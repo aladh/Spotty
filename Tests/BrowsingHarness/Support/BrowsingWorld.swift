@@ -255,16 +255,19 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         return album
     }
     func artist(id: String) async throws -> CatalogArtistSnapshot {
-        let request = record("artist.\(id)")
+        try await artistSnapshot(id: id, requestKey: "artist.\(id)")
+    }
+    func artistDiscography(id: String) async throws -> CatalogArtistSnapshot {
+        try await artistSnapshot(id: id, requestKey: "artist-discography.\(id)")
+    }
+    private func artistSnapshot(id: String, requestKey: String) async throws -> CatalogArtistSnapshot {
+        let request = record(requestKey)
         if request > 1 {
             try await delayDetailRefresh()
             if request <= (scenario.artistRefreshFailures ?? 0) + 1 { throw CatalogReadFailure.offline }
         }
         guard let artist = fixtures.artist(id: id) else { throw BrowsingFailure.unsupportedAction }
         return artist
-    }
-    func artistDiscography(id: String) async throws -> CatalogArtistSnapshot {
-        try await artist(id: id)
     }
     func libraryAlbums() async throws -> [CatalogItem] {
         scenario.expandedLibrary == true ? fixtures.albums : []

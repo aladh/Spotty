@@ -98,6 +98,7 @@ struct NativeOccurrenceList: NSViewRepresentable {
             applyingUpdate = true
             defer { applyingUpdate = false }
             let offset = next.scrollState?.offset ?? scroll.contentView.bounds.minY
+            let previousRows = content.rows
             let structureChanged =
                 content.rows.map(\.id) != next.rows.map(\.id)
                 || content.rows.map(\.height) != next.rows.map(\.height)
@@ -111,7 +112,6 @@ struct NativeOccurrenceList: NSViewRepresentable {
                     anchor = (content.rows[row].id, offset - scroll.table.rect(ofRow: row).minY)
                 }
             }
-            content = next
             scroll.table.allowsMultipleSelection = next.allowsMultipleSelection
             scroll.table.selectionHighlightStyle = next.drawsSelection ? .regular : .none
             scroll.table.setAccessibilityLabel(next.accessibilityLabel)
@@ -122,8 +122,13 @@ struct NativeOccurrenceList: NSViewRepresentable {
                     guard let self else { return nil }
                     return content.contextMenu?(selectedIDs)
                 }
-            if !hasAppliedContent || structureChanged || scroll.table.numberOfRows != next.rows.count {
+            if !hasAppliedContent || scroll.table.numberOfRows != previousRows.count {
+                content = next
                 scroll.table.reloadData()
+            } else if structureChanged {
+                updateRows(to: next, in: scroll.table)
+            } else {
+                content = next
             }
             hasAppliedContent = true
             let desired = IndexSet(
@@ -146,6 +151,41 @@ struct NativeOccurrenceList: NSViewRepresentable {
             scroll.contentView.scroll(to: NSPoint(x: 0, y: restored))
             scroll.reflectScrolledClipView(scroll.contentView)
             next.scrollState?.offset = restored
+        }
+
+        /// Keep unaffected library cells attached so folder controls retain keyboard focus.
+        /// Mixed-height lists retain full reloads: incremental AppKit insertion can leave stale
+        /// offscreen row origins. Comparing shared ends stays linear even for large reorders.
+        private func updateRows(to next: NativeOccurrenceList, in table: NSTableView) {
+            let previous = content.rows
+            let rows = next.rows
+            guard let height = previous.first?.height,
+                previous.allSatisfy({ $0.height == height }), rows.allSatisfy({ $0.height == height })
+            else {
+                content = next
+                table.reloadData()
+                return
+            }
+            let sharedLimit = min(previous.count, rows.count)
+            var prefix = 0
+            while prefix < sharedLimit, previous[prefix].id == rows[prefix].id { prefix += 1 }
+            var suffix = 0
+            while suffix < sharedLimit - prefix,
+                previous[previous.count - suffix - 1].id == rows[rows.count - suffix - 1].id
+            { suffix += 1 }
+            guard prefix + suffix > 0 else {
+                content = next
+                table.reloadData()
+                return
+            }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                table.beginUpdates()
+                content = next
+                table.removeRows(at: IndexSet(integersIn: prefix..<(previous.count - suffix)), withAnimation: [])
+                table.insertRows(at: IndexSet(integersIn: prefix..<(rows.count - suffix)), withAnimation: [])
+                table.endUpdates()
+            }
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { content.rows.count }

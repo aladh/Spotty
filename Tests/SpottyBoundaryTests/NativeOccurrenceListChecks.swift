@@ -6,7 +6,8 @@ import Testing
 @Suite("Owned native occurrence list")
 @MainActor
 struct NativeOccurrenceListChecks {
-    @Test func insertedAlbumTracksKeepTheVisibleReleaseAndNativeSelectionAnchored() {
+    @Test(arguments: [false, true])
+    func insertedAlbumTracksKeepTheVisibleReleaseAndNativeSelectionAnchored(attached: Bool) {
         let state = NativeListScrollState()
         state.offset = 640
         var selection: Set<String> = ["occurrence-10"]
@@ -15,6 +16,9 @@ struct NativeOccurrenceListChecks {
             selection: Binding(get: { selection }, set: { selection = $0 }), preservesVisibleAnchor: true,
             accessibilityLabel: "Discography", scrollState: state)
         let scroll = NativeOccurrenceScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 400))
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        if attached { window.contentView = scroll }
+        defer { window.contentView = nil }
         let coordinator = NativeOccurrenceList.Coordinator(initial)
         coordinator.attach(to: scroll)
         coordinator.update(initial, in: scroll)

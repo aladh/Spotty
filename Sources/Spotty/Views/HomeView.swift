@@ -15,6 +15,53 @@ struct HomeView: View {
     let playback: CatalogPlaybackAccess
     let interaction: HomeInteractionState
     let onSelect: (CatalogItem) -> Void
+
+    private var sections: [CatalogDisplayOccurrence<CatalogSection>] {
+        CatalogDisplayOccurrence.identifying(store.homeSections)
+    }
+
+    var body: some View {
+        Group {
+            if playback.isConnected && !sections.isEmpty {
+                HomeRecommendationsView(
+                    store: store, playback: playback, interaction: interaction, onSelect: onSelect)
+            } else {
+                // Placeholder geometry must not overwrite the retained recommendation position.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 30) {
+                        CatalogContentState(
+                            isLoading: store.isLoading(.home), isEmpty: store.homeSections.isEmpty,
+                            error: store.error(for: .home), loadingLabel: "Loading your Spotify home",
+                            errorTitle: "Couldn't load Spotify Home", connection: playback,
+                            connectionIcon: "music.note.house", connectionTitle: "Your music will appear here",
+                            disconnectOverridesContent: true,
+                            retry: { await store.loadHome(force: true) }
+                        ) {
+                            EmptyState(
+                                icon: "rectangle.stack", title: "Spotify Home is empty",
+                                message: "Spotify didn't return any recommendations.")
+                        } content: {
+                            EmptyView()
+                        }
+                    }
+                    .padding(.horizontal, CatalogLayout.contentPadding)
+                    .padding(.top, 18)
+                    .padding(.bottom, 24)
+                }
+            }
+        }
+        .onChange(of: sections.dropFirst().map(\.id), initial: true) { _, ids in
+            interaction.retainShelves(ids)
+        }
+        .navigationTitle("Home")
+    }
+}
+
+private struct HomeRecommendationsView: View {
+    let store: HomeLibraryStore
+    let playback: CatalogPlaybackAccess
+    let interaction: HomeInteractionState
+    let onSelect: (CatalogItem) -> Void
     @State private var position = ScrollPosition()
     private let restoredOffset: CGFloat
 
@@ -30,45 +77,28 @@ struct HomeView: View {
         restoredOffset = interaction.scrollOffset
     }
 
-    private var sections: [CatalogDisplayOccurrence<CatalogSection>] {
-        CatalogDisplayOccurrence.identifying(store.homeSections)
-    }
-
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 30) {
-                CatalogContentState(
-                    isLoading: store.isLoading(.home), isEmpty: store.homeSections.isEmpty,
-                    error: store.error(for: .home), loadingLabel: "Loading your Spotify home",
-                    errorTitle: "Couldn't load Spotify Home", connection: playback,
-                    connectionIcon: "music.note.house", connectionTitle: "Your music will appear here",
-                    disconnectOverridesContent: true,
-                    retry: { await store.loadHome(force: true) }
-                ) {
-                    EmptyState(
-                        icon: "rectangle.stack", title: "Spotify Home is empty",
-                        message: "Spotify didn't return any recommendations.")
-                } content: {
-                    HStack {
-                        Text(store.greeting)
-                            .font(.system(size: 32, weight: .bold))
-                        Spacer()
-                        if store.isLoading(.home) {
-                            ProgressView()
-                                .controlSize(.small)
-                                .help("Refreshing Spotify")
-                        }
+                HStack {
+                    Text(store.greeting)
+                        .font(.system(size: 32, weight: .bold))
+                    Spacer()
+                    if store.isLoading(.home) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .help("Refreshing Spotify")
                     }
+                }
 
-                    ForEach(sections) { section in
-                        switch homeSectionPresentation(at: section.index) {
-                        case .quickAccess:
-                            QuickAccessShelf(section: section.element, playback: playback, onSelect: onSelect)
-                        case .shelf:
-                            MediaShelf(
-                                section: section.element, playback: playback,
-                                scrollState: interaction.shelfScroll(for: section.id), onSelect: onSelect)
-                        }
+                ForEach(CatalogDisplayOccurrence.identifying(store.homeSections)) { section in
+                    switch homeSectionPresentation(at: section.index) {
+                    case .quickAccess:
+                        QuickAccessShelf(section: section.element, playback: playback, onSelect: onSelect)
+                    case .shelf:
+                        MediaShelf(
+                            section: section.element, playback: playback,
+                            scrollState: interaction.shelfScroll(for: section.id), onSelect: onSelect)
                     }
                 }
             }
@@ -83,10 +113,6 @@ struct HomeView: View {
         } action: { _, offset in
             interaction.scrollOffset = offset
         }
-        .onChange(of: sections.dropFirst().map(\.id), initial: true) { _, ids in
-            interaction.retainShelves(ids)
-        }
-        .navigationTitle("Home")
     }
 }
 

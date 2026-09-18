@@ -6,9 +6,9 @@
 
 ### Navigation and retained content
 
-- Launch resets navigation to Home with Search unfocused. Check saved login with progress;
+- New windows open Home with Search unfocused; launch resets navigation. Check saved login with progress;
   offer Connect for sign-in. Sidebar playlists open directly, without grids.
-  Home retains page and shelf scroll across navigation, clamped to content.
+  Home retains page/shelf scroll across navigation and reconnects, clamped to content.
 - Same-account revisits immediately restore retained playlists/albums/artists. Playlists
   retain search, sort, occurrence selection, and scroll. Artists retain scroll, Popular selection/expansion,
   and discography filters/sort/layout/list scroll. Filtering clears hidden selections; removed occurrences stay

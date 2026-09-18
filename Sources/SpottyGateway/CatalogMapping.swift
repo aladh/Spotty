@@ -29,7 +29,7 @@ nonisolated enum CatalogMapping {
     }
 
     static func sections(from home: PathfinderHome) -> [CatalogSection] {
-        home.sections.enumerated().compactMap { index, section in
+        home.sections.compactMap { section in
             let items = section.items.flatMap { entry -> [CatalogItem] in
                 guard let content = entry.content else { return [] }
                 switch content {
@@ -45,10 +45,14 @@ nonisolated enum CatalogMapping {
                     return []
                 }
             }
-            guard !items.isEmpty else { return nil }
+            guard let first = items.first else { return nil }
+            let title = section.title ?? "Recently played"
+            // URI-less shelves have no server identity. Anchor to their content rather than a
+            // changing page index, so inserting a recommendation cannot borrow another shelf's state.
+            let fallbackID = "home-section:\(title.utf8.count):\(title):\(first.id)"
             return CatalogSection(
-                id: section.uri ?? "home-section-\(index)",
-                title: section.title ?? "Recently played",
+                id: section.uri ?? fallbackID,
+                title: title,
                 items: items
             )
         }

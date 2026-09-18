@@ -65,8 +65,8 @@ final class NativeHorizontalScrollView: NSScrollView {
     }
 
     func update(content: AnyView, scrollState: NativeListScrollState? = nil) {
+        if scrollState !== self.scrollState { pendingOffset = scrollState?.offset }
         self.scrollState = scrollState
-        pendingOffset = scrollState?.offset
         hosting.rootView = AnyView(content.fixedSize().frame(maxWidth: .infinity, alignment: .leading))
         needsLayout = true
         invalidateIntrinsicContentSize()
@@ -80,8 +80,8 @@ final class NativeHorizontalScrollView: NSScrollView {
         let size = hostedSize
         hosting.frame = NSRect(x: 0, y: 0, width: max(contentSize.width, size.width), height: size.height)
         guard contentSize.width > 0, contentSize.height > 0 else { return }
-        if let requested {
-            let offset = min(max(0, requested), max(0, hosting.frame.width - contentSize.width))
+        let offset = min(max(0, requested ?? contentView.bounds.minX), max(0, hosting.frame.width - contentSize.width))
+        if contentView.bounds.minX != offset {
             contentView.scroll(to: NSPoint(x: offset, y: 0))
             reflectScrolledClipView(contentView)
         }

@@ -125,6 +125,20 @@ struct NativeHorizontalScrollChecks {
         #expect(state.offset == 0)
     }
 
+    @Test func scrollingBetweenAnUnrelatedUpdateAndLayoutKeepsTheNewPosition() {
+        let state = NativeListScrollState()
+        state.offset = 450
+        let content = AnyView(Color.clear.frame(width: 1200, height: 240))
+        let shelf = NativeHorizontalScrollView(content: content, scrollState: state)
+        shelf.frame = NSRect(x: 0, y: 0, width: 600, height: 240)
+        shelf.layoutSubtreeIfNeeded()
+        shelf.update(content: content, scrollState: state)
+        shelf.contentView.scroll(to: NSPoint(x: 500, y: 0))
+        shelf.layoutSubtreeIfNeeded()
+        #expect(shelf.contentView.bounds.minX == 500)
+        #expect(state.offset == 500)
+    }
+
     private func wheel(
         x: Int32, y: Int32, phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase = .none
     ) throws -> NSEvent {

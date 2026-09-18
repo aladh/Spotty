@@ -124,6 +124,12 @@ struct BrowsingHarnessTests {
         input.searchRefreshMilliseconds = -1
         #expect(throws: (any Error).self) { try input.validate() }
         input = scenario()
+        input.albumFailures = -1
+        #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
+        input.artistRefreshFailures = 4
+        #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
         input.detailRefreshMilliseconds = -1
         #expect(throws: (any Error).self) { try input.validate() }
         #expect(throws: (any Error).self) { try BrowsingScenario.decode(Data("{}".utf8)) }
@@ -206,6 +212,34 @@ struct BrowsingHarnessTests {
         let albums = try await world.searchAlbums("Harbor", limit: 30)
         #expect(!albums.isEmpty)
         #expect(world.snapshot().requests["search.albums"] == 2)
+        #expect(world.snapshot().mutationAttempts == 0)
+    }
+
+    @Test func retainedDetailFailuresRecoverThroughTheSameReadOnlyProvider() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyDetailRetry-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.cachedDetails = true
+        input.albumFailures = 1
+        input.artistRefreshFailures = 1
+        input.detailRefreshMilliseconds = 0
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let item = try #require(world.fixtures.albums.first)
+        let albumID = try #require(item.uri.split(separator: ":").last).description
+        let cached = try #require(try await world.cachedAlbum(id: albumID))
+        await #expect(throws: CatalogReadFailure.offline) { try await world.album(id: albumID) }
+        #expect(try await world.album(id: albumID).tracks == cached.tracks)
+        let artist = try #require(world.fixtures.artists.first)
+        let artistID = try #require(artist.uri.split(separator: ":").last).description
+        let initial = try await world.artist(id: artistID)
+        let discography = try await world.artistDiscography(id: artistID)
+        #expect(discography.releases == initial.releases, "Each independently loaded surface starts successfully")
+        await #expect(throws: CatalogReadFailure.offline) { try await world.artist(id: artistID) }
+        await #expect(throws: CatalogReadFailure.offline) { try await world.artistDiscography(id: artistID) }
+        #expect(try await world.artist(id: artistID).releases == initial.releases)
+        #expect(try await world.artistDiscography(id: artistID).releases == discography.releases)
+        #expect(world.snapshot().requests["artist.\(artistID)"] == 3)
+        #expect(world.snapshot().requests["artist-discography.\(artistID)"] == 3)
         #expect(world.snapshot().mutationAttempts == 0)
     }
 

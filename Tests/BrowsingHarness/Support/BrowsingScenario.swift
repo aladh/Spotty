@@ -43,6 +43,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var searchAlbumFailures: Int? = nil
     var searchRefreshMilliseconds: Int? = nil
     var cachedDetails: Bool? = nil
+    var albumFailures: Int? = nil
+    var artistRefreshFailures: Int? = nil
     var detailRefreshMilliseconds: Int? = nil
     /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
     var forceSynchronousLayout: Bool? = nil
@@ -56,6 +58,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
             (0...3).contains(playlistFailures ?? 0),
             (0...3).contains(searchAlbumFailures ?? 0),
             (0...60_000).contains(searchRefreshMilliseconds ?? 0),
+            (0...3).contains(albumFailures ?? 0),
+            (0...3).contains(artistRefreshFailures ?? 0),
             (0...60_000).contains(detailRefreshMilliseconds ?? 0)
         else { throw BrowsingFailure.invalidScenario }
     }

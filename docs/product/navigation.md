@@ -23,6 +23,9 @@
   offline/timeout/throttled failure. Credential refusal clears details pending renewed proof;
   credential/account failures cannot become cached success or expose another account's content.
   Account changes clear retention. No offline sign-in or downloaded music.
+- Retained album, artist, and discography content stays visible after a refresh failure, with an in-place
+  retry beside the saved-content notice. Retry is unavailable while refreshing or disconnected;
+  a successful live refresh removes the notice. Empty failures keep the full error/retry presentation.
 
 ### Album and artist pages
 

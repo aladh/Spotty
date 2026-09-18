@@ -28,6 +28,11 @@ struct ArtistDiscographyView: View {
     var body: some View {
         VStack(spacing: 0) {
             controls
+            if artist.isShowingCachedContent, !releases.isEmpty {
+                CachedCatalogNotice(
+                    isRefreshing: artist.isLoading, error: artist.error, canRetry: playback.isConnected,
+                    retry: { await artist.load(item, force: true) })
+            }
             CatalogContentState(
                 isLoading: artist.isLoading || albums.artistURI != item.uri,
                 isEmpty: releases.isEmpty, error: artist.error,

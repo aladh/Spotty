@@ -36,7 +36,9 @@ struct AlbumDetailView: View {
     private var albumContent: some View {
         VStack(spacing: 0) {
             if store.isShowingCachedContent {
-                CachedCatalogNotice(isRefreshing: store.isLoading)
+                CachedCatalogNotice(
+                    isRefreshing: store.isLoading, error: store.tracks.isEmpty ? nil : store.error,
+                    canRetry: playback.isConnected, retry: { await store.load(item, force: true) })
             }
             CatalogContentState(
                 isLoading: store.isLoadingInitialContent, isEmpty: store.tracks.isEmpty, error: store.error,

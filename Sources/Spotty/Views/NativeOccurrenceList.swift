@@ -239,12 +239,13 @@ struct NativeOccurrenceList: NSViewRepresentable {
         }
 
         private func configure(_ cell: NativeTrackHostingCell, at row: Int) {
-            cell.focusTarget.table = scroll?.table
+            let contentID = "\(content.artworkAccess.accountEpoch):\(content.rows[row].id)"
+            cell.prepareFocusTarget(contentID: contentID, table: scroll?.table)
             cell.host.rootView = AnyView(
                 content.rows[row].content
                     .environment(\.artworkAccess, content.artworkAccess)
                     .environment(\.nativeRowFocusTarget, cell.focusTarget)
-                    .id("\(content.artworkAccess.accountEpoch):\(content.rows[row].id)")
+                    .id(contentID)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
         }

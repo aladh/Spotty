@@ -26,6 +26,10 @@ struct CatalogCardFocusChecks {
         let root = NSView(frame: window.contentLayoutRect)
         window.contentView = root
         defer { window.contentView = nil }
+        let table = NSTableView(frame: root.bounds)
+        root.addSubview(table)
+        target.table = table
+        target.host = root
         root.addSubview(first)
         root.addSubview(second)
         #expect(target.focus())
@@ -67,6 +71,7 @@ struct CatalogCardFocusChecks {
         root.addSubview(anchor)
         let target = NativeRowFocusTarget()
         target.table = table
+        target.host = root
         anchor.registerFocus(target: target, request: nil)
         table.nextKeyView = field
         field.nextKeyView = table
@@ -77,6 +82,61 @@ struct CatalogCardFocusChecks {
         table.nextKeyView = nil
         #expect(!target.leaveControl(backwards: false), "A missing key-view destination must leave Tab unhandled")
         #expect(window.firstResponder === field.currentEditor())
+    }
+
+    @Test(arguments: ["1:replacement", "2:original"])
+    func reusedCellRejectsRetiringArtworkBeforeSwiftUICommits(replacementID: String) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil }
+        let table = NSTableView(frame: root.bounds)
+        root.addSubview(table)
+        let cell = NativeTrackHostingCell()
+        cell.frame = NSRect(x: 0, y: 0, width: 100, height: 64)
+        root.addSubview(cell)
+        let first = CatalogCardFocusView(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
+        cell.host.addSubview(first)
+        cell.prepareFocusTarget(contentID: "1:original", table: table)
+        let retiring = cell.focusTarget
+        var oldRequests = 0
+        first.registerFocus(target: retiring) {
+            oldRequests += 1
+            return true
+        }
+        #expect(retiring.focus())
+        cell.prepareFocusTarget(contentID: "1:original", table: table)
+        #expect(cell.focusTarget === retiring, "Metadata updates preserve the registered control")
+        #expect(cell.focusTarget.focus())
+
+        cell.prepareFocusTarget(contentID: replacementID, table: table)
+        #expect(first.window === window, "The old SwiftUI leaf has not detached yet")
+        #expect(!cell.focusTarget.focus(), "A reused cell cannot route Tab into its retiring occurrence")
+        first.registerFocus(target: retiring) {
+            oldRequests += 1
+            return true
+        }
+        #expect(!retiring.focus(), "Late registration cannot reactivate a retired target")
+        #expect(!cell.focusTarget.focus(), "An old update cannot register against the replacement target")
+        #expect(oldRequests == 2)
+
+        let replacement = CatalogCardFocusView(frame: NSRect(x: 48, y: 0, width: 48, height: 48))
+        cell.host.addSubview(replacement)
+        var newRequests = 0
+        replacement.registerFocus(target: cell.focusTarget) {
+            newRequests += 1
+            return true
+        }
+        first.registerFocus(target: nil, request: nil)
+        #expect(cell.focusTarget.focus())
+        #expect(newRequests == 1)
+        root.addSubview(replacement)
+        #expect(!cell.focusTarget.focus(), "Being in the same window does not prove ownership by this cell")
+        cell.host.addSubview(replacement)
+        table.removeFromSuperview()
+        #expect(!cell.focusTarget.focus(), "The target's table must still belong to the same window")
     }
 
     @Test func focusRevealsBothScrollAxesWithoutFightingLaterUserScrolling() {

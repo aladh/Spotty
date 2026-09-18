@@ -17,11 +17,19 @@ extension EnvironmentValues {
 final class NativeRowFocusTarget {
     weak var control: CatalogCardFocusView?
     weak var table: NSTableView?
+    weak var host: NSView?
 
-    func focus() -> Bool { control?.requestKeyboardFocus() ?? false }
+    private var ownedControl: CatalogCardFocusView? {
+        guard let control, let host, let window = table?.window,
+            host.window === window, control.window === window, control.isDescendant(of: host)
+        else { return nil }
+        return control
+    }
+
+    func focus() -> Bool { ownedControl?.requestKeyboardFocus() ?? false }
 
     func leaveControl(backwards: Bool) -> Bool {
-        guard let table, let window = table.window, control?.window === window else { return false }
+        guard let table, let window = table.window, ownedControl != nil else { return false }
         if backwards {
             return window.makeFirstResponder(table)
         }

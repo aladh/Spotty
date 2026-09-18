@@ -326,6 +326,92 @@ struct CatalogRouteRetentionTests {
         #expect(artist.releases.isEmpty)
     }
 
+    @Test(
+        arguments: ArtistDetailStore.Content.allCases,
+        [CatalogReadFailure.offline, .timedOut, .throttled, .sessionExpired])
+    func artistFailuresRetainContentOnlyWhileSessionProofRemainsValid(
+        content: ArtistDetailStore.Content, failure: CatalogReadFailure
+    ) async {
+        let provider = HarnessCatalog()
+        let first = item("first", kind: .artist)
+        let second = item("second", kind: .artist)
+        let snapshot = CatalogArtistSnapshot(
+            name: "Artist", releases: [item("release", kind: .album)],
+            overview: CatalogArtistOverview(
+                monthlyListeners: 123,
+                popularTracks: [
+                    CatalogArtistPopularTrack(
+                        track: HarnessFixtures.track(uri: "spotify:track:popular"), playCount: 456)
+                ], biography: "Biography"),
+            releaseKinds: ["spotify:album:release": .album], releaseDates: ["spotify:album:release": "2026"])
+        provider.onArtistSnapshot = { _ in snapshot }
+        provider.onArtistDiscographySnapshot = { _ in snapshot }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let store = ArtistDetailStore(provider: provider, session: session, content: content)
+        await store.load(first)
+        await store.load(second)
+        store.prepare(first)
+        let originalVersion = store.popularTracks.version
+        provider.onArtistSnapshot = { _ in throw failure }
+        provider.onArtistDiscographySnapshot = { _ in throw failure }
+        await store.load(first, force: true)
+        #expect(store.item?.uri == first.uri)
+        #expect(store.error == CatalogErrorPresentation.message(for: failure))
+        #expect(!store.isLoading)
+        let expired = failure == .sessionExpired
+        #expect(store.isShowingCachedContent == !expired)
+        #expect(store.releases.isEmpty == expired)
+        #expect((store.overview == nil) == expired)
+        #expect(store.popularTracks.tracks.isEmpty == expired)
+        #expect(store.popularPreview.tracks.isEmpty == expired)
+        #expect(store.artistTracks.isEmpty == expired)
+        #expect(store.releaseKinds.isEmpty == expired)
+        #expect(store.releaseDates.isEmpty == expired)
+        if !expired { #expect(store.popularTracks.version == originalVersion) }
+        store.prepare(second)
+        #expect(store.releases.isEmpty == expired, "Credential refusal clears other retained routes too")
+        store.prepare(first)
+        #expect(store.releases.isEmpty == expired, "Navigation cannot resurrect the rejected route")
+        #expect(store.isShowingCachedContent == !expired)
+        provider.onArtistSnapshot = { _ in snapshot }
+        provider.onArtistDiscographySnapshot = { _ in snapshot }
+        await store.load(first)
+        #expect(store.releases.count == 1 && store.overview != nil)
+        #expect(store.error == nil && !store.isShowingCachedContent)
+        #expect(content == .overview ? provider.artistRequestCount == 4 : provider.discographyRequestCount == 4)
+    }
+
+    @Test(arguments: ArtistDetailStore.Content.allCases)
+    func expiredArtistSessionCannotBeRepopulatedByAnOlderRoute(content: ArtistDetailStore.Content) async throws {
+        let provider = HarnessCatalog()
+        let first = item("first", kind: .artist)
+        let snapshot = CatalogArtistSnapshot(name: "Artist", releases: [item("release", kind: .album)])
+        provider.onArtistSnapshot = { _ in snapshot }
+        provider.onArtistDiscographySnapshot = { _ in snapshot }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let store = ArtistDetailStore(provider: provider, session: session, content: content)
+        await store.load(first)
+        let gate = RouteResponseGate<CatalogArtistSnapshot>()
+        let response: @Sendable (String) async throws -> CatalogArtistSnapshot = { id in
+            if id == "late" { return await gate.wait() }
+            throw CatalogReadFailure.sessionExpired
+        }
+        provider.onArtistSnapshot = response
+        provider.onArtistDiscographySnapshot = response
+        let late = Task { await store.load(item("late", kind: .artist)) }
+        try await requireEventually { await gate.isWaiting }
+        store.prepare(first)
+        await store.load(first, force: true)
+        await gate.finish(snapshot)
+        await late.value
+        #expect(store.item?.uri == first.uri)
+        #expect(store.releases.isEmpty)
+        #expect(store.error == CatalogErrorPresentation.message(for: CatalogReadFailure.sessionExpired))
+        #expect(!store.isShowingCachedContent && !store.isLoading)
+        store.prepare(item("late", kind: .artist))
+        #expect(store.releases.isEmpty)
+    }
+
     @Test func staleProviderPayloadKeepsFreshnessAndRetries() async {
         let provider = HarnessCatalog()
         let old = CatalogFreshness.cached(fetchedAt: HarnessDates.fixed)

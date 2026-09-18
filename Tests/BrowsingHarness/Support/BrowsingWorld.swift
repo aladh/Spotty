@@ -172,7 +172,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
             sections: home.sections + [
                 CatalogSection(
                     id: "synthetic-recommendations", title: "Playlists for you",
-                    items: fixtures.playlists.prefix(10).compactMap(CatalogMapping.playlistRecommendation(from:))),
+                    items: Array(home.sections.flatMap(\.items).prefix(10))),
                 CatalogSection(id: "synthetic-albums", title: "Albums for you", items: fixtures.albums),
                 CatalogSection(id: "synthetic-artists", title: "Artists for you", items: fixtures.artists),
             ])

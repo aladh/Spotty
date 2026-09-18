@@ -29,7 +29,7 @@ final class SearchInteractionState {
     private(set) var songs = CatalogRouteInteractionState()
     var selection: Set<String> = []
     private(set) var overviewScroll = NativeListScrollState()
-    var gridAnchors: [SearchFilter: CatalogItem.ID] = [:]
+    var gridAnchors: [SearchFilter: CatalogDisplayOccurrence<CatalogItem>.ID] = [:]
 
     func prepare(for term: String) {
         let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines)

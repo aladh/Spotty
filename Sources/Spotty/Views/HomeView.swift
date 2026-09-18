@@ -41,12 +41,12 @@ struct HomeView: View {
                         }
                     }
 
-                    ForEach(Array(store.homeSections.enumerated()), id: \.element.id) { index, section in
-                        switch homeSectionPresentation(at: index) {
+                    ForEach(CatalogDisplayOccurrence.identifying(store.homeSections)) { section in
+                        switch homeSectionPresentation(at: section.index) {
                         case .quickAccess:
-                            QuickAccessShelf(section: section, playback: playback, onSelect: onSelect)
+                            QuickAccessShelf(section: section.element, playback: playback, onSelect: onSelect)
                         case .shelf:
-                            MediaShelf(section: section, playback: playback, onSelect: onSelect)
+                            MediaShelf(section: section.element, playback: playback, onSelect: onSelect)
                         }
                     }
                 }
@@ -74,8 +74,8 @@ struct QuickAccessShelf: View {
                 .font(.system(size: 24, weight: .bold))
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                ForEach(section.items.prefix(8)) { item in
-                    QuickAccessCard(item: item, playback: playback) { onSelect(item) }
+                ForEach(CatalogDisplayOccurrence.identifying(Array(section.items.prefix(8)))) { occurrence in
+                    QuickAccessCard(item: occurrence.element, playback: playback) { onSelect(occurrence.element) }
                 }
             }
         }
@@ -155,8 +155,10 @@ struct MediaCardRow: View {
     var body: some View {
         NativeHorizontalScroll {
             HStack(alignment: .top, spacing: 12) {
-                ForEach(items) { item in
-                    MediaCard(item: item, playback: playback, titleLineLimit: titleLineLimit) { onSelect(item) }
+                ForEach(CatalogDisplayOccurrence.identifying(items)) { occurrence in
+                    MediaCard(item: occurrence.element, playback: playback, titleLineLimit: titleLineLimit) {
+                        onSelect(occurrence.element)
+                    }
                 }
             }
             .padding(.vertical, 2)

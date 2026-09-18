@@ -235,6 +235,11 @@ final class PlaybackStore {
         let uri = catalog.playlistStore.loadedURI
         performRuntimeCommand { $0.playPlaylist(item, tracks: tracks, loadedURI: uri) }
     }
+    func activateItem(_ item: CatalogItem) {
+        let tracks = catalog.playlistStore.tracks
+        let uri = catalog.playlistStore.loadedURI
+        performRuntimeCommand { $0.activateItem(item, tracks: tracks, loadedURI: uri) }
+    }
     func togglePlayback() { performRuntimeCommand { $0.togglePlayback() } }
     func next() { performRuntimeCommand { $0.next() } }
     func previous() { performRuntimeCommand { $0.previous() } }

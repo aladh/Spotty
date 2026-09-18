@@ -4,13 +4,14 @@ import SwiftUI
 struct CompactMediaDetailHeader: View {
     let title: String
     let canPlay: Bool
+    let showsPause: Bool
     let playAccessibilityLabel: String
     let play: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
             Button(action: play) {
-                TransportSymbol(kind: .play)
+                TransportSymbol(kind: showsPause ? .pause : .play)
                     .foregroundStyle(.black)
                     .frame(width: 20, height: 20)
                     .frame(width: 48, height: 48)

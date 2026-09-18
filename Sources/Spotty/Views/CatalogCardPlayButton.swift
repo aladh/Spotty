@@ -10,28 +10,24 @@ struct CatalogCardPlayButton: View {
 
     var body: some View {
         CatalogCardButton(isPointerRevealed: isHovering) {
-            if item.kind == .playlist {
-                playback.playPlaylist(item)
-            } else {
-                playback.playURI(item.uri)
-            }
+            playback.activateItem(item)
         } label: { isFocused in
             let isRevealed = isHovering || isFocused
             Circle()
                 .fill(SpottyPalette.mediaGreen)
                 .frame(width: diameter, height: diameter)
                 .overlay {
-                    TransportSymbol(kind: .play)
+                    TransportSymbol(kind: playback.showsPause(for: item) ? .pause : .play)
                         .frame(width: diameter / 2, height: diameter / 2)
                         .foregroundStyle(.black)
                 }
-                .opacity(isRevealed ? (playback.canStartPlayback ? 1 : 0.4) : 0)
+                .opacity(isRevealed ? (playback.canActivateItem(item) ? 1 : 0.4) : 0)
                 .contentShape(Circle())
                 .animation(.easeOut(duration: 0.15), value: isRevealed)
         }
-        .disabled(!playback.canStartPlayback)
-        .pointingHandCursor(enabled: playback.canStartPlayback)
-        .accessibilityLabel("Play \(item.title)")
-        .help("Play \(item.title)")
+        .disabled(!playback.canActivateItem(item))
+        .pointingHandCursor(enabled: playback.canActivateItem(item))
+        .accessibilityLabel(playback.activationLabel(for: item))
+        .help(playback.activationLabel(for: item))
     }
 }

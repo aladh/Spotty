@@ -78,6 +78,28 @@ struct CatalogPlaybackAccess {
         player.playPlaylist(item)
     }
 
+    private func isCurrentItem(_ item: CatalogItem) -> Bool {
+        item.kind == .track ? player.trackURI == item.uri : player.playingContextURI == item.uri
+    }
+
+    func showsPause(for item: CatalogItem) -> Bool {
+        isConnected && isCurrentItem(item) && player.showsPauseControl
+    }
+
+    func activationLabel(for item: CatalogItem) -> String {
+        "\(showsPause(for: item) ? "Pause" : "Play") \(item.title)"
+    }
+
+    func canActivateItem(_ item: CatalogItem) -> Bool {
+        guard isCurrentAccount else { return false }
+        return isCurrentItem(item) ? player.canTogglePlayback : player.canStartPlayback
+    }
+
+    func activateItem(_ item: CatalogItem) {
+        guard isCurrentAccount else { return }
+        player.activateItem(item)
+    }
+
     func addToQueue(_ uris: [String]) {
         guard isCurrentAccount else { return }
         player.addToQueue(uris: uris)

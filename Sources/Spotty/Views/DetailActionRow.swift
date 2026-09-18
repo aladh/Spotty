@@ -3,10 +3,12 @@ import SwiftUI
 /// The shuffle toggle shown in a `DetailActionRow` for playlists and artists.
 struct DetailActionRowShuffle {
     let isEnabled: Bool
+    let canToggle: Bool
     let toggle: () -> Void
 
-    init(isEnabled: Bool, toggle: @escaping () -> Void) {
+    init(isEnabled: Bool, canToggle: Bool, toggle: @escaping () -> Void) {
         self.isEnabled = isEnabled
+        self.canToggle = canToggle
         self.toggle = toggle
     }
 }
@@ -16,23 +18,23 @@ struct DetailActionRowShuffle {
 /// search field).
 struct DetailActionRow<Trailing: View>: View {
     let canPlay: Bool
+    let showsPause: Bool
     let playAccessibilityLabel: String
-    let playAccessibilityHint: String?
     let shuffle: DetailActionRowShuffle?
     let play: () -> Void
     let trailing: () -> Trailing
 
     init(
         canPlay: Bool,
+        showsPause: Bool,
         playAccessibilityLabel: String,
-        playAccessibilityHint: String? = nil,
         shuffle: DetailActionRowShuffle? = nil,
         play: @escaping () -> Void,
         @ViewBuilder trailing: @escaping () -> Trailing
     ) {
         self.canPlay = canPlay
+        self.showsPause = showsPause
         self.playAccessibilityLabel = playAccessibilityLabel
-        self.playAccessibilityHint = playAccessibilityHint
         self.shuffle = shuffle
         self.play = play
         self.trailing = trailing
@@ -41,10 +43,10 @@ struct DetailActionRow<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 24) {
             Button(action: play) {
-                Image(systemName: "play.fill")
+                Image(systemName: showsPause ? "pause.fill" : "play.fill")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.black)
-                    .offset(x: 2)
+                    .offset(x: showsPause ? 0 : 2)
                     .frame(width: 56, height: 56)
                     .background(SpottyPalette.mediaGreen, in: Circle())
             }
@@ -52,7 +54,6 @@ struct DetailActionRow<Trailing: View>: View {
             .disabled(!canPlay)
             .pointingHandCursor(enabled: canPlay)
             .accessibilityLabel(playAccessibilityLabel)
-            .modifier(OptionalAccessibilityHint(hint: playAccessibilityHint))
             .help(playAccessibilityLabel)
 
             if let shuffle {
@@ -68,8 +69,8 @@ struct DetailActionRow<Trailing: View>: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .disabled(!canPlay)
-                .pointingHandCursor(enabled: canPlay)
+                .disabled(!shuffle.canToggle)
+                .pointingHandCursor(enabled: shuffle.canToggle)
                 .accessibilityLabel(shuffle.isEnabled ? "Disable shuffle" : "Enable shuffle")
                 .help("Fewer repeats shuffle")
             }
@@ -85,30 +86,18 @@ struct DetailActionRow<Trailing: View>: View {
 extension DetailActionRow where Trailing == EmptyView {
     init(
         canPlay: Bool,
+        showsPause: Bool,
         playAccessibilityLabel: String,
-        playAccessibilityHint: String? = nil,
         shuffle: DetailActionRowShuffle? = nil,
         play: @escaping () -> Void
     ) {
         self.init(
             canPlay: canPlay,
+            showsPause: showsPause,
             playAccessibilityLabel: playAccessibilityLabel,
-            playAccessibilityHint: playAccessibilityHint,
             shuffle: shuffle,
             play: play,
             trailing: { EmptyView() }
         )
-    }
-}
-
-private struct OptionalAccessibilityHint: ViewModifier {
-    let hint: String?
-
-    func body(content: Content) -> some View {
-        if let hint {
-            content.accessibilityHint(hint)
-        } else {
-            content
-        }
     }
 }

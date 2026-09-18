@@ -149,22 +149,22 @@ private struct SidebarPlaylistRow: View {
             .frame(width: 48, height: 48)
             .overlay {
                 Button {
-                    playback.playPlaylist(playlist)
+                    playback.activateItem(playlist)
                 } label: {
                     ZStack {
                         Color.black.opacity(0.5)
-                        TransportSymbol(kind: .play)
+                        TransportSymbol(kind: playback.showsPause(for: playlist) ? .pause : .play)
                             .frame(width: 16, height: 16)
                             .foregroundStyle(.white)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
-                .disabled(!playback.canStartPlayback)
+                .disabled(!playback.canActivateItem(playlist))
                 .opacity(isHovering ? 1 : 0)
                 .allowsHitTesting(isHovering)
-                .pointingHandCursor(enabled: playback.canStartPlayback)
-                .accessibilityLabel("Play \(playlist.title)")
+                .pointingHandCursor(enabled: playback.canActivateItem(playlist))
+                .accessibilityLabel(playback.activationLabel(for: playlist))
             }
 
             VStack(alignment: .leading, spacing: 4) {

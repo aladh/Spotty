@@ -51,7 +51,7 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
   track, context, position, and modes through local loading/timing and empty activation observations
   until Spotify confirms playback. Stale/unavailable/unconfirmed resume stays paused with a durable
   “choose a track or playlist” notice; disable stale Play until new playback clears it. The active
-  playlist remains green in the sidebar and Home while paused; disconnect/cleared track removes it.
+  playlist stays green in sidebar/Home while paused; disconnect/cleared track removes it.
 - A failed current local track load explains how to retry or choose another track through existing controls, without
   raw upstream errors or permanent-unavailability claims. Suppress notices for preload/superseded
   requests, stale lifetimes, and observations behind newer optimistic targets. Show the notice above
@@ -81,13 +81,15 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
 
 ### Catalog Play controls
 
-Home quick-access tiles expose Play beside their primary action, as do shelf and grid cards.
-The green control appears on hover or keyboard/accessibility focus and remains discoverable to
-assistive technology at rest. Keep Play and card navigation separate, with native focus and no nested
-buttons. Tab reaches each action; Space activates it once per press. Focus reveals the control through
+Home quick-access, shelf and grid cards expose Play beside their primary action.
+The green control appears on hover or keyboard/accessibility focus; assistive technology can discover it at rest. Keep Play and navigation separate, with native focus and no nested buttons. Tab reaches each action; Space activates it once per press. Focus reveals the control through
 both the page and shelf without undoing later manual scrolling. Use a 40-point quick-access control
 and the existing 48-point artwork-overlay control. Hidden controls do not intercept pointer navigation.
 When playback is unavailable, expose a disabled control and dim its visible treatment; card
-navigation remains usable. Play uses the existing account-fenced selection action.
+navigation remains usable. The account-fenced runtime pauses/resumes the current selection at its
+retained position and starts another, revalidating retained controls against current authority.
+Cards, sidebar and expanded/compact details reflect this with glyphs, labels and availability.
+Track cards match the track URI; collections match context, never membership. Menu Play still starts
+the selection.
 
 See [Queue behavior](queue.md) for ordering and occurrence-safe mutations.

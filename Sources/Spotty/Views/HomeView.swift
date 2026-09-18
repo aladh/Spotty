@@ -64,16 +64,12 @@ struct QuickAccessShelf: View {
     let playback: CatalogPlaybackAccess
     let onSelect: (CatalogItem) -> Void
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 220, maximum: 340), spacing: 10)
-    ]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(section.title)
                 .font(.system(size: 24, weight: .bold))
 
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+            QuickAccessGridLayout {
                 ForEach(CatalogDisplayOccurrence.identifying(Array(section.items.prefix(8)))) { occurrence in
                     QuickAccessCard(item: occurrence.element, playback: playback) { onSelect(occurrence.element) }
                 }

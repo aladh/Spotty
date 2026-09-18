@@ -20,12 +20,15 @@ struct SearchRefreshChecks {
         let interaction = SearchInteractionState()
         interaction.prepare(for: "Song")
         interaction.filter = .songs
-        let host = NSHostingView(rootView: SearchView(
-            store: player.catalog.searchStore, playback: CatalogPlaybackAccess(player: player),
-            searchText: .constant("Song"), interaction: interaction, onSelect: { _ in },
-            playlistActions: TrackPlaylistActions(editablePlaylists: [], canRemoveOccurrences: false,
-                addToPlaylist: { _, _ in }, removeOccurrences: { _ in })))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+        let host = NSHostingView(
+            rootView: SearchView(
+                store: player.catalog.searchStore, playback: CatalogPlaybackAccess(player: player),
+                searchText: .constant("Song"), interaction: interaction, onSelect: { _ in },
+                playlistActions: TrackPlaylistActions(
+                    editablePlaylists: [], canRemoveOccurrences: false,
+                    addToPlaylist: { _, _ in }, removeOccurrences: { _ in })))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
         defer { window.contentView = nil }

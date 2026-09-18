@@ -66,11 +66,11 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
 
 ### Library sidebar
 
-- Preserve custom playlist/folder order across pagination, with local expansion and four
+- Preserve custom playlist/folder order and nesting across pagination, with local expansion and four
   concurrent folder requests. After account verification, show complete saved libraries, even empty,
   during refresh; otherwise show progress. Failed refresh preserves rows and interaction, with a
   stale/error indicator. Credential failure clears saved content; cached ownership cannot enable edits.
-  Retain the flat catalog for navigation and playlist actions.
+  Retain flat catalogs for navigation and playlist actions.
 - Arrows select folders without navigating; Return toggles expansion.
   Navigation clears folder focus; account changes clear expansion.
 - Use opaque near-black backgrounds, 48-point artwork, 16-point titles, muted 14-point owner/fallback
@@ -80,7 +80,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
 - The active playlist has a green title and trailing green speaker for local and Connect playback,
   regardless of navigation selection or paused state. Clear them on disconnect, cleared
   current track, or context change; see [playback state](playback.md#transport-and-progress).
-  Keep Home/Search in the toolbar; omit separate Your Library destinations and app-name headers.
+  Keep Home/Search in toolbar; omit separate Your Library destinations and app-name headers.
 
 ### Queue inspector and player
 

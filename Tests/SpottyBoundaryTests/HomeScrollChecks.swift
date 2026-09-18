@@ -50,7 +50,12 @@ struct HomeScrollChecks {
         }
         try await requireEventually {
             host.layoutSubtreeIfNeeded()
-            return interaction.scrollOffset > 100 && interaction.scrollOffset < 2200
+            guard let scroll = page(in: host), let document = scroll.documentView else { return false }
+            let maximum = document.bounds.height - scroll.contentSize.height
+            // Layout and SwiftUI's geometry publication need not arrive in the same turn.
+            return maximum > 100 && maximum < 2200
+                && abs(scroll.contentView.bounds.minY - maximum) < 1
+                && abs(interaction.scrollOffset - maximum) < 1
         }
         let scroll = try #require(page(in: host))
         let maximum = try #require(scroll.documentView).bounds.height - scroll.contentSize.height

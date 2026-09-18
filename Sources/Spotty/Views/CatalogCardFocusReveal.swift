@@ -34,6 +34,20 @@ final class CatalogCardFocusView: NSView {
         revealIfReady()
     }
 
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let didMove = frame.origin != newOrigin
+        super.setFrameOrigin(newOrigin)
+        if didMove && isFocused { needsReveal = true }
+        revealIfReady()
+    }
+
+    override func setBoundsOrigin(_ newOrigin: NSPoint) {
+        let didMove = bounds.origin != newOrigin
+        super.setBoundsOrigin(newOrigin)
+        if didMove && isFocused { needsReveal = true }
+        revealIfReady()
+    }
+
     private func revealIfReady() {
         guard needsReveal, window != nil, !bounds.isEmpty else { return }
         needsReveal = false

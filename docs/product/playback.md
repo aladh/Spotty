@@ -86,7 +86,7 @@ The green control appears on hover or keyboard/accessibility focus and remains d
 assistive technology at rest. Keep Play and card navigation separate, with native focus and no nested
 buttons. Tab reaches each action; Space activates it once per press. Focus reveals the control through
 both the page and shelf without undoing later manual scrolling. Use a 40-point quick-access control
-and the existing 48-point artwork-overlay control.
+and the existing 48-point artwork-overlay control. Hidden controls do not intercept pointer navigation.
 When playback is unavailable, expose a disabled control and dim its visible treatment; card
 navigation remains usable. Play uses the existing account-fenced selection action.
 

@@ -9,7 +9,7 @@ struct CatalogCardPlayButton: View {
     var diameter: CGFloat = 48
 
     var body: some View {
-        CatalogCardButton {
+        CatalogCardButton(isPointerRevealed: isHovering) {
             if item.kind == .playlist {
                 playback.playPlaylist(item)
             } else {

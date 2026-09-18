@@ -38,6 +38,21 @@ struct CatalogCardFocusChecks {
         #expect(fixture.page.contentView.bounds.minY == 0)
     }
 
+    @Test func focusRevealsTheFinalOriginAfterSizeArrivesFirst() {
+        let fixture = Fixture()
+        fixture.anchor.frame = .zero
+        fixture.anchor.updateFocus(true)
+        fixture.anchor.frame.size = NSSize(width: 176, height: 200)
+        #expect(fixture.shelf.contentView.bounds.minX == 0)
+        fixture.anchor.frame.origin = NSPoint(x: 900, y: 20)
+        #expect(fixture.shelf.contentView.bounds.contains(fixture.anchor.frame))
+
+        fixture.anchor.updateFocus(false)
+        fixture.shelf.contentView.scroll(to: .zero)
+        fixture.anchor.frame.origin.x = 950
+        #expect(fixture.shelf.contentView.bounds.minX == 0)
+    }
+
     @MainActor
     private final class Fixture {
         let page = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))

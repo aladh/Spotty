@@ -202,7 +202,11 @@ final class SearchStore {
         } catch CatalogProviderCapabilityError.unsupported {
         } catch {
             guard flight.shouldReport(error, for: handle) else { return }
-            if error as? CatalogReadFailure == .sessionExpired { reset() }
+            if error as? CatalogReadFailure == .sessionExpired {
+                reset()
+                completedQuery = handle.key
+                completedSession = handle.sessionSnapshot
+            }
             errors[section] = CatalogErrorPresentation.message(for: error)
         }
     }

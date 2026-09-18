@@ -130,14 +130,16 @@ struct SearchStoreTests {
         await accountSearch.value
     }
 
-    @Test @MainActor
-    func expiredSearchSessionRetiresRowsAndRejectsOtherSectionsStillInFlight() async throws {
+    @Test(arguments: [false, true]) @MainActor
+    func expiredSearchSessionRetiresRowsAndRejectsOtherSectionsStillInFlight(hasResults: Bool) async throws {
         let (provider, gate) = makeGatedSearchCatalog()
         provider.onSearchAlbums = { _, _ in [] }
         let store = makeStore(
             provider: provider, session: CatalogSessionAvailability(isAvailable: true), clock: HarnessClock.parked())
         let track = HarnessFixtures.track(uri: "spotify:track:result", title: "Result")
-        try #require(await commitImmediateSearch(store, gate: gate, query: "query", tracks: [track]))
+        if hasResults {
+            try #require(await commitImmediateSearch(store, gate: gate, query: "query", tracks: [track]))
+        }
         let refusal = HarnessClock.parked()
         provider.onSearchAlbums = { _, _ in
             try await refusal.sleep(seconds: 1)
@@ -145,15 +147,23 @@ struct SearchStoreTests {
         }
         let retry = Task { await store.search("query") }
         defer { refusal.releaseAll() }
-        try await requireEventually { await gate.requestCount == 2 && refusal.waiterCount == 1 }
-        #expect(store.tracks == [track])
+        try await requireEventually { await gate.requestCount == (hasResults ? 2 : 1) && refusal.waiterCount == 1 }
+        #expect(store.tracks == (hasResults ? [track] : []))
         refusal.releaseNext()
         try await requireEventually { !store.isSearching && store.errors[.albums] != nil }
         #expect(store.tracks.isEmpty)
+        #expect(!store.isAwaitingResults(for: " query "), "Show the refusal before an uncooperative sibling finishes")
+        #expect(store.isAwaitingResults(for: "different"), "Only the rejected query has completed")
         await gate.completeNext(.tracks([track]))
         await retry.value
         #expect(store.tracks.isEmpty, "A sibling response cannot repopulate an expired search session")
         #expect(store.albums.isEmpty)
+        #expect(store.error != nil && !store.isAwaitingResults(for: "query"))
+        provider.onSearchAlbums = { _, _ in [] }
+        provider.onSearchTracks = { _, _ in [track] }
+        await store.search("query")
+        #expect(store.tracks == [track])
+        #expect(store.error == nil && !store.isAwaitingResults(for: "query"))
     }
 
     @Test @MainActor

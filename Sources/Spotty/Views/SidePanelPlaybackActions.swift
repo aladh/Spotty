@@ -37,6 +37,13 @@ struct SidePanelPlaybackActions {
         }
     }
 
+    func activateHistorySelection(_ selectedIDs: Set<HistoryEntry.ID>) {
+        guard canStartPlayback, selectedIDs.count == 1, let selectedID = selectedIDs.first,
+            let entry = player.history.first(where: { $0.id == selectedID })
+        else { return }
+        player.play(uri: entry.uri)
+    }
+
     func transfer(to device: ConnectDevice) {
         guard isCurrentAccount else { return }
         player.transferPlayback(to: device)

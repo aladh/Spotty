@@ -9,6 +9,7 @@ struct RootView: View {
 
     @State private var navigation: CatalogNavigation
     @State private var queueSelection: Set<QueueEntry.ID> = []
+    @State private var historySelection: Set<HistoryEntry.ID> = []
     @SceneStorage("showsPlaybackInspector") private var showsSidePanel = false
     @SceneStorage("playbackInspectorPanel") private var playbackPanel = PlaybackPanel.queue
 
@@ -57,6 +58,7 @@ struct RootView: View {
                     player: player,
                     panel: playbackPanel,
                     selection: $queueSelection,
+                    historySelection: $historySelection,
                     onSelect: select,
                     onClose: { showsSidePanel = false }
                 )
@@ -113,9 +115,13 @@ struct RootView: View {
         .onChange(of: player.accountEpoch) {
             navigation.reset()
             queueSelection.removeAll()
+            historySelection.removeAll()
         }
         .onChange(of: queueRowIDs) { _, ids in
             queueSelection.formIntersection(ids)
+        }
+        .onChange(of: player.history.map(\.id)) { _, ids in
+            historySelection.formIntersection(ids)
         }
         .onChange(of: navigation.rawValue) {
             SpottyLog.ui.info("Navigation state updated: \(mediaSelection.diagnosticLabel, privacy: .public)")

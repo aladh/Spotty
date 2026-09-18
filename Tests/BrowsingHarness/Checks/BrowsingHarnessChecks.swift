@@ -48,7 +48,9 @@ struct BrowsingHarnessTests {
 
     @Test
     func remotePlayUsesSemanticTrackSelection() throws {
-        let playback = SyntheticPlayback()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySelectionDemo-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let playback = SyntheticPlayback(fixtures: try BrowsingFixtures(scenario: scenario(), artworkDirectory: root))
         try playback.send(.play(uri: "spotify:playlist:synthetic1", trackIndex: 7), to: SyntheticPlayback.remoteID)
         #expect(playback.queueSnapshot().track?.uri == "spotify:track:synthetic1x7")
         try playback.send(.play(uri: "spotify:track:synthetic0x3"), to: SyntheticPlayback.remoteID)

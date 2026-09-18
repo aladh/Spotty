@@ -26,6 +26,7 @@ final class SyntheticPlayback: @unchecked Sendable {
     static let remoteID = "synthetic-speaker"
     private let lock = NSLock()
     private let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    private let fixtures: BrowsingFixtures
     private var generation: UInt64 = 1
     private var revision: UInt64 = 0
     private var commandCount = 0
@@ -35,6 +36,7 @@ final class SyntheticPlayback: @unchecked Sendable {
     private var connected = true
     private var playing = false
     private var trackURI = "spotify:track:synthetic0x0"
+    private var contextURI = "spotify:playlist:synthetic0"
     private var positionMS: Int64 = 0
     private var shuffle = false
     private var repeatTrack = false
@@ -44,6 +46,10 @@ final class SyntheticPlayback: @unchecked Sendable {
     }
     private var nextFault: Fault?
     private var held: [RustPlaybackEvent] = []
+
+    init(fixtures: BrowsingFixtures) {
+        self.fixtures = fixtures
+    }
 
     func events() -> AsyncStream<RustPlaybackEventEnvelope> { fanout.events() }
 
@@ -118,9 +124,8 @@ final class SyntheticPlayback: @unchecked Sendable {
     func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
         apply {
             switch operation {
-            case let .playURI(uri): trackURI = uri; playing = true; positionMS = 0
-            case let .playTracks(uris):
-                if let first = uris.first { trackURI = first; playing = true; positionMS = 0 }
+            case let .playURI(uri): return selectLocked(uri: uri)
+            case let .playTracks(uris): return selectTracksLocked(uris)
             case .pause: playing = false
             case .resume, .resumeObserved, .rehydrate: playing = true
             case .next: skipLocked()
@@ -138,6 +143,7 @@ final class SyntheticPlayback: @unchecked Sendable {
             case .transferToLocal: activeID = Self.localID
             case let .transferToDevice(id): activeID = id
             }
+            return true
         }
     }
 
@@ -166,24 +172,16 @@ final class SyntheticPlayback: @unchecked Sendable {
                         albumURI: $0.albumURI, disallowReasons: $0.disallowReasons, artistURI: $0.artistURI)
                 }
             case .play:
-                if let context = command.context {
-                    if let first = context.trackURIs?.first {
-                        trackURI = first
-                    } else if context.uri.hasPrefix("spotify:track:") {
-                        trackURI = context.uri
-                    } else if let playlistID = SpotifyURI.id(from: context.uri, kind: "playlist"),
-                        playlistID.hasPrefix("synthetic")
-                    {
-                        trackURI = "spotify:track:\(playlistID)x\(max(0, context.trackIndex ?? 0))"
-                    }
-                    playing = true; positionMS = 0
-                }
+                guard let context = command.context else { return false }
+                if let tracks = context.trackURIs { return selectTracksLocked(tracks) }
+                return selectLocked(uri: context.uri, index: context.trackIndex ?? 0)
             }
+            return true
         }
         if !result.isOK { throw BrowsingFailure.unsupportedAction }
     }
 
-    private func apply(target: String? = nil, _ mutation: () -> Void) -> PlaybackEngineResult {
+    private func apply(target: String? = nil, _ mutation: () -> Bool) -> PlaybackEngineResult {
         let outcome: (PlaybackEngineResult, RustPlaybackEvent?) = lock.withLock {
             commandCount += 1
             let fault = nextFault
@@ -196,13 +194,53 @@ final class SyntheticPlayback: @unchecked Sendable {
                 connected = false
                 return (.error, clusterLocked())
             }
-            mutation()
+            guard mutation() else {
+                rejectedCount += 1
+                return (.error, nil)
+            }
             let event = clusterLocked()
             if fault == .holdObservation { held.append(event); return (.ok, nil) }
             return (.ok, event)
         }
         if let event = outcome.1 { fanout.emit(event) }
         return outcome.0
+    }
+
+    /// Resolve the same immutable fixtures the catalog shows; unsupported/empty selections fail
+    /// without pretending that the preceding track belongs to the newly requested collection.
+    private func selectLocked(uri: String, index: Int = 0) -> Bool {
+        guard index >= 0 else { return false }
+        let selected: String?
+        let isTrack = uri.hasPrefix("spotify:track:synthetic")
+        if isTrack {
+            selected = uri
+        } else if let id = SpotifyURI.id(from: uri, kind: "playlist"),
+            let items = fixtures.details[id]?.content?.items, items.indices.contains(index)
+        {
+            selected = items[index].track?.uri
+        } else if let id = SpotifyURI.id(from: uri, kind: "album"),
+            let album = fixtures.album(id: id) ?? fixtures.artistAlbum(id: id), album.tracks.indices.contains(index)
+        {
+            selected = album.tracks[index].uri
+        } else if let id = SpotifyURI.id(from: uri, kind: "artist"),
+            let tracks = fixtures.artist(id: id)?.overview?.popularTracks,
+            tracks.indices.contains(index), tracks[index].isPlayable
+        {
+            selected = tracks[index].track.uri
+        } else {
+            return false
+        }
+        guard let selected else { return false }
+        trackURI = selected
+        contextURI = isTrack ? "" : uri
+        playing = true
+        positionMS = 0
+        return true
+    }
+
+    private func selectTracksLocked(_ uris: [String]) -> Bool {
+        guard let first = uris.first, uris.allSatisfy({ $0.hasPrefix("spotify:track:synthetic") }) else { return false }
+        return selectLocked(uri: first)
     }
 
     private func appendLocked(_ uri: String) {
@@ -241,7 +279,7 @@ final class SyntheticPlayback: @unchecked Sendable {
             isPaused: !playing, trackURI: trackURI, positionMS: positionMS, durationMS: 180_000,
             timestampMS: Int64(Date().timeIntervalSince1970 * 1_000), shuffle: shuffle,
             repeatTrack: repeatTrack, repeatContext: repeatContext,
-            isActiveDevice: activeID == Self.localID, contextURI: "spotify:playlist:synthetic0")
+            isActiveDevice: activeID == Self.localID, contextURI: contextURI)
     }
 
     private func clusterLocked() -> RustPlaybackEvent {

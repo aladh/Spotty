@@ -13,7 +13,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     PlaybackPreferences, SystemLifecycleEvents, PlaybackClock, @unchecked Sendable
 {
     let scenario: BrowsingScenario
-    let playback = SyntheticPlayback()
+    let playback: SyntheticPlayback
     let fixtures: BrowsingFixtures
     private let lock = NSLock()
     private var trace: [String] = []
@@ -35,6 +35,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         self.scenario = scenario
         grantAvailable = scenario.mode != .signedOut
         fixtures = try BrowsingFixtures(scenario: scenario, artworkDirectory: artworkDirectory)
+        playback = SyntheticPlayback(fixtures: fixtures)
     }
 
     var environment: PlaybackEnvironment {

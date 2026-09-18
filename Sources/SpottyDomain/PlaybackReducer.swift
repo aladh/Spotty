@@ -158,6 +158,7 @@ public enum PlaybackReducer {
                 }
                 reconcileSeekTiming(
                     snapshot.timing,
+                    transport: snapshot.transport,
                     incomingTrackURI: incomingURI,
                     recordsAuthoritativeSample: true,
                     at: envelope.receivedAt, in: &candidate
@@ -245,6 +246,7 @@ public enum PlaybackReducer {
                 supersedeOptimisticPlayTargetIfNeeded(incomingURI: incomingURI, in: &candidate)
                 reconcileSeekTiming(
                     presentation.timing,
+                    transport: presentation.transport,
                     incomingTrackURI: presentation.currentTrack?.uri,
                     at: envelope.receivedAt, in: &candidate
                 )
@@ -273,6 +275,7 @@ public enum PlaybackReducer {
                     duration: max(0, duration),
                     anchoredAt: anchoredAt
                 ),
+                transport: candidate.transport,
                 incomingTrackURI: candidate.currentTrack?.uri,
                 at: envelope.receivedAt, in: &candidate
             )
@@ -836,7 +839,7 @@ public enum PlaybackReducer {
         }
     }
 
-    /// Holds optimistic seek timing until an incoming sample is at the expected millisecond
+    /// Holds optimistic seek timing until an incoming sample is within the expected seek window
     /// position on the same track. A different track or empty URI supersedes the old seek and
     /// adopts the incoming timing so rollback cannot attach the previous track's position.
     /// While the optimistic value is held, retain each accepted same-track authoritative engine
@@ -846,6 +849,7 @@ public enum PlaybackReducer {
     /// or a playback revision, so it must not become rollback evidence for this seek.
     private static func reconcileSeekTiming(
         _ timing: PlaybackTiming,
+        transport: PlaybackTransportState,
         incomingTrackURI: String?,
         recordsAuthoritativeSample: Bool = false,
         at date: Date,
@@ -861,7 +865,7 @@ public enum PlaybackReducer {
         }
         if let pending = state.pendingCommands[.seek],
             let expected = pending.expectedTiming,
-            !matchesExpectedSeekPosition(timing, expected)
+            !matchesExpectedSeekPosition(timing, expected, transport: transport)
         {
             if recordsAuthoritativeSample {
                 var updated = pending
@@ -873,7 +877,7 @@ public enum PlaybackReducer {
             state.timing = timing
             if let pending = state.pendingCommands[.seek],
                 let expected = pending.expectedTiming,
-                matchesExpectedSeekPosition(timing, expected)
+                matchesExpectedSeekPosition(timing, expected, transport: transport)
             {
                 state.pendingCommands[.seek] = nil
             }
@@ -938,9 +942,17 @@ public enum PlaybackReducer {
 
     static func matchesExpectedSeekPosition(
         _ actual: PlaybackTiming,
-        _ expected: PlaybackTiming
+        _ expected: PlaybackTiming,
+        transport: PlaybackTransportState
     ) -> Bool {
-        Int((actual.position * 1_000).rounded()) == Int((expected.position * 1_000).rounded())
+        let elapsed = actual.anchoredAt.timeIntervalSince(expected.anchoredAt)
+        guard elapsed.isFinite, elapsed >= 0, actual.position.isFinite, expected.position.isFinite else { return false }
+        // Spotify may apply the seek at any point before this sample. Playing positions
+        // advance to receipt time; allow that elapsed playback plus one second of timing
+        // imprecision. Paused samples get only the fixed tolerance, never a growing window.
+        let advancement = transport == .playing ? elapsed : 0
+        return actual.position >= expected.position - 1
+            && actual.position <= expected.position + advancement + 1
     }
 
 }

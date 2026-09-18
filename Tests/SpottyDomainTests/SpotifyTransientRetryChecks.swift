@@ -56,8 +56,8 @@ struct SpotifyTransientRetryTests {
                 "signed delta-seconds are malformed")
             #expect(
                 (SpotifyTransientRetry.parseRetryAfter("99999999999999999999", now: Date(timeIntervalSince1970: 0)))
-                    == nil,
-                "overflowing delta-seconds are malformed")
+                    == TimeInterval(Int.max),
+                "overflowing delta-seconds retain a long throttle instead of falling back to an early retry")
 
             let now = Date(timeIntervalSince1970: 1_000_000)
             let httpDate = "Mon, 12 Jan 1970 13:46:40 GMT"
@@ -96,7 +96,15 @@ struct SpotifyTransientRetryTests {
                     completedAttempts: 1,
                     now: now,
                     unitJitter: 1
-                )) == (SpotifyTransientRetry.maximumDelaySeconds), "huge Retry-After is capped")
+                )) == nil, "a long Retry-After stops retries instead of retrying early")
+            #expect(
+                (SpotifyTransientRetry.delay(
+                    status: 503,
+                    retryAfterHeader: "Mon, 12 Jan 1970 14:46:40 GMT",
+                    completedAttempts: 1,
+                    now: now,
+                    unitJitter: 1
+                )) == nil, "a long HTTP-date Retry-After also stops retries")
             #expect(
                 (SpotifyTransientRetry.delay(
                     status: 429,

@@ -69,6 +69,12 @@ nonisolated struct PathfinderAlbumUnion: Decodable, Sendable {
     let coverArt: PathfinderImage?
     let artists: ArtistList?
     let tracksV2: TrackList?
+    var typename: String? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case uri, name, type, date, coverArt, artists, tracksV2
+        case typename = "__typename"
+    }
 
     var id: String? {
         uri.flatMap(SpotifyURI.id(from:))
@@ -81,7 +87,7 @@ nonisolated struct PathfinderAlbumUnion: Decodable, Sendable {
     func withItems(_ items: [TrackList.Item]) -> Self {
         Self(
             uri: uri, name: name, type: type, date: date, coverArt: coverArt, artists: artists,
-            tracksV2: TrackList(items: items, totalCount: tracksV2?.totalCount))
+            tracksV2: TrackList(items: items, totalCount: tracksV2?.totalCount), typename: typename)
     }
 
     var tracks: [PathfinderAlbumTrack] {

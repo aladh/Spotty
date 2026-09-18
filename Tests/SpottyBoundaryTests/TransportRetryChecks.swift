@@ -9,7 +9,7 @@ import SpottyRuntimeContracts
 // Keep each independent transport contract in its own Swift Testing case. This reduces the amount
 // of actor-isolated work one runner task owns and improves stall localization; it is a test-shape
 // improvement, not evidence that a runner-level wedge has been cured.
-@Test("Transport Retry-After parsing and caps")
+@Test("Transport Retry-After parsing and waiting budget")
 @MainActor
 func transportRetryAfter() async {
     let deltaSleep = RecordingSleeper()
@@ -57,11 +57,14 @@ func transportRetryAfter() async {
         .http(status: 429, headers: ["Retry-After": "3600"]),
         .http(status: 200, body: profileBody),
     ])
-    _ = try? await partnerAPI(
-        transport: cappedTransport.send,
-        retryTiming: timing(sleeper: cappedSleep)
-    ).profile()
-    #expect((cappedSleep.delays) == ([SpotifyTransientRetry.maximumDelaySeconds]), "huge Retry-After is capped")
+    await expectThrown("long throttles are surfaced without replay", PartnerAPIError.requestFailed(429)) {
+        _ = try await partnerAPI(
+            transport: cappedTransport.send,
+            retryTiming: timing(sleeper: cappedSleep)
+        ).profile()
+    }
+    #expect(cappedSleep.delays.isEmpty)
+    #expect(cappedTransport.callCount == 1)
 }
 
 @Test("Transport transient status and URL error classifications have a finite budget")
@@ -1027,6 +1030,17 @@ func tokenEndpointRetries() async throws {
         body: Data(), fallbackRefreshToken: "old-refresh",
         transport: rateLimited.send, retryTiming: timing(sleeper: sleeper))
     #expect(sleeper.delays == [7])
+
+    let longThrottle = ScriptedRetryTransport(steps: [
+        .http(status: 429, headers: ["Retry-After": "3600"]), .http(status: 200, body: tokens),
+    ])
+    await #expect(throws: KeymasterAuthError.tokenExchangeFailed(429)) {
+        try await KeymasterAuth.postToken(
+            body: Data(), fallbackRefreshToken: "old-refresh",
+            transport: longThrottle.send, retryTiming: timing(sleeper: sleeper))
+    }
+    #expect(longThrottle.callCount == 1)
+    #expect(sleeper.delays == [7], "the token endpoint must not sleep and retry ahead of a long throttle")
 
     let revoked = ScriptedRetryTransport(steps: [
         .http(status: 503, body: Data(#"{"error":"invalid_grant"}"#.utf8))

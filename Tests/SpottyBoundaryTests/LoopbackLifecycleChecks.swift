@@ -8,9 +8,36 @@ import Testing
 struct LoopbackLifecycleTests {
     enum Termination: CaseIterable { case stop, cancellation, timeout, callback }
 
+    @Test(arguments: [false, true])
+    func invalidStateDoesNotConsumeASuccessOrDenial(denied: Bool) async throws {
+        let server = LoopbackCallbackServer(expectedState: "synthetic")
+        defer { Task { await server.stop() } }
+        let port = try await server.start()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        for query in ["code=stray", "code=stray&state=other", "error=access_denied&state=other"] {
+            let (_, response) = try await session.data(from: URL(string: "http://127.0.0.1:\(port)/login?\(query)")!)
+            #expect((response as? HTTPURLResponse)?.statusCode == 400)
+        }
+        let query = denied ? "error=access_denied" : "code=accepted"
+        let (_, response) = try await session.data(
+            from: URL(string: "http://127.0.0.1:\(port)/login?\(query)&state=synthetic")!)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        // A matched callback may arrive before the caller starts waiting.
+        let callback = try await server.waitForCallback(timeout: .seconds(5))
+        if denied {
+            #expect(throws: KeymasterAuthError.authorizationDenied) {
+                try KeymasterAuth.authorizationCode(from: callback, expectedState: "synthetic")
+            }
+        } else {
+            #expect(try KeymasterAuth.authorizationCode(from: callback, expectedState: "synthetic") == "accepted")
+        }
+        #expect(await server.activeConnectionCount == 0)
+    }
+
     @Test(arguments: Termination.allCases)
     func terminationClosesAcceptedIncompleteRequests(termination: Termination) async throws {
-        let server = LoopbackCallbackServer()
+        let server = LoopbackCallbackServer(expectedState: "synthetic")
         defer { Task { await server.stop() } }
         let port = try await server.start()
         let peer = LoopbackPeer(port: port)
@@ -43,7 +70,7 @@ struct LoopbackLifecycleTests {
 
     @Test
     func stoppingBeforeWaitingRetainsCancellationAndCannotRestart() async throws {
-        let server = LoopbackCallbackServer()
+        let server = LoopbackCallbackServer(expectedState: "synthetic")
         defer { Task { await server.stop() } }
         _ = try await server.start()
         await server.stop()
@@ -54,7 +81,7 @@ struct LoopbackLifecycleTests {
 
     @Test
     func unrelatedConnectionFailureDoesNotConsumeTheCallback() async throws {
-        let server = LoopbackCallbackServer()
+        let server = LoopbackCallbackServer(expectedState: "synthetic")
         defer { Task { await server.stop() } }
         let port = try await server.start()
         let peer = LoopbackPeer(port: port)

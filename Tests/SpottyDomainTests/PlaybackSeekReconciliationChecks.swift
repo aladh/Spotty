@@ -69,6 +69,50 @@ private func engineTimingEnvelope(
 
 @Suite("Playback Seek Reconciliation")
 struct PlaybackSeekReconciliationTests {
+    @Test(arguments: [
+        (PlaybackTransportState.playing, 0.15, 80.15, true),
+        (.playing, 3.0, 83.15, true),
+        (.playing, 3.0, 80.15, true),
+        (.paused, 3.0, 80.15, true),
+        (.paused, 3.0, 83.0, false),
+        (.playing, 3.0, 78.0, false),
+        (.playing, 3.0, 85.0, false),
+        (.playing, -0.1, 80.0, false),
+    ])
+    func seekConfirmationAllowsElapsedPlaybackButRejectsUnrelatedPositions(
+        transport: PlaybackTransportState, elapsed: TimeInterval, position: TimeInterval, confirms: Bool
+    ) {
+        let expected = PlaybackTiming(position: 80, duration: 200, anchoredAt: seekReconciliationDate)
+        let actual = PlaybackTiming(
+            position: position, duration: 200, anchoredAt: seekReconciliationDate.addingTimeInterval(elapsed))
+        let id = UUID()
+        var state = PlaybackState(
+            accountEpoch: 1, engineEpoch: 1, session: .ready, transport: transport,
+            currentTrack: CurrentTrack(uri: seekReconciliationTrack),
+            timing: PlaybackTiming(position: 10, duration: 200, anchoredAt: seekReconciliationDate))
+        _ = startSeek(&state, id: id, expected: expected)
+        _ = PlaybackReducer.reduce(
+            &state,
+            envelope: seekReconciliationEnvelope(
+                source: .command, event: .commandDispatched(id: id, at: seekReconciliationDate)))
+        _ = PlaybackReducer.reduce(
+            &state,
+            envelope: seekReconciliationEnvelope(
+                source: .enginePlayback, revision: 1, receivedAt: actual.anchoredAt,
+                event: .enginePlayback(
+                    EnginePlaybackSnapshot(transport: transport, trackURI: seekReconciliationTrack, timing: actual))))
+
+        #expect(state.timing == (confirms ? actual : expected))
+        #expect((state.pendingCommands[.seek] == nil) == confirms)
+        #expect(state.intents.last?.outcome == (confirms ? .observedConfirmed : .dispatched))
+        _ = PlaybackReducer.reduce(
+            &state,
+            envelope: seekReconciliationEnvelope(
+                source: .command, receivedAt: seekReconciliationDate.addingTimeInterval(8),
+                event: .commandTimedOut(id: id)))
+        #expect(state.intents.last?.outcome == (confirms ? .observedConfirmed : .timedOut))
+    }
+
     @Test
     func testLatestAuthoritativeTimingWinsRejectedSeekRollback() {
         let prior = PlaybackTiming(

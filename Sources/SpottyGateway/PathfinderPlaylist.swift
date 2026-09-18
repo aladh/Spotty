@@ -51,6 +51,12 @@ nonisolated struct PathfinderPlaylistUnion: Decodable, Sendable {
     let ownerV2: Owner?
     let images: Images?
     let content: Content?
+    var typename: String? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case uri, name, description, ownerV2, images, content
+        case typename = "__typename"
+    }
 
     var id: String? {
         uri.flatMap(SpotifyURI.id(from:))
@@ -68,6 +74,7 @@ nonisolated struct PathfinderPlaylistUnion: Decodable, Sendable {
             ownerV2: ownerV2,
             images: images,
             content: Content(items: items, totalCount: content?.totalCount),
+            typename: typename,
         )
     }
 }

@@ -7,10 +7,39 @@ import Testing
 @Suite("Catalog Gateway")
 @MainActor
 struct CatalogGatewayTests {
+    @Test(arguments: ["Album", "Playlist", "Artist"], ["GenericError", "NotFound", "UnknownUnionMember", ""])
+    func errorOrMissingUnionDiscriminatorsCannotBecomeEmptyCatalogResults(kind: String, typename: String) async throws {
+        let field = kind == "Album" ? "albumUnion" : kind == "Playlist" ? "playlistV2" : "artistUnion"
+        let member = typename.isEmpty ? [:] : ["__typename": typename]
+        let source = try JSONSerialization.data(withJSONObject: ["data": [field: member]])
+        let catalog = catalogGateway { request in (source, catalogResponse(for: request, status: 200)) }
+        await #expect(throws: CatalogReadFailure.compatibility) {
+            switch kind {
+            case "Album": _ = try await catalog.album(id: "fixture")
+            case "Playlist": _ = try await catalog.playlist(id: "fixture")
+            default: _ = try await catalog.artist(id: "fixture")
+            }
+        }
+    }
+
+    @Test(arguments: ["Album", "Playlist"])
+    func missingCollectionContentsAreNotAnEmptySuccess(kind: String) async throws {
+        let field = kind == "Album" ? "albumUnion" : "playlistV2"
+        let source = try JSONSerialization.data(withJSONObject: ["data": [field: ["__typename": kind]]])
+        let catalog = catalogGateway { request in (source, catalogResponse(for: request, status: 200)) }
+        await #expect(throws: CatalogReadFailure.compatibility) {
+            if kind == "Album" {
+                _ = try await catalog.album(id: "fixture")
+            } else {
+                _ = try await catalog.playlist(id: "fixture")
+            }
+        }
+    }
+
     @Test func albumCreditsComeFromTheAlbumEvenWhenTracksAreEmpty() async throws {
         let source = Data(
             #"""
-            {"data":{"albumUnion":{"uri":"spotify:album:fixture","name":"Album","artists":{"items":[
+            {"data":{"albumUnion":{"__typename":"Album","uri":"spotify:album:fixture","name":"Album","artists":{"items":[
               {"uri":"spotify:artist:first","profile":{"name":"First Artist"}},
               {"uri":"spotify:artist:second","profile":{"name":"Second Artist"}},
               {"uri":"spotify:playlist:invalid","profile":{"name":"Invalid"}},
@@ -39,7 +68,7 @@ struct CatalogGatewayTests {
         let jsonCount = try String(decoding: JSONEncoder().encode(count), as: UTF8.self)
         let source = Data(
             """
-            {"data":{"albumUnion":{"uri":"spotify:album:fixture","tracksV2":{
+            {"data":{"albumUnion":{"__typename":"Album","uri":"spotify:album:fixture","tracksV2":{
             "totalCount":1,"items":[{"track":{"uri":"spotify:track:fixture","name":"Fixture Track",
             "playcount":\(jsonCount)}}]}}}}
             """.utf8)

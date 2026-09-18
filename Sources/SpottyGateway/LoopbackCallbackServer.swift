@@ -17,7 +17,7 @@ import Network
 /// `ASWebAuthenticationSession` only intercepts custom schemes and associated-domain HTTPS.
 /// So the browser opens normally and the redirect lands here.
 ///
-/// One request, one answer, then the listener closes — nothing about this outlives the grant.
+/// One state-matched callback, then the listener closes — nothing about this outlives the grant.
 /// The port is assigned by the system rather than fixed: Spotify accepts any loopback port for
 /// a first-party client id, and a hardcoded one would collide with whatever else is listening.
 actor LoopbackCallbackServer {
@@ -48,6 +48,11 @@ actor LoopbackCallbackServer {
     private var timeout: Task<Void, Never>?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     var activeConnectionCount: Int { connections.count }
+    private let expectedState: String
+
+    init(expectedState: String) {
+        self.expectedState = expectedState
+    }
 
     /// Starts listening on a system-assigned loopback port and returns it.
     ///
@@ -126,7 +131,7 @@ actor LoopbackCallbackServer {
         guard case .listening = state else { connection.cancel(); return }
         connections[ObjectIdentifier(connection)] = connection
         connection.start(queue: .global(qos: .userInitiated))
-        Self.receiveRequest(on: connection) { [weak self] callback in
+        Self.receiveRequest(on: connection, expectedState: expectedState) { [weak self] callback in
             Task { await self?.requestCompleted(on: connection, callback: callback) }
         }
     }
@@ -228,6 +233,7 @@ actor LoopbackCallbackServer {
     /// A rejected or broken request ends only its connection. Only a callback completes the grant.
     private nonisolated static func receiveRequest(
         on connection: NWConnection,
+        expectedState: String,
         completion: @escaping @Sendable (URLComponents?) -> Void,
     ) {
         @Sendable func read(_ accumulated: Data) {
@@ -267,7 +273,15 @@ actor LoopbackCallbackServer {
                     return
                 }
 
-                let body = "<html><body>Spotty is authorized. You can close this tab.</body></html>"
+                guard KeymasterAuth.callbackMatchesState(components, expectedState: expectedState) else {
+                    reply(on: connection, status: "400 Bad Request", body: "Invalid sign-in response") {
+                        completion(nil)
+                    }
+                    return
+                }
+
+                let body =
+                    "<html><body>Sign-in response received. Return to Spotty. You can close this tab.</body></html>"
                 // Flush the browser's response before the terminal transition closes all peers.
                 reply(on: connection, status: "200 OK", body: body, contentType: "text/html; charset=utf-8") {
                     completion(components)

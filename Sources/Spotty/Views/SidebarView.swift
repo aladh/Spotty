@@ -6,9 +6,11 @@ struct SidebarView: View {
     let library: [PlaylistLibraryNode]
     let playback: CatalogPlaybackAccess
     var isLoading = false
+    var hasLoaded = false
     var isCached = false
     var isRefreshing = false
     var error: String?
+    var retry: (() async -> Void)?
     @State private var expandedFolders: Set<String> = []
 
     var body: some View {
@@ -37,14 +39,29 @@ struct SidebarView: View {
                 accessibilityLabel: "Playlists"
             )
             .overlay {
-                if library.isEmpty && isLoading {
-                    ProgressView("Loading playlists")
-                        .controlSize(.small)
-                        .font(.caption)
-                }
+                if library.isEmpty { emptyLibraryContent }
             }
         }
         .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+    }
+
+    @ViewBuilder
+    private var emptyLibraryContent: some View {
+        if isLoading {
+            ProgressView("Loading playlists")
+                .controlSize(.small)
+                .font(.caption)
+        } else if let error {
+            SidebarLibraryPlaceholder(
+                title: "Couldn't load playlists", message: error,
+                canRetry: playback.isConnected && !isRefreshing, retry: retry)
+        } else if hasLoaded {
+            SidebarLibraryPlaceholder(
+                title: isCached ? "No saved playlists" : "No playlists yet",
+                message: isCached
+                    ? (isRefreshing ? "Checking Spotify for updates…" : "This saved library may be out of date.")
+                    : "Playlists you save in Spotify appear here.")
+        }
     }
 
     private var libraryStatus: String {
@@ -86,6 +103,44 @@ struct SidebarView: View {
                 if !expandedFolders.insert(row.id).inserted { expandedFolders.remove(row.id) }
             }
         }
+    }
+}
+
+private struct SidebarLibraryPlaceholder: View {
+    let title: String
+    let message: String
+    var canRetry = false
+    var retry: (() async -> Void)?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(SpottyPalette.textPrimary)
+            Text(message)
+                .font(.system(size: 13))
+                .foregroundStyle(SpottyPalette.textSecondary)
+            if let retry {
+                CatalogCardButton {
+                    Task { await retry() }
+                } label: { _ in
+                    Text("Try Again")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.white, in: Capsule())
+                        .opacity(canRetry ? 1 : 0.5)
+                }
+                .disabled(!canRetry)
+                .pointingHandCursor(enabled: canRetry)
+                .padding(.top, 6)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 20)
+        .accessibilityElement(children: .contain)
     }
 }
 

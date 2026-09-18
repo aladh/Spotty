@@ -30,9 +30,11 @@ struct RootView: View {
                     selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary,
                     playback: catalogPlayback,
                     isLoading: catalog.homeLibrary.isLoadingInitialPlaylists,
+                    hasLoaded: catalog.homeLibrary.loadedSections.contains(.playlists),
                     isCached: catalog.homeLibrary.playlistLibraryIsCached,
                     isRefreshing: catalog.homeLibrary.isLoading(.playlists),
-                    error: catalog.homeLibrary.error(for: .playlists)
+                    error: catalog.homeLibrary.error(for: .playlists),
+                    retry: retryPlaylists
                 )
                 .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
                 .frame(maxHeight: .infinity)
@@ -123,6 +125,14 @@ struct RootView: View {
         var ids = Set(player.queueNextEntries.map(\.id))
         if player.hasCurrentTrack { ids.insert(SidePanelPlaybackActions.currentRowID) }
         return ids
+    }
+
+    private var retryPlaylists: () async -> Void {
+        let accountEpoch = player.accountEpoch
+        return {
+            guard player.accountEpoch == accountEpoch, player.isConnected else { return }
+            await catalog.homeLibrary.loadPlaylists()
+        }
     }
 
     @ViewBuilder

@@ -898,8 +898,13 @@ private func runModelTrace(seed: UInt64, steps: Int, commandHeavy: Bool) -> Stri
             source: envelope.source,
             revision: envelope.revision
         )
-        let accepted = PlaybackReducer.reduce(&state, envelope: envelope)
+        let reduction = PlaybackReducer.apply(&state, envelope: envelope)
+        let accepted = reduction.accepted
         let post = state
+        let enteredPlaying = accepted && pre.transport != .playing && post.transport == .playing
+        if reduction.transportBecamePlaying != enteredPlaying {
+            return "seed \(seed) step \(step) \(describe(envelope.event)): incorrect playing-transition report"
+        }
 
         if let violation = firstViolation(
             pre: pre,

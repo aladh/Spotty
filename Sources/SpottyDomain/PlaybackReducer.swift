@@ -22,6 +22,8 @@ public struct PlaybackReduction: Equatable, Sendable {
     public let acceptedSources: Set<PlaybackEventSource>
     public let engineEpochAdvanced: Bool
     public let currentTrackURIChanged: Bool
+    /// The accepted candidate entered playing from another transport state.
+    public let transportBecamePlaying: Bool
     public let queueEntriesChanged: Bool
     public let devicesChanged: Bool
     /// Intents that became terminal in this reduction, with their outcome.
@@ -34,6 +36,7 @@ public struct PlaybackReduction: Equatable, Sendable {
         acceptedSources: Set<PlaybackEventSource> = [],
         engineEpochAdvanced: Bool = false,
         currentTrackURIChanged: Bool = false,
+        transportBecamePlaying: Bool = false,
         queueEntriesChanged: Bool = false,
         devicesChanged: Bool = false,
         settledIntents: [SettledIntent] = [],
@@ -43,6 +46,7 @@ public struct PlaybackReduction: Equatable, Sendable {
         self.acceptedSources = acceptedSources
         self.engineEpochAdvanced = engineEpochAdvanced
         self.currentTrackURIChanged = currentTrackURIChanged
+        self.transportBecamePlaying = transportBecamePlaying
         self.queueEntriesChanged = queueEntriesChanged
         self.devicesChanged = devicesChanged
         self.settledIntents = settledIntents
@@ -504,6 +508,7 @@ public enum PlaybackReducer {
             engineEpochAdvanced: componentEngineEpochAdvanced || candidate.engineEpoch > preState.engineEpoch,
             currentTrackURIChanged: componentTrackURIChanged
                 || candidate.currentTrack?.uri != preState.currentTrack?.uri,
+            transportBecamePlaying: preState.transport != .playing && candidate.transport == .playing,
             queueEntriesChanged: componentQueueEntriesChanged || candidate.queue.entries != preState.queue.entries,
             devicesChanged: componentDevicesChanged || candidate.devices.devices != preState.devices.devices,
             settledIntents: settledIntents,

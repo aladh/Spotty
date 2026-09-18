@@ -240,7 +240,9 @@ struct SidePanelView: View {
                 rows: player.history.map { entry in
                     NativeOccurrenceListRow(
                         id: entry.id, height: 64, isSelectable: false,
-                        content: AnyView(HistoryRow(entry: entry) { actions.play(uri: entry.uri) })
+                        content: AnyView(
+                            HistoryRow(entry: entry, canPlay: actions.canStartPlayback) { actions.play(uri: entry.uri) }
+                        )
                     )
                 },
                 selection: .constant([]), drawsSelection: false, accessibilityLabel: "Recently played",
@@ -358,6 +360,7 @@ private struct QueueTrackRow: View {
 
 private struct HistoryRow: View {
     let entry: HistoryEntry
+    let canPlay: Bool
     let action: () -> Void
 
     @State private var isHovering = false
@@ -388,14 +391,15 @@ private struct HistoryRow: View {
             .padding(8)
             .contentShape(Rectangle())
             .background(
-                SpottyPalette.historySurface(isHovering: isHovering),
+                SpottyPalette.historySurface(isHovering: canPlay && isHovering),
                 in: RoundedRectangle(cornerRadius: 4, style: .continuous)
             )
         }
         .buttonStyle(.plain)
+        .disabled(!canPlay)
+        .pointingHandCursor(enabled: canPlay)
         .hoverSurface(isHovering: $isHovering)
         .help("Play \(entry.title)")
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Play \(entry.title) by \(entry.artist)")
         .accessibilityValue("Played \(relativeTime)")
     }

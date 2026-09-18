@@ -50,8 +50,8 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
 
 ### Window and toolbar
 
-- The native resizable sidebar starts near 208 points (180–260); inspector near 280 (260–360).
-  Keep library visible; a native command toggles inspector.
+- Resizable native sidebar starts near 208 points (180–260), retaining width across navigation/reconnects.
+  Keep library visible; native commands toggle inspector (~280, 260–360).
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
   window controls, geometry, and hit targets; never reposition them. Empty toolbar space
   drags windows and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.

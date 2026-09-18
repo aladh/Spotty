@@ -41,7 +41,8 @@ struct RootView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .padding(.leading, 8)
                 .padding(.trailing, 4)
-                detail
+                // Keep the split pane stable across routes and connection placeholders.
+                ZStack { detail }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
                     .clipShape(RoundedRectangle(cornerRadius: 8))

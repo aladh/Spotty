@@ -130,7 +130,13 @@ final class SearchStore {
             return
         }
 
-        clearResults()
+        // Retrying the same admitted result set must not replace usable rows with a spinner.
+        // Different queries and session lifetimes still discard all previous content.
+        if completedQuery != query || completedSession != session.snapshot {
+            clearResults()
+        } else {
+            errors = [:]
+        }
         isSearching = true
         await flight.run(handle) { [weak self] in
             guard let self else { return }
@@ -196,6 +202,7 @@ final class SearchStore {
         } catch CatalogProviderCapabilityError.unsupported {
         } catch {
             guard flight.shouldReport(error, for: handle) else { return }
+            if error as? CatalogReadFailure == .sessionExpired { reset() }
             errors[section] = CatalogErrorPresentation.message(for: error)
         }
     }

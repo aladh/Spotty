@@ -8,10 +8,10 @@ changing native view ownership. Surface behavior remains defined by [navigation]
 
 ## Reference and evidence
 
-The retained anchors below come from Spotty main
+The anchors come from Spotty main
 [`993feb5`](https://github.com/aladh/Spotty/tree/993feb51885f94666358d3853f6dfd5b1969dcf8)
-and its unchanged shared palette, layout, Home, detail-header, and transport sources. They describe
-existing Spotty design choices; they are not new measurements of Spotify.
+and its unchanged palette, layout, Home, detail-header, and transport sources.
+These are Spotty choices, not new Spotify measurements.
 
 Spotify desktop **1.2.99.317** was viewed read-only on **2026-09-12**. Only **Home at rest** was
 inspected; current native playlist, sidebar, queue, and interaction states remain visually
@@ -23,7 +23,7 @@ rest and scrolled with a selected row, and **Sun & Moon (Downtempo Version)** at
 artwork/title hierarchy, inline release summary, numbered two-line track rows, and compact scrolled
 header inform the [album presentation contract](navigation.md#window-and-navigation-behavior).
 Spotty shows known play counts, hiding them at narrow widths, and omits unsupported save/download
-controls. These references do not establish full feature or visual parity.
+controls. These references establish neither feature nor visual parity.
 
 Artist reference: Spotify desktop **1.3.0.277**, **Dan be**, inspected on **2026-09-15** at rest
 and scrolled through Popular and Discography. The full-width photographic banner, oversized artist
@@ -33,7 +33,7 @@ Spotty uses its shared Play and shuffle controls and omits follow, save, downloa
 Fans also like and Appears On. The full discography opens a separate page with list/grid
 layouts, release-type filters and date/name sorting. Artist play counts are shown when available and hidden at narrow widths.
 Radiohead’s full discography, inspected on the same date, supplies the list/grid reference.
-The reference captures remain local; synthetic Demo artists provide repeatable inspection fixtures.
+Captures stay local; synthetic Demo artists provide repeatable fixtures.
 The user-supplied **2026-09-16** Dan be screenshot supplies the single-row Discography and Featuring
 playlist reference, including descriptions beneath playlist titles.
 On **2026-09-16**, Spotify **1.3.0.277** was inspected read-only on Dan be and Angelo Ferreri:
@@ -42,9 +42,9 @@ Discovered on and Artist Playlists follow it. Spotty supports these returned pla
 with the first gallery image, biography and audience counts; gallery paging, city rankings, social links and
 Spotify's profile-authenticity explanation remain outside the supported surface.
 
-On **2026-09-17**, Spotify **1.3.0.277** Home playlist cards showed descriptions. Home recommendations
+On **2026-09-17**, Spotify **1.3.0.277** Home showed playlist descriptions and four quick-access columns at wide widths. Recommendations
 prefer readable descriptions, falling back to owner labels or “Playlist”; library credits remain unchanged.
-Repeated destinations remain separate cards in their returned order.
+Preserve repeated destinations and returned order. Quick access shows up to eight tiles in at most four columns, reflowing at narrower widths.
 
 ## Retained anchors
 

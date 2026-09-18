@@ -1415,6 +1415,89 @@ struct CoherentConnectIntakeTests {
         await store.shutdownForTermination()
     }
 
+    @Test(arguments: [false, true], [false, true])
+    @MainActor
+    func observedResumeRecordsTheSameTrackWithoutCommands(local: Bool, aggregated: Bool) async throws {
+        let clock = HarnessClock.sticky()
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), clock: clock))
+        let activeID = local ? "local" : "phone"
+        let uri = "spotify:track:resumed"
+        store.receive(cluster(revision: 1, activeID: activeID, trackURI: uri), receivedAt: clock.now())
+        #expect(store.history.isEmpty, "The initial paused track has not been heard")
+        func receive(_ revision: UInt64, playing: Bool) throws {
+            let observation = cluster(revision: revision, activeID: activeID, trackURI: uri, isPlaying: playing)
+            if aggregated {
+                store.receive(observation, receivedAt: clock.now())
+            } else {
+                store.receive(try #require(observation.playback), revision: revision, receivedAt: clock.now())
+            }
+        }
+
+        clock.advance(seconds: 30)
+        try receive(2, playing: true)
+        let firstPlay = clock.now()
+        #expect(store.history.map(\.uri) == [uri], "An externally started current track belongs in history")
+        #expect(store.history.first?.playedAt == firstPlay)
+        #expect(store.shuffleHistoryCache[uri] == firstPlay.timeIntervalSince1970)
+        clock.advance(seconds: 30)
+        try receive(3, playing: true)
+        try receive(4, playing: false)
+        try receive(3, playing: true)
+        if aggregated {
+            store.receive(
+                cluster(revision: 5, activeID: activeID, trackURI: uri, isPlaying: true, playbackRevision: 3),
+                receivedAt: clock.now())
+        }
+        #expect(store.history.first?.playedAt == firstPlay, "Timing, pause, and stale samples are not new plays")
+        try receive(6, playing: true)
+        let resumedAt = clock.now()
+        #expect(store.history.count == 1, "Resuming updates the existing entry without duplicating it")
+        #expect(store.history.first?.playedAt == resumedAt)
+
+        try receive(7, playing: false)
+        clock.advance(seconds: 30)
+        let restored = cluster(revision: 8, activeID: activeID, trackURI: uri, isPlaying: true)
+        store.receive(
+            RustPlaybackEventEnvelope(
+                sequence: 1, receivedAt: clock.now(),
+                event: .resynchronizationRequired(
+                    sessionGeneration: 1,
+                    snapshots: [
+                        RustPlaybackEventEnvelope(sequence: 1, receivedAt: clock.now(), event: .cluster(restored))
+                    ])))
+        #expect(store.history.first?.playedAt == resumedAt, "The recovery replay itself cannot record listening")
+        try receive(9, playing: true)
+        #expect(
+            store.history.first?.playedAt == (local ? clock.now() : resumedAt),
+            "The first fresh local sample confirms playing after conservative recovery; remote timing stays inert")
+        try receive(10, playing: false)
+        try receive(11, playing: true)
+        #expect(store.history.first?.playedAt == clock.now(), "A fresh resume still records after recovery")
+        await store.shutdownForTermination()
+    }
+
+    @Test
+    @MainActor
+    func observedIntentConfirmationWritesListeningHistoryOnce() async {
+        let clock = HarnessClock.sticky()
+        let preferences = HarnessPreferences()
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(send: .succeed), preferences: preferences, clock: clock))
+        store.receive(
+            cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:paused"), receivedAt: clock.now())
+        let target = "spotify:track:confirmed"
+        store.play(uri: target)
+        await expectEventually { store.state.pendingCommands[.transport] == nil }
+        #expect(store.history.isEmpty, "Transport acceptance alone cannot record a play")
+        clock.advance(seconds: 1)
+        store.receive(
+            cluster(revision: 2, activeID: "phone", trackURI: target, isPlaying: true), receivedAt: clock.now())
+        #expect(store.history.map(\.uri) == [target])
+        await store.shutdownForTermination()
+        #expect(preferences.historyWrites.count == 1, "Intent confirmation and its observed transition share one write")
+    }
+
     @Test
     @MainActor
     func settledIntentRevokesOnlyItsUnclaimedPermit() async {

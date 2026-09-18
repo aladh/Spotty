@@ -123,12 +123,10 @@ extension PlaybackSessionRuntime {
             hasReceivedPlaybackSnapshot = true
             if reduction.currentTrackURIChanged, let uri = state.currentTrack?.uri {
                 adoptTrackMetadata(for: uri, force: true)
-                if !isInitial, playback.transport == .playing {
-                    recordPlayed(uri)
-                }
             } else if state.currentTrack == nil {
                 effects.cancel(.trackMetadata)
             }
+            recordObservedPlayback(reduction, snapshot: playback, isInitial: isInitial)
         }
         if reduction.acceptedSources.contains(.engineDevices),
             let remote = devices.first(where: { $0.isActive && $0.id != localID })
@@ -256,14 +254,20 @@ extension PlaybackSessionRuntime {
             effects.cancel(.trackMetadata)
         }
 
-        // Local and remote Connect listening use the same accepted observation, never optimistic
-        // transport. Opening the app must not turn an initial snapshot into a fresh listening event.
-        if !isInitialSnapshot,
-            snapshot.transport == .playing,
-            let acceptedTrackURI
-        {
-            recordPlayed(acceptedTrackURI)
-        }
+        recordObservedPlayback(reduction, snapshot: snapshot, isInitial: isInitialSnapshot)
+    }
+
+    private func recordObservedPlayback(
+        _ reduction: PlaybackReduction, snapshot: EnginePlaybackSnapshot, isInitial: Bool
+    ) {
+        // Require both the accepted reducer transition and observed transport, never optimism.
+        // Initial snapshots and recovery replays restore truth without inventing listening.
+        guard !isInitial, snapshot.transport == .playing,
+            reduction.currentTrackURIChanged || reduction.transportBecamePlaying,
+            let uri = state.currentTrack?.uri,
+            !reduction.confirmedPlayTrackURIs.contains(uri)
+        else { return }
+        recordPlayed(uri)
     }
 
     func receive(

@@ -26,8 +26,9 @@
   the beginning, including the current track. Playback controls disable when unavailable.
   History selection follows the track through metadata updates/reordering and inspector reopening;
   removed entries and account changes clear it. History never offers queue removal.
-- History records observed changes to a playing track for local and remote Connect playback after
-  the first playback snapshot. The first snapshot, recovery replays, paused observations, and
+- History records observed changes to a playing track and transitions into playing, including an
+  externally resumed current track, for local and remote Connect playback after the first playback snapshot.
+  The first snapshot, recovery replays, paused observations, and
   rejected/stale events do not create entries. Known Play/Resume targets enter history only after
   observed confirmation. Timing and metadata updates do not rewrite the played time; account
   replacement clears session history. The accessibility value announces the recorded date and time,

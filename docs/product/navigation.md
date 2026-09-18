@@ -13,9 +13,8 @@
   retain search, sort, occurrence selection, and scroll. Artists retain scroll, Popular selection/expansion,
   and discography filters/sort/layout/list scroll. Filtering clears hidden selections; removed occurrences stay
   unselected. Account changes clear history/interaction. Retention is bounded; evicted routes reload.
-- Playlists/albums share learned labels for matching tracks across active/retained pages,
-  preserving duplicates, order, and interaction. Refreshed labels do not
-  make saved collections current.
+- Playlists/albums share learned track labels across active/retained pages, preserving
+  duplicates/order/interaction. Refreshed labels cannot make saved collections current.
 - `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
   playback. Unsupported resources, malformed links, and lookalike hosts do nothing.
 - After verifying the current account, show complete saved playlists/albums, including empty results,
@@ -67,11 +66,13 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
 
 ### Library sidebar
 
-- Preserve custom playlist order and nested folders across pagination, with local expansion and four
-  concurrent folder requests. After account verification, show the complete saved library, even empty,
+- Preserve custom playlist/folder order across pagination, with local expansion and four
+  concurrent folder requests. After account verification, show complete saved libraries, even empty,
   during refresh; otherwise show progress. Failed refresh preserves rows and interaction, with a
   stale/error indicator. Credential failure clears saved content; cached ownership cannot enable edits.
   Retain the flat catalog for navigation and playlist actions.
+- Arrows select folders without navigating; Return toggles expansion.
+  Navigation clears folder focus; account changes clear expansion.
 - Use opaque near-black backgrounds, 48-point artwork, 16-point titles, muted 14-point owner/fallback
   labels, and native keyboard selection/scrolling. Rows use pointing hands; artwork reveals Play/Pause
   on hover or focus, accessible at rest. Other areas open details. Neutral-gray selection
@@ -87,7 +88,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   with title/artist; duration/history timestamps stay accessible without narrowing titles.
   Playlist queues show “Next from:” with the known playlist link, following accepted context
   without playback. Ordering/history remain playback-owned.
-- Known queue artists, playlist-table artists/albums, and player artists link to details individually;
+- Known queue/player artists and playlist-table artists/albums link individually;
   player title/artwork open the album. Unknown destinations remain noninteractive. Hovered text links are white and underlined; links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore parent cursors on exit.
 - Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
   hover or focus, accessible at rest. Row clicks select; artwork buttons, Return, and double-click activate.
@@ -98,7 +99,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
 ## Transient mutation feedback
 
 - Playlist/queue mutations share `TransientFeedbackPresenter`.
-- Show one non-modal banner above the player, preserving focus, input, and layout. New messages
-  replace old; cancelled dismissal cannot clear replacements.
+- Show one non-modal banner above the player, preserving focus/input/layout. New messages
+  replace old; cancelled dismissals cannot clear replacements.
 - Durable connection/session/playback/reconciliation status stays with existing owners
   (`PlaybackNotice`/now-playing text), not transient banners.

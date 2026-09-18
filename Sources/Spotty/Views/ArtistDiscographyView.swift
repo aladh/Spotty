@@ -221,16 +221,21 @@ private struct DiscographyReleaseHeader: View {
                 .buttonStyle(.plain)
                 .pointingHandCursor()
                 .accessibilityLabel("Open \(item.title)")
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
                     Button {
                         onSelect(item)
                     } label: {
                         Text(item.title).font(.system(size: 28, weight: .bold)).lineLimit(2)
                             .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .buttonStyle(.plain)
                     .pointingHandCursor()
+                    Spacer(minLength: 6).frame(maxHeight: 12)
                     Text(metadata).font(.system(size: 14)).foregroundStyle(SpottyPalette.textSecondary)
+                        .lineLimit(1)
+                        .help(metadata)
+                    Spacer(minLength: 6).frame(maxHeight: 12)
                     HStack(spacing: 16) {
                         Button {
                             playback.activateItem(item)
@@ -255,8 +260,10 @@ private struct DiscographyReleaseHeader: View {
                                 SpottyPalette.textSecondary)
                         }
                     }
+                    Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 132, alignment: .top)
             }
             .padding(.top, 32)
             .padding(.bottom, 16)

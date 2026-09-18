@@ -18,5 +18,11 @@
 - Filtering reuses the current query's results. Returning from details retains successful results,
   filter, song selection, and scroll; a new query clears result interaction while keeping its filter.
   Clearing Search returns to the empty prompt and All. Account replacement retires search state.
+- Retrying the same completed query keeps its rows, selection, and scroll while fetching replacements.
+  Failed categories retain their previous results with a retry notice; successful empty responses clear
+  that category. A different query or session cannot reuse the old query's rows; credential refusal
+  clears retained results and fences other responses from that search, then shows the error and retry
+  in every category.
+  Try Again is disabled while disconnected or while a search is running.
 - Empty and failed results describe the selected category; partial failures keep other results usable.
   Search remains pending through debounce and in-flight reads. Clear Search keeps keyboard focus in the field.

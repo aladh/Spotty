@@ -130,7 +130,13 @@ final class SearchStore {
             return
         }
 
-        clearResults()
+        // Retrying the same admitted result set must not replace usable rows with a spinner.
+        // Different queries and session lifetimes still discard all previous content.
+        if completedQuery != query || completedSession != session.snapshot {
+            clearResults()
+        } else {
+            errors = [:]
+        }
         isSearching = true
         await flight.run(handle) { [weak self] in
             guard let self else { return }
@@ -164,7 +170,7 @@ final class SearchStore {
             let values = try await provider.searchAlbums(query, limit: 30)
             guard flight.isCurrent(handle) else { return }
             albums = values
-            metadata.cacheItems(values, from: .search)
+            replaceItemMetadata()
         }
     }
 
@@ -173,7 +179,7 @@ final class SearchStore {
             let values = try await provider.searchArtists(query, limit: 30)
             guard flight.isCurrent(handle) else { return }
             artists = values
-            metadata.cacheItems(values, from: .search)
+            replaceItemMetadata()
         }
     }
 
@@ -182,8 +188,13 @@ final class SearchStore {
             let values = try await provider.searchPlaylists(query, limit: 30)
             guard flight.isCurrent(handle) else { return }
             playlists = values
-            metadata.cacheItems(values, from: .search)
+            replaceItemMetadata()
         }
+    }
+
+    private func replaceItemMetadata() {
+        // Retire this section's old labels while preserving pending or failed siblings.
+        metadata.replaceItems(albums + artists + playlists, from: .search)
     }
 
     private func load(
@@ -196,7 +207,19 @@ final class SearchStore {
         } catch CatalogProviderCapabilityError.unsupported {
         } catch {
             guard flight.shouldReport(error, for: handle) else { return }
-            errors[section] = CatalogErrorPresentation.message(for: error)
+            let message = CatalogErrorPresentation.message(for: error)
+            if error as? CatalogReadFailure == .sessionExpired {
+                // Retire this response without cancelling a newer query's pending debounce.
+                // That admission still checks its captured session before starting work.
+                flight.reset()
+                clearResults()
+                isSearching = false
+                completedQuery = handle.key
+                completedSession = handle.sessionSnapshot
+                errors = Dictionary(uniqueKeysWithValues: Section.allCases.map { ($0, message) })
+            } else {
+                errors[section] = message
+            }
         }
     }
 

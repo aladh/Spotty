@@ -89,6 +89,89 @@ struct SearchStoreTests {
     }
 
     @Test @MainActor
+    func sameQueryRefreshRetainsRowsThroughFailureAndReplacesOnSuccess() async throws {
+        let (provider, gate) = makeGatedSearchCatalog()
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let store = makeStore(provider: provider, session: session, clock: HarnessClock.parked())
+        let first = HarnessFixtures.track(uri: "spotify:track:first", title: "First")
+        let second = HarnessFixtures.track(uri: "spotify:track:second", title: "Second")
+        try #require(await commitImmediateSearch(store, gate: gate, query: "query", tracks: [first]))
+        let version = store.trackCollection.version
+        let retry = Task { await store.search(" query ") }
+        try await requireEventually { await gate.requestCount == 2 }
+        #expect(store.tracks == [first])
+        #expect(store.trackCollection.version == version)
+        #expect(store.isSearching && store.isAwaitingResults(for: "query"))
+        await gate.completeNext(.failure)
+        await retry.value
+        #expect(store.tracks == [first], "A failed refresh must retain usable songs")
+        #expect(store.trackCollection.version == version)
+        #expect(store.errors[.tracks] != nil)
+        #expect(!store.isSearching)
+        let recovery = Task { await store.search("query") }
+        try await requireEventually { await gate.requestCount == 3 }
+        #expect(store.tracks == [first])
+        await gate.completeNext(.tracks([second]))
+        await recovery.value
+        #expect(store.tracks == [second])
+        #expect(store.errors[.tracks] == nil)
+        #expect(!store.isAwaitingResults(for: "query"))
+
+        let replacement = Task { await store.search("different") }
+        try await requireEventually { await gate.requestCount == 4 }
+        #expect(store.tracks.isEmpty, "A different admitted query cannot retain unrelated results")
+        await gate.completeNext(.tracks([second]))
+        await replacement.value
+        session.update(accountEpoch: 2, isAvailable: true)
+        let accountSearch = Task { await store.search("different") }
+        try await requireEventually { await gate.requestCount == 5 }
+        #expect(store.tracks.isEmpty, "Retention cannot cross account or session admission")
+        await gate.completeNext(.tracks([]))
+        await accountSearch.value
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func expiredSearchSessionRetiresRowsAndRejectsOtherSectionsStillInFlight(hasResults: Bool) async throws {
+        let (provider, gate) = makeGatedSearchCatalog()
+        provider.onSearchAlbums = { _, _ in [] }
+        let store = makeStore(
+            provider: provider, session: CatalogSessionAvailability(isAvailable: true), clock: HarnessClock.parked())
+        let track = HarnessFixtures.track(uri: "spotify:track:result", title: "Result")
+        if hasResults {
+            try #require(await commitImmediateSearch(store, gate: gate, query: "query", tracks: [track]))
+        }
+        let refusal = HarnessClock.parked()
+        provider.onSearchAlbums = { _, _ in
+            try await refusal.sleep(seconds: 1)
+            throw CatalogReadFailure.sessionExpired
+        }
+        let retry = Task { await store.search("query") }
+        defer { refusal.releaseAll() }
+        try await requireEventually { await gate.requestCount == (hasResults ? 2 : 1) && refusal.waiterCount == 1 }
+        #expect(store.tracks == (hasResults ? [track] : []))
+        refusal.releaseNext()
+        try await requireEventually { !store.isSearching && store.errors[.albums] != nil }
+        #expect(store.tracks.isEmpty)
+        for section in SearchStore.Section.allCases {
+            #expect(
+                store.errors[section] == CatalogErrorPresentation.message(for: CatalogReadFailure.sessionExpired),
+                "Every category must show the credential error after all results are retired")
+        }
+        #expect(!store.isAwaitingResults(for: " query "), "Show the refusal before an uncooperative sibling finishes")
+        #expect(store.isAwaitingResults(for: "different"), "Only the rejected query has completed")
+        await gate.completeNext(.tracks([track]))
+        await retry.value
+        #expect(store.tracks.isEmpty, "A sibling response cannot repopulate an expired search session")
+        #expect(store.albums.isEmpty)
+        #expect(store.error != nil && !store.isAwaitingResults(for: "query"))
+        provider.onSearchAlbums = { _, _ in [] }
+        provider.onSearchTracks = { _, _ in [track] }
+        await store.search("query")
+        #expect(store.tracks == [track])
+        #expect(store.error == nil && !store.isAwaitingResults(for: "query"))
+    }
+
+    @Test @MainActor
     func completedSearchCannotBeReusedAcrossSessionChanges() async throws {
         let provider = HarnessCatalog()
         let session = CatalogSessionAvailability(isAvailable: true)
@@ -104,6 +187,43 @@ struct SearchStoreTests {
         await revisit.value
         #expect(provider.searchTrackRequestCount == 2)
         #expect(!store.isAwaitingResults(for: "query"))
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func expiredSearchDoesNotCancelTheNextDebouncedQuery(hasResults: Bool) async throws {
+        let provider = HarnessCatalog()
+        let clock = HarnessClock.parked()
+        let refusal = HarnessClock.parked()
+        let store = makeStore(
+            provider: provider, session: CatalogSessionAvailability(isAvailable: true), clock: clock)
+        let first = HarnessFixtures.track(uri: "spotify:track:first", title: "First")
+        let next = HarnessFixtures.track(uri: "spotify:track:next", title: "Next")
+        provider.onSearchTracks = { term, _ in term == "query" ? [first] : [next] }
+        provider.onSearchAlbums = { _, _ in [] }
+        if hasResults { await store.search("query") }
+        provider.onSearchAlbums = { term, _ in
+            guard term == "query" else { return [] }
+            try await refusal.sleep(seconds: 1)
+            throw CatalogReadFailure.sessionExpired
+        }
+
+        let rejected = Task { await store.search("query") }
+        defer { clock.releaseAll(); refusal.releaseAll() }
+        try await requireEventually { refusal.waiterCount == 1 }
+        let pending = Task { await store.scheduleSearch(" different ") }
+        try await requireEventually { clock.waiterCount == 1 }
+        refusal.releaseNext()
+        await rejected.value
+        #expect(store.tracks.isEmpty && store.error != nil)
+        #expect(!store.isAwaitingResults(for: "query"))
+        #expect(store.isAwaitingResults(for: "different"))
+
+        clock.releaseAll()
+        await pending.value
+        #expect(provider.searchTrackRequestCount == (hasResults ? 3 : 2))
+        #expect(store.tracks == [next], "The newer query must still be admitted after the older request fails")
+        #expect(store.error == nil && !store.isSearching)
+        #expect(!store.isAwaitingResults(for: "different"), "The next query cannot remain stranded in loading")
     }
 
     @Test(arguments: [false, true])

@@ -267,7 +267,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     func libraryArtists() async throws -> [CatalogItem] { [] }
     func libraryTracks() async throws -> [CatalogTrack] { [] }
     func searchTracks(_ query: String, limit: Int) async throws -> [CatalogTrack] {
-        record("search.tracks")
+        try await prepareSearch("tracks")
         let tracks = fixtures.albums.flatMap {
             fixtures.album(id: String($0.uri.split(separator: ":").last ?? ""))?.tracks ?? []
         }
@@ -278,18 +278,28 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     }
 
     func searchArtists(_ query: String, limit: Int) async throws -> [CatalogItem] {
-        record("search.artists")
+        try await prepareSearch("artists")
         return searchItems(fixtures.artists, query: query, limit: limit)
     }
 
     func searchAlbums(_ query: String, limit: Int) async throws -> [CatalogItem] {
-        record("search.albums")
+        let request = try await prepareSearch("albums")
+        if request <= (scenario.searchAlbumFailures ?? 0) { throw CatalogReadFailure.offline }
         return searchItems(fixtures.albums, query: query, limit: limit)
     }
 
     func searchPlaylists(_ query: String, limit: Int) async throws -> [CatalogItem] {
-        record("search.playlists")
+        try await prepareSearch("playlists")
         return searchItems(fixtures.playlists.compactMap(CatalogMapping.item(from:)), query: query, limit: limit)
+    }
+
+    @discardableResult
+    private func prepareSearch(_ section: String) async throws -> Int {
+        let request = record("search.\(section)")
+        if request > 1, let delay = scenario.searchRefreshMilliseconds {
+            try await ContinuousClock().sleep(for: .milliseconds(delay))
+        }
+        return request
     }
 
     private func searchItems(_ items: [CatalogItem], query: String, limit: Int) -> [CatalogItem] {

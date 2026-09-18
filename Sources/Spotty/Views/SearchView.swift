@@ -57,7 +57,7 @@ struct SearchView: View {
                     ) { interaction.filter = .all }
                 } content: {
                     VStack(spacing: 0) {
-                        if interaction.filter == .all, !store.failedSections.isEmpty {
+                        if !visibleFailedSections.isEmpty {
                             partialFailureBanner
                         }
                         if store.isAwaitingResults(for: query) {
@@ -216,15 +216,23 @@ struct SearchView: View {
                 .padding(.horizontal, CatalogLayout.contentPadding)))
     }
 
+    private var visibleFailedSections: [SearchStore.Section] {
+        if let section = interaction.filter.section {
+            return store.errors[section] == nil ? [] : [section]
+        }
+        return store.failedSections
+    }
+
     private var partialFailureBanner: some View {
         HStack(spacing: 10) {
             Label(
-                "Some results couldn't load: \(store.failedSections.map { $0 == .tracks ? "Songs" : $0.rawValue.capitalized }.joined(separator: ", "))",
+                "Some results couldn't load: \(visibleFailedSections.map { $0 == .tracks ? "Songs" : $0.rawValue.capitalized }.joined(separator: ", "))",
                 systemImage: "exclamationmark.triangle"
             )
             .foregroundStyle(SpottyPalette.textSecondary)
             Spacer()
-            Button("Try Again") { Task { await store.search(searchText) } }.disabled(!playback.isConnected)
+            Button("Try Again") { Task { await store.search(searchText) } }
+                .disabled(!playback.isConnected || store.isSearching)
         }
         .padding(12)
         .background(SpottyPalette.selectedControl, in: RoundedRectangle(cornerRadius: 6))

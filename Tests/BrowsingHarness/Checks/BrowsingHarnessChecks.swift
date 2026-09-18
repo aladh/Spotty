@@ -118,6 +118,12 @@ struct BrowsingHarnessTests {
         input.playlistFailures = 4
         #expect(throws: (any Error).self) { try input.validate() }
         input = scenario()
+        input.searchAlbumFailures = 4
+        #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
+        input.searchRefreshMilliseconds = -1
+        #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
         input.detailRefreshMilliseconds = -1
         #expect(throws: (any Error).self) { try input.validate() }
         #expect(throws: (any Error).self) { try BrowsingScenario.decode(Data("{}".utf8)) }
@@ -183,6 +189,23 @@ struct BrowsingHarnessTests {
         #expect(live.isEmpty == empty)
         #expect(live.map(\.withoutOwnership) == cached.nodes)
         #expect(world.snapshot().requests["library"] == 2)
+        #expect(world.snapshot().mutationAttempts == 0)
+    }
+
+    @Test func partialSearchFailureCanRecoverWithoutARealAccount() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySearchRetry-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.expandedLibrary = true
+        input.searchAlbumFailures = 1
+        input.searchRefreshMilliseconds = 0
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let tracks = try await world.searchTracks("Harbor", limit: 50)
+        #expect(!tracks.isEmpty)
+        await #expect(throws: CatalogReadFailure.offline) { try await world.searchAlbums("Harbor", limit: 30) }
+        let albums = try await world.searchAlbums("Harbor", limit: 30)
+        #expect(!albums.isEmpty)
+        #expect(world.snapshot().requests["search.albums"] == 2)
         #expect(world.snapshot().mutationAttempts == 0)
     }
 

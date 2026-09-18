@@ -246,15 +246,20 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         return CatalogMapping.playlist(result)
     }
     func album(id: String) async throws -> CatalogAlbumSnapshot {
-        record("album.\(id)")
+        let request = record("album.\(id)")
         try await delayDetailRefresh()
+        if request <= (scenario.albumFailures ?? 0) { throw CatalogReadFailure.offline }
         guard let album = fixtures.album(id: id) ?? fixtures.artistAlbum(id: id) else {
             throw BrowsingFailure.unsupportedAction
         }
         return album
     }
     func artist(id: String) async throws -> CatalogArtistSnapshot {
-        record("artist.\(id)")
+        let request = record("artist.\(id)")
+        if request > 1 {
+            try await delayDetailRefresh()
+            if request <= (scenario.artistRefreshFailures ?? 0) + 1 { throw CatalogReadFailure.offline }
+        }
         guard let artist = fixtures.artist(id: id) else { throw BrowsingFailure.unsupportedAction }
         return artist
     }

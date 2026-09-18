@@ -56,7 +56,9 @@ struct ArtistDetailView: View {
                         }
                     ) { playback.activateItem(item) }
                     if store.isShowingCachedContent {
-                        CachedCatalogNotice(isRefreshing: store.isLoading)
+                        CachedCatalogNotice(
+                            isRefreshing: store.isLoading, error: hasContent ? store.error : nil,
+                            canRetry: playback.isConnected, retry: { await store.load(item, force: true) })
                     }
                     if !store.popularTracks.tracks.isEmpty {
                         Text("Popular")
@@ -98,8 +100,7 @@ struct ArtistDetailView: View {
             }
             CatalogContentState(
                 isLoading: store.isLoading,
-                isEmpty: !hasReleases && store.popularTracks.tracks.isEmpty && featuringPlaylists.isEmpty
-                    && !hasAbout && discoveredOnPlaylists.isEmpty && artistPlaylists.isEmpty,
+                isEmpty: !hasContent,
                 error: store.error, loadingLabel: "Loading artist", errorTitle: "Couldn't load artist",
                 retry: { await store.load(item) }
             ) {
@@ -139,6 +140,11 @@ struct ArtistDetailView: View {
     private var featuringPlaylists: [CatalogItem] { store.overview?.featuringPlaylists ?? [] }
     private var discoveredOnPlaylists: [CatalogItem] { store.overview?.discoveredOnPlaylists ?? [] }
     private var artistPlaylists: [CatalogItem] { store.overview?.artistPlaylists ?? [] }
+    private var hasContent: Bool {
+        hasReleases || !store.popularTracks.tracks.isEmpty || !featuringPlaylists.isEmpty
+            || hasAbout || !discoveredOnPlaylists.isEmpty || !artistPlaylists.isEmpty
+    }
+
     private var hasAbout: Bool {
         guard let overview = store.overview else { return false }
         return overview.biography?.isEmpty == false || overview.aboutArtworkURL != nil

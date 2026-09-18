@@ -27,11 +27,20 @@ final class PlaybackKeyboardControls {
                     && window === app.keyWindow && window?.attachedSheet == nil && app.modalWindow == nil
                 return self?.handle(
                     event, firstResponder: window?.firstResponder, isPlaybackWindow: isPlaybackWindow,
-                    focusedRole: (app.accessibilityFocusedUIElement as? NSAccessibilityProtocol)?.accessibilityRole()
+                    focusedRole: Self.focusedRole(of: app.accessibilityFocusedUIElement)
                 ) == true
             }
             return consumed ? nil : event
         }
+    }
+
+    static func focusedRole(of element: Any?) -> NSAccessibility.Role? {
+        // Hosted elements can implement the public accessor without declaring the full protocol.
+        let selector = #selector(NSAccessibilityProtocol.accessibilityRole)
+        guard let object = element as? NSObject, object.responds(to: selector),
+            let role = object.perform(selector)?.takeUnretainedValue() as? String
+        else { return nil }
+        return NSAccessibility.Role(rawValue: role)
     }
 
     func stop() {

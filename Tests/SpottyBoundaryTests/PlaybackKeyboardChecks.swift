@@ -69,6 +69,21 @@ struct PlaybackKeyboardChecks {
         #expect(toggles == 1)
     }
 
+    @Test func hostedAccessibilityControlsDoNotNeedFormalProtocolConformance() throws {
+        var toggles = 0
+        let controls = PlaybackKeyboardControls(canToggle: { true }, toggle: { toggles += 1 })
+        controls.start()
+        defer { controls.stop() }
+        let role = PlaybackKeyboardControls.focusedRole(of: InformalAccessibilityButton())
+        #expect(role == .button)
+        #expect(!controls.handle(try event(), firstResponder: NSView(), isPlaybackWindow: true, focusedRole: role))
+        #expect(toggles == 0)
+        let button = NSButton()
+        button.setAccessibilityRole(.button)
+        #expect(PlaybackKeyboardControls.focusedRole(of: button) == .button)
+        #expect(PlaybackKeyboardControls.focusedRole(of: nil) == nil)
+    }
+
     private func event(
         characters: String = " ", flags: NSEvent.ModifierFlags = [], repeatKey: Bool = false,
         type: NSEvent.EventType = .keyDown
@@ -80,4 +95,11 @@ struct PlaybackKeyboardChecks {
                 charactersIgnoringModifiers: characters, isARepeat: repeatKey, keyCode: 49
             ))
     }
+}
+
+/// Models a hosted accessibility element's public selector without declaring AppKit's full protocol.
+/// The playback harness does not provide accessibility objects.
+@MainActor
+private final class InformalAccessibilityButton: NSObject {
+    @objc func accessibilityRole() -> String { NSAccessibility.Role.button.rawValue }
 }

@@ -89,7 +89,7 @@ private struct QuickAccessCard: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: action) {
+        CatalogCardButton(action: action) { _ in
             HStack(spacing: 12) {
                 RemoteArtwork(
                     url: item.artworkURL,
@@ -104,16 +104,9 @@ private struct QuickAccessCard: View {
                         playback.isPlayingPlaylist(item.uri) ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary
                     )
                     .lineLimit(2)
-
-                Spacer(minLength: 4)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(SpottyPalette.textSecondary)
-                    .opacity(isHovering ? 1 : 0)
-                    .accessibilityHidden(true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.trailing, 14)
+            .padding(.trailing, 56)
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .background(
                 SpottyPalette.quickAccessSurface(isHovering: isHovering),
@@ -121,11 +114,15 @@ private struct QuickAccessCard: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .hoverSurface(isHovering: $isHovering)
+        .pointingHandCursor()
         .help(item.kind == .track ? "Play \(item.title)" : "Open \(item.title)")
         .accessibilityLabel(item.title)
         .accessibilityHint(item.kind == .track ? "Starts playback" : "Opens details")
+        .overlay(alignment: .trailing) {
+            CatalogCardPlayButton(item: item, playback: playback, isHovering: isHovering, diameter: 40)
+                .padding(.trailing, 8)
+        }
+        .hoverSurface(isHovering: $isHovering)
     }
 }
 
@@ -175,7 +172,7 @@ struct MediaCard: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: action) {
+        CatalogCardButton(action: action) { _ in
             VStack(alignment: .leading, spacing: 8) {
                 RemoteArtwork(
                     url: item.artworkURL,
@@ -206,8 +203,6 @@ struct MediaCard: View {
                 in: RoundedRectangle(cornerRadius: CatalogLayout.cardCornerRadius, style: .continuous)
             )
         }
-        .buttonStyle(.plain)
-        .hoverSurface(isHovering: $isHovering)
         .pointingHandCursor()
         .help(item.kind == .track ? "Play \(item.title)" : "Open \(item.title)")
         .accessibilityLabel("\(item.title), \(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)")
@@ -215,33 +210,10 @@ struct MediaCard: View {
         // The card is itself a Button, so the play control is layered outside its label rather
         // than nested inside it; the insets place it 8pt inside the artwork's bottom-trailing corner.
         .overlay(alignment: .topTrailing) {
-            Button {
-                if item.kind == .playlist {
-                    playback.playPlaylist(item)
-                } else {
-                    playback.playURI(item.uri)
-                }
-            } label: {
-                Circle()
-                    .fill(SpottyPalette.mediaGreen)
-                    .frame(width: 48, height: 48)
-                    .overlay {
-                        TransportSymbol(kind: .play)
-                            .frame(width: 24, height: 24)
-                            .foregroundStyle(.black)
-                    }
-            }
-            .buttonStyle(.plain)
-            .disabled(!playback.canStartPlayback)
-            .pointingHandCursor(enabled: playback.canStartPlayback)
-            .accessibilityLabel("Play \(item.title)")
-            .accessibilityHidden(!isHovering)
-            .allowsHitTesting(isHovering && playback.canStartPlayback)
-            .opacity(isHovering ? 1 : 0)
-            .offset(y: isHovering ? 0 : 8)
-            .animation(.easeOut(duration: 0.15), value: isHovering)
-            .padding(.top, CatalogLayout.cardPadding + CatalogLayout.cardArtwork - 48 - 8)
-            .padding(.trailing, CatalogLayout.cardPadding + 8)
+            CatalogCardPlayButton(item: item, playback: playback, isHovering: isHovering)
+                .padding(.top, CatalogLayout.cardPadding + CatalogLayout.cardArtwork - 48 - 8)
+                .padding(.trailing, CatalogLayout.cardPadding + 8)
         }
+        .hoverSurface(isHovering: $isHovering)
     }
 }

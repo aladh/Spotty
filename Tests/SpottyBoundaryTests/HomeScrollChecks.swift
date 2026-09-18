@@ -8,6 +8,67 @@ import Testing
 @Suite("Home scroll lifetime")
 @MainActor
 struct HomeScrollChecks {
+    @Test func shorterReturnedContentClampsWithoutRetryingTheOldOffsetOnLaterGrowth() async throws {
+        func snapshot(sectionCount: Int) throws -> PathfinderHome {
+            let sections = (0..<sectionCount).map { index in
+                """
+                {"uri":"section:\(index)","sectionItems":{"items":[
+                  {"content":{"__typename":"PlaylistResponseWrapper","data":{
+                    "uri":"spotify:playlist:mix\(index)","name":"Mix \(index)"}}}]}}
+                """
+            }.joined(separator: ",")
+            return try JSONDecoder().decode(
+                PathfinderHome.self,
+                from: Data(
+                    "{\"__typename\":\"HomeResponsePayload\",\"sectionContainer\":{\"sections\":{\"items\":[\(sections)]}}}"
+                        .utf8))
+        }
+        let shorter = try snapshot(sectionCount: 3)
+        let longer = try snapshot(sectionCount: 12)
+        let provider = HarnessCatalog()
+        provider.onHome = { shorter }
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
+        player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+        }
+        await player.catalog.homeLibrary.loadHome()
+        let interaction = HomeInteractionState()
+        interaction.scrollOffset = 2200
+        let host = NSHostingView(
+            rootView: HomeView(
+                store: player.catalog.homeLibrary, playback: CatalogPlaybackAccess(player: player),
+                interaction: interaction, onSelect: { _ in }))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        func page(in view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap { page(in: $0) }.first
+        }
+        try await requireEventually {
+            host.layoutSubtreeIfNeeded()
+            return interaction.scrollOffset > 100 && interaction.scrollOffset < 2200
+        }
+        let scroll = try #require(page(in: host))
+        let maximum = try #require(scroll.documentView).bounds.height - scroll.contentSize.height
+        #expect(abs(interaction.scrollOffset - maximum) < 1)
+        let clampedOffset = interaction.scrollOffset
+        // Home publishes complete snapshots. Later sections are a new result, not partially
+        // rendered artwork; the old unreachable offset must not reapply when that result grows.
+        provider.onHome = { longer }
+        await player.catalog.homeLibrary.loadHome(force: true)
+        try await requireEventually {
+            host.layoutSubtreeIfNeeded()
+            return (scroll.documentView?.bounds.height ?? 0) > 2500
+        }
+        #expect(abs(scroll.contentView.bounds.minY - clampedOffset) < 1)
+        #expect(interaction.scrollOffset == clampedOffset)
+        await player.shutdownForTermination()
+    }
+
     @Test func shelfPositionSurvivesTemporaryQuickAccessPresentation() async throws {
         func snapshot(_ ids: [Int]) throws -> PathfinderHome {
             let sections = ids.map { index in

@@ -4,13 +4,15 @@
 
 ## Queue
 
+- In Queue and Recently played, Tab enters a selected row's available artwork control.
+  Shift-Tab returns to native row selection; another Tab continues through the window's focus order.
 - A queue refresh started before the first Connect snapshot must preserve and hydrate the newer
   Connect ordering when it arrives, including when the Web request fails. Metadata hydration cannot
   replace that ordering with its captured startup fallback.
 - Playback is the queue's ordering authority. Catalog and Web API metadata may enrich names but
   cannot reorder it; resolvable entries progressively replace fallback `Unknown` labels.
 - Current and upcoming queue rows use a native selectable list. Selection alone never plays;
-  Tab reaches the selected row's artwork control. Return/double-click on the current row pauses
+  Return/double-click on the current row pauses
   or resumes at the retained position; on one upcoming row it starts that track. Multiple selected
   rows do not activate playback. Delete/Backspace and **Remove from Queue**
   remove only selected *upcoming* occurrences by queue identity (Connect occurrence uid when
@@ -22,10 +24,8 @@
   account replacement clears selection. Position-based fallback rows cannot promise continuity
   when no stable occurrence identity is available.
 - Recently played uses single native selection. Clicking a row or moving with arrows never plays;
-  Tab reaches its artwork Play control, while Return/double-click starts the selected track from
+  Return/double-click starts the selected track from
   the beginning, including the current track. Playback controls disable when unavailable.
-  From a row's artwork control, Shift-Tab returns to native row selection and Tab continues
-  through the window's focus order.
   History selection follows the track through metadata updates/reordering and inspector reopening;
   removed entries and account changes clear it. History never offers queue removal.
 - History records observed changes to a playing track and transitions into playing, including an

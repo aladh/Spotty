@@ -11,7 +11,12 @@ struct CatalogCardFocusChecks {
         let second = CatalogCardFocusView(frame: NSRect(x: 48, y: 0, width: 48, height: 48))
         var firstRequests = 0
         var secondRequests = 0
-        first.registerFocus(target: target) { firstRequests += 1 }
+        var canRequestFirst = true
+        first.registerFocus(target: target) {
+            guard canRequestFirst else { return false }
+            firstRequests += 1
+            return true
+        }
         #expect(!target.focus(), "Detached row controls cannot consume Tab")
         #expect(!target.leaveControl(backwards: false))
         #expect(!target.leaveControl(backwards: true))
@@ -27,10 +32,15 @@ struct CatalogCardFocusChecks {
         #expect(firstRequests == 1)
         first.updateFocus(true)
         #expect(target.focus(), "Accessibility reveal alone must not prevent keyboard entry")
+        canRequestFirst = false
+        #expect(!target.focus(), "A rejected request must not consume Tab even before the anchor is updated")
         first.updateFocus(false)
         first.registerFocus(target: target, request: nil)
         #expect(!target.focus(), "Disabled controls let native traversal continue")
-        second.registerFocus(target: target) { secondRequests += 1 }
+        second.registerFocus(target: target) {
+            secondRequests += 1
+            return true
+        }
         first.registerFocus(target: nil, request: nil)
         #expect(target.focus(), "Retiring an old leaf cannot unregister its replacement")
         #expect(firstRequests == 2 && secondRequests == 1)
@@ -39,6 +49,34 @@ struct CatalogCardFocusChecks {
         second.frame.size = NSSize(width: 48, height: 48)
         second.removeFromSuperview()
         #expect(!target.focus())
+    }
+
+    @Test func nativeRowTraversalOnlyConsumesActualForwardMovement() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        window.autorecalculatesKeyViewLoop = false
+        defer { window.contentView = nil }
+        let table = NSTableView(frame: NSRect(x: 0, y: 40, width: 200, height: 160))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let anchor = CatalogCardFocusView(frame: NSRect(x: 0, y: 40, width: 48, height: 48))
+        root.addSubview(table)
+        root.addSubview(field)
+        root.addSubview(anchor)
+        let target = NativeRowFocusTarget()
+        target.table = table
+        anchor.registerFocus(target: target, request: nil)
+        table.nextKeyView = field
+        field.nextKeyView = table
+        try #require(window.makeFirstResponder(table))
+        #expect(target.leaveControl(backwards: false))
+        #expect(window.firstResponder === field.currentEditor())
+        #expect(!target.leaveControl(backwards: false), "Wrapping to the same field must not claim a focus move")
+        table.nextKeyView = nil
+        #expect(!target.leaveControl(backwards: false), "A missing key-view destination must leave Tab unhandled")
+        #expect(window.firstResponder === field.currentEditor())
     }
 
     @Test func focusRevealsBothScrollAxesWithoutFightingLaterUserScrolling() {

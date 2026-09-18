@@ -400,8 +400,6 @@ private struct HistoryRow: View {
         .pointingHandCursor(enabled: canPlay)
         .hoverSurface(isHovering: $isHovering)
         .help("Play \(entry.title)")
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Play \(entry.title) by \(entry.artist)")
         .accessibilityValue("Played \(relativeTime)")
     }

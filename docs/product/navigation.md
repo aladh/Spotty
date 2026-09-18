@@ -46,6 +46,8 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   Discovered on and Artist Playlists follow About when returned, preserving order/descriptions.
   Cards use pointing hands; vertical wheel input scrolls the page, horizontal scrolls the shelf.
   Show all opens full discography: history-aware list/grid, release filters and date/name sorting.
+  List release controls pause/resume the current album at its retained position and start other albums;
+  their glyph, label, tooltip, and availability follow the same current-context policy as grid cards.
   Loading visible tracks preserves layout. Omit follow/save/download controls.
 
 ### Window and toolbar

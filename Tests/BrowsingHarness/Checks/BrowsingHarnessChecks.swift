@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ImageIO
+import SpottyRuntimeContracts
 import Testing
 @testable import SpottyBrowsingSupport
 @testable import SpottyCore
@@ -112,6 +113,11 @@ struct BrowsingHarnessTests {
         input.playlistRefreshMilliseconds = 60_001
         #expect(throws: (any Error).self) { try input.validate() }
         input = scenario()
+        input.playlistFailures = -1
+        #expect(throws: (any Error).self) { try input.validate() }
+        input.playlistFailures = 4
+        #expect(throws: (any Error).self) { try input.validate() }
+        input = scenario()
         input.detailRefreshMilliseconds = -1
         #expect(throws: (any Error).self) { try input.validate() }
         #expect(throws: (any Error).self) { try BrowsingScenario.decode(Data("{}".utf8)) }
@@ -157,6 +163,26 @@ struct BrowsingHarnessTests {
         let cached = try #require(try await world.cachedPlaylistLibrary())
         #expect(world.snapshot().requests["library"] == nil)
         #expect(try await world.playlistLibrary().map(\.withoutOwnership) == cached.nodes)
+        #expect(world.snapshot().mutationAttempts == 0)
+    }
+
+    @Test(arguments: [false, true])
+    func sidebarFailureFixtureCanRetryToAnAuthoritativeEmptyOrPopulatedResult(empty: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySidebarFailure-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.cachedPlaylistLibrary = true
+        input.emptyPlaylistLibrary = empty
+        input.playlistFailures = 1
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let cached = try #require(try await world.cachedPlaylistLibrary())
+        #expect(cached.nodes.isEmpty == empty)
+        #expect(world.snapshot().requests["library"] == nil)
+        await #expect(throws: CatalogReadFailure.offline) { try await world.playlistLibrary() }
+        let live = try await world.playlistLibrary()
+        #expect(live.isEmpty == empty)
+        #expect(live.map(\.withoutOwnership) == cached.nodes)
+        #expect(world.snapshot().requests["library"] == 2)
         #expect(world.snapshot().mutationAttempts == 0)
     }
 

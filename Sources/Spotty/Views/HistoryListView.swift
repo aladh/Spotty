@@ -86,6 +86,6 @@ private struct HistoryRow: View {
         .pointingHandCursor(isHovering: $isHovering)
         .onDisappear { isHovering = false }
         .accessibilityElement(children: .contain)
-        .accessibilityValue("Played \(entry.playedAt.formatted(.relative(presentation: .named)))")
+        .accessibilityValue("Played \(entry.playedAt.formatted(date: .abbreviated, time: .shortened))")
     }
 }

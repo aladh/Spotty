@@ -1350,6 +1350,71 @@ struct PlaybackEventOutcomeTests {
 
 @Suite("Coherent Connect intake")
 struct CoherentConnectIntakeTests {
+    @Test(arguments: [false, true], [false, true])
+    @MainActor
+    func observedListeningHistoryIncludesLocalAndRemoteTrackChanges(local: Bool, aggregated: Bool) async throws {
+        let clock = HarnessClock.sticky()
+        let store = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), clock: clock))
+        let activeID = local ? "local" : "phone"
+        if !aggregated {
+            let seed = cluster(revision: 1, activeID: activeID, trackURI: "")
+            store.receive(
+                RustConnectClusterState(
+                    revision: 1, sessionGeneration: 1, source: 2, localDeviceID: seed.localDeviceID,
+                    devices: seed.devices, connection: seed.connection, playback: nil, queue: nil),
+                receivedAt: clock.now())
+        }
+        func receive(_ revision: UInt64, _ name: String, playing: Bool = true) throws {
+            let observation = cluster(
+                revision: revision, activeID: activeID, trackURI: "spotify:track:\(name)", isPlaying: playing)
+            if aggregated {
+                store.receive(observation, receivedAt: clock.now())
+            } else {
+                store.receive(try #require(observation.playback), revision: revision, receivedAt: clock.now())
+            }
+        }
+        try receive(1, "startup")
+        #expect(store.history.isEmpty, "Opening the app must not manufacture a listening event")
+        try receive(2, "paused", playing: false)
+        #expect(store.history.isEmpty, "A newly observed paused track is not a play")
+        try receive(3, "heard")
+        #expect(store.history.map(\.uri) == ["spotify:track:heard"])
+        let playedAt = clock.now()
+        #expect(store.history.first?.playedAt == playedAt)
+        #expect(store.shuffleHistoryCache["spotify:track:heard"] == playedAt.timeIntervalSince1970)
+
+        clock.advance(seconds: 60)
+        try receive(4, "heard")
+        try receive(3, "stale")
+        #expect(store.history.first?.playedAt == playedAt, "Timing samples must not rewrite when listening began")
+        #expect(store.history.map(\.uri) == ["spotify:track:heard"])
+        if aggregated {
+            store.receive(
+                cluster(
+                    revision: 5, activeID: activeID, trackURI: "spotify:track:stale-component",
+                    isPlaying: true, playbackRevision: 3),
+                receivedAt: clock.now())
+            #expect(
+                store.history.map(\.uri) == ["spotify:track:heard"], "Aggregate acceptance cannot admit stale playback")
+        }
+
+        let restored = cluster(revision: 6, activeID: activeID, trackURI: "spotify:track:restored", isPlaying: true)
+        store.receive(
+            RustPlaybackEventEnvelope(
+                sequence: 1, receivedAt: clock.now(),
+                event: .resynchronizationRequired(
+                    sessionGeneration: 1,
+                    snapshots: [
+                        RustPlaybackEventEnvelope(sequence: 1, receivedAt: clock.now(), event: .cluster(restored))
+                    ])))
+        #expect(store.history.map(\.uri) == ["spotify:track:heard"], "Recovery replays are not new listening")
+        try receive(7, "later")
+        #expect(store.history.map(\.uri) == ["spotify:track:later", "spotify:track:heard"])
+        #expect(store.history.first?.playedAt == clock.now())
+        await store.shutdownForTermination()
+    }
+
     @Test
     @MainActor
     func settledIntentRevokesOnlyItsUnclaimedPermit() async {
@@ -1513,7 +1578,9 @@ struct CoherentConnectIntakeTests {
         revision: UInt64,
         activeID: String,
         trackURI: String,
-        devicesRevision: UInt64? = nil
+        devicesRevision: UInt64? = nil,
+        isPlaying: Bool = false,
+        playbackRevision: UInt64? = nil
     ) -> RustConnectClusterState {
         RustConnectClusterState(
             revision: revision,
@@ -1535,7 +1602,8 @@ struct CoherentConnectIntakeTests {
                 isActiveDevice: activeID == "local", resumePending: false, lastError: nil, deviceID: "local"
             ),
             playback: RustPlaybackState(
-                revision: revision, sessionGeneration: 1, isPlaying: false, isPaused: true,
+                revision: playbackRevision ?? revision, sessionGeneration: 1, isPlaying: isPlaying,
+                isPaused: !isPlaying,
                 trackURI: trackURI, positionMS: 0, durationMS: 180_000, timestampMS: 0,
                 shuffle: false, repeatTrack: false, repeatContext: false,
                 isActiveDevice: activeID == "local"

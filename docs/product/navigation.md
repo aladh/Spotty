@@ -50,7 +50,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
 ### Window and toolbar
 
 - The native resizable sidebar starts near 208 points (180–260); inspector near 280 (260–360).
-  Keep library visible; a native command toggles inspector.
+  Keep library visible; native commands toggle inspector.
 - The black native toolbar contains history, Home, and persistent rounded Search. AppKit owns
   window controls, geometry, and hit targets; never reposition them. Empty toolbar space
   drags windows and double-clicks to zoom. Command-[ / Command-] navigate history; Command-L focuses Search.
@@ -72,7 +72,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   stale/error indicator. Credential failure clears saved content; cached ownership cannot enable edits.
   Retain flat catalogs for navigation and playlist actions.
 - Arrows select folders without navigating; Return toggles expansion.
-  Navigation clears folder focus; account changes clear expansion.
+  Navigation clears folder focus; account changes clear focus and expansion.
 - Use opaque near-black backgrounds, 48-point artwork, 16-point titles, muted 14-point owner/fallback
   labels, and native keyboard selection/scrolling. Rows use pointing hands; artwork reveals Play/Pause
   on hover or focus, accessible at rest. Other areas open details. Neutral-gray selection
@@ -89,7 +89,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   Playlist queues show “Next from:” with the known playlist link, following accepted context
   without playback. Ordering/history remain playback-owned.
 - Known queue/player artists and playlist-table artists/albums link individually;
-  player title/artwork open the album. Unknown destinations remain noninteractive. Hovered text links are white and underlined; links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore parent cursors on exit.
+  player title/artwork open albums. Unknown destinations remain noninteractive. Hovered text links are white and underlined; links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore parent cursors on exit.
 - Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
   hover or focus, accessible at rest. Row clicks select; artwork buttons, Return, and double-click activate.
 - Seeking uses a 4-point gray rail and white played portion. Hover, keyboard focus, or dragging

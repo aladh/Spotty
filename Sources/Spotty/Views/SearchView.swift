@@ -241,27 +241,33 @@ private struct SearchSongRow: View {
     @State private var isHovering = false
 
     var body: some View {
+        let indicator = playback.currentTrackIndicator
+        let isCurrent = indicator.trackURI == track.uri
+        let showsPause = isCurrent && indicator.isPlaying
+        let canActivate = playback.canActivateTrack(track)
+
         HStack(spacing: 12) {
-            Button {
-                playback.playTrack(track)
-            } label: {
+            CatalogCardButton {
+                playback.activateTrack(track)
+            } label: { isFocused in
                 RemoteArtwork(url: track.artworkURL, kind: .track, cornerRadius: 4)
                     .frame(width: 40, height: 40)
                     .overlay {
-                        if isHovering && playback.canStartPlayback {
+                        if (isHovering || isFocused) && canActivate {
                             Color.black.opacity(0.5)
-                            TransportSymbol(kind: .play).frame(width: 20, height: 20).foregroundStyle(.white)
+                            TransportSymbol(kind: showsPause ? .pause : .play)
+                                .frame(width: 20, height: 20).foregroundStyle(.white)
                         }
                     }
             }
-            .buttonStyle(.plain)
-            .disabled(!playback.canStartPlayback)
-            .pointingHandCursor(enabled: playback.canStartPlayback)
-            .accessibilityLabel("Play \(track.title)")
+            .disabled(!canActivate)
+            .pointingHandCursor(enabled: canActivate)
+            .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(track.title)")
+            .accessibilityValue(isCurrent ? "Current track" : "")
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title).font(.system(size: 16))
                     .foregroundStyle(
-                        playback.currentTrackIndicator.trackURI == track.uri && !isSelected
+                        isCurrent && !isSelected
                             ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary)
                 CatalogArtistLinks(artists: track.artists, fallback: track.artist, onSelect: onSelect)
                     .font(.system(size: 14))

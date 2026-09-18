@@ -8,6 +8,10 @@
   hide the album column. Song ordinals follow [row playback controls](playlists.md#row-playback-controls).
   Other filters show artwork grids with circular artist portraits.
   Keep returned duplicate cards distinct, including their scroll anchors.
+- The short Songs preview uses its artwork for Play/Pause: pause the playing current track,
+  resume the paused current track, or start another track. Reveal the control on hover or keyboard
+  focus, retain accessibility access at rest, and disable activation during disconnection or pending
+  commands. Return, double-click, and context-menu Play retain their start-from-the-beginning behavior.
 - Filtering reuses the current query's results. Returning from details retains successful results,
   filter, song selection, and scroll; a new query clears result interaction while keeping its filter.
   Clearing Search returns to the empty prompt and All. Account replacement retires search state.

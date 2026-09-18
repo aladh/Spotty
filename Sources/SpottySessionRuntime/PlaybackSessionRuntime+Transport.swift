@@ -33,9 +33,11 @@ package extension PlaybackSessionRuntime {
     }
 
     func playPlaylist(_ item: CatalogItem, tracks playlistTracks: [CatalogTrack], loadedURI: String?) {
-        let orderedTracks = isShuffleEnabled ? fewerRepeatsOrder(playlistTracks) : playlistTracks
+        // Home/sidebar actions may target a different playlist from the retained detail page.
+        let tracks = loadedURI == item.uri ? playlistTracks : []
+        let orderedTracks = isShuffleEnabled ? fewerRepeatsOrder(tracks) : tracks
         let expectedTrack: CurrentTrack?
-        if loadedURI == item.uri, let first = orderedTracks.first {
+        if let first = orderedTracks.first {
             expectedTrack = currentTrack(from: first)
         } else {
             expectedTrack = nil

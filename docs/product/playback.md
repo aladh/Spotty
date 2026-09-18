@@ -79,4 +79,15 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
   queue → track restores queue; `(context: false, track: true)` after failed both-true → off
   restores the captured track mode and both-true flags.
 
+### Catalog Play controls
+
+Home quick-access tiles expose Play beside their primary action, as do shelf and grid cards.
+The green control appears on hover or keyboard/accessibility focus and remains discoverable to
+assistive technology at rest. Keep Play and card navigation separate, with native focus and no nested
+buttons. Tab reaches each action; Space activates it once per press. Focus reveals the control through
+both the page and shelf without undoing later manual scrolling. Use a 40-point quick-access control
+and the existing 48-point artwork-overlay control.
+When playback is unavailable, expose a disabled control and dim its visible treatment; card
+navigation remains usable. Play uses the existing account-fenced selection action.
+
 See [Queue behavior](queue.md) for ordering and occurrence-safe mutations.

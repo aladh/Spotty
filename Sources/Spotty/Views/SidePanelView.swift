@@ -324,7 +324,7 @@ private struct QueueTrackRow: View {
             RemoteArtwork(url: artworkURL, kind: .track, cornerRadius: 4)
                 .frame(width: 48, height: 48)
                 .overlay {
-                    Button(action: play) {
+                    CatalogCardButton(isPointerRevealed: isHovering, action: play) { isFocused in
                         ZStack {
                             Color.black.opacity(0.5)
                             Image(systemName: showsPause ? "pause.fill" : "play.fill")
@@ -332,12 +332,10 @@ private struct QueueTrackRow: View {
                                 .foregroundStyle(.white)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .opacity(isHovering || isFocused ? (canPlay ? 1 : 0.4) : 0)
                     }
-                    .buttonStyle(.plain)
                     .disabled(!canPlay)
                     .pointingHandCursor(enabled: canPlay)
-                    .opacity(isHovering ? 1 : 0)
-                    .allowsHitTesting(isHovering)
                     .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(title)")
                 }
             VStack(alignment: .leading, spacing: 2) {

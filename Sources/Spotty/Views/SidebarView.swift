@@ -148,9 +148,9 @@ private struct SidebarPlaylistRow: View {
             )
             .frame(width: 48, height: 48)
             .overlay {
-                Button {
+                CatalogCardButton(isPointerRevealed: isHovering) {
                     playback.activateItem(playlist)
-                } label: {
+                } label: { isFocused in
                     ZStack {
                         Color.black.opacity(0.5)
                         TransportSymbol(kind: playback.showsPause(for: playlist) ? .pause : .play)
@@ -158,11 +158,9 @@ private struct SidebarPlaylistRow: View {
                             .foregroundStyle(.white)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .opacity(isHovering || isFocused ? (playback.canActivateItem(playlist) ? 1 : 0.4) : 0)
                 }
-                .buttonStyle(.plain)
                 .disabled(!playback.canActivateItem(playlist))
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
                 .pointingHandCursor(enabled: playback.canActivateItem(playlist))
                 .accessibilityLabel(playback.activationLabel(for: playlist))
             }

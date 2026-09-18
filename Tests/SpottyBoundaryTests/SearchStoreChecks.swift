@@ -184,6 +184,43 @@ struct SearchStoreTests {
         #expect(!store.isAwaitingResults(for: "query"))
     }
 
+    @Test(arguments: [false, true]) @MainActor
+    func expiredSearchDoesNotCancelTheNextDebouncedQuery(hasResults: Bool) async throws {
+        let provider = HarnessCatalog()
+        let clock = HarnessClock.parked()
+        let refusal = HarnessClock.parked()
+        let store = makeStore(
+            provider: provider, session: CatalogSessionAvailability(isAvailable: true), clock: clock)
+        let first = HarnessFixtures.track(uri: "spotify:track:first", title: "First")
+        let next = HarnessFixtures.track(uri: "spotify:track:next", title: "Next")
+        provider.onSearchTracks = { term, _ in term == "query" ? [first] : [next] }
+        provider.onSearchAlbums = { _, _ in [] }
+        if hasResults { await store.search("query") }
+        provider.onSearchAlbums = { term, _ in
+            guard term == "query" else { return [] }
+            try await refusal.sleep(seconds: 1)
+            throw CatalogReadFailure.sessionExpired
+        }
+
+        let rejected = Task { await store.search("query") }
+        defer { clock.releaseAll(); refusal.releaseAll() }
+        try await requireEventually { refusal.waiterCount == 1 }
+        let pending = Task { await store.scheduleSearch(" different ") }
+        try await requireEventually { clock.waiterCount == 1 }
+        refusal.releaseNext()
+        await rejected.value
+        #expect(store.tracks.isEmpty && store.error != nil)
+        #expect(!store.isAwaitingResults(for: "query"))
+        #expect(store.isAwaitingResults(for: "different"))
+
+        clock.releaseAll()
+        await pending.value
+        #expect(provider.searchTrackRequestCount == (hasResults ? 3 : 2))
+        #expect(store.tracks == [next], "The newer query must still be admitted after the older request fails")
+        #expect(store.error == nil && !store.isSearching)
+        #expect(!store.isAwaitingResults(for: "different"), "The next query cannot remain stranded in loading")
+    }
+
     @Test(arguments: [false, true])
     @MainActor
     func emptyQueryPresentationWaitsForDebounceAndTheActualResponse(fails: Bool) async throws {

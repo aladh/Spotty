@@ -203,7 +203,11 @@ final class SearchStore {
         } catch {
             guard flight.shouldReport(error, for: handle) else { return }
             if error as? CatalogReadFailure == .sessionExpired {
-                reset()
+                // Retire this response without cancelling a newer query's pending debounce.
+                // That admission still checks its captured session before starting work.
+                flight.reset()
+                clearResults()
+                isSearching = false
                 completedQuery = handle.key
                 completedSession = handle.sessionSnapshot
             }

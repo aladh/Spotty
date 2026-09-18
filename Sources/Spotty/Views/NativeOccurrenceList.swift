@@ -72,6 +72,7 @@ struct NativeOccurrenceList: NSViewRepresentable {
             }
             scroll.table.doubleAction = #selector(activateClickedRow)
             scroll.table.primaryAction = { [weak self] in self?.activateSelection() }
+            scroll.table.focusSelectedControl = { [weak self] in self?.focusSelectedControl() ?? false }
             scroll.table.deleteAction = { [weak self] in
                 guard let self else { return false }
                 return content.deleteAction?(selectedIDs) ?? false
@@ -89,6 +90,7 @@ struct NativeOccurrenceList: NSViewRepresentable {
             scroll.table.target = nil
             scroll.table.canSelectRow = nil
             scroll.table.primaryAction = nil
+            scroll.table.focusSelectedControl = nil
             scroll.table.deleteAction = nil
             scroll.table.contextMenu = nil
             self.scroll = nil
@@ -237,9 +239,11 @@ struct NativeOccurrenceList: NSViewRepresentable {
         }
 
         private func configure(_ cell: NativeTrackHostingCell, at row: Int) {
+            cell.focusTarget.table = scroll?.table
             cell.host.rootView = AnyView(
                 content.rows[row].content
                     .environment(\.artworkAccess, content.artworkAccess)
+                    .environment(\.nativeRowFocusTarget, cell.focusTarget)
                     .id("\(content.artworkAccess.accountEpoch):\(content.rows[row].id)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
@@ -253,6 +257,15 @@ struct NativeOccurrenceList: NSViewRepresentable {
         }
 
         private func activateSelection() { content.primaryAction?(selectedIDs) }
+
+        private func focusSelectedControl() -> Bool {
+            guard let table = scroll?.table, table.selectedRowIndexes.count == 1,
+                content.rows.indices.contains(table.selectedRow), content.rows[table.selectedRow].isSelectable,
+                let cell = table.view(atColumn: 0, row: table.selectedRow, makeIfNecessary: false)
+                    as? NativeTrackHostingCell
+            else { return false }
+            return cell.focusTarget.focus()
+        }
     }
 }
 

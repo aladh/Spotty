@@ -24,6 +24,8 @@
 - Recently played uses single native selection. Clicking a row or moving with arrows never plays;
   Tab reaches its artwork Play control, while Return/double-click starts the selected track from
   the beginning, including the current track. Playback controls disable when unavailable.
+  From a row's artwork control, Shift-Tab returns to native row selection and Tab continues
+  through the window's focus order.
   History selection follows the track through metadata updates/reordering and inspector reopening;
   removed entries and account changes clear it. History never offers queue removal.
 - History records observed changes to a playing track and transitions into playing, including an

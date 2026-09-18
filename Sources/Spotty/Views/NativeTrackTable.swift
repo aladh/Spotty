@@ -281,6 +281,7 @@ func trackSelectionMenu(
 @MainActor
 final class NativeTrackHostingCell: NSTableCellView {
     let host = NSHostingView(rootView: AnyView(EmptyView()))
+    lazy var focusTarget = NativeRowFocusTarget()
 
     init() {
         super.init(frame: .zero)

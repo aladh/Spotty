@@ -5,6 +5,42 @@ import Testing
 @Suite("Catalog card focus visibility")
 @MainActor
 struct CatalogCardFocusChecks {
+    @Test func nativeRowFocusRejectsDetachedDisabledAndReplacedControls() {
+        let target = NativeRowFocusTarget()
+        let first = CatalogCardFocusView(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
+        let second = CatalogCardFocusView(frame: NSRect(x: 48, y: 0, width: 48, height: 48))
+        var firstRequests = 0
+        var secondRequests = 0
+        first.registerFocus(target: target) { firstRequests += 1 }
+        #expect(!target.focus(), "Detached row controls cannot consume Tab")
+        #expect(!target.leaveControl(backwards: false))
+        #expect(!target.leaveControl(backwards: true))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil }
+        root.addSubview(first)
+        root.addSubview(second)
+        #expect(target.focus())
+        #expect(firstRequests == 1)
+        first.updateFocus(true)
+        #expect(target.focus(), "Accessibility reveal alone must not prevent keyboard entry")
+        first.updateFocus(false)
+        first.registerFocus(target: target, request: nil)
+        #expect(!target.focus(), "Disabled controls let native traversal continue")
+        second.registerFocus(target: target) { secondRequests += 1 }
+        first.registerFocus(target: nil, request: nil)
+        #expect(target.focus(), "Retiring an old leaf cannot unregister its replacement")
+        #expect(firstRequests == 2 && secondRequests == 1)
+        second.frame.size = .zero
+        #expect(!target.focus(), "Unlaid-out controls cannot consume Tab")
+        second.frame.size = NSSize(width: 48, height: 48)
+        second.removeFromSuperview()
+        #expect(!target.focus())
+    }
+
     @Test func focusRevealsBothScrollAxesWithoutFightingLaterUserScrolling() {
         let fixture = Fixture()
         let anchor = fixture.anchor

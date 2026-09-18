@@ -1,14 +1,43 @@
 import AppKit
 import SwiftUI
 
+extension EnvironmentValues {
+    @Entry var nativeRowFocusTarget: NativeRowFocusTarget?
+}
+
+/// An owned table cell connects Tab to its SwiftUI control without assuming the window key loop includes hosted rows.
+@MainActor
+final class NativeRowFocusTarget {
+    weak var control: CatalogCardFocusView?
+    weak var table: NSTableView?
+
+    func focus() -> Bool { control?.requestKeyboardFocus() ?? false }
+
+    func leaveControl(backwards: Bool) -> Bool {
+        guard let table, let window = table.window, control?.window === window else { return false }
+        if backwards {
+            return window.makeFirstResponder(table)
+        }
+        window.selectKeyView(following: table)
+        return true
+    }
+}
+
 /// An owned geometry anchor reveals focus through both the shelf and the containing page.
 struct CatalogCardFocusReveal: NSViewRepresentable {
     let isFocused: Bool
+    var requestKeyboardFocus: (() -> Void)?
+    @Environment(\.nativeRowFocusTarget) private var focusTarget
 
     func makeNSView(context: Context) -> CatalogCardFocusView { CatalogCardFocusView() }
 
     func updateNSView(_ view: CatalogCardFocusView, context: Context) {
+        view.registerFocus(target: focusTarget, request: requestKeyboardFocus)
         view.updateFocus(isFocused)
+    }
+
+    static func dismantleNSView(_ view: CatalogCardFocusView, coordinator: ()) {
+        view.registerFocus(target: nil, request: nil)
     }
 }
 
@@ -16,6 +45,21 @@ struct CatalogCardFocusReveal: NSViewRepresentable {
 final class CatalogCardFocusView: NSView {
     private var isFocused = false
     private var needsReveal = false
+    private weak var focusTarget: NativeRowFocusTarget?
+    private var keyboardFocusRequest: (() -> Void)?
+
+    func registerFocus(target: NativeRowFocusTarget?, request: (() -> Void)?) {
+        if focusTarget !== target, focusTarget?.control === self { focusTarget?.control = nil }
+        focusTarget = target
+        target?.control = self
+        keyboardFocusRequest = request
+    }
+
+    func requestKeyboardFocus() -> Bool {
+        guard window != nil, !bounds.isEmpty, let keyboardFocusRequest else { return false }
+        keyboardFocusRequest()
+        return true
+    }
 
     func updateFocus(_ focused: Bool) {
         guard isFocused != focused else { return }

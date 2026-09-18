@@ -62,6 +62,11 @@ struct SidebarWidthChecks {
         let library = try #require(sidebar(in: host))
         let width = library.bounds.width
         try #require((180...260).contains(width))
+        func expectRetainedSidebar() throws {
+            let current = try #require(sidebar(in: host))
+            #expect(current === library)
+            #expect(abs(current.bounds.width - width) < 1)
+        }
         player.withRuntime {
             $0.accountStore.publishPhase(.failed("Offline"))
             _ = $0.send(.session(.failed("Offline")), source: .account)
@@ -71,8 +76,7 @@ struct SidebarWidthChecks {
             host.layoutSubtreeIfNeeded()
             return observedPhase == .failed("Offline")
         }
-        #expect(sidebar(in: host) === library)
-        #expect(abs(library.bounds.width - width) < 1)
+        try expectRetainedSidebar()
         player.withRuntime {
             $0.accountStore.publishPhase(.ready)
             _ = $0.send(.session(.ready), source: .account)
@@ -82,7 +86,7 @@ struct SidebarWidthChecks {
             host.layoutSubtreeIfNeeded()
             return observedPhase == .ready
         }
-        #expect(abs(library.bounds.width - width) < 1)
+        try expectRetainedSidebar()
         for destination in [SidebarDestination.search, .home] {
             navigation.updateSelection(.destination(destination))
             host.rootView = content()
@@ -90,8 +94,7 @@ struct SidebarWidthChecks {
                 host.layoutSubtreeIfNeeded()
                 return observedSelection == .destination(destination)
             }
-            #expect(sidebar(in: host) === library)
-            #expect(abs(library.bounds.width - width) < 1)
+            try expectRetainedSidebar()
         }
         await player.shutdownForTermination()
     }

@@ -354,6 +354,10 @@ final class ArtistDetailStore {
                     )
                 } catch {
                     guard self.flight.shouldReport(error, for: handle), item?.uri == handle.key else { return }
+                    if error as? CatalogReadFailure == .sessionExpired {
+                        reset()
+                        prepare(selected)
+                    }
                     self.error = CatalogErrorPresentation.message(for: error)
                     isShowingCachedContent = hasLoadedContent
                     retained.markStale(selected.uri)

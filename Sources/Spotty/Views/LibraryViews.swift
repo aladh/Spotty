@@ -30,8 +30,8 @@ struct LibraryView: View {
                         alignment: .leading,
                         spacing: CatalogLayout.gridSpacing
                     ) {
-                        ForEach(items) { item in
-                            MediaCard(item: item, playback: playback) { onSelect(item) }
+                        ForEach(CatalogDisplayOccurrence.identifying(items)) { occurrence in
+                            MediaCard(item: occurrence.element, playback: playback) { onSelect(occurrence.element) }
                         }
                     }
                 }

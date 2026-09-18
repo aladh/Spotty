@@ -44,6 +44,7 @@ Spotify's profile-authenticity explanation remain outside the supported surface.
 
 On **2026-09-17**, Spotify **1.3.0.277** Home playlist cards showed descriptions. Home recommendations
 prefer readable descriptions, falling back to owner labels or “Playlist”; library credits remain unchanged.
+Repeated destinations remain separate cards in their returned order.
 
 ## Retained anchors
 

@@ -127,8 +127,10 @@ struct SearchView: View {
     private func resultGrid(filter: SearchFilter) -> some View {
         ScrollView {
             LazyVGrid(columns: MediaGridLayout.columns, alignment: .leading, spacing: CatalogLayout.gridSpacing) {
-                ForEach(items) { item in
-                    MediaCard(item: item, playback: playback, titleLineLimit: 2) { onSelect(item) }
+                ForEach(CatalogDisplayOccurrence.identifying(items)) { occurrence in
+                    MediaCard(item: occurrence.element, playback: playback, titleLineLimit: 2) {
+                        onSelect(occurrence.element)
+                    }
                 }
             }
             .scrollTargetLayout()

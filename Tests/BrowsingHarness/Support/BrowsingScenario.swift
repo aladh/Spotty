@@ -31,6 +31,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var combinedHydration: Bool? = nil
     /// Rich interactive library; omitted in historical measurement scenarios.
     var expandedLibrary: Bool? = nil
+    /// Repeated destinations with distinct labels expose card-identity collisions on Home.
+    var repeatedHomeCards: Bool? = nil
     /// Repeatable saved-sidebar inspection while the synthetic refresh is delayed.
     var cachedPlaylistLibrary: Bool? = nil
     var playlistRefreshMilliseconds: Int? = nil
@@ -204,6 +206,12 @@ struct BrowsingFixtures: Sendable {
             details["synthetic\(playlistIndex)"] = try Self.decode(PathfinderPlaylistUnion.self, record)
         }
         self.details = details
+        var homeRecords = records
+        if scenario.repeatedHomeCards == true, var repeated = records.first {
+            repeated["name"] = "Moonlit Drive Revisited"
+            repeated["description"] = "The same playlist, appearing again in this shelf"
+            homeRecords.insert(repeated, at: 1)
+        }
         home = try Self.decode(
             PathfinderHome.self,
             [
@@ -215,7 +223,7 @@ struct BrowsingFixtures: Sendable {
                                 "uri": "spotify:section:synthetic",
                                 "data": ["title": ["transformedLabel": "Made for the moment"]],
                                 "sectionItems": [
-                                    "items": records.map {
+                                    "items": homeRecords.map {
                                         ["content": ["__typename": "PlaylistResponseWrapper", "data": $0]]
                                     }
                                 ],

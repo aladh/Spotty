@@ -309,6 +309,7 @@ private actor PlaylistAdmissionTransport {
             payload = [
                 "data": [
                     "playlistV2": [
+                        "__typename": "Playlist",
                         "uri": "spotify:playlist:owned", "name": "Fixture Playlist",
                         "ownerV2": ["data": ["uri": ownerURI, "name": "Fixture Owner"]],
                         "content": ["items": entries, "totalCount": uids.count],

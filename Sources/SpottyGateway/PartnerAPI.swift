@@ -214,7 +214,11 @@ nonisolated struct PartnerAPI: Sendable {
             .getAlbum,
             variables: PathfinderAlbumVariables(uri: uri, offset: offset)
         )
-        guard let album = response.data?.albumUnion else { throw PartnerAPIError.emptyPayload }
+        // Error union members also decode into these optional fields. Validate every page
+        // before an empty or partial collection can be published and replace a saved snapshot.
+        guard let album = response.data?.albumUnion, album.typename == "Album",
+            album.tracksV2?.items != nil
+        else { throw PartnerAPIError.emptyPayload }
         return album
     }
 
@@ -256,7 +260,7 @@ nonisolated struct PartnerAPI: Sendable {
             variables: PathfinderArtistVariables(uri: "spotify:artist:\(id)", offset: offset),
         )
 
-        guard let artist = response.data?.artistUnion else {
+        guard let artist = response.data?.artistUnion, artist.typename == "Artist" else {
             throw PartnerAPIError.emptyPayload
         }
 
@@ -299,7 +303,9 @@ nonisolated struct PartnerAPI: Sendable {
             variables: PathfinderPlaylistVariables(uri: uri, offset: offset),
         )
 
-        guard let playlist = response.data?.playlistV2 else {
+        guard let playlist = response.data?.playlistV2, playlist.typename == "Playlist",
+            playlist.content?.items != nil
+        else {
             throw PartnerAPIError.emptyPayload
         }
 

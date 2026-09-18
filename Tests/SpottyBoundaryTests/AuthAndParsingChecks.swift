@@ -219,7 +219,7 @@ struct LoopbackServerTests {
     @MainActor
     func testLoopbackServer() async {
         do {
-            let server = LoopbackCallbackServer()
+            let server = LoopbackCallbackServer(expectedState: "s")
             let port: UInt16
             do {
                 port = try await server.start()

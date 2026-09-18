@@ -93,7 +93,7 @@ public struct PlaybackIntent: Equatable, Sendable {
                 return
             }
             if command.kind == .seek, let timing = command.expectedTiming,
-                !PlaybackReducer.matchesExpectedSeekPosition(snapshot.timing, timing)
+                !PlaybackReducer.matchesExpectedSeekPosition(snapshot.timing, timing, transport: snapshot.transport)
             {
                 return
             }

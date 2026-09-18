@@ -97,7 +97,7 @@ private func expectThrown<Failure: Error & Equatable>(
 private func playlistPage(offset: Int, totalCount: Int) -> Data {
     Data(
         """
-        {"data":{"playlistV2":{"uri":"spotify:playlist:pl","name":"Mix","content":{"totalCount":\(totalCount),"items":[{"uid":"uid-\(offset)","itemV2":{"data":{"uri":"spotify:track:t\(offset)","name":"T\(offset)"}}}]}}}}
+        {"data":{"playlistV2":{"__typename":"Playlist","uri":"spotify:playlist:pl","name":"Mix","content":{"totalCount":\(totalCount),"items":[{"uid":"uid-\(offset)","itemV2":{"data":{"uri":"spotify:track:t\(offset)","name":"T\(offset)"}}}]}}}}
         """.utf8
     )
 }

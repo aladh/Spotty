@@ -4,7 +4,8 @@ import Foundation
 ///
 /// The policy is classification and delay math only: a 429 honors `Retry-After` when it is a
 /// delta-seconds value or an IMF-fixdate HTTP date Foundation can parse; other 5xx listed below
-/// and interrupt-class `URLError`s use jittered exponential backoff, all capped. Writes never
+/// and interrupt-class `URLError`s use jittered exponential backoff. Delays beyond the
+/// request's waiting budget stop retries instead of retrying before Spotify allows. Writes never
 /// consult this type for replay — `SpotifyCredentials` still allows one named 401 retry.
 public enum SpotifyTransientRetry {
     /// Total HTTP attempts for one replayable request, including any 401 credential retry.
@@ -63,7 +64,8 @@ public enum SpotifyTransientRetry {
 
     /// Delay before the next attempt after `completedAttempts` finished tries.
     ///
-    /// A parseable `Retry-After` replaces jittered backoff and is then capped. Malformed
+    /// A parseable `Retry-After` replaces jittered backoff. If it exceeds the waiting budget,
+    /// return nil so the caller surfaces the response without replaying early. Malformed
     /// values fall through to backoff so a 429 still retries.
     public static func delay(
         status: Int,
@@ -74,7 +76,8 @@ public enum SpotifyTransientRetry {
     ) -> TimeInterval? {
         guard isRetryableStatus(status) else { return nil }
         if let retryAfterHeader, let parsed = parseRetryAfter(retryAfterHeader, now: now) {
-            return min(maximumDelaySeconds, max(0, parsed))
+            guard parsed <= maximumDelaySeconds else { return nil }
+            return max(0, parsed)
         }
         return backoffDelay(completedAttempts: completedAttempts, unitJitter: unitJitter)
     }
@@ -103,7 +106,8 @@ public enum SpotifyTransientRetry {
         guard !value.isEmpty, value.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }) else {
             return nil
         }
-        return Int(value)
+        // A syntactically valid delay beyond Int's range is still a long throttle.
+        return Int(value) ?? Int.max
     }
 
     /// IMF-fixdate first (`EEE, dd MMM yyyy HH:mm:ss GMT`). RFC 850 and asctime only when

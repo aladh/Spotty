@@ -182,12 +182,12 @@ nonisolated enum KeymasterAuth {
     ///
     /// Blocks on a human, so callers should not run it at a user-initiated QoS.
     static func authorize(openInBrowser: @Sendable (URL) async -> Bool) async throws -> KeymasterTokens {
-        let server = LoopbackCallbackServer()
+        let state = PKCE.randomState()
+        let server = LoopbackCallbackServer(expectedState: state)
         let port = try await server.start()
 
         do {
             let verifier = PKCE.codeVerifier()
-            let state = PKCE.randomState()
 
             guard
                 let url = authorizationURL(
@@ -300,7 +300,7 @@ nonisolated enum KeymasterAuth {
         // carries the state, so anything without it is not from this request. Trusting an
         // unauthenticated `error=` would let any local process that can reach the loopback
         // port abort a grant the user is in the middle of completing.
-        guard let state = items.first(where: { $0.name == "state" })?.value, state == expectedState else {
+        guard callbackMatchesState(callback, expectedState: expectedState) else {
             throw KeymasterAuthError.stateMismatch
         }
 
@@ -313,6 +313,10 @@ nonisolated enum KeymasterAuth {
         }
 
         return code
+    }
+
+    static func callbackMatchesState(_ callback: URLComponents, expectedState: String) -> Bool {
+        callback.queryItems?.first(where: { $0.name == "state" })?.value == expectedState
     }
 
     /// Parses a token response into tokens, resolving expiry against a caller-supplied `now`

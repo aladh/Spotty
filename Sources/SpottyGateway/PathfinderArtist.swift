@@ -118,6 +118,12 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
     var onPlatformReputationTrait: Reputation? = nil
     // Verified against queryArtistOverview and the desktop Featuring row on 2026-09-16.
     var relatedContent: RelatedContent? = nil
+    var typename: String? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case uri, id, profile, visuals, discography, headerImage, stats, onPlatformReputationTrait, relatedContent
+        case typename = "__typename"
+    }
 
     var artistId: String? {
         id ?? uri.flatMap(SpotifyURI.id(from:))
@@ -130,7 +136,7 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
                 all: PathfinderReleaseGroup(items: items, totalCount: discography?.all?.totalCount),
                 albums: nil, singles: nil, compilations: nil),
             headerImage: headerImage, stats: stats, onPlatformReputationTrait: onPlatformReputationTrait,
-            relatedContent: relatedContent)
+            relatedContent: relatedContent, typename: typename)
     }
 
     /// Every release this response carries, in order, deduplicated by id.

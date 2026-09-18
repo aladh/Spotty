@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Catalog cards participate in browsing focus, including when macOS limits ordinary button Tab stops.
+/// Catalog artwork controls participate in browsing focus even when macOS limits ordinary button Tab stops.
 struct CatalogCardButton<Label: View>: View {
     var isPointerRevealed = true
     let action: () -> Void

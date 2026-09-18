@@ -72,10 +72,10 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   during refresh; otherwise show progress. Failed refresh preserves rows and interaction, with a
   stale/error indicator. Credential failure clears saved content; cached ownership cannot enable edits.
   Retain the flat catalog for navigation and playlist actions.
-- Use an opaque near-black surface, 48-point artwork, 16-point titles, muted 14-point owner or fallback
-  labels, and native keyboard selection/scrolling. Rows use a pointing hand; artwork reveals Play
-  on hover while the rest opens details. Selection is neutral gray with native active/inactive
-  behavior; darker hover applies only to unselected rows.
+- Use opaque near-black backgrounds, 48-point artwork, 16-point titles, muted 14-point owner/fallback
+  labels, and native keyboard selection/scrolling. Rows use pointing hands; artwork reveals Play/Pause
+  on hover or focus, accessible at rest. Other areas open details. Neutral-gray selection
+  preserves native active/inactive behavior; darker hover applies only to unselected rows.
 - The active playlist has a green title and trailing green speaker for local and Connect playback,
   regardless of navigation selection or paused state. Clear them on disconnect, cleared
   current track, or context change; see [playback state](playback.md#transport-and-progress).
@@ -90,7 +90,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
 - Known queue artists, playlist-table artists/albums, and player artists link to details individually;
   player title/artwork open the album. Unknown destinations remain noninteractive. Hovered text links are white and underlined; links, queue rows and enabled playback buttons use pointing hands. Other cells retain arrows; nested pointer regions restore parent cursors on exit.
 - Current/upcoming queue rows show an inset rounded highlight, dimmed artwork, and Play/Pause on
-  hover. Row clicks select; artwork buttons, Return, and double-click start the deliberate action.
+  hover or focus, accessible at rest. Row clicks select; artwork buttons, Return, and double-click activate.
 - Seeking uses a 4-point gray rail and white played portion. Hover, keyboard focus, or dragging
   reveals a 12-point white handle and green played portion. Enabled seeking uses a pointing hand;
   disabled seeking keeps the rail without an active handle. Preserve native focus/disabled semantics.

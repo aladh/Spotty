@@ -6,6 +6,7 @@ struct CatalogCardButton<Label: View>: View {
     let action: () -> Void
     @ViewBuilder let label: (Bool) -> Label
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.nativeRowFocusTarget) private var nativeRowFocusTarget
     @FocusState private var isFocused: Bool
     @AccessibilityFocusState private var isAccessibilityFocused: Bool
 
@@ -19,13 +20,30 @@ struct CatalogCardButton<Label: View>: View {
             .focused($isFocused)
             .accessibilityFocused($isAccessibilityFocused)
             .background {
-                CatalogCardFocusReveal(isFocused: hasFocus)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                CatalogCardFocusReveal(
+                    isFocused: hasFocus, isKeyboardFocused: isFocused,
+                    requestKeyboardFocus: {
+                        guard isEnabled, !isFocused else { return false }
+                        isFocused = true
+                        return true
+                    }
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
             .onKeyPress(.space, phases: CatalogCardKeyHandling.phases) { press in
                 CatalogCardKeyHandling.handle(
                     phase: press.phase, modifiers: press.modifiers, isEnabled: isEnabled, action: action)
+            }
+            .onKeyPress(phases: .down) { press in
+                // AppKit reports Shift-Tab as backtab rather than a tab character.
+                guard isFocused, press.key == .tab || press.key.character == "\u{19}",
+                    press.modifiers.subtracting([.shift, .capsLock]).isEmpty,
+                    let nativeRowFocusTarget
+                else { return .ignored }
+                // Native responder movement clears SwiftUI focus; clearing it first can undo that movement.
+                return nativeRowFocusTarget.leaveControl(backwards: press.modifiers.contains(.shift))
+                    ? .handled : .ignored
             }
     }
 }

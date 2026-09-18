@@ -5,6 +5,186 @@ import Testing
 @Suite("Catalog card focus visibility")
 @MainActor
 struct CatalogCardFocusChecks {
+    @Test func nativeRowFocusRejectsDetachedDisabledAndReplacedControls() {
+        let target = NativeRowFocusTarget()
+        let first = CatalogCardFocusView(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
+        let second = CatalogCardFocusView(frame: NSRect(x: 48, y: 0, width: 48, height: 48))
+        var firstRequests = 0
+        var secondRequests = 0
+        var canRequestFirst = true
+        first.registerFocus(target: target) {
+            guard canRequestFirst else { return false }
+            firstRequests += 1
+            return true
+        }
+        #expect(!target.focus(), "Detached row controls cannot consume Tab")
+        #expect(!target.leaveControl(backwards: false))
+        #expect(!target.leaveControl(backwards: true))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil }
+        let table = NSTableView(frame: root.bounds)
+        root.addSubview(table)
+        target.table = table
+        target.host = root
+        root.addSubview(first)
+        root.addSubview(second)
+        #expect(target.focus())
+        #expect(firstRequests == 1)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: false)
+        first.updateFocus(true)
+        #expect(target.focus(), "Accessibility reveal alone must not prevent keyboard entry")
+        first.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: false)
+        canRequestFirst = false
+        #expect(!target.focus(), "A rejected request must not consume Tab even before the anchor is updated")
+        first.updateFocus(false)
+        first.registerFocus(target: target, request: nil)
+        #expect(!target.focus(), "Disabled controls let native traversal continue")
+        second.registerFocus(target: target) {
+            secondRequests += 1
+            return true
+        }
+        first.registerFocus(target: nil, request: nil)
+        #expect(target.focus(), "Retiring an old leaf cannot unregister its replacement")
+        #expect(firstRequests == 2 && secondRequests == 1)
+        second.frame.size = .zero
+        #expect(!target.focus(), "Unlaid-out controls cannot consume Tab")
+        second.frame.size = NSSize(width: 48, height: 48)
+        second.removeFromSuperview()
+        #expect(!target.focus())
+    }
+
+    @Test func aPendingKeyboardRequestCannotConsumeASecondTab() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil }
+        let table = NSTableView(frame: root.bounds)
+        root.addSubview(table)
+        let anchor = CatalogCardFocusView(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
+        root.addSubview(anchor)
+        let target = NativeRowFocusTarget()
+        target.table = table
+        target.host = root
+        var requests = 0
+        anchor.registerFocus(target: target) {
+            requests += 1
+            return true
+        }
+        #expect(target.focus())
+        #expect(!target.focus(), "A second Tab before SwiftUI commits must fall through to native traversal")
+        #expect(requests == 1)
+        anchor.updateKeyboardFocus(isEnabled: true, isFocused: false)
+        #expect(!target.focus(), "An unrelated pre-commit update cannot reopen pending focus admission")
+        anchor.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        #expect(!target.focus(), "A committed keyboard focus is already at its destination")
+        anchor.updateKeyboardFocus(isEnabled: false, isFocused: false)
+        #expect(!target.focus(), "Live disabled state overrides a still-accepting stored closure")
+        #expect(requests == 1)
+        anchor.updateKeyboardFocus(isEnabled: true, isFocused: false)
+        #expect(target.focus(), "Re-enabled unfocused controls admit a fresh request")
+        #expect(requests == 2)
+    }
+
+    @Test func nativeRowTraversalOnlyConsumesActualMovement() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        window.autorecalculatesKeyViewLoop = false
+        defer { window.contentView = nil }
+        let table = NSTableView(frame: NSRect(x: 0, y: 40, width: 200, height: 160))
+        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("fixture")))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let anchor = CatalogCardFocusView(frame: NSRect(x: 0, y: 40, width: 48, height: 48))
+        root.addSubview(table)
+        root.addSubview(field)
+        root.addSubview(anchor)
+        let target = NativeRowFocusTarget()
+        target.table = table
+        target.host = root
+        anchor.registerFocus(target: target, request: nil)
+        table.nextKeyView = field
+        field.nextKeyView = table
+        try #require(window.makeFirstResponder(table))
+        try #require(window.firstResponder === table)
+        #expect(!target.leaveControl(backwards: true), "Already being on the table cannot consume Shift-Tab")
+        #expect(target.leaveControl(backwards: false))
+        #expect(window.firstResponder === field.currentEditor())
+        #expect(!target.leaveControl(backwards: false), "Wrapping to the same field must not claim a focus move")
+        table.nextKeyView = nil
+        #expect(!target.leaveControl(backwards: false), "A missing key-view destination must leave Tab unhandled")
+        #expect(window.firstResponder === field.currentEditor())
+        #expect(target.leaveControl(backwards: true))
+        #expect(window.firstResponder === table)
+        #expect(!target.leaveControl(backwards: true), "An unchanged responder must leave Shift-Tab unhandled")
+    }
+
+    @Test(arguments: ["1:replacement", "2:original"])
+    func reusedCellRejectsRetiringArtworkBeforeSwiftUICommits(replacementID: String) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        defer { window.contentView = nil }
+        let table = NSTableView(frame: root.bounds)
+        root.addSubview(table)
+        let cell = NativeTrackHostingCell()
+        cell.frame = NSRect(x: 0, y: 0, width: 100, height: 64)
+        root.addSubview(cell)
+        let first = CatalogCardFocusView(frame: NSRect(x: 0, y: 0, width: 48, height: 48))
+        cell.host.addSubview(first)
+        cell.prepareFocusTarget(contentID: "1:original", table: table)
+        let retiring = cell.focusTarget
+        var oldRequests = 0
+        first.registerFocus(target: retiring) {
+            oldRequests += 1
+            return true
+        }
+        #expect(retiring.focus())
+        first.updateKeyboardFocus(isEnabled: true, isFocused: true)
+        first.updateKeyboardFocus(isEnabled: true, isFocused: false)
+        cell.prepareFocusTarget(contentID: "1:original", table: table)
+        #expect(cell.focusTarget === retiring, "Metadata updates preserve the registered control")
+        #expect(cell.focusTarget.focus())
+
+        cell.prepareFocusTarget(contentID: replacementID, table: table)
+        #expect(first.window === window, "The old SwiftUI leaf has not detached yet")
+        #expect(!cell.focusTarget.focus(), "A reused cell cannot route Tab into its retiring occurrence")
+        first.registerFocus(target: retiring) {
+            oldRequests += 1
+            return true
+        }
+        #expect(!retiring.focus(), "Late registration cannot reactivate a retired target")
+        #expect(!cell.focusTarget.focus(), "An old update cannot register against the replacement target")
+        #expect(oldRequests == 2)
+
+        let replacement = CatalogCardFocusView(frame: NSRect(x: 48, y: 0, width: 48, height: 48))
+        cell.host.addSubview(replacement)
+        var newRequests = 0
+        replacement.registerFocus(target: cell.focusTarget) {
+            newRequests += 1
+            return true
+        }
+        first.registerFocus(target: nil, request: nil)
+        #expect(cell.focusTarget.focus())
+        #expect(newRequests == 1)
+        root.addSubview(replacement)
+        #expect(!cell.focusTarget.focus(), "Being in the same window does not prove ownership by this cell")
+        cell.host.addSubview(replacement)
+        table.removeFromSuperview()
+        #expect(!cell.focusTarget.focus(), "The target's table must still belong to the same window")
+    }
+
     @Test func focusRevealsBothScrollAxesWithoutFightingLaterUserScrolling() {
         let fixture = Fixture()
         let anchor = fixture.anchor

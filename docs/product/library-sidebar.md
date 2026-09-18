@@ -9,6 +9,9 @@
   Retain the flat catalog for navigation and playlist actions.
 - Arrows select folders without navigating; Return toggles expansion.
   Navigation clears folder focus; account changes clear focus and expansion.
+  Tab enters the available artwork or folder disclosure control of one selected, loaded row.
+  Shift-Tab returns to native row selection; Tab from the control continues through the window's focus order.
+  Rows without a loaded control follow the normal window focus order.
 - Use opaque near-black backgrounds, 48-point artwork, 16-point titles, muted 14-point owner/fallback
   labels, and native keyboard selection/scrolling. Rows use pointing hands; artwork reveals Play/Pause
   on hover or focus, accessible at rest. Other areas open details. Neutral-gray selection

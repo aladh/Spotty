@@ -281,6 +281,21 @@ func trackSelectionMenu(
 @MainActor
 final class NativeTrackHostingCell: NSTableCellView {
     let host = NSHostingView(rootView: AnyView(EmptyView()))
+    private(set) lazy var focusTarget = NativeRowFocusTarget()
+    private var focusContentID: String?
+
+    func prepareFocusTarget(contentID: String, table: NSTableView?) {
+        if let focusContentID, focusContentID != contentID {
+            // Retiring SwiftUI leaves may register late; a new occurrence needs its own bridge.
+            focusTarget.control = nil
+            focusTarget.table = nil
+            focusTarget.host = nil
+            focusTarget = NativeRowFocusTarget()
+        }
+        focusContentID = contentID
+        focusTarget.table = table
+        focusTarget.host = host
+    }
 
     init() {
         super.init(frame: .zero)

@@ -6,6 +6,93 @@ import Testing
 @Suite("Native occurrence focus continuity")
 @MainActor
 struct NativeOccurrenceFocusChecks {
+    @Test(arguments: [false, true])
+    func tabReachesSelectedArtworkInAMultirowListWithoutPointerHover(rapidEntry: Bool) async throws {
+        let scroll = NativeOccurrenceScrollView(frame: NSRect(x: 0, y: 40, width: 280, height: 300))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 340), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        let root = NSView(frame: window.contentLayoutRect)
+        root.addSubview(scroll)
+        let nextField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 30))
+        root.addSubview(nextField)
+        window.contentView = root
+        window.autorecalculatesKeyViewLoop = false
+        window.recalculateKeyViewLoop()
+        scroll.table.nextKeyView = nextField
+        nextField.nextKeyView = scroll.table
+        defer { window.contentView = nil }
+        let probe = ArtworkFocusProbe()
+        let rows = ["first", "second"].map { id in
+            NativeOccurrenceListRow(
+                id: id, height: 64,
+                content: AnyView(
+                    CatalogCardButton(isPointerRevealed: false, action: { probe.activations += 1 }) { isFocused in
+                        Text(id).opacity(isFocused ? 1 : 0)
+                            .onAppear { probe.appeared.insert(id) }
+                            .onChange(of: isFocused) { _, focused in
+                                if focused { probe.focused = id }
+                            }
+                    }))
+        }
+        let content = NativeOccurrenceList(
+            rows: rows, selection: .constant(["second"]), allowsMultipleSelection: false,
+            accessibilityLabel: "Fixture")
+        let coordinator = NativeOccurrenceList.Coordinator(content)
+        coordinator.attach(to: scroll)
+        defer { coordinator.detach(from: scroll) }
+        coordinator.update(content, in: scroll)
+        try await requireEventually {
+            scroll.layoutSubtreeIfNeeded()
+            return probe.appeared.count == 2
+        }
+        try #require(window.makeFirstResponder(scroll.table))
+        let tab = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48))
+        scroll.table.keyDown(with: tab)
+        if rapidEntry {
+            window.sendEvent(tab)
+            try await requireEventually { nextField.currentEditor() === window.firstResponder }
+            try #require(window.makeFirstResponder(scroll.table))
+            scroll.table.keyDown(with: tab)
+        }
+        try await requireEventually { probe.focused == "second" }
+        let artworkResponder = try #require(window.firstResponder)
+        #expect(artworkResponder !== scroll.table && artworkResponder !== nextField.currentEditor())
+        #expect(probe.activations == 0)
+        #expect(scroll.table.selectedRowIndexes == IndexSet(integer: 1))
+
+        window.sendEvent(tab)
+        try await requireEventually { nextField.currentEditor() === window.firstResponder }
+
+        try #require(window.makeFirstResponder(scroll.table))
+        window.sendEvent(tab)
+        try await requireEventually { window.firstResponder !== scroll.table }
+        let backTab = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .shift, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil,
+                characters: "\u{19}", charactersIgnoringModifiers: "\u{19}", isARepeat: false, keyCode: 48))
+        window.sendEvent(backTab)
+        try await requireEventually { window.firstResponder === scroll.table }
+        #expect(scroll.table.selectedRowIndexes == IndexSet(integer: 1))
+
+        window.sendEvent(tab)
+        window.sendEvent(backTab)
+        window.sendEvent(tab)
+        try await requireEventually { window.firstResponder === artworkResponder }
+        window.sendEvent(backTab)
+        try await requireEventually { window.firstResponder === scroll.table }
+
+        scroll.table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        try #require(window.makeFirstResponder(scroll.table))
+        scroll.table.keyDown(with: tab)
+        try await requireEventually { probe.focused == "first" }
+        #expect(probe.activations == 0)
+    }
+
     @Test func insertingAndRemovingOtherRowsKeepsTheFocusedControlAttached() async throws {
         let scroll = NativeOccurrenceScrollView(frame: NSRect(x: 0, y: 0, width: 208, height: 400))
         let window = NSWindow(
@@ -61,6 +148,13 @@ struct NativeOccurrenceFocusChecks {
     @MainActor
     private final class FocusProbe {
         weak var button: NSButton?
+    }
+
+    @MainActor
+    private final class ArtworkFocusProbe {
+        var appeared: Set<String> = []
+        var focused: String?
+        var activations = 0
     }
 
     private struct ProbeButton: NSViewRepresentable {

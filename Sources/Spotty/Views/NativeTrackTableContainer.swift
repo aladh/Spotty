@@ -351,6 +351,7 @@ struct NativeTrackColumnHeaders: View {
 @MainActor
 final class NativeTrackTableView: NSTableView {
     var primaryAction: (() -> Void)?
+    var focusSelectedControl: (() -> Bool)?
     var deleteAction: (() -> Bool)?
     var contextMenu: (() -> NSMenu?)?
     var revealRow: ((Int) -> Void)?
@@ -360,6 +361,10 @@ final class NativeTrackTableView: NSTableView {
         let unmodified = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
         if unmodified && (event.keyCode == 36 || event.keyCode == 76) {
             if !event.isARepeat { primaryAction?() }
+        } else if unmodified && event.keyCode == 48 && window?.firstResponder === self
+            && focusSelectedControl?() == true
+        {
+            return
         } else if unmodified && (event.keyCode == 51 || event.keyCode == 117) {
             if event.isARepeat { return }
             if deleteAction?() != true { super.keyDown(with: event) }

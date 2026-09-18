@@ -152,6 +152,11 @@ struct SearchStoreTests {
         refusal.releaseNext()
         try await requireEventually { !store.isSearching && store.errors[.albums] != nil }
         #expect(store.tracks.isEmpty)
+        for section in SearchStore.Section.allCases {
+            #expect(
+                store.errors[section] == CatalogErrorPresentation.message(for: CatalogReadFailure.sessionExpired),
+                "Every category must show the credential error after all results are retired")
+        }
         #expect(!store.isAwaitingResults(for: " query "), "Show the refusal before an uncooperative sibling finishes")
         #expect(store.isAwaitingResults(for: "different"), "Only the rejected query has completed")
         await gate.completeNext(.tracks([track]))

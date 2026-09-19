@@ -94,7 +94,7 @@ jobs:
   domain_linux:
     name: Linux domain
     runs-on: ubuntu-latest
-    container: swift:6.3-noble
+    container: swift:6.4-noble
     timeout-minutes: 20
 
     steps:

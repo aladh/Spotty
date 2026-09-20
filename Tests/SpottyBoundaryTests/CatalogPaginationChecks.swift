@@ -9,6 +9,46 @@ import Testing
 @MainActor
 struct CatalogPaginationTests {
     @Test(
+        arguments: [
+            "Album", "Playlist", "Artist", "Library playlists", "Library albums", "Library artists", "Liked tracks",
+        ],
+        ["late-growth", "late-shrink", "late-overshoot", "negative", "overfilled"])
+    func everyPagedEndpointRejectsContradictoryCounts(kind: String, fault: String) async {
+        let totals: [Int?]
+        switch fault {
+        case "late-growth": totals = [nil, 3, 4]
+        case "late-shrink": totals = [nil, 3, 2]
+        case "late-overshoot": totals = [nil, nil, 1]
+        case "negative": totals = [-1]
+        default: totals = [0]
+        }
+        let transport = CatalogPageTransport { _, offset in
+            guard offset < totals.count else { throw HarnessFailure.unavailable }
+            return try catalogCollectionPage(kind: kind, tracks: ["entry-\(offset)"], total: totals[offset])
+        }
+        await #expect(throws: PartnerAPIError.pagination(.incompleteCollection)) {
+            _ = try await catalogCollectionRead(api: catalogPaginationAPI(transport: transport.send), kind: kind)
+        }
+        #expect(transport.offsets == Array(totals.indices))
+    }
+
+    @Test(
+        arguments: [
+            "Album", "Playlist", "Artist", "Library playlists", "Library albums", "Library artists", "Liked tracks",
+        ],
+        [false, true])
+    func everyPagedEndpointAcceptsConsistentLateOrMissingTotals(kind: String, reportsTotal: Bool) async throws {
+        let transport = CatalogPageTransport { _, offset in
+            try catalogCollectionPage(
+                kind: kind, tracks: offset < 3 ? ["entry-\(offset)"] : [],
+                total: reportsTotal && offset == 1 ? 3 : nil)
+        }
+        let items = try await catalogCollectionRead(api: catalogPaginationAPI(transport: transport.send), kind: kind)
+        #expect(items.count == 3)
+        #expect(transport.offsets == (reportsTotal ? [0, 1, 2] : [0, 1, 2, 3]))
+    }
+
+    @Test(
         arguments: ["Album", "Playlist", "Artist"], ["wrong-uri", "missing-items", "negative-total", "changed-total"])
     func aLaterMalformedPageCannotCompleteACollection(kind: String, fault: String) async throws {
         let transport = CatalogPageTransport { _, offset in
@@ -182,14 +222,29 @@ private func catalogCollectionRead(api: PartnerAPI, kind: String) async throws -
     switch kind {
     case "Album": return try await api.album(id: "fixture").items.compactMap { $0.track?.uri }
     case "Playlist": return try await api.playlist(id: "fixture").items.compactMap { $0.track?.uri }
+    case "Library playlists": return try await api.playlistLibrary().map(\.id)
+    case "Library albums": return try await api.libraryAlbums().compactMap(\.uri)
+    case "Library artists": return try await api.libraryArtists().compactMap(\.uri)
+    case "Liked tracks": return try await api.libraryTracks().compactMap { $0.track?.uri }
     default: return try await api.artistDiscography(id: "fixture").items.flatMap(\.all).compactMap(\.uri)
     }
 }
 
-private func catalogCollectionPage(kind: String, tracks: [String], total: Int) throws -> Data {
+private func catalogCollectionPage(kind: String, tracks: [String], total: Int?) throws -> Data {
     switch kind {
     case "Album": return try catalogAlbumPage(tracks: tracks, total: total)
     case "Artist": return try catalogArtistPage(groups: tracks.map { [$0] }, total: total)
+    case "Library playlists", "Library albums", "Library artists":
+        let type = kind == "Library playlists" ? "playlist" : kind == "Library albums" ? "album" : "artist"
+        let items = tracks.map { ["item": ["data": ["uri": "spotify:\(type):\($0)", "name": $0]]] }
+        return try JSONSerialization.data(withJSONObject: [
+            "data": ["me": ["libraryV3": catalogPage(items: items, total: total)]]
+        ])
+    case "Liked tracks":
+        let items = tracks.map { ["track": ["_uri": "spotify:track:\($0)", "data": ["name": $0]]] }
+        return try JSONSerialization.data(withJSONObject: [
+            "data": ["me": ["library": ["tracks": catalogPage(items: items, total: total)]]]
+        ])
     default:
         let items = tracks.enumerated().map { index, track in
             ["uid": "uid-\(index)", "itemV2": ["data": ["uri": "spotify:track:\(track)", "name": track]]]
@@ -199,7 +254,7 @@ private func catalogCollectionPage(kind: String, tracks: [String], total: Int) t
             "data": [
                 "playlistV2": [
                     "__typename": "Playlist", "uri": "spotify:playlist:fixture",
-                    "name": "Fixture", "content": ["items": items, "totalCount": total],
+                    "name": "Fixture", "content": catalogPage(items: items, total: total),
                 ]
             ]
         ])
@@ -217,7 +272,7 @@ private func catalogPaginationAPI(transport: @escaping SpotifyCredentials.Transp
     )
 }
 
-private func catalogAlbumPage(tracks: [String?], total: Int) throws -> Data {
+private func catalogAlbumPage(tracks: [String?], total: Int?) throws -> Data {
     let items: [[String: Any]] = tracks.map { identifier in
         guard let identifier else { return ["track": NSNull()] }
         return ["track": ["uri": "spotify:track:\(identifier)", "name": identifier]]
@@ -227,13 +282,13 @@ private func catalogAlbumPage(tracks: [String?], total: Int) throws -> Data {
             "albumUnion": [
                 "__typename": "Album",
                 "uri": "spotify:album:fixture", "name": "Fixture Album",
-                "tracksV2": ["items": items, "totalCount": total],
+                "tracksV2": catalogPage(items: items, total: total),
             ]
         ]
     ])
 }
 
-private func catalogArtistPage(groups: [[String]], total: Int) throws -> Data {
+private func catalogArtistPage(groups: [[String]], total: Int?) throws -> Data {
     let items = groups.map { editions in
         ["releases": ["items": editions.map { ["uri": "spotify:album:\($0)", "name": $0] }]]
     }
@@ -242,10 +297,16 @@ private func catalogArtistPage(groups: [[String]], total: Int) throws -> Data {
             "artistUnion": [
                 "__typename": "Artist",
                 "uri": "spotify:artist:fixture",
-                "discography": ["all": ["items": items, "totalCount": total]],
+                "discography": ["all": catalogPage(items: items, total: total)],
             ]
         ]
     ])
+}
+
+private func catalogPage(items: [[String: Any]], total: Int?) -> [String: Any] {
+    var page: [String: Any] = ["items": items]
+    if let total { page["totalCount"] = total }
+    return page
 }
 
 /// Records transport page offsets; the generic catalog harness intentionally exposes complete reads.

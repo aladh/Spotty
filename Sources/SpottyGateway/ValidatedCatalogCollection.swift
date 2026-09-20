@@ -12,7 +12,7 @@ struct ValidatedCatalogPage<Header: Sendable, Item: Sendable>: Sendable {
         uri: String?, requestedURI: String, items: [Item]?, totalCount: Int?
     ) throws {
         guard let header, typename == expectedType, let items,
-            uri == nil || uri == requestedURI, totalCount.map({ $0 >= 0 }) ?? true
+            uri == nil || uri == requestedURI
         else { throw PartnerAPIError.emptyPayload }
         self.header = header
         self.items = items
@@ -41,13 +41,7 @@ struct CompleteCatalogCollection<Header: Sendable, Item: Sendable>: Sendable {
                     items: first.items, pageEntryCount: first.items.count, totalCount: first.totalCount)
             ) { offset in
                 let page = try await fetchPage(offset)
-                if let expected = first.totalCount, let actual = page.totalCount, expected != actual {
-                    throw PartnerAPIError.pagination(.incompleteCollection)
-                }
                 return Pagination.Page(items: page.items, pageEntryCount: page.items.count, totalCount: page.totalCount)
-            }
-            if let total = first.totalCount, items.count != total {
-                throw PartnerAPIError.pagination(.incompleteCollection)
             }
             return Self(header: first.header, items: items)
         } catch let failure as Pagination.Failure {

@@ -46,8 +46,8 @@ Controls target the current owner without implicitly transferring playback.
 | Numbered playlist/album/artist/Search row button; Search preview artwork | Activate the selected track |
 | Track-row Return, double-click, or context-menu Play | Start the selected track from the beginning |
 | Current Queue row artwork, Return, or double-click | Pause/resume the current track |
-| Upcoming Queue and Recently played activation | Start that occurrence's track, even if its URI matches the current track |
-| Catalog context-menu Play | Start the selected item from the beginning |
+| Upcoming Queue activation | Start that occurrence's track from the beginning, even if its URI matches the current track |
+| Recently played activation | Start that entry's track from the beginning, even if its URI matches the current track |
 
 Disconnected playback and pending commands disable activation. An unavailable track cannot start
 or resume, but the playing current track remains pausable. Numbered rows announce unavailable

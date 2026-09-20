@@ -27,18 +27,21 @@ final class PlaylistStore {
     private(set) var item: CatalogItem?
     private(set) var trackCollection = CatalogTrackCollection()
     var tracks: [CatalogTrack] { trackCollection.tracks }
+    var playbackContents: CatalogPlaylistContents? {
+        CatalogPlaylistContents(uri: loadedURI, accountEpoch: contentEpoch, collection: trackCollection)
+    }
     private(set) var totalDuration: TimeInterval = 0
     private(set) var description = ""
     private(set) var loadedURI: String?
     private(set) var ownerURI: String?
-    private(set) var isLoading = false
+    private var loadState = CatalogLoadState()
+    var isLoading: Bool { loadState.isLoading }
     var isLoadingInitialContent: Bool { isLoading && !hasLoadedContent }
-    private(set) var error: String?
-    private(set) var isShowingCachedContent = false
-    private(set) var freshness: CatalogFreshness = .current
+    var error: String? { loadState.error }
+    var isShowingCachedContent: Bool { loadState.isShowingSavedContent(in: session.snapshot) }
+    var freshness: CatalogFreshness { loadState.freshness }
     var canEditLoadedContent: Bool {
-        loadedSessionSnapshot == session.snapshot && session.isAvailable
-            && freshness.isCurrent && error == nil && !isLoading
+        loadState.isCurrent(in: session.snapshot)
     }
 
     @ObservationIgnored private let provider: any CatalogProviding
@@ -48,8 +51,7 @@ final class PlaylistStore {
     @ObservationIgnored private let retained: RetainedCatalogRoutes<Snapshot>
     @ObservationIgnored private let entityObservation: CatalogEntityObservation
     @ObservationIgnored private var contentEpoch: UInt64
-    @ObservationIgnored private(set) var hasLoadedContent = false
-    @ObservationIgnored private var loadedSessionSnapshot: CatalogSessionSnapshot?
+    var hasLoadedContent: Bool { loadState.hasContent }
 
     init(
         provider: any CatalogProviding,
@@ -70,27 +72,19 @@ final class PlaylistStore {
         retained.reset()
         entityObservation.reset()
         contentEpoch = session.accountEpoch
-        isShowingCachedContent = false
-        freshness = .current
-        loadedSessionSnapshot = nil
-        hasLoadedContent = false
+        loadState = CatalogLoadState()
         replaceTracks([])
         description = ""
         loadedURI = nil
         item = nil
         ownerURI = nil
-        isLoading = false
-        error = nil
         metadata.replaceTracks([], from: .playlist)
     }
 
     /// Keeps `loadedURI` and `tracks` paired. Production loading still goes through `load(_:)`.
     func replaceLoadedPlaylist(uri: String, tracks: [CatalogTrack]) {
-        if loadedURI != uri {
-            loadedSessionSnapshot = nil
-        }
         loadedURI = uri
-        hasLoadedContent = true
+        loadState.receive(session: nil)
         replaceTracks(tracks)
         // Optimistic/test replacement is not a freshly validated server snapshot.
         retained.remove(uri)
@@ -101,8 +95,7 @@ final class PlaylistStore {
         retained.remove(uri)
         updateEntityObservation()
         guard loadedURI == uri else { return }
-        loadedSessionSnapshot = nil
-        isShowingCachedContent = hasLoadedContent
+        loadState.markStale()
     }
 
     func prepare(_ item: CatalogItem) {
@@ -117,15 +110,10 @@ final class PlaylistStore {
         guard item.kind == .playlist else { return }
         prepare(item)
         guard currentSession.isAvailable else {
-            isShowingCachedContent = hasLoadedContent
+            loadState.markStale()
             return
         }
-        if loadedURI == item.uri,
-            loadedSessionSnapshot == currentSession,
-            error == nil,
-            freshness.isCurrent,
-            !force
-        {
+        if loadedURI == item.uri, loadState.isCurrent(in: currentSession), !force {
             return
         }
         let handle: Flight.Handle
@@ -140,21 +128,12 @@ final class PlaylistStore {
         }
 
         // A retry keeps prior refresh failure visible until a current read succeeds.
-        if !hasLoadedContent { error = nil }
-        isLoading = true
-        isShowingCachedContent = hasLoadedContent
-        defer {
-            if flight.owns(handle) {
-                isLoading = false
-                isShowingCachedContent =
-                    hasLoadedContent
-                    && (loadedSessionSnapshot != session.snapshot || error != nil || !freshness.isCurrent)
-            }
-        }
+        loadState.begin()
+        retained.markStale(item.uri)
+        defer { if flight.owns(handle) { loadState.finish() } }
 
         guard let id = SpotifyURI.id(from: item.uri, kind: "playlist") else {
-            error = "Spotify returned an invalid playlist address."
-            isLoading = false
+            loadState.fail(message: "Spotify returned an invalid playlist address.")
             flight.abandonUnstarted(handle)
             return
         }
@@ -181,12 +160,12 @@ final class PlaylistStore {
             apply(playlist, selected: item)
         } catch {
             guard flight.shouldReport(error, for: handle), loadedURI == handle.key else { return }
-            if error as? CatalogReadFailure == .sessionExpired {
+            if loadState.fail(error) {
+                let refusal = loadState
                 reset()
                 prepare(item)
+                loadState = refusal
             }
-            self.error = CatalogErrorPresentation.message(for: error)
-            isShowingCachedContent = hasLoadedContent
             // A failed refresh must not become a fresh successful cache hit on revisit.
             retained.markStale(item.uri)
         }
@@ -195,15 +174,11 @@ final class PlaylistStore {
     private func apply(_ playlist: CatalogPlaylistSnapshot, selected: CatalogItem) {
         // Retire any page from the previous collection before publishing its replacement.
         entityObservation.reset()
-        error = nil
         item = playlist.item?.uri == selected.uri ? (playlist.item ?? selected) : selected
         description = playlist.description
-        freshness = playlist.freshness
+        loadState.receive(session: session.snapshot, freshness: playlist.freshness)
         ownerURI = freshness.isCurrent ? (playlist.ownerURI ?? selected.ownerURI) : nil
         replaceTracks(playlist.tracks)
-        loadedSessionSnapshot = session.snapshot
-        hasLoadedContent = true
-        isShowingCachedContent = !freshness.isCurrent
         retainCurrent()
         metadata.replaceTracks(tracks, from: .playlist)
     }
@@ -212,36 +187,27 @@ final class PlaylistStore {
         flight.reset()
         loadedURI = item.uri
         self.item = item
-        error = nil
-        isLoading = false
+        loadState = CatalogLoadState()
         if let entry = retained.entry(for: item.uri) {
             self.item = entry.value.item ?? item
             trackCollection = entry.value.collection
             totalDuration = entry.value.duration
             description = entry.value.description
             ownerURI = entry.value.ownerURI
-            error = entry.value.error
-            freshness = entry.value.freshness
-            loadedSessionSnapshot = entry.needsRefresh ? nil : entry.session
-            hasLoadedContent = true
-            isShowingCachedContent =
-                entry.needsRefresh || entry.session != session.snapshot
-                || error != nil || !freshness.isCurrent
+            loadState.restore(
+                session: entry.session, freshness: entry.value.freshness,
+                needsRefresh: entry.needsRefresh, error: entry.value.error)
             metadata.replaceTracks(tracks, from: .playlist)
         } else {
-            loadedSessionSnapshot = nil
-            hasLoadedContent = false
             replaceTracks([])
             description = ""
             ownerURI = item.ownerURI
-            freshness = .current
-            isShowingCachedContent = false
             metadata.replaceTracks([], from: .playlist)
         }
     }
 
     private func retainCurrent() {
-        guard let loadedURI, let loadedSessionSnapshot else { return }
+        guard let loadedURI, let loadedSessionSnapshot = loadState.session else { return }
         retained.store(
             Snapshot(
                 item: item, collection: trackCollection, duration: totalDuration, description: description,

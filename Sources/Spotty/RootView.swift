@@ -277,7 +277,7 @@ struct RootView: View {
         case .navigate:
             prepareSelectedRoute()
         case let .play(uri):
-            catalogPlayback.playURI(uri)
+            catalogPlayback.startURIFromBeginning(uri)
         }
     }
 

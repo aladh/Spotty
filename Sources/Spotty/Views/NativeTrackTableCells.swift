@@ -131,14 +131,11 @@ struct NativeTrackCell: View {
         let indicator = playback.currentTrackIndicator
         let isCurrent = indicator.trackURI == row.track.uri
         let currentForeground = isSelected ? SpottyPalette.textPrimary : SpottyPalette.mediaGreen
-        let canActivate = playback.canActivateTrack(row.track, isPlayable: isRowPlayable)
-        let showsPause = isCurrent && indicator.isPlaying
+        let action = playback.action(for: row.track, behavior: .activateSelection, isPlayable: isRowPlayable)
 
-        return Button {
-            playback.activateTrack(row.track, isPlayable: isRowPlayable)
-        } label: {
+        return CatalogPlaybackButton(action: action) { showsPause in
             Group {
-                if indexHovered && canActivate {
+                if indexHovered && action.isEnabled {
                     TransportSymbol(kind: showsPause ? .pause : .play)
                         .frame(width: 16, height: 16)
                         .foregroundStyle(SpottyPalette.textPrimary)
@@ -154,11 +151,7 @@ struct NativeTrackCell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(!canActivate)
-        .pointingHandCursor(enabled: canActivate)
         .onHover { indexHovered = $0 }
-        .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(row.track.title)")
         .accessibilityValue(
             (isCurrent ? "Current track, track \(position) of \(total)" : "Track \(position) of \(total)")
                 + (isRowPlayable ? "" : ", unavailable")

@@ -219,7 +219,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
 
     func cachedPlaylist(id: String) async throws -> CatalogPlaylistSnapshot? {
         guard scenario.cachedDetails == true, let result = fixtures.details[id] else { return nil }
-        let snapshot = CatalogMapping.playlist(result)
+        let snapshot = try await playlistSnapshot(result)
         return CatalogPlaylistSnapshot(
             description: snapshot.description, ownerURI: nil, tracks: snapshot.tracks,
             item: snapshot.item.map {
@@ -243,7 +243,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         record("playlist.\(id)")
         try await delayDetailRefresh()
         guard let result = fixtures.details[id] else { throw BrowsingFailure.unsupportedAction }
-        return CatalogMapping.playlist(result)
+        return try await playlistSnapshot(result)
     }
     func album(id: String) async throws -> CatalogAlbumSnapshot {
         let request = record("album.\(id)")
@@ -330,4 +330,16 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         try authorization.authorizeDispatch()
         throw rejectMutation()
     }
+}
+
+// Fixtures contain complete ordered lists. Use the same validated collection mapper as the
+// gateway while keeping this provider independent of HTTP, credentials, and pagination timing.
+private func playlistSnapshot(_ value: PathfinderPlaylistUnion) async throws -> CatalogPlaylistSnapshot {
+    let collection = try await CompletePlaylist.collect { _ in
+        try ValidatedCatalogPage(
+            header: value, typename: "Playlist", expectedType: "Playlist", uri: value.uri,
+            requestedURI: value.uri ?? "spotify:playlist:fixture", items: value.content?.items,
+            totalCount: value.content?.items?.count)
+    }
+    return CatalogMapping.playlist(collection)
 }

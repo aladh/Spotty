@@ -257,21 +257,17 @@ private struct SidebarPlaylistRow: View {
             )
             .frame(width: 48, height: 48)
             .overlay {
-                CatalogCardButton(isPointerRevealed: isHovering) {
-                    playback.activateItem(playlist)
-                } label: { isFocused in
+                let action = playback.action(for: playlist, behavior: .activateSelection)
+                CatalogArtworkPlaybackButton(action: action, isPointerRevealed: isHovering) { showsPause, isFocused in
                     ZStack {
                         Color.black.opacity(0.5)
-                        TransportSymbol(kind: playback.showsPause(for: playlist) ? .pause : .play)
+                        TransportSymbol(kind: showsPause ? .pause : .play)
                             .frame(width: 16, height: 16)
                             .foregroundStyle(.white)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 4))
-                    .opacity(isHovering || isFocused ? (playback.canActivateItem(playlist) ? 1 : 0.4) : 0)
+                    .opacity(isHovering || isFocused ? (action.isEnabled ? 1 : 0.4) : 0)
                 }
-                .disabled(!playback.canActivateItem(playlist))
-                .pointingHandCursor(enabled: playback.canActivateItem(playlist))
-                .accessibilityLabel(playback.activationLabel(for: playlist))
             }
 
             VStack(alignment: .leading, spacing: 4) {

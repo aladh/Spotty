@@ -55,7 +55,7 @@ struct SpotifyCatalogGateway: CatalogProviding, PlaylistMutationDispatching {
         try await read { CatalogMapping.artist(try await api.artist(id: id)) }
     }
     func artistDiscography(id: String) async throws -> CatalogArtistSnapshot {
-        try await read { CatalogMapping.artist(try await api.artistDiscography(id: id)) }
+        try await read { CatalogMapping.discography(try await api.artistDiscography(id: id)) }
     }
     func addToPlaylist(
         playlistId: String, trackUris: [String], authorization: PlaylistMutationAuthorization
@@ -79,7 +79,7 @@ struct SpotifyCatalogGateway: CatalogProviding, PlaylistMutationDispatching {
             }
             let client = try await mutationClient(authorization: authorization)
             let playlist = try await editablePlaylist(id: playlistId, using: client)
-            let entries = playlist.content?.items ?? []
+            let entries = playlist.items
             let requested = Set(uids)
             let occurrences = entries.filter { entry in
                 guard let uid = entry.uid else { return false }
@@ -106,14 +106,14 @@ struct SpotifyCatalogGateway: CatalogProviding, PlaylistMutationDispatching {
         return client.checkingDispatch(authorization)
     }
 
-    private func editablePlaylist(id: String, using client: PartnerAPI) async throws -> PathfinderPlaylistUnion {
+    private func editablePlaylist(id: String, using client: PartnerAPI) async throws -> CompletePlaylist {
         guard !id.isEmpty else { throw PlaylistMutationFailure.rejected }
         async let profile = client.profile()
         async let playlist = client.playlist(id: id)
         let (account, value) = try await (profile, playlist)
         guard
             PlaylistEditability.canJustifyEdit(
-                playlistOwnerURI: CatalogMapping.ownerURI(from: value),
+                playlistOwnerURI: CatalogMapping.ownerURI(from: value.header),
                 profileURI: CatalogMapping.profileUserURI(from: account)
             )
         else { throw PlaylistMutationFailure.rejected }
@@ -167,11 +167,12 @@ extension CatalogMapping {
         CatalogProfileSnapshot(
             name: value.name ?? value.username ?? "Spotify Premium", uri: profileUserURI(from: value))
     }
-    static func playlist(_ value: PathfinderPlaylistUnion) -> CatalogPlaylistSnapshot {
-        CatalogPlaylistSnapshot(
+    static func playlist(_ collection: CompletePlaylist) -> CatalogPlaylistSnapshot {
+        let value = collection.header
+        return CatalogPlaylistSnapshot(
             description: PlaylistDescription.plainText(from: value.description ?? ""),
             ownerURI: ownerURI(from: value),
-            tracks: playlistTracks(from: value.content.flatMap(\.items) ?? []),
+            tracks: playlistTracks(from: collection.items),
             item: value.uri.map { uri in
                 CatalogItem(
                     id: uri, uri: uri, title: value.name ?? "Untitled playlist",
@@ -181,16 +182,18 @@ extension CatalogMapping {
             }
         )
     }
-    static func album(_ value: PathfinderAlbumUnion) -> CatalogAlbumSnapshot {
-        CatalogAlbumSnapshot(
-            tracks: value.tracks.compactMap { albumTrack(from: $0, album: value) }, releaseDate: value.date?.day ?? "",
+    static func album(_ collection: CompleteAlbum) -> CatalogAlbumSnapshot {
+        let value = collection.header
+        let tracks = collection.items.compactMap(\.track)
+        return CatalogAlbumSnapshot(
+            tracks: tracks.compactMap { albumTrack(from: $0, album: value) }, releaseDate: value.date?.day ?? "",
             item: value.uri.map { uri in
                 CatalogItem(
                     id: uri, uri: uri, title: value.name ?? "Untitled album",
                     subtitle: value.artists?.items?.compactMap { $0.profile?.name }.joined(separator: ", ") ?? "",
                     artworkURL: value.coverArt?.largestURL.flatMap(URL.init(string:)), kind: .album)
             },
-            playCounts: value.tracks.reduce(into: [:]) { counts, track in
+            playCounts: tracks.reduce(into: [:]) { counts, track in
                 guard let uri = track.uri, !uri.isEmpty,
                     let count = track.playcount.flatMap(Int64.init), count >= 0
                 else { return }
@@ -202,6 +205,9 @@ extension CatalogMapping {
                 else { return nil }
                 return CatalogItem(id: uri, uri: uri, title: name, subtitle: "Artist", artworkURL: nil, kind: .artist)
             })
+    }
+    static func discography(_ collection: CompleteDiscography) -> CatalogArtistSnapshot {
+        artist(collection.header.withDiscographyItems(collection.items))
     }
     static func artist(_ value: PathfinderArtistUnion) -> CatalogArtistSnapshot {
         var seen = Set<String>()

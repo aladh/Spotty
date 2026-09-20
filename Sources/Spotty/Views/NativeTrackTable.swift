@@ -211,7 +211,7 @@ struct NativeTrackTable: NSViewRepresentable {
             guard content.playback.canStartPlayback, tracks.count == 1,
                 let track = tracks.first, content.artistTracks[track.uri]?.isPlayable != false
             else { return }
-            content.playback.playTrack(track)
+            content.playback.action(for: track, behavior: .startFromBeginning).perform()
         }
 
         private func removeSelection() -> Bool {
@@ -240,12 +240,12 @@ func trackSelectionMenu(
     guard !tracks.isEmpty else { return nil }
     let menu = NSMenu()
     if tracks.count == 1, let track = tracks.first {
+        let action = playback.action(for: track, behavior: .startFromBeginning, isPlayable: isSingleTrackPlayable)
         menu.addAction(
             "Play", systemImage: "play.fill",
-            enabled: playback.canStartPlayback && isSingleTrackPlayable
+            enabled: action.isEnabled
         ) {
-            [playback] in
-            playback.playTrack(track)
+            action.perform()
         }
     }
     menu.addAction(

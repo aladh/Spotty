@@ -45,7 +45,7 @@ struct CatalogPlaylistShuffleChecks {
         }
         player.catalog.playlistStore.replaceLoadedPlaylist(
             uri: matchesLoaded ? selected.uri : "spotify:playlist:previous", tracks: loadedTracks)
-        CatalogPlaybackAccess(player: player).activateItem(selected)
+        CatalogPlaybackAccess(player: player).action(for: selected, behavior: .activateSelection).perform()
         try await requireEventually { local ? engine.executeCount == 1 : remote.sendCount == 1 }
         if local {
             #expect(remote.sendCount == 0)

@@ -231,14 +231,12 @@ final class PlaybackStore {
         performRuntimeCommand { $0.activateTrack(track, isPlayable: isPlayable) }
     }
     func playPlaylist(_ item: CatalogItem) {
-        let tracks = catalog.playlistStore.tracks
-        let uri = catalog.playlistStore.loadedURI
-        performRuntimeCommand { $0.playPlaylist(item, tracks: tracks, loadedURI: uri) }
+        let contents = catalog.playlistStore.playbackContents
+        performRuntimeCommand { $0.playPlaylist(item, contents: contents) }
     }
     func activateItem(_ item: CatalogItem) {
-        let tracks = catalog.playlistStore.tracks
-        let uri = catalog.playlistStore.loadedURI
-        performRuntimeCommand { $0.activateItem(item, tracks: tracks, loadedURI: uri) }
+        let contents = catalog.playlistStore.playbackContents
+        performRuntimeCommand { $0.activateItem(item, contents: contents) }
     }
     func togglePlayback() { performRuntimeCommand { $0.togglePlayback() } }
     func next() { performRuntimeCommand { $0.next() } }

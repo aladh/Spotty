@@ -46,8 +46,9 @@ removal. A playlist write that succeeds, or whose admitted outcome becomes uncer
 invalidates its retained route even when another page is open. A cancelled reconciliation cannot
 turn the previous rows into fresh authority.
 
-`CatalogLoadState` owns shared presentation transitions; `AccountScopedSingleFlight` remains the
-request, cancellation, and publication owner. Do not recreate independent freshness/error/loading
+`CatalogLoadState` owns completed-content reuse and shared presentation transitions;
+`AccountScopedSingleFlight` owns request, cancellation, and publication lifetimes without caching
+completed-content freshness. Do not recreate independent freshness/error/loading
 flags in each feature. Gateway collection mapping accepts only validated complete walks, and
 playlist playback carries collection URI, account epoch, and occurrences together. These values
 do not grant mutation authority. The [shared product contract](../../product/catalog-interaction.md)

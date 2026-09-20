@@ -91,7 +91,6 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
     private var nextFlightID: UInt64 = 0
     private var nextClaimID: UInt64 = 0
     private var scopes: [Key: Scope] = [:]
-    private var loadedSessions: [Key: CatalogSessionSnapshot] = [:]
     private let flightState = OSAllocatedUnfairLock(initialState: FlightState())
 
     init(
@@ -110,23 +109,11 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
     func reset() {
         nextRequestID &+= 1
         scopes.removeAll(keepingCapacity: false)
-        loadedSessions.removeAll(keepingCapacity: false)
         cancelFlights(matching: nil)
     }
 
-    /// True when `key` already published in the current session and need not run again.
-    func isLoaded(_ key: Key) -> Bool {
-        guard let loaded = loadedSessions[key] else { return false }
-        return loaded == session.snapshot
-    }
-
-    func markLoaded(_ handle: Handle) {
-        guard isCurrent(handle, policy: .strict) else { return }
-        loadedSessions[handle.key] = session.snapshot
-    }
-
-    /// Decides whether a request skips, joins the identical flight, or opens a new scope.
-    /// `force` bypasses both the join and the already-loaded shortcut.
+    /// Skips unavailable sessions, joins an identical flight, or opens a new scope.
+    /// The caller's CatalogLoadState owns completed-content reuse; `force` bypasses joining.
     func admit(_ key: Key, force: Bool = false) -> Admission {
         let currentSession = session.snapshot
         guard currentSession.isAvailable else { return .skip }
@@ -134,7 +121,6 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
             if let claim = joinExistingFlight(key: key, session: currentSession) {
                 return .join(claim)
             }
-            if isLoaded(key) { return .skip }
         }
         return .start(begin(key))
     }
@@ -147,11 +133,8 @@ final class AccountScopedSingleFlight<Key: Hashable & Sendable> {
         switch scopePolicy {
         case .singleSelection:
             scopes.removeAll(keepingCapacity: true)
-            loadedSessions.removeAll(keepingCapacity: true)
             cancelFlights(matching: nil)
         case .perKey:
-            // Independent keys keep their own published memory: a superseded reload of one
-            // section must not make the section look unloaded to a later request.
             cancelFlights(matching: key)
         }
         scopes[key] = Scope(requestID: requestID)

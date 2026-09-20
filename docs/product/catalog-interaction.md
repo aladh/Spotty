@@ -7,9 +7,10 @@ dimensions, ordering, and deliberate exceptions.
 
 ## Loading and retained content
 
-- Distinguish an unknown result from a successful empty result. A missing response list, rejected
-  union, mismatched collection, or incomplete paged read is a failure, never empty success. Preserve
-  ordered duplicate occurrences; only complete accepted results may replace saved collections.
+- Distinguish an unknown result from a successful empty result. Missing response lists, rejected
+  unions, mismatched collections, incomplete paged reads, and contradictory collection counts are
+  failures, never empty success. Preserve ordered duplicate occurrences; only complete accepted
+  results may replace saved collections.
 - After verifying the current account, show complete saved playlists/albums and the saved library,
   including empty results, while refreshing. Label saved content potentially outdated during refresh
   and offline, timeout, or throttled failure. No offline sign-in or downloaded music.

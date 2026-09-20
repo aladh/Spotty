@@ -8,6 +8,59 @@ private enum WalkProbe: Error, Equatable {
 
 @Suite("Pagination Collect")
 struct PaginationCollectTests {
+    @Test(arguments: [[nil, 3, 4], [nil, 3, 2], [3, 4], [3, 2], [nil, nil, 1], [-1], [nil, -1], [0]] as [[Int?]])
+    func contradictoryTotalsCannotPublishACompleteCollection(totals: [Int?]) async {
+        await #expect(throws: Pagination.Failure.incompleteCollection) {
+            _ = try await Pagination.collect { offset in
+                guard offset < totals.count else { throw WalkProbe.boom }
+                return Pagination.Page(items: [offset], pageEntryCount: 1, totalCount: totals[offset])
+            }
+        }
+    }
+
+    @Test(arguments: [[nil, 3, nil], [3, nil, nil], [nil, nil, 3]] as [[Int?]], [false, true])
+    func aConsistentTotalMayArriveLateOrBeOmitted(totals: [Int?], prefetched: Bool) async throws {
+        let offsets = OffsetRecorder()
+        let first = Pagination.Page(items: [0], pageEntryCount: 1, totalCount: totals[0])
+        let items = try await Pagination.collect(firstPage: prefetched ? first : nil) { offset in
+            offsets.record(offset)
+            guard offset < totals.count else { throw WalkProbe.boom }
+            return Pagination.Page(items: [offset], pageEntryCount: 1, totalCount: totals[offset])
+        }
+        #expect(items == [0, 1, 2])
+        #expect(offsets.values == (prefetched ? [1, 2] : [0, 1, 2]))
+    }
+
+    @Test func completenessCountsUnavailableEntriesInsteadOfDecodedItems() async throws {
+        let items = try await Pagination.collect { offset in
+            if offset == 0 {
+                return Pagination.Page(items: ["duplicate"], pageEntryCount: 2, totalCount: nil)
+            }
+            #expect(offset == 2)
+            return Pagination.Page(items: ["duplicate"], pageEntryCount: 1, totalCount: 3)
+        }
+        #expect(items == ["duplicate", "duplicate"])
+    }
+
+    @Test(arguments: [nil, 1] as [Int?])
+    func entriesCannotExceedAReportedTotal(firstTotal: Int?) async {
+        await #expect(throws: Pagination.Failure.incompleteCollection) {
+            _ = try await Pagination.collect { offset in
+                Pagination.Page(
+                    items: [offset, offset + 1], pageEntryCount: 2, totalCount: offset == 0 ? firstTotal : 3)
+            }
+        }
+    }
+
+    @Test(arguments: [-1, 0, 1])
+    func rawEntryCountsCannotBeSmallerThanDecodedItems(count: Int) async {
+        await #expect(throws: Pagination.Failure.incompleteCollection) {
+            _ = try await Pagination.collect { _ in
+                Pagination.Page(items: [0, 1], pageEntryCount: count, totalCount: 1)
+            }
+        }
+    }
+
     @Test
     func testPaginationCollect() async {
         do {

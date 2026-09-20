@@ -95,8 +95,7 @@ struct CatalogRequestOwnershipTests {
         var calls = 0
         await flight.run(handle) { calls += 1 }
         #expect(calls == 0)
-        flight.markLoaded(handle)
-        #expect(!flight.isLoaded("route"))
+        #expect(!flight.isCurrent(handle))
     }
 
     @Test(arguments: [false, true])
@@ -131,6 +130,21 @@ struct CatalogRequestOwnershipTests {
         await flight.run(handle) { calls += 1 }
         await flight.run(handle) { calls += 1 }
         #expect(calls == 1)
+    }
+
+    @Test(arguments: [SingleFlightScopePolicy.singleSelection, .perKey])
+    func completedFlightsDoNotCacheFreshness(scope: SingleFlightScopePolicy) async {
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let flight = AccountScopedSingleFlight<String>(session: session, scope: scope)
+        var calls = 0
+        for _ in 0..<2 {
+            guard case let .start(handle) = flight.admit("route") else {
+                Issue.record("A finished flight must allow a fresh read when its caller requests one")
+                return
+            }
+            await flight.run(handle) { calls += 1 }
+        }
+        #expect(calls == 2)
     }
 
     @Test func cancellationBeforeRegistrationCannotStartWork() async {

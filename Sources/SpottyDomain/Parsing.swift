@@ -3,10 +3,10 @@ import Foundation
 /// Offset arithmetic and the bounded walk policy for paged Spotify endpoints.
 ///
 /// `nextOffset` is the page-to-page step. `collect` is the walk: it latches the first reported
-/// `totalCount`, concatenates decoded items in request order, and refuses to continue when a
-/// page does not advance the offset or when `maximumPageCount` pages still name a further
-/// request. Missing `totalCount` still ends on an empty page; an endpoint that ignores `offset`
-/// cannot loop or allocate without bound.
+/// `totalCount`, rejects conflicting counts, concatenates decoded items in request order, and
+/// refuses to continue when a page does not advance the offset or when `maximumPageCount` pages
+/// still name a further request. Missing `totalCount` still ends on an empty page; an endpoint
+/// that ignores `offset` cannot loop or allocate without bound.
 public enum Pagination {
     /// Hard cap on `fetchPage` invocations for one walk. A 2,500-song library at 50 items
     /// per page is 50 requests; 500 pages covers 25,000 library rows or 150,000 playlist
@@ -18,7 +18,7 @@ public enum Pagination {
         case pageLimitReached
         /// The next offset repeats or does not move forward, so another fetch would not progress.
         case offsetDidNotAdvance
-        /// A page ended before the collection's reported total was reached.
+        /// Reported counts conflict with each other or with the complete sequence of entries.
         case incompleteCollection
 
         public var errorDescription: String? {
@@ -115,8 +115,19 @@ public enum Pagination {
         func consume(_ page: Page<Item>, offset: Int) throws -> Int? {
             requestedOffsets.insert(offset)
             pagesFetched += 1
-            if total == nil {
-                total = page.totalCount
+            if let reported = page.totalCount {
+                guard reported >= 0, total == nil || total == reported else {
+                    throw Failure.incompleteCollection
+                }
+                total = reported
+            }
+            // Raw entries include unavailable entities omitted from `items`. Completeness
+            // follows that source sequence, not the number of successfully decoded entities.
+            let (end, overflow) = offset.addingReportingOverflow(page.pageEntryCount)
+            guard page.pageEntryCount >= page.items.count, !overflow,
+                total.map({ end <= $0 }) ?? true
+            else {
+                throw Failure.incompleteCollection
             }
             items += page.items
             switch decision(
@@ -129,6 +140,7 @@ public enum Pagination {
                 nextOffset: nextOffset
             ) {
             case .finished:
+                if let total, end != total { throw Failure.incompleteCollection }
                 return nil
             case let .fetch(next):
                 return next

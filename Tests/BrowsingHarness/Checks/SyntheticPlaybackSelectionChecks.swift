@@ -7,6 +7,54 @@ import Testing
 @Suite("Synthetic playback selections", .serialized)
 @MainActor
 struct SyntheticPlaybackSelectionChecks {
+    @Test func everyAdvertisedCollectionAgreesWithTheCatalogPort() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyPortAgreement-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = BrowsingScenario(trackCount: 30, artworkCount: 1, artworkPixels: 64, cycles: 1)
+        input.version = 2
+        input.mode = .playback
+        input.expandedLibrary = true
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let playback = world.playback
+        var events = playback.events().makeAsyncIterator()
+        // The oracle is the public catalog port. Do not derive expected track URIs from the
+        // synthetic engine's resolver or identifier conventions: that would repeat its bugs.
+        var collections: [(String, [String])] = []
+        for item in try await world.playlistLibrary().flatMap(\.playlists) {
+            let id = try #require(SpotifyURI.id(from: item.uri, kind: "playlist"))
+            collections.append((item.uri, try await world.playlist(id: id).tracks.map(\.uri)))
+        }
+        let advertised = try await world.home().sections.flatMap(\.items)
+        for item in advertised.filter({ $0.kind == .album }) {
+            let id = try #require(SpotifyURI.id(from: item.uri, kind: "album"))
+            collections.append((item.uri, try await world.album(id: id).tracks.map(\.uri)))
+        }
+        for item in advertised.filter({ $0.kind == .artist }) {
+            let id = try #require(SpotifyURI.id(from: item.uri, kind: "artist"))
+            let artist = try await world.artist(id: id)
+            collections.append((item.uri, artist.overview?.popularTracks.filter(\.isPlayable).map(\.track.uri) ?? []))
+            for release in try await world.artistDiscography(id: id).releases {
+                let albumID = try #require(SpotifyURI.id(from: release.uri, kind: "album"))
+                collections.append((release.uri, try await world.album(id: albumID).tracks.map(\.uri)))
+            }
+        }
+        #expect(collections.count > 10)
+        for (uri, tracks) in collections {
+            let before = playback.queueSnapshot().track?.uri
+            let result = playback.execute(.playURI(uri))
+            if let first = tracks.first {
+                #expect(result.isOK)
+                let observed = try await observation(&events)
+                #expect(observed.trackURI == first && observed.contextURI == uri)
+                #expect(observed.positionMS == 0 && observed.isPlaying)
+                #expect(playback.queueSnapshot().track?.uri == first)
+            } else {
+                #expect(!result.isOK)
+                #expect(playback.queueSnapshot().track?.uri == before)
+            }
+        }
+    }
+
     @Test(arguments: [false, true])
     func collectionStartsPublishTheirOwnTrackAndContext(local: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySelection-\(UUID())")

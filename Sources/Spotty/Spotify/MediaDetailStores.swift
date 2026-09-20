@@ -24,11 +24,12 @@ final class AlbumDetailStore {
     private(set) var releaseDate = ""
     private(set) var playCounts: [String: Int64] = [:]
     private(set) var artists: [CatalogItem] = []
-    private(set) var isLoading = false
+    private var loadState = CatalogLoadState()
+    var isLoading: Bool { loadState.isLoading }
     var isLoadingInitialContent: Bool { isLoading && !hasLoadedContent }
-    private(set) var error: String?
-    private(set) var isShowingCachedContent = false
-    private(set) var freshness: CatalogFreshness = .current
+    var error: String? { loadState.error }
+    var isShowingCachedContent: Bool { loadState.isShowingSavedContent(in: session.snapshot) }
+    var freshness: CatalogFreshness { loadState.freshness }
 
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let metadata: CatalogMetadataRepository
@@ -36,9 +37,8 @@ final class AlbumDetailStore {
     @ObservationIgnored private let flight: Flight
     @ObservationIgnored private let retained: RetainedCatalogRoutes<Snapshot>
     @ObservationIgnored private let entityObservation: CatalogEntityObservation
-    @ObservationIgnored private var loadedSession: CatalogSessionSnapshot?
     @ObservationIgnored private var contentEpoch: UInt64
-    private(set) var hasLoadedContent = false
+    var hasLoadedContent: Bool { loadState.hasContent }
 
     init(provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability) {
         self.provider = provider
@@ -55,17 +55,12 @@ final class AlbumDetailStore {
         retained.reset()
         entityObservation.reset()
         contentEpoch = session.accountEpoch
-        loadedSession = nil
-        hasLoadedContent = false
+        loadState = CatalogLoadState()
         item = nil
         trackCollection.replace([])
         releaseDate = ""
         playCounts = [:]
         artists = []
-        isLoading = false
-        error = nil
-        isShowingCachedContent = false
-        freshness = .current
     }
 
     func prepare(_ selected: CatalogItem) {
@@ -79,30 +74,21 @@ final class AlbumDetailStore {
         guard selected.kind == .album else { return }
         prepare(selected)
         guard session.isAvailable else {
-            isShowingCachedContent = hasLoadedContent
+            loadState.markStale()
             return
         }
-        if loadedSession == session.snapshot, error == nil, freshness.isCurrent, !force { return }
+        if loadState.isCurrent(in: session.snapshot), !force { return }
         switch flight.admit(selected.uri, force: force) {
         case .skip:
             return
         case let .join(claim):
             await flight.awaitFlight(claim)
         case let .start(handle):
-            if !hasLoadedContent { error = nil }
-            isLoading = true
-            isShowingCachedContent = hasLoadedContent
-            defer {
-                if flight.owns(handle) {
-                    isLoading = false
-                    isShowingCachedContent =
-                        hasLoadedContent
-                        && (loadedSession != session.snapshot || error != nil || !freshness.isCurrent)
-                }
-            }
+            loadState.begin()
+            retained.markStale(selected.uri)
+            defer { if flight.owns(handle) { loadState.finish() } }
             guard let id = SpotifyURI.id(from: selected.uri, kind: "album") else {
-                error = "Spotify returned an invalid album address."
-                isLoading = false
+                loadState.fail(message: "Spotify returned an invalid album address.")
                 flight.abandonUnstarted(handle)
                 return
             }
@@ -119,12 +105,12 @@ final class AlbumDetailStore {
                     apply(album, selected: selected, handle: handle)
                 } catch {
                     guard self.flight.shouldReport(error, for: handle), item?.uri == handle.key else { return }
-                    if error as? CatalogReadFailure == .sessionExpired {
+                    if loadState.fail(error) {
+                        let refusal = loadState
                         reset()
                         prepare(selected)
+                        loadState = refusal
                     }
-                    self.error = CatalogErrorPresentation.message(for: error)
-                    isShowingCachedContent = hasLoadedContent
                     retained.markStale(selected.uri)
                 }
             }
@@ -138,12 +124,7 @@ final class AlbumDetailStore {
         releaseDate = album.releaseDate
         playCounts = album.playCounts ?? [:]
         artists = album.artists ?? []
-        loadedSession = session.snapshot
-        hasLoadedContent = true
-        error = nil
-        freshness = album.freshness
-        isShowingCachedContent = !freshness.isCurrent
-        if freshness.isCurrent { flight.markLoaded(handle) }
+        loadState.receive(session: session.snapshot, freshness: album.freshness)
         retained.store(
             Snapshot(
                 item: item ?? selected, collection: trackCollection, releaseDate: releaseDate,
@@ -156,28 +137,22 @@ final class AlbumDetailStore {
     private func restore(_ selected: CatalogItem) {
         flight.reset()
         item = selected
-        error = nil
-        isLoading = false
+        loadState = CatalogLoadState()
         if let cached = retained.entry(for: selected.uri) {
             item = cached.value.item
             trackCollection = cached.value.collection
             releaseDate = cached.value.releaseDate
             playCounts = cached.value.playCounts
             artists = cached.value.artists
-            loadedSession = cached.needsRefresh ? nil : cached.session
-            hasLoadedContent = true
-            freshness = cached.value.freshness
-            isShowingCachedContent = cached.needsRefresh || cached.session != session.snapshot || !freshness.isCurrent
+            loadState.restore(
+                session: cached.session, freshness: cached.value.freshness, needsRefresh: cached.needsRefresh)
             metadata.replaceTracks(tracks, from: .album)
         } else {
             trackCollection.replace([])
             releaseDate = ""
             playCounts = [:]
             artists = []
-            loadedSession = nil
-            hasLoadedContent = false
-            freshness = .current
-            isShowingCachedContent = false
+
             metadata.replaceTracks([], from: .album)
         }
     }
@@ -240,19 +215,19 @@ final class ArtistDetailStore {
     private(set) var popularTracks = CatalogTrackCollection()
     private(set) var popularPreview = CatalogTrackCollection()
     private(set) var artistTracks: [String: CatalogArtistPopularTrack] = [:]
-    private(set) var isLoading = false
-    private(set) var error: String?
-    private(set) var isShowingCachedContent = false
-    private(set) var freshness: CatalogFreshness = .current
+    private var loadState = CatalogLoadState()
+    var isLoading: Bool { loadState.isLoading }
+    var error: String? { loadState.error }
+    var isShowingCachedContent: Bool { loadState.isShowingSavedContent(in: session.snapshot) }
+    var freshness: CatalogFreshness { loadState.freshness }
 
     @ObservationIgnored private let content: Content
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let session: CatalogSessionAvailability
     @ObservationIgnored private let flight: Flight
     @ObservationIgnored private let retained: RetainedCatalogRoutes<Snapshot>
-    @ObservationIgnored private var loadedSession: CatalogSessionSnapshot?
     @ObservationIgnored private var contentEpoch: UInt64
-    @ObservationIgnored private var hasLoadedContent = false
+    private var hasLoadedContent: Bool { loadState.hasContent }
 
     init(provider: any CatalogProviding, session: CatalogSessionAvailability, content: Content = .overview) {
         self.content = content
@@ -267,15 +242,10 @@ final class ArtistDetailStore {
         flight.reset()
         retained.reset()
         contentEpoch = session.accountEpoch
-        loadedSession = nil
-        hasLoadedContent = false
+        loadState = CatalogLoadState()
         item = nil
         releases = []
         clearOverview()
-        isLoading = false
-        error = nil
-        isShowingCachedContent = false
-        freshness = .current
     }
 
     func prepare(_ selected: CatalogItem) {
@@ -288,30 +258,21 @@ final class ArtistDetailStore {
         guard selected.kind == .artist else { return }
         prepare(selected)
         guard session.isAvailable else {
-            isShowingCachedContent = hasLoadedContent
+            loadState.markStale()
             return
         }
-        if loadedSession == session.snapshot, error == nil, freshness.isCurrent, !force { return }
+        if loadState.isCurrent(in: session.snapshot), !force { return }
         switch flight.admit(selected.uri, force: force) {
         case .skip:
             return
         case let .join(claim):
             await flight.awaitFlight(claim)
         case let .start(handle):
-            if !hasLoadedContent { error = nil }
-            isLoading = true
-            isShowingCachedContent = hasLoadedContent
-            defer {
-                if flight.owns(handle) {
-                    isLoading = false
-                    isShowingCachedContent =
-                        hasLoadedContent
-                        && (loadedSession != session.snapshot || error != nil || !freshness.isCurrent)
-                }
-            }
+            loadState.begin()
+            retained.markStale(selected.uri)
+            defer { if flight.owns(handle) { loadState.finish() } }
             guard let id = SpotifyURI.id(from: selected.uri, kind: "artist") else {
-                error = "Spotify returned an invalid artist address."
-                isLoading = false
+                loadState.fail(message: "Spotify returned an invalid artist address.")
                 flight.abandonUnstarted(handle)
                 return
             }
@@ -339,12 +300,7 @@ final class ArtistDetailStore {
                     popularTracks.replace(overview?.popularTracks.map(\.track) ?? [])
                     popularPreview.replace(Array(popularTracks.tracks.prefix(5)))
                     updateArtistTracks()
-                    loadedSession = session.snapshot
-                    hasLoadedContent = true
-                    error = nil
-                    freshness = result.freshness
-                    isShowingCachedContent = !freshness.isCurrent
-                    if freshness.isCurrent { self.flight.markLoaded(handle) }
+                    loadState.receive(session: session.snapshot, freshness: result.freshness)
                     retained.store(
                         Snapshot(
                             item: item ?? selected, releases: releases, freshness: freshness,
@@ -354,12 +310,12 @@ final class ArtistDetailStore {
                     )
                 } catch {
                     guard self.flight.shouldReport(error, for: handle), item?.uri == handle.key else { return }
-                    if error as? CatalogReadFailure == .sessionExpired {
+                    if loadState.fail(error) {
+                        let refusal = loadState
                         reset()
                         prepare(selected)
+                        loadState = refusal
                     }
-                    self.error = CatalogErrorPresentation.message(for: error)
-                    isShowingCachedContent = hasLoadedContent
                     retained.markStale(selected.uri)
                 }
             }
@@ -369,8 +325,7 @@ final class ArtistDetailStore {
     private func restore(_ selected: CatalogItem) {
         flight.reset()
         item = selected
-        error = nil
-        isLoading = false
+        loadState = CatalogLoadState()
         if let cached = retained.entry(for: selected.uri) {
             item = cached.value.item
             releases = cached.value.releases
@@ -380,17 +335,12 @@ final class ArtistDetailStore {
             popularTracks = cached.value.popularTracks
             popularPreview = cached.value.popularPreview
             updateArtistTracks()
-            loadedSession = cached.needsRefresh ? nil : cached.session
-            hasLoadedContent = true
-            freshness = cached.value.freshness
-            isShowingCachedContent = cached.needsRefresh || cached.session != session.snapshot || !freshness.isCurrent
+            loadState.restore(
+                session: cached.session, freshness: cached.value.freshness, needsRefresh: cached.needsRefresh)
         } else {
             releases = []
             clearOverview()
-            loadedSession = nil
-            hasLoadedContent = false
-            freshness = .current
-            isShowingCachedContent = false
+
         }
     }
 

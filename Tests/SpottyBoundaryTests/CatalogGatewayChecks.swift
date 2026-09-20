@@ -7,6 +7,47 @@ import Testing
 @Suite("Catalog Gateway")
 @MainActor
 struct CatalogGatewayTests {
+    @Test(arguments: ["tracksV2", "albumsV2", "artists", "playlists"], [false, true])
+    func searchRequiresAnExplicitListEvenForEmptyResults(field: String, present: Bool) async throws {
+        let list: [String: Any] = present ? ["items": []] : [:]
+        let source = try JSONSerialization.data(withJSONObject: ["data": ["searchV2": [field: list]]])
+        let catalog = catalogGateway { request in (source, catalogResponse(for: request, status: 200)) }
+        let read: () async throws -> Int = {
+            switch field {
+            case "tracksV2": try await catalog.searchTracks("fixture", limit: 10).count
+            case "albumsV2": try await catalog.searchAlbums("fixture", limit: 10).count
+            case "artists": try await catalog.searchArtists("fixture", limit: 10).count
+            default: try await catalog.searchPlaylists("fixture", limit: 10).count
+            }
+        }
+        if present {
+            #expect(try await read() == 0)
+        } else {
+            await #expect(throws: CatalogReadFailure.compatibility) { _ = try await read() }
+        }
+    }
+
+    @Test(arguments: ["playlists", "albums", "artists", "tracks"], [false, true])
+    func savedLibrariesRequireAnExplicitList(kind: String, present: Bool) async throws {
+        let list: [String: Any] = present ? ["items": [], "totalCount": 0] : ["totalCount": 0]
+        let data: [String: Any] = kind == "tracks" ? ["me": ["library": ["tracks": list]]] : ["me": ["libraryV3": list]]
+        let source = try JSONSerialization.data(withJSONObject: ["data": data])
+        let catalog = catalogGateway { request in (source, catalogResponse(for: request, status: 200)) }
+        let read: () async throws -> Int = {
+            switch kind {
+            case "playlists": try await catalog.playlistLibrary().count
+            case "albums": try await catalog.libraryAlbums().count
+            case "artists": try await catalog.libraryArtists().count
+            default: try await catalog.libraryTracks().count
+            }
+        }
+        if present {
+            #expect(try await read() == 0)
+        } else {
+            await #expect(throws: CatalogReadFailure.compatibility) { _ = try await read() }
+        }
+    }
+
     @Test(arguments: ["Album", "Playlist", "Artist"], ["GenericError", "NotFound", "UnknownUnionMember", ""])
     func errorOrMissingUnionDiscriminatorsCannotBecomeEmptyCatalogResults(kind: String, typename: String) async throws {
         let field = kind == "Album" ? "albumUnion" : kind == "Playlist" ? "playlistV2" : "artistUnion"

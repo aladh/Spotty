@@ -17,32 +17,23 @@ struct DetailActionRowShuffle {
 /// green play button, an optional shuffle toggle, and optional trailing content (the playlist
 /// search field).
 struct DetailActionRow<Trailing: View>: View {
-    let canPlay: Bool
-    let showsPause: Bool
-    let playAccessibilityLabel: String
+    let action: CatalogPlaybackAction
     let shuffle: DetailActionRowShuffle?
-    let play: () -> Void
     let trailing: () -> Trailing
 
     init(
-        canPlay: Bool,
-        showsPause: Bool,
-        playAccessibilityLabel: String,
+        action: CatalogPlaybackAction,
         shuffle: DetailActionRowShuffle? = nil,
-        play: @escaping () -> Void,
         @ViewBuilder trailing: @escaping () -> Trailing
     ) {
-        self.canPlay = canPlay
-        self.showsPause = showsPause
-        self.playAccessibilityLabel = playAccessibilityLabel
+        self.action = action
         self.shuffle = shuffle
-        self.play = play
         self.trailing = trailing
     }
 
     var body: some View {
         HStack(spacing: 24) {
-            Button(action: play) {
+            CatalogPlaybackButton(action: action) { showsPause in
                 Image(systemName: showsPause ? "pause.fill" : "play.fill")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.black)
@@ -50,11 +41,6 @@ struct DetailActionRow<Trailing: View>: View {
                     .frame(width: 56, height: 56)
                     .background(SpottyPalette.mediaGreen, in: Circle())
             }
-            .buttonStyle(.plain)
-            .disabled(!canPlay)
-            .pointingHandCursor(enabled: canPlay)
-            .accessibilityLabel(playAccessibilityLabel)
-            .help(playAccessibilityLabel)
 
             if let shuffle {
                 Button(action: shuffle.toggle) {
@@ -85,18 +71,12 @@ struct DetailActionRow<Trailing: View>: View {
 
 extension DetailActionRow where Trailing == EmptyView {
     init(
-        canPlay: Bool,
-        showsPause: Bool,
-        playAccessibilityLabel: String,
-        shuffle: DetailActionRowShuffle? = nil,
-        play: @escaping () -> Void
+        action: CatalogPlaybackAction,
+        shuffle: DetailActionRowShuffle? = nil
     ) {
         self.init(
-            canPlay: canPlay,
-            showsPause: showsPause,
-            playAccessibilityLabel: playAccessibilityLabel,
+            action: action,
             shuffle: shuffle,
-            play: play,
             trailing: { EmptyView() }
         )
     }

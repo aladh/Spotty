@@ -8,6 +8,39 @@ import Testing
 @Suite("Catalog Pagination")
 @MainActor
 struct CatalogPaginationTests {
+    @Test(
+        arguments: ["Album", "Playlist", "Artist"], ["wrong-uri", "missing-items", "negative-total", "changed-total"])
+    func aLaterMalformedPageCannotCompleteACollection(kind: String, fault: String) async throws {
+        let transport = CatalogPageTransport { _, offset in
+            let good = try catalogCollectionPage(kind: kind, tracks: [offset == 0 ? "first" : "last"], total: 2)
+            guard offset != 0 else { return good }
+            var json = try #require(JSONSerialization.jsonObject(with: good) as? [String: [String: [String: Any]]])
+            let field = kind == "Album" ? "albumUnion" : kind == "Playlist" ? "playlistV2" : "artistUnion"
+            var member = try #require(json["data"]?[field])
+            if fault == "wrong-uri" {
+                member["uri"] = "spotify:\(kind.lowercased()):other"
+            } else {
+                let key = kind == "Album" ? "tracksV2" : "content"
+                var list =
+                    kind == "Artist"
+                    ? (member["discography"] as? [String: [String: Any]])?["all"]
+                    : member[key] as? [String: Any]
+                if fault == "missing-items" {
+                    list?.removeValue(forKey: "items")
+                } else {
+                    list?["totalCount"] = fault == "negative-total" ? -1 : 3
+                }
+                if kind == "Artist" { member["discography"] = ["all": list] } else { member[key] = list }
+            }
+            json["data"]?[field] = member
+            return try JSONSerialization.data(withJSONObject: json)
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await catalogCollectionRead(api: catalogPaginationAPI(transport: transport.send), kind: kind)
+        }
+        #expect(transport.offsets == [0, 1])
+    }
+
     @Test(arguments: ["Album", "Playlist", "Artist"], [0, 1])
     func unionErrorsFailOnEveryPage(kind: String, errorOffset: Int) async throws {
         let field = kind == "Album" ? "albumUnion" : kind == "Playlist" ? "playlistV2" : "artistUnion"
@@ -92,9 +125,11 @@ struct CatalogPaginationTests {
         let album = try await catalogPaginationAPI(transport: transport.send).album(id: "fixture")
 
         #expect(
-            album.tracks.compactMap(\.uri) == ["spotify:track:first", "spotify:track:second", "spotify:track:third"])
-        #expect(album.tracksV2?.items?.count == 4)
-        #expect(album.tracksV2?.totalCount == 4)
+            album.items.compactMap { $0.track?.uri } == [
+                "spotify:track:first", "spotify:track:second", "spotify:track:third",
+            ])
+        #expect(album.items.count == 4)
+        #expect(album.header.tracksV2?.totalCount == 4)
         #expect(transport.offsets == [0, 2])
     }
 
@@ -112,10 +147,10 @@ struct CatalogPaginationTests {
         let artist = try await catalogPaginationAPI(transport: transport.send).artistDiscography(id: "fixture")
 
         #expect(
-            artist.releases.compactMap(\.uri) == [
+            artist.items.flatMap(\.all).compactMap(\.uri) == [
                 "spotify:album:first", "spotify:album:first-deluxe", "spotify:album:second",
             ])
-        #expect(artist.discography?.all?.items?.count == 2)
+        #expect(artist.items.count == 2)
         #expect(transport.offsets == [0, 1])
     }
 
@@ -145,9 +180,9 @@ struct CatalogPaginationTests {
 
 private func catalogCollectionRead(api: PartnerAPI, kind: String) async throws -> [String] {
     switch kind {
-    case "Album": return try await api.album(id: "fixture").tracks.compactMap(\.uri)
-    case "Playlist": return try await api.playlist(id: "fixture").content?.items?.compactMap { $0.track?.uri } ?? []
-    default: return try await api.artistDiscography(id: "fixture").releases.compactMap(\.uri)
+    case "Album": return try await api.album(id: "fixture").items.compactMap { $0.track?.uri }
+    case "Playlist": return try await api.playlist(id: "fixture").items.compactMap { $0.track?.uri }
+    default: return try await api.artistDiscography(id: "fixture").items.flatMap(\.all).compactMap(\.uri)
     }
 }
 

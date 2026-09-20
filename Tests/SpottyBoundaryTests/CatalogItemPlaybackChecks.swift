@@ -16,13 +16,15 @@ struct CatalogItemPlaybackChecks {
             let item = selection(kind)
             player.withRuntime { seed($0, item: item, playing: playing, local: local) }
             let access = CatalogPlaybackAccess(player: player)
-            #expect(access.canActivateItem(item))
-            #expect(access.showsPause(for: item) == playing)
-            #expect(access.activationLabel(for: item) == "\(playing ? "Pause" : "Play") Selection")
+            #expect(access.action(for: item, behavior: .activateSelection).isEnabled)
+            #expect(access.action(for: item, behavior: .activateSelection).showsPause == playing)
+            #expect(
+                access.action(for: item, behavior: .activateSelection).label
+                    == "\(playing ? "Pause" : "Play") Selection")
             let trackURI = player.trackURI
             let contextURI = player.playingContextURI
             let generation = player.engineGeneration
-            access.activateItem(item)
+            access.action(for: item, behavior: .activateSelection).perform()
             try await requireEventually { local ? engine.executeCount == 1 : remote.sendCount == 1 }
             if local {
                 #expect(remote.sendCount == 0)
@@ -42,8 +44,10 @@ struct CatalogItemPlaybackChecks {
             } else {
                 #expect(engine.operations.isEmpty)
                 #expect(remote.endpoints == [playing ? .pause : .resume])
-                #expect(!access.canActivateItem(item), "pending transport disables repeated activation")
-                access.activateItem(item)
+                #expect(
+                    !access.action(for: item, behavior: .activateSelection).isEnabled,
+                    "pending transport disables repeated activation")
+                access.action(for: item, behavior: .activateSelection).perform()
                 #expect(remote.sendCount == 1)
             }
             #expect(player.trackURI == trackURI && player.position == 42)
@@ -60,18 +64,18 @@ struct CatalogItemPlaybackChecks {
         let item = selection(kind)
         player.withRuntime { seed($0, item: item, playing: true) }
         let access = CatalogPlaybackAccess(player: player)
-        #expect(access.showsPause(for: item))
+        #expect(access.action(for: item, behavior: .activateSelection).showsPause)
         let other = selection(kind, id: "other")
         if published {
             player.withRuntime { seed($0, item: other, playing: true, revision: 2) }
-            #expect(!access.showsPause(for: item))
+            #expect(!access.action(for: item, behavior: .activateSelection).showsPause)
         } else {
             let runtime = player.runtime
             SessionRuntimeActor.sync { seed(runtime, item: other, playing: true, revision: 2) }
             #expect(player.playingContextURI == item.uri, "the displayed Pause control has not caught up")
         }
         #expect(player.trackURI == "spotify:track:current", "track membership cannot identify a collection")
-        access.activateItem(item)
+        access.action(for: item, behavior: .activateSelection).perform()
         try await requireEventually { remote.sendCount == 1 }
         #expect(remote.endpoints == [.play])
         #expect(remote.commands.first?.context?.uri == item.uri)
@@ -84,19 +88,19 @@ struct CatalogItemPlaybackChecks {
         let item = selection(.playlist)
         player.withRuntime { seed($0, item: item, playing: false, local: true) }
         let access = CatalogPlaybackAccess(player: player)
-        access.activateItem(item)
+        access.action(for: item, behavior: .activateSelection).perform()
         try await requireEventually { player.playbackNotice?.kind == .resumeUnavailable }
-        #expect(!access.canActivateItem(item))
-        #expect(!access.showsPause(for: item))
+        #expect(!access.action(for: item, behavior: .activateSelection).isEnabled)
+        #expect(!access.action(for: item, behavior: .activateSelection).showsPause)
         #expect(access.canStartPlayback, "shuffle and new selections remain available")
         let before = player.state
-        access.activateItem(item)
+        access.action(for: item, behavior: .activateSelection).perform()
         #expect(player.state == before)
         #expect(engine.executeCount == 1)
         let other = selection(.playlist, id: "other")
-        #expect(access.canActivateItem(other))
+        #expect(access.action(for: other, behavior: .activateSelection).isEnabled)
         engine.executeResult = .ok
-        access.activateItem(other)
+        access.action(for: other, behavior: .activateSelection).perform()
         try await requireEventually { engine.executeCount == 2 }
         if case let .playURI(uri) = engine.operations.last {
             #expect(uri == other.uri)
@@ -112,18 +116,24 @@ struct CatalogItemPlaybackChecks {
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine, remote: remote))
         let item = selection(.playlist)
         let access = CatalogPlaybackAccess(player: player)
-        #expect(!access.canActivateItem(item) && !access.showsPause(for: item))
-        access.activateItem(item)
+        #expect(
+            !access.action(for: item, behavior: .activateSelection).isEnabled
+                && !access.action(for: item, behavior: .activateSelection).showsPause)
+        access.action(for: item, behavior: .activateSelection).perform()
         player.withRuntime { seed($0, item: item, playing: true) }
-        #expect(access.canActivateItem(item) && access.showsPause(for: item))
+        #expect(
+            access.action(for: item, behavior: .activateSelection).isEnabled
+                && access.action(for: item, behavior: .activateSelection).showsPause)
         player.withRuntime {
             $0.accountStore.advanceEpoch()
             _ = $0.send(.reset(session: .ready), source: .account)
             seed($0, item: item, playing: true)
         }
         let replacement = player.state
-        #expect(!access.canActivateItem(item) && !access.showsPause(for: item))
-        access.activateItem(item)
+        #expect(
+            !access.action(for: item, behavior: .activateSelection).isEnabled
+                && !access.action(for: item, behavior: .activateSelection).showsPause)
+        access.action(for: item, behavior: .activateSelection).perform()
         #expect(player.state == replacement)
         await player.shutdownForTermination()
         #expect(engine.operations.isEmpty && remote.sendCount == 0)
@@ -148,7 +158,7 @@ struct CatalogItemPlaybackChecks {
                 seed(runtime, item: item, playing: true, local: true)
             }
         }
-        access.activateItem(item)
+        access.action(for: item, behavior: .activateSelection).perform()
         await player.shutdownForTermination()
         #expect(engine.operations.isEmpty && remote.sendCount == 0)
     }

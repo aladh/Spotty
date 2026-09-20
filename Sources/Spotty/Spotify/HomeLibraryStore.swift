@@ -36,14 +36,22 @@ final class HomeLibraryStore {
     private(set) var homeSections: [CatalogSection] = []
     private(set) var playlists: [CatalogItem] = []
     private(set) var playlistLibrary: [PlaylistLibraryNode] = []
-    private(set) var playlistLibraryIsCached = false
+    var playlistLibraryIsCached: Bool { state(for: .playlists).isShowingSavedContent(in: session.snapshot) }
     private(set) var albums: [CatalogItem] = []
     private(set) var artists: [CatalogItem] = []
     private(set) var likedTrackCollection = CatalogTrackCollection()
     var likedTracks: [CatalogTrack] { likedTrackCollection.tracks }
-    private(set) var loadingSections: Set<Section> = []
-    private(set) var loadedSections: Set<Section> = []
-    private(set) var errors: [Section: String] = [:]
+    private var sectionStates: [Section: CatalogLoadState] = [:]
+    var loadingSections: Set<Section> { Set(Section.allCases.filter { state(for: $0).isLoading }) }
+    var loadedSections: Set<Section> { Set(Section.allCases.filter { state(for: $0).hasContent }) }
+    var errors: [Section: String] {
+        Dictionary(
+            uniqueKeysWithValues: Section.allCases.compactMap { section in
+                state(for: section).error.map { (section, $0) }
+            })
+    }
+
+    private func state(for section: Section) -> CatalogLoadState { sectionStates[section] ?? CatalogLoadState() }
 
     var isLoading: Bool { !loadingSections.isEmpty }
     var isLoadingInitialPlaylists: Bool { isLoading(.playlists) && !loadedSections.contains(.playlists) }
@@ -79,13 +87,10 @@ final class HomeLibraryStore {
         homeSections = []
         playlists = []
         playlistLibrary = []
-        playlistLibraryIsCached = false
         albums = []
         artists = []
         likedTrackCollection.replace([])
-        loadingSections = []
-        loadedSections = []
-        errors = [:]
+        sectionStates = [:]
     }
 
     /// Home and profile publish independently. The sidebar verifies the profile, restores saved
@@ -169,6 +174,7 @@ final class HomeLibraryStore {
         force: Bool,
         operation: @escaping @Sendable () async throws -> SectionPayload
     ) async {
+        if !force, state(for: section).isCurrent(in: session.snapshot) { return }
         let handle: Flight.Handle
         switch flight.admit(.section(section), force: force) {
         case .skip:
@@ -195,7 +201,8 @@ final class HomeLibraryStore {
                     {
                         guard self.flight.isCurrent(handle) else { return }
                         self.applyPlaylistLibrary(cached.nodes, cached: true)
-                        self.loadedSections.insert(.playlists)
+                        self.sectionStates[.playlists, default: CatalogLoadState()].receive(
+                            session: handle.sessionSnapshot, freshness: .cached(fetchedAt: cached.fetchedAt))
                         SpottyLog.catalog.info("Saved playlist library restored")
                     }
                 }
@@ -229,8 +236,7 @@ final class HomeLibraryStore {
 
     private func begin(_ section: Section) {
         SpottyLog.catalog.info("Catalog section started: \(section.rawValue, privacy: .public)")
-        loadingSections.insert(section)
-        errors[section] = nil
+        sectionStates[section, default: CatalogLoadState()].begin(keepPreviousError: false)
         if section == .playlists, loadedSections.contains(.playlists) {
             applyPlaylistLibrary(playlistLibrary, cached: true)
         }
@@ -238,14 +244,12 @@ final class HomeLibraryStore {
 
     private func succeed(_ section: Section, handle: Flight.Handle) {
         SpottyLog.catalog.info("Catalog section finished: \(section.rawValue, privacy: .public)")
-        loadedSections.insert(section)
-        flight.markLoaded(handle)
-        errors[section] = nil
+        sectionStates[section, default: CatalogLoadState()].receive(session: handle.sessionSnapshot)
     }
 
     private func finish(_ section: Section, handle: Flight.Handle) {
         guard flight.owns(handle) else { return }
-        loadingSections.remove(section)
+        sectionStates[section, default: CatalogLoadState()].finish()
     }
 
     private func record(
@@ -254,20 +258,22 @@ final class HomeLibraryStore {
         handle: Flight.Handle
     ) {
         guard flight.shouldReport(error, for: handle) else { return }
-        if section == .playlists {
-            if error as? CatalogReadFailure == .sessionExpired {
-                applyPlaylistLibrary([], cached: false)
-                loadedSections.remove(.playlists)
-            } else if loadedSections.contains(.playlists) {
-                // Retained rows remain navigable, but cannot offer historical ownership as
-                // current edit permission after a refresh failure.
-                applyPlaylistLibrary(playlistLibrary, cached: true)
+        if sectionStates[section, default: CatalogLoadState()].fail(error) {
+            // A refusal fences every sibling request sharing this account, not just the failed
+            // section. No in-flight Home/library response can restore rejected account content.
+            reset()
+            for affected in Section.allCases {
+                sectionStates[affected, default: CatalogLoadState()].fail(error)
             }
+            metadata.replaceItems([], from: .home)
+            metadata.replaceItems([], from: .library)
+            metadata.replaceTracks([], from: .library)
+        } else if section == .playlists, loadedSections.contains(.playlists) {
+            applyPlaylistLibrary(playlistLibrary, cached: true)
         }
         SpottyLog.catalog.error(
             "Catalog section failed: \(section.rawValue, privacy: .public); error=\(String(describing: type(of: error)), privacy: .public)"
         )
-        errors[section] = CatalogErrorPresentation.message(for: error)
     }
 
     private func updateLibraryItemCache() {
@@ -277,7 +283,6 @@ final class HomeLibraryStore {
     private func applyPlaylistLibrary(_ nodes: [PlaylistLibraryNode], cached: Bool) {
         playlistLibrary = cached ? nodes.map(\.withoutOwnership) : nodes
         playlists = playlistLibrary.flatMap(\.playlists)
-        playlistLibraryIsCached = cached
         updateLibraryItemCache()
     }
 

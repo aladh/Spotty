@@ -13,6 +13,7 @@ integration may violate Spotify's terms.
 | --- | --- |
 | Product priorities and feature scope | [Scope](scope.md) |
 | Retained Spotify appearance anchors and visual evidence | [Spotify appearance](spotify-appearance.md) |
+| Shared loading, playback intent, keyboard focus, and accessibility | [Catalog interaction](catalog-interaction.md) |
 | Window, navigation, retained browsing, account presentation, and transient feedback | [Navigation](navigation.md) |
 | Saved library, folders, sidebar status, and row interaction | [Library sidebar](library-sidebar.md) |
 | Search categories, results, and retained interaction | [Search](search.md) |

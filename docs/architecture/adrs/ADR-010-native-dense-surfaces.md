@@ -32,6 +32,12 @@ Window-local route state restores playlist search, table sort, occurrence select
 position on a retained revisit. Refresh and enrichment prune only identities that no longer exist
 or are filtered out. Account replacement retires that interaction state.
 
+Catalog controls receive a semantic `CatalogPlaybackAction` with explicit activation or restart
+intent. Shared buttons derive availability, labels, glyph state, and dispatch from that value;
+surface callers supply appearance. Runtime admission still revalidates the current account and
+playback target. Native occurrence lists share the row-focus owner rather than adding surface-specific
+responder bridges.
+
 ## Tradeoffs and verification
 
 Direct ownership adds responsibility for cell reuse, row drawing, layout, accessibility,
@@ -39,6 +45,10 @@ tracking, and lifecycle cleanup. It removes reliance on undocumented ancestor di
 not by itself prove responsiveness or visual fidelity. Check the affected keyboard, VoiceOver,
 hover, selected, focus, disabled, inactive, narrow, and resize behavior against the
 same Spotify reference or established baseline.
+
+The hosted surface contract suite exercises production controls, native input,
+and attached native tables with one interaction matrix. Lower-level policy tests alone cannot
+prove that a surface chose the right action or that its retained control still owns focus.
 
 A diffable data source, row reuse, or fewer invalidations is not a frame-rate measurement. Any
 performance claim requires a fresh optimized comparison with source/engine identity, workload,

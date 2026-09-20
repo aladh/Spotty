@@ -24,9 +24,10 @@ final class SearchStore {
     private(set) var artists: [CatalogItem] = []
     private(set) var playlists: [CatalogItem] = []
     private(set) var errors: [Section: String] = [:]
-    private(set) var isSearching = false
-    private var completedQuery: String?
-    private var completedSession: CatalogSessionSnapshot?
+    private var loadState = CatalogLoadState()
+    var isSearching: Bool { loadState.isLoading }
+    private var admittedQuery: String?
+    private var admittedSession: CatalogSessionSnapshot?
 
     // Compatibility projections retained for the small boundary-check executable.
     var error: String? {
@@ -42,7 +43,7 @@ final class SearchStore {
     func isAwaitingResults(for term: String) -> Bool {
         let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
         return session.isAvailable && !query.isEmpty
-            && (isSearching || completedQuery != query || completedSession != session.snapshot)
+            && (!loadState.hasSettled || admittedQuery != query || admittedSession != session.snapshot)
     }
 
     /// Delay before a view-driven query is admitted. Try Again calls `search`
@@ -75,7 +76,7 @@ final class SearchStore {
         invalidatePendingAdmission()
         flight.reset()
         clearResults()
-        isSearching = false
+        loadState = CatalogLoadState()
     }
 
     /// Immediate admission for Try Again. Invalidates a pending debounce so a
@@ -92,7 +93,7 @@ final class SearchStore {
         let token = debounceGeneration
         let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
         // Returning from details should restore the current result set and its native position.
-        if completedQuery == query, completedSession == session.snapshot, errors.isEmpty { return }
+        if admittedQuery == query, loadState.isCurrent(in: session.snapshot), errors.isEmpty { return }
         let scheduled = session.snapshot
         let task = Task { [weak self] in
             guard let self else { return }
@@ -126,18 +127,19 @@ final class SearchStore {
         let handle = flight.begin(query)
         guard session.isAvailable, !query.isEmpty else {
             clearResults()
-            isSearching = false
             return
         }
 
         // Retrying the same admitted result set must not replace usable rows with a spinner.
         // Different queries and session lifetimes still discard all previous content.
-        if completedQuery != query || completedSession != session.snapshot {
+        if admittedQuery != query || admittedSession != session.snapshot {
             clearResults()
         } else {
             errors = [:]
         }
-        isSearching = true
+        admittedQuery = query
+        admittedSession = handle.sessionSnapshot
+        loadState.begin(keepPreviousError: false)
         await flight.run(handle) { [weak self] in
             guard let self else { return }
             await withTaskGroup(of: Void.self) { group in
@@ -147,12 +149,11 @@ final class SearchStore {
                 group.addTask { await self.loadPlaylists(query, handle: handle) }
             }
             if self.flight.isCurrent(handle) {
-                self.completedQuery = query
-                self.completedSession = self.session.snapshot
+                self.loadState.receive(session: handle.sessionSnapshot)
             }
         }
         if flight.owns(handle) {
-            isSearching = false
+            loadState.finish()
         }
     }
 
@@ -208,14 +209,15 @@ final class SearchStore {
         } catch {
             guard flight.shouldReport(error, for: handle) else { return }
             let message = CatalogErrorPresentation.message(for: error)
-            if error as? CatalogReadFailure == .sessionExpired {
+            var outcome = loadState
+            if outcome.fail(error) {
                 // Retire this response without cancelling a newer query's pending debounce.
                 // That admission still checks its captured session before starting work.
                 flight.reset()
                 clearResults()
-                isSearching = false
-                completedQuery = handle.key
-                completedSession = handle.sessionSnapshot
+                loadState = outcome
+                admittedQuery = handle.key
+                admittedSession = handle.sessionSnapshot
                 errors = Dictionary(uniqueKeysWithValues: Section.allCases.map { ($0, message) })
             } else {
                 errors[section] = message
@@ -224,8 +226,9 @@ final class SearchStore {
     }
 
     private func clearResults() {
-        completedQuery = nil
-        completedSession = nil
+        loadState = CatalogLoadState()
+        admittedQuery = nil
+        admittedSession = nil
         trackCollection.replace([])
         albums = []
         artists = []

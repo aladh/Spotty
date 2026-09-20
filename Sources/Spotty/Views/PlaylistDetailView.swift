@@ -48,13 +48,11 @@ struct PlaylistDetailView: View {
                 )
 
                 DetailActionRow(
-                    canPlay: playback.canActivateItem(item), showsPause: playback.showsPause(for: item),
-                    playAccessibilityLabel: playback.activationLabel(for: displayedItem),
+                    action: playback.action(for: displayedItem, behavior: .activateSelection),
                     shuffle: DetailActionRowShuffle(
                         isEnabled: playback.isShuffleEnabled, canToggle: playback.canStartPlayback,
                         toggle: { playback.toggleShuffle() }
-                    ),
-                    play: { playback.activateItem(item) }
+                    )
                 ) {
                     searchField
                 }
@@ -109,11 +107,8 @@ struct PlaylistDetailView: View {
     private var compactHeader: some View {
         CompactMediaDetailHeader(
             title: displayedItem.title,
-            canPlay: playback.canActivateItem(item), showsPause: playback.showsPause(for: item),
-            playAccessibilityLabel: playback.activationLabel(for: displayedItem)
-        ) {
-            playback.activateItem(item)
-        }
+            action: playback.action(for: displayedItem, behavior: .activateSelection)
+        )
     }
 
     private var playlistContent: some View {

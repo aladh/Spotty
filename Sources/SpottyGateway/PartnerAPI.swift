@@ -158,7 +158,8 @@ nonisolated struct PartnerAPI: Sendable {
             .searchTracks,
             variables: PathfinderSearchVariables(searchTerm: term, limit: limit),
         )
-        return response.results?.tracksV2?.entities ?? []
+        guard let page = response.results?.tracksV2 else { throw PartnerAPIError.emptyPayload }
+        return try page.validatedEntities()
     }
 
     func searchAlbums(_ term: String, limit: Int = 30) async throws -> [PathfinderAlbum] {
@@ -166,7 +167,8 @@ nonisolated struct PartnerAPI: Sendable {
             .searchAlbums,
             variables: PathfinderSearchVariables(searchTerm: term, limit: limit),
         )
-        return response.results?.albumsV2?.entities ?? []
+        guard let page = response.results?.albumsV2 else { throw PartnerAPIError.emptyPayload }
+        return try page.validatedEntities()
     }
 
     func searchArtists(_ term: String, limit: Int = 30) async throws -> [PathfinderArtist] {
@@ -174,7 +176,8 @@ nonisolated struct PartnerAPI: Sendable {
             .searchArtists,
             variables: PathfinderSearchVariables(searchTerm: term, limit: limit),
         )
-        return response.results?.artists?.entities ?? []
+        guard let page = response.results?.artists else { throw PartnerAPIError.emptyPayload }
+        return try page.validatedEntities()
     }
 
     func searchPlaylists(_ term: String, limit: Int = 30) async throws -> [PathfinderPlaylist] {
@@ -182,44 +185,24 @@ nonisolated struct PartnerAPI: Sendable {
             .searchPlaylists,
             variables: PathfinderSearchVariables(searchTerm: term, limit: limit),
         )
-        return response.results?.playlists?.entities ?? []
+        guard let page = response.results?.playlists else { throw PartnerAPIError.emptyPayload }
+        return try page.validatedEntities()
     }
 
     // MARK: - Album
 
     /// Complete ordered album contents; paging finishes before the snapshot can be published.
-    func album(id: String) async throws -> PathfinderAlbumUnion {
+    func album(id: String) async throws -> CompleteAlbum {
         let uri = "spotify:album:\(id)"
-        let first = try await albumPage(uri: uri, offset: 0)
-        let total = first.tracksV2?.totalCount
-        let items: [PathfinderAlbumUnion.TrackList.Item] = try await paginate(
-            firstPage: Pagination.Page(
-                items: first.tracksV2?.items ?? [],
-                pageEntryCount: first.tracksV2?.items?.count ?? 0,
-                totalCount: total
-            )
-        ) { offset in
-            let page = try await albumPage(uri: uri, offset: offset)
-            return Pagination.Page(
-                items: page.tracksV2?.items ?? [],
-                pageEntryCount: page.tracksV2?.items?.count ?? 0,
-                totalCount: total
-            )
+        return try await CompleteAlbum.collect { offset in
+            let response: PathfinderAlbumResponse = try await query(
+                .getAlbum, variables: PathfinderAlbumVariables(uri: uri, offset: offset))
+            let album = response.data?.albumUnion
+            return try ValidatedCatalogPage(
+                header: album, typename: album?.typename, expectedType: "Album",
+                uri: album?.uri, requestedURI: uri, items: album?.tracksV2?.items,
+                totalCount: album?.tracksV2?.totalCount)
         }
-        return first.withItems(items)
-    }
-
-    private func albumPage(uri: String, offset: Int) async throws -> PathfinderAlbumUnion {
-        let response: PathfinderAlbumResponse = try await query(
-            .getAlbum,
-            variables: PathfinderAlbumVariables(uri: uri, offset: offset)
-        )
-        // Error union members also decode into these optional fields. Validate every page
-        // before an empty or partial collection can be published and replace a saved snapshot.
-        guard let album = response.data?.albumUnion, album.typename == "Album",
-            album.tracksV2?.items != nil
-        else { throw PartnerAPIError.emptyPayload }
-        return album
     }
 
     // MARK: - Artist
@@ -230,24 +213,14 @@ nonisolated struct PartnerAPI: Sendable {
     }
 
     /// Every release by an artist. Carries no profile — pair it with `artist(id:)`.
-    func artistDiscography(id: String) async throws -> PathfinderArtistUnion {
-        let first = try await artistUnion(.queryArtistDiscographyAll, id: id)
-        let total = first.discography?.all?.totalCount
-        let items: [PathfinderReleaseGroup.Item] = try await paginate(
-            firstPage: Pagination.Page(
-                items: first.discography?.all?.items ?? [],
-                pageEntryCount: first.discography?.all?.items?.count ?? 0,
-                totalCount: total
-            )
-        ) { offset in
-            let page = try await artistUnion(.queryArtistDiscographyAll, id: id, offset: offset)
-            return Pagination.Page(
-                items: page.discography?.all?.items ?? [],
-                pageEntryCount: page.discography?.all?.items?.count ?? 0,
-                totalCount: total
-            )
+    func artistDiscography(id: String) async throws -> CompleteDiscography {
+        try await CompleteDiscography.collect { offset in
+            let artist = try await artistUnion(.queryArtistDiscographyAll, id: id, offset: offset)
+            return try ValidatedCatalogPage(
+                header: artist, typename: artist.typename, expectedType: "Artist",
+                uri: artist.uri, requestedURI: "spotify:artist:\(id)", items: artist.discography?.all?.items,
+                totalCount: artist.discography?.all?.totalCount)
         }
-        return first.withDiscographyItems(items)
     }
 
     private func artistUnion(
@@ -276,40 +249,17 @@ nonisolated struct PartnerAPI: Sendable {
     /// silently truncated. The Web API path this replaces paginated to the end, and stopping at
     /// the first page hid every item past the 300th — not just from the list, but from removal
     /// and reordering, which can only name an item the app has seen.
-    func playlist(id: String) async throws -> PathfinderPlaylistUnion {
+    func playlist(id: String) async throws -> CompletePlaylist {
         let uri = "spotify:playlist:\(id)"
-        let first = try await playlistPage(uri: uri, offset: 0)
-        let total = first.content?.totalCount
-        let items: [PathfinderPlaylistItem] = try await paginate(
-            firstPage: Pagination.Page(
-                items: first.content?.items ?? [],
-                pageEntryCount: first.content?.items?.count ?? 0,
-                totalCount: total
-            )
-        ) { offset in
-            let page = try await playlistPage(uri: uri, offset: offset)
-            return Pagination.Page(
-                items: page.content?.items ?? [],
-                pageEntryCount: page.content?.items?.count ?? 0,
-                totalCount: total
-            )
+        return try await CompletePlaylist.collect { offset in
+            let response: PathfinderPlaylistResponse = try await query(
+                .fetchPlaylist, variables: PathfinderPlaylistVariables(uri: uri, offset: offset))
+            let playlist = response.data?.playlistV2
+            return try ValidatedCatalogPage(
+                header: playlist, typename: playlist?.typename, expectedType: "Playlist",
+                uri: playlist?.uri, requestedURI: uri, items: playlist?.content?.items,
+                totalCount: playlist?.content?.totalCount)
         }
-        return first.withItems(items)
-    }
-
-    private func playlistPage(uri: String, offset: Int) async throws -> PathfinderPlaylistUnion {
-        let response: PathfinderPlaylistResponse = try await query(
-            .fetchPlaylist,
-            variables: PathfinderPlaylistVariables(uri: uri, offset: offset),
-        )
-
-        guard let playlist = response.data?.playlistV2, playlist.typename == "Playlist",
-            playlist.content?.items != nil
-        else {
-            throw PartnerAPIError.emptyPayload
-        }
-
-        return playlist
     }
 
     func addToPlaylist(
@@ -397,9 +347,10 @@ nonisolated struct PartnerAPI: Sendable {
                     order: "Custom Order", flatten: false, folderUri: folderURI
                 )
             )
-            guard let page = response.page else { throw PartnerAPIError.emptyPayload }
+            guard let page = response.page, page.items != nil else { throw PartnerAPIError.emptyPayload }
             return Pagination.Page(
-                items: page.entities, pageEntryCount: page.items?.count ?? 0, totalCount: page.totalCount)
+                items: try page.validatedEntities(), pageEntryCount: page.items?.count ?? 0, totalCount: page.totalCount
+            )
         }
     }
 
@@ -428,11 +379,11 @@ nonisolated struct PartnerAPI: Sendable {
                 ),
             )
 
-            guard let page = response.page else {
+            guard let page = response.page, page.items != nil else {
                 throw PartnerAPIError.emptyPayload
             }
             return Pagination.Page(
-                items: page.entities,
+                items: try page.validatedEntities(),
                 pageEntryCount: page.items?.count ?? 0,
                 totalCount: page.totalCount
             )
@@ -450,7 +401,7 @@ nonisolated struct PartnerAPI: Sendable {
                 variables: PathfinderLibraryTracksVariables(offset: offset, limit: 50),
             )
 
-            guard let page = response.page else {
+            guard let page = response.page, page.items != nil else {
                 throw PartnerAPIError.emptyPayload
             }
             return Pagination.Page(

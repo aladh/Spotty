@@ -154,7 +154,7 @@ struct SearchView: View {
                 guard ids.count == 1, let track = tracks.first(where: { ids.contains($0.id) }),
                     playback.canStartPlayback
                 else { return }
-                playback.playTrack(track)
+                playback.action(for: track, behavior: .startFromBeginning).perform()
             },
             contextMenu: { ids in
                 trackSelectionMenu(
@@ -251,26 +251,20 @@ private struct SearchSongRow: View {
     var body: some View {
         let indicator = playback.currentTrackIndicator
         let isCurrent = indicator.trackURI == track.uri
-        let showsPause = isCurrent && indicator.isPlaying
-        let canActivate = playback.canActivateTrack(track)
+        let action = playback.action(for: track, behavior: .activateSelection)
 
         HStack(spacing: 12) {
-            CatalogCardButton {
-                playback.activateTrack(track)
-            } label: { isFocused in
+            CatalogArtworkPlaybackButton(action: action) { showsPause, isFocused in
                 RemoteArtwork(url: track.artworkURL, kind: .track, cornerRadius: 4)
                     .frame(width: 40, height: 40)
                     .overlay {
-                        if (isHovering || isFocused) && canActivate {
+                        if (isHovering || isFocused) && action.isEnabled {
                             Color.black.opacity(0.5)
                             TransportSymbol(kind: showsPause ? .pause : .play)
                                 .frame(width: 20, height: 20).foregroundStyle(.white)
                         }
                     }
             }
-            .disabled(!canActivate)
-            .pointingHandCursor(enabled: canActivate)
-            .accessibilityLabel("\(showsPause ? "Pause" : "Play") \(track.title)")
             .accessibilityValue(isCurrent ? "Current track" : "")
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title).font(.system(size: 16))

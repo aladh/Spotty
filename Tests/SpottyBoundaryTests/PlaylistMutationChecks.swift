@@ -57,7 +57,7 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
         }
         if let playlistError { throw playlistError }
         guard let playlist = playlistsByID[id] else { throw PlaylistMutationCheckFailure.unavailable }
-        return CatalogMapping.playlist(playlist)
+        return try await HarnessFixtures.playlistSnapshot(playlist)
     }
 
     func addToPlaylist(playlistId: String, trackUris: [String], context _: PlaylistMutationContext) async throws {

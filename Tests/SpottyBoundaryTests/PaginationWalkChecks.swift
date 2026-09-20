@@ -17,9 +17,9 @@ struct PaginationWalkTests {
             }
             let playlist = try? await partnerAPI(transport: playlistTransport.send).playlist(id: "pl")
             #expect(
-                (playlist?.content?.items?.compactMap(\.uid)) == (["uid-0", "uid-1"]),
+                (playlist?.items.compactMap(\.uid)) == (["uid-0", "uid-1"]),
                 "playlist concatenates pages in order")
-            #expect((playlist?.content?.totalCount) == (2), "playlist freezes totalCount from the first page")
+            #expect((playlist?.header.content?.totalCount) == (2), "playlist freezes totalCount from the first page")
             #expect(
                 (playlistTransport.offsets(for: "fetchPlaylist")) == ([0, 1]), "playlist walks exactly the named pages")
 

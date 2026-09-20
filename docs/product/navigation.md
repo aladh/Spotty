@@ -18,14 +18,8 @@
   make saved collections current.
 - `spotify:` URIs and `https://open.spotify.com` links open playlist/album/artist details without
   playback. Unsupported resources, malformed links, and lookalike hosts do nothing.
-- After verifying the current account, show complete saved playlists/albums, including empty results,
-  during refresh. Label saved content potentially outdated during refresh and
-  offline/timeout/throttled failure. Credential refusal clears details pending renewed proof;
-  credential/account failures cannot become cached success or expose another account's content.
-  Account changes clear retention. No offline sign-in or downloaded music.
-- Retained album, artist, and discography content stays visible after a refresh failure, with an in-place
-  retry beside the saved-content notice. Retry is unavailable while refreshing or disconnected;
-  a successful live refresh removes the notice. Empty failures keep the full error/retry presentation.
+- Saved playlist/album and retained album/artist/discography pages follow the shared
+  [loading and retained-content contract](catalog-interaction.md#loading-and-retained-content).
 
 ### Album and artist pages
 
@@ -49,8 +43,7 @@ Numbered album/artist rows follow [row playback controls](playlists.md#row-playb
   Discovered on and Artist Playlists follow About when returned, preserving order/descriptions.
   Cards use pointing hands; vertical wheel input scrolls the page, horizontal scrolls the shelf.
   Show all opens full discography: history-aware list/grid, release filters and date/name sorting.
-  List release controls pause/resume the current album at its retained position and start other albums;
-  their glyph, label, tooltip, and availability follow the same current-context policy as grid cards.
+  List release controls and grid cards share [playback intent](catalog-interaction.md#playback-intent).
   List release titles use up to two lines at narrow widths; metadata stays on one line with its full tooltip,
   preserving artwork size, controls, and track-column alignment.
   Loading visible tracks preserves layout. Omit follow/save/download controls.

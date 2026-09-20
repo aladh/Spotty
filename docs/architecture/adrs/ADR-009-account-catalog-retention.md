@@ -46,6 +46,13 @@ removal. A playlist write that succeeds, or whose admitted outcome becomes uncer
 invalidates its retained route even when another page is open. A cancelled reconciliation cannot
 turn the previous rows into fresh authority.
 
+`CatalogLoadState` owns shared presentation transitions; `AccountScopedSingleFlight` remains the
+request, cancellation, and publication owner. Do not recreate independent freshness/error/loading
+flags in each feature. Gateway collection mapping accepts only validated complete walks, and
+playlist playback carries collection URI, account epoch, and occurrences together. These values
+do not grant mutation authority. The [shared product contract](../../product/catalog-interaction.md)
+owns refusal, retention, and retry behavior, including sibling fencing within Home/library and Search.
+
 Playlist and album stores subscribe to a bounded set of track URIs across their active and retained
 routes through the [entity query contract](../../../Sources/SpottyRuntimeContracts/CatalogEntityQueries.swift).
 Database transactions publish changes only for requested entities with changed metadata. Dirty

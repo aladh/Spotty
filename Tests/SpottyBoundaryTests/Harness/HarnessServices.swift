@@ -1025,7 +1025,7 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
         counters.record("playlist")
         if let override = onPlaylistSnapshot { return try await override(id) }
         guard let override = onPlaylist else { throw HarnessFailure.unavailable }
-        return CatalogMapping.playlist(try await override(id))
+        return try await HarnessFixtures.playlistSnapshot(try await override(id))
     }
 
     func cachedAlbum(id: String) async throws -> CatalogAlbumSnapshot? {
@@ -1037,7 +1037,7 @@ final class HarnessCatalog: CatalogProviding, CatalogEntityQueryProviding, @unch
         counters.record("album")
         if let override = onAlbumSnapshot { return try await override(id) }
         guard let override = onAlbum else { throw CatalogProviderCapabilityError.unsupported }
-        return CatalogMapping.album(try await override(id))
+        return try await HarnessFixtures.albumSnapshot(try await override(id))
     }
 
     func artist(id: String) async throws -> CatalogArtistSnapshot {

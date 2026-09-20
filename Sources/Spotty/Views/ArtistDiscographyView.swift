@@ -181,7 +181,7 @@ struct ArtistDiscographyView: View {
             primaryAction: { ids in
                 let selected = selectedTracks(ids)
                 if selected.count == 1, let track = selected.first, playback.canStartPlayback {
-                    playback.playTrack(track)
+                    playback.action(for: track, behavior: .startFromBeginning).perform()
                 }
             },
             contextMenu: { ids in
@@ -242,18 +242,12 @@ private struct DiscographyReleaseHeader: View {
                         .help(metadata)
                     Spacer(minLength: 6).frame(maxHeight: 12)
                     HStack(spacing: 16) {
-                        Button {
-                            playback.activateItem(item)
-                        } label: {
-                            TransportSymbol(kind: playback.showsPause(for: item) ? .pause : .play)
+                        CatalogPlaybackButton(action: playback.action(for: item, behavior: .activateSelection)) {
+                            showsPause in
+                            TransportSymbol(kind: showsPause ? .pause : .play)
                                 .frame(width: 14, height: 14)
                                 .foregroundStyle(.black).frame(width: 32, height: 32).background(.white, in: Circle())
                         }
-                        .buttonStyle(.plain)
-                        .disabled(!playback.canActivateItem(item))
-                        .pointingHandCursor(enabled: playback.canActivateItem(item))
-                        .accessibilityLabel(playback.activationLabel(for: item))
-                        .help(playback.activationLabel(for: item))
                         if let album, let error = album.error {
                             Button("Try again") { Task { await retry() } }.help(error)
                         } else if album == nil || album?.isLoading == true {

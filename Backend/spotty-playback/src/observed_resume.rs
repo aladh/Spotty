@@ -34,6 +34,75 @@ pub(crate) struct ObservedResumeState {
     pub(crate) local: Option<ObservedResumeTarget>,
     local_context_known: bool,
     pub(crate) remote_owner: bool,
+    load: Option<ObservedLoad>,
+}
+
+struct ObservedLoad {
+    target: ResumeLoadTarget,
+    after_revision: u64,
+    after_playing: u64,
+    started: std::time::Instant,
+}
+
+/// Reuse the generation's local/protocol evidence for recovery loads, too. Queuing a load
+/// cannot satisfy this receipt; both consumers must describe its target after dispatch.
+pub(crate) fn arm_load_observation(generation: u64, target: ResumeLoadTarget) -> bool {
+    with_engine_owned(generation, |engine| {
+        engine.observed_resume.load = Some(ObservedLoad {
+            target,
+            after_revision: engine.observed_resume.revision,
+            after_playing: engine.playing_event().sequence,
+            started: std::time::Instant::now(),
+        });
+    })
+    .is_ok()
+}
+
+pub(crate) fn load_observation_confirmed(
+    generation: u64,
+    expected_load: Option<&ResumeLoadTarget>,
+) -> bool {
+    with_engine_owned(generation, |engine| {
+        let state = &engine.observed_resume;
+        let Some(load) = &state.load else {
+            return false;
+        };
+        if expected_load.is_some_and(|target| *target != load.target) {
+            return false;
+        }
+        let Some(observed) = &state.observed else {
+            return false;
+        };
+        let expected = match &load.target {
+            ResumeLoadTarget::Context {
+                uri,
+                track_hint,
+                position_ms,
+            } => ObservedResumeTarget {
+                track_uri: track_hint
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| observed.track_uri.clone()),
+                context_uri: Some(uri.clone()),
+                position_ms: *position_ms,
+            },
+            ResumeLoadTarget::Track { uri, position_ms } => ObservedResumeTarget {
+                track_uri: uri.clone(),
+                context_uri: None,
+                position_ms: *position_ms,
+            },
+        };
+        let playing = engine.playing_event();
+        engine.is_playing()
+            && playing.generation == generation
+            && playing.sequence > load.after_playing
+            && state.confirms_playing(
+                &expected,
+                load.after_revision,
+                load.started.elapsed().as_millis().min(u32::MAX as u128) as u32,
+            )
+    })
+    .unwrap_or(false)
 }
 
 pub(crate) fn record_resume_observation(stamp: SnapshotStamp, observation: &PlaybackObservation) {
@@ -121,6 +190,17 @@ impl ObservedResumeState {
             && self.protocol_active
             && self.protocol_playing
             && !self.remote_owner
+            && self.local_context_known
+            && self.local.as_ref().is_some_and(|local| {
+                local.track_uri == expected.track_uri
+                    && local.context_uri == expected.context_uri
+                    && local.position_ms.saturating_add(1_000) >= expected.position_ms
+                    && local.position_ms
+                        <= expected
+                            .position_ms
+                            .saturating_add(elapsed_ms)
+                            .saturating_add(1_000)
+            })
             && self.observed.as_ref().is_some_and(|observed| {
                 observed.track_uri == expected.track_uri
                     && observed.context_uri == expected.context_uri
@@ -601,6 +681,87 @@ mod tests {
         assert_eq!(state.action(&expected, true, true), ResumeAction::Play);
         state.remote_owner = true;
         assert_eq!(state.action(&expected, true, true), ResumeAction::Reject);
+    }
+
+    #[test]
+    fn transport_trace_recovery_load_requires_fresh_target_and_ownership_evidence() {
+        let _guard = lock_lifecycle_test_globals();
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let saved = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
+        let saved_playing = engine_is_playing();
+        let saved_stamp = playing_event_stamp();
+        let expected = target("current", 152_000);
+        with_engine(|engine| {
+            engine.observed_resume = ObservedResumeState {
+                revision: 10,
+                observed: Some(expected.clone()),
+                local: Some(expected.clone()),
+                local_context_known: true,
+                protocol_active: true,
+                protocol_playing: true,
+                ..Default::default()
+            }
+        });
+        assert!(arm_load_observation(
+            generation,
+            ResumeLoadTarget::Context {
+                uri: expected.context_uri.clone().unwrap(),
+                track_hint: Some(expected.track_uri.clone()),
+                position_ms: 152_000,
+            }
+        ));
+        assert!(
+            !load_observation_confirmed(generation, None),
+            "dispatch alone cannot confirm a load"
+        );
+        publish_playing_event(generation);
+        assert!(
+            !load_observation_confirmed(generation, None),
+            "a local event is not fresh protocol confirmation"
+        );
+        with_engine(|engine| engine.observed_resume.revision = 11);
+        assert!(load_observation_confirmed(generation, None));
+        assert!(
+            !load_observation_confirmed(
+                generation,
+                Some(&ResumeLoadTarget::Track {
+                    uri: "spotify:track:older-command".into(),
+                    position_ms: 0,
+                })
+            ),
+            "a replacement load cannot confirm an earlier command's different target"
+        );
+        assert!(!load_observation_confirmed(
+            generation.wrapping_add(1),
+            None
+        ));
+        for wrong in [
+            target("different", 152_000),
+            target("current", 0),
+            ObservedResumeTarget {
+                context_uri: None,
+                ..expected.clone()
+            },
+        ] {
+            with_engine(|engine| engine.observed_resume.observed = Some(wrong.clone()));
+            assert!(!load_observation_confirmed(generation, None));
+            with_engine(|engine| {
+                engine.observed_resume.observed = Some(expected.clone());
+                engine.observed_resume.local = Some(wrong);
+            });
+            assert!(!load_observation_confirmed(generation, None));
+            with_engine(|engine| engine.observed_resume.local = Some(expected.clone()));
+        }
+        with_engine(|engine| engine.observed_resume.remote_owner = true);
+        assert!(!load_observation_confirmed(generation, None));
+        with_engine(|engine| {
+            engine.observed_resume.remote_owner = false;
+            engine.observed_resume.protocol_active = false;
+        });
+        assert!(!load_observation_confirmed(generation, None));
+        with_engine(|engine| engine.observed_resume = saved);
+        set_engine_playing_for_test(saved_playing);
+        replace_playing_event_stamp_for_test(saved_stamp);
     }
 
     #[test]

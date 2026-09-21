@@ -11,6 +11,8 @@ edition = "2024"
 [features]
 # Refer to the workspace Cargo.toml for the list of features
 default = ["native-tls"]
+# Used only by Spotty's dev-dependency to drive the real handler offline.
+spotty-test-harness = []
 
 # TLS backend propagation
 native-tls = ["librespot-core/native-tls"]

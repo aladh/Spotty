@@ -1,3 +1,4 @@
+use crate::selection_load_policy::{SelectionLoadPolicy, SelectionOrder};
 use crate::*;
 
 /// How often the playing-event waits re-read [`PlayingEventStamp`].
@@ -49,7 +50,7 @@ impl ResumeLoadTarget {
     /// Logs this fallback and builds the Spirc load. [`load_at_position`] only issues the
     /// request; start-playing, seek, track-hint, and the diagnostic wording live here so they
     /// cannot drift between targets.
-    fn into_load(self) -> (LoadRequest, &'static str) {
+    fn into_load(self, policy: SelectionLoadPolicy) -> (LoadRequest, &'static str) {
         match self {
             Self::Context {
                 uri,
@@ -62,15 +63,7 @@ impl ResumeLoadTarget {
                     uri, position_ms, playing_track
                 );
                 (
-                    LoadRequest::from_context_uri(
-                        uri,
-                        LoadRequestOptions {
-                            start_playing: true,
-                            seek_to: position_ms,
-                            playing_track,
-                            ..Default::default()
-                        },
-                    ),
+                    LoadRequest::from_context_uri(uri, policy.options(position_ms, playing_track)),
                     "Resume fallback context load",
                 )
             }
@@ -80,14 +73,7 @@ impl ResumeLoadTarget {
                     uri, position_ms
                 );
                 (
-                    LoadRequest::from_tracks(
-                        vec![uri],
-                        LoadRequestOptions {
-                            start_playing: true,
-                            seek_to: position_ms,
-                            ..Default::default()
-                        },
-                    ),
+                    LoadRequest::from_tracks(vec![uri], policy.options(position_ms, None)),
                     "Resume fallback track load",
                 )
             }
@@ -120,8 +106,7 @@ pub(crate) fn has_resume_identity() -> bool {
 /// How a rehydration window closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RehydrationOutcome {
-    /// The Player of the generation that opened the window reported playback: a Swift load
-    /// landed. A Playing event stamped with another generation does not count.
+    /// Fresh local and protocol evidence confirmed the dispatched load in this generation.
     Playing,
     /// A Swift load found the Spirc command channel closed; the build must fail.
     NeedsReinit,
@@ -176,11 +161,13 @@ fn playing_event_belongs_to_window(previous_seq: u64) -> bool {
     let stamp = playing_event_stamp();
     stamp.sequence > previous_seq
         && stamp.generation == REHYDRATION_WINDOW_GENERATION.load(Ordering::SeqCst)
+        && load_observation_confirmed(stamp.generation, None)
 }
 
 /// Waits inside the runtime for a Swift rehydration load to land, fail terminally, or time
 /// out, without parking a tokio worker. A sequence advance from a superseded generation's
-/// pump is ignored; only the window's own generation can close it as `Playing`.
+/// pump is ignored; only matching local/protocol evidence for the window's dispatched target
+/// can close it as `Playing`.
 pub(crate) async fn wait_for_rehydration(
     previous_seq: u64,
     timeout: Duration,
@@ -240,8 +227,16 @@ pub(crate) fn wait_for_playing_event(previous_seq: u64, timeout: Duration) -> bo
 }
 
 /// Queues one `LoadRequest`. `None` means try the next fallback; a closed channel is terminal.
-pub(crate) fn issue_load_target(spirc: &Spirc, target: ResumeLoadTarget) -> Option<i32> {
-    let (load_request, what) = target.into_load();
+pub(crate) fn issue_load_target(
+    spirc: &Spirc,
+    target: ResumeLoadTarget,
+    policy: SelectionLoadPolicy,
+    generation: u64,
+) -> Option<i32> {
+    if !arm_load_observation(generation, target.clone()) {
+        return Some(ERROR_GENERAL);
+    }
+    let (load_request, what) = target.into_load(policy);
     match spirc.load(load_request) {
         Ok(_) => Some(0),
         Err(e) => match spirc_error(what, &e) {
@@ -301,6 +296,11 @@ pub(crate) fn load_at_position(
     let Some(spirc) = current_spirc("Load") else {
         return ERROR_GENERAL;
     };
+    let policy = SelectionLoadPolicy::capture(if from_context {
+        SelectionOrder::Context
+    } else {
+        SelectionOrder::Supplied
+    });
     if !rehydrating {
         if let Err(e) = ensure_active_for_playback(&spirc) {
             return e;
@@ -315,7 +315,7 @@ pub(crate) fn load_at_position(
     } else {
         ResumeLoadTarget::Track { uri, position_ms }
     };
-    let seq_before = playing_event_stamp().sequence;
+    let confirmation_target = target.clone();
     let issue_result = if rehydrating {
         // `ensure_active_for_playback` above may have re-entered Swift and allowed teardown to
         // start. Revalidate generation/window ownership and the concrete Spirc immediately before
@@ -334,7 +334,7 @@ pub(crate) fn load_at_position(
             if !is_active_device() {
                 return Err(ERROR_NOT_CONNECTED);
             }
-            let result = issue_load_target(&spirc, target);
+            let result = issue_load_target(&spirc, target, policy, load_generation);
             if result == Some(ERROR_NEEDS_REINIT) {
                 note_load_needs_reinit_locked(load_generation);
             }
@@ -347,7 +347,10 @@ pub(crate) fn load_at_position(
             Err(error) => return error,
         }
     } else {
-        issue_load_target(&spirc, target)
+        with_current_generation_mutation(load_generation, || {
+            issue_load_target(&spirc, target, policy, load_generation)
+        })
+        .flatten()
     };
 
     match issue_result {
@@ -355,7 +358,11 @@ pub(crate) fn load_at_position(
             if rehydrating {
                 debug!("Rehydration load queued; the reconnect window waits for Playing");
                 0
-            } else if wait_for_playing_event(seq_before, RESUME_LOAD_PLAYING_TIMEOUT) {
+            } else if wait_for_load_observation(
+                load_generation,
+                &confirmation_target,
+                RESUME_LOAD_PLAYING_TIMEOUT,
+            ) {
                 0
             } else {
                 ERROR_GENERAL
@@ -463,4 +470,24 @@ pub(crate) fn resume_playback() -> i32 {
 
     debug!("Resume play() produced no Playing event within timeout; Swift may load fallbacks");
     ERROR_GENERAL
+}
+
+/// Bounded FFI wait for this generation's dispatched load target, never any Playing event.
+fn wait_for_load_observation(
+    generation: u64,
+    target: &ResumeLoadTarget,
+    timeout: Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if load_observation_confirmed(generation, Some(target)) {
+            return true;
+        }
+        if SESSION_GENERATION.load(Ordering::SeqCst) != generation
+            || std::time::Instant::now() >= deadline
+        {
+            return false;
+        }
+        std::thread::sleep(PLAYING_EVENT_POLL_INTERVAL);
+    }
 }

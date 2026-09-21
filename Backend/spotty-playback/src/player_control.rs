@@ -1,21 +1,5 @@
+use crate::selection_load_policy::{SelectionLoadPolicy, SelectionOrder};
 use crate::*;
-use librespot_connect::{LoadContextOptions, Options};
-
-/// Capture modes before activation can emit an empty local player's defaults. Explicit track
-/// lists already carry Swift's chosen order; preserving the mode must not shuffle that list again.
-fn selection_load_options(preserve_track_order: bool) -> LoadRequestOptions {
-    let (shuffle, repeat_track, repeat) = current_playback_options();
-    LoadRequestOptions {
-        start_playing: true,
-        context_options: Some(LoadContextOptions::Options(Options {
-            shuffle,
-            repeat,
-            repeat_track,
-        })),
-        preserve_track_order,
-        ..Default::default()
-    }
-}
 
 /// General command failure.
 pub(crate) const ERROR_GENERAL: i32 = -1;
@@ -95,7 +79,7 @@ pub extern "C" fn spotty_playback_play_tracks(
             return -1;
         };
 
-        let options = selection_load_options(true);
+        let options = SelectionLoadPolicy::capture(SelectionOrder::Supplied).options(0, None);
         // Ensure device is active before loading
         if let Err(e) = ensure_active_for_playback(&spirc) {
             return e;
@@ -139,7 +123,12 @@ pub extern "C" fn spotty_playback_play_uri(uri_or_url: *const c_char) -> SpottyP
             return -1;
         };
 
-        let options = selection_load_options(uri_str.starts_with("spotify:track:"));
+        let options = SelectionLoadPolicy::capture(if uri_str.starts_with("spotify:track:") {
+            SelectionOrder::Supplied
+        } else {
+            SelectionOrder::Context
+        })
+        .options(0, None);
         // Ensure device is active before loading
         if let Err(e) = ensure_active_for_playback(&spirc) {
             return e;
@@ -702,34 +691,4 @@ pub extern "C" fn spotty_playback_add_to_queue(uri: *const c_char) -> SpottyPlay
 
         spirc_command("Add to queue", |spirc| spirc.add_to_queue(spotify_uri))
     })
-}
-
-#[cfg(test)]
-mod selection_tests {
-    use super::*;
-
-    #[test]
-    fn selection_captures_modes_before_activation_replaces_live_options() {
-        let _guard = lock_lifecycle_test_globals();
-        let original = current_playback_options();
-        for shuffle in [false, true] {
-            for repeat_track in [false, true] {
-                for repeat in [false, true] {
-                    update_playback_options(shuffle, repeat_track, repeat);
-                    let selected = selection_load_options(true);
-                    update_playback_options(false, false, false);
-                    let Some(LoadContextOptions::Options(options)) = selected.context_options
-                    else {
-                        panic!("a selection must retain the observed modes");
-                    };
-                    assert_eq!(
-                        (options.shuffle, options.repeat_track, options.repeat),
-                        (shuffle, repeat_track, repeat)
-                    );
-                    assert!(selected.start_playing && selected.preserve_track_order);
-                }
-            }
-        }
-        update_playback_options(original.0, original.1, original.2);
-    }
 }

@@ -88,9 +88,9 @@ pub(crate) struct ConnectionState {
 pub(crate) struct EngineGeneration {
     /// The generation that owns this state; mirrors [`SESSION_GENERATION`].
     pub(crate) session_generation: u64,
-    /// Player state. The retained engine has one production player implementation: librespot's
-    /// own `Player`, which decodes in-process and delivers bounded PCM through `proxy_sink`.
-    pub(crate) player: Option<Arc<Player>>,
+    /// Observation/lifetime capability only. Spirc owns the mutable librespot Player,
+    /// which decodes in-process and delivers bounded PCM through `proxy_sink`.
+    pub(crate) player: Option<PlayerObserver>,
     pub(crate) session: Option<Session>,
     pub(crate) mixer: Option<Arc<SoftMixer>>,
     pub(crate) spirc: Option<Arc<Spirc>>,
@@ -253,7 +253,7 @@ pub(crate) fn with_connection_owned<R>(
 /// A complete generation, constructed locally and not yet visible to commands or teardown.
 pub(crate) struct StagedEngine {
     pub(crate) session: Session,
-    pub(crate) player: Arc<Player>,
+    pub(crate) player: PlayerObserver,
     pub(crate) mixer: Arc<SoftMixer>,
     pub(crate) spirc: Arc<Spirc>,
     pub(crate) tasks: Vec<JoinHandle<()>>,
@@ -329,8 +329,8 @@ pub(crate) fn push_engine_task(
     result
 }
 
-/// Returns the current concrete librespot Player without holding the engine lock.
-pub(crate) fn current_player() -> Option<Arc<Player>> {
+/// Returns observation/lifetime access only; ordinary transport belongs to Spirc.
+pub(crate) fn current_player() -> Option<PlayerObserver> {
     with_engine(|engine| engine.player.clone())
 }
 

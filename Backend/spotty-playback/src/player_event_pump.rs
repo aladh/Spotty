@@ -129,12 +129,12 @@ pub(crate) fn resume_position_to_save_on_deactivation(live_position_ms: u32) -> 
 /// does not close while the pump is still running. The caller subscribes before constructing
 /// Spirc, then starts this consumer after publication so early initialization events are buffered.
 pub(crate) fn start_player_event_pump(
-    player: Arc<Player>,
+    player: PlayerObserver,
     mut event_channel: mpsc::UnboundedReceiver<PlayerEvent>,
     generation: u64,
 ) -> (mpsc::UnboundedSender<()>, JoinHandle<()>) {
     let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-    let player_keepalive = Arc::clone(&player);
+    let player_keepalive = player;
     let task = RUNTIME.spawn(async move {
         // The upstream PlayerEvent stream carries a PlayRequestIdChanged event before each
         // requested load. Keep that identity with this listener so an Unavailable event can be
@@ -647,6 +647,62 @@ mod player_event_pump_policy {
     use super::*;
     use std::sync::atomic::AtomicU8;
 
+    #[test]
+    fn transport_trace_play_before_old_paused_and_pause_before_old_playing() {
+        let _guard = lock_lifecycle_test_globals();
+        let _restore = RestorePlaybackGlobals(capture_playback_globals());
+        let saved_resume = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        block_on_export(async {
+            for play in [true, false] {
+                for command_first in [true, false] {
+                    let started = std::time::Instant::now();
+                    let mut spirc =
+                        librespot_connect::SpottyTransportFixture::new(!play, 1, 152_000);
+                    let mut request = PlayerRequestState::default();
+                    request.play_request_id_changed(1);
+                    let paused = PlayerEvent::Paused {
+                        play_request_id: 1,
+                        track_id: synthetic_track(),
+                        position_ms: 152_000,
+                    };
+                    let old = if play {
+                        paused.clone()
+                    } else {
+                        playing_event(152_000)
+                    };
+                    // The adapter sees the load before the independent Spirc consumer does.
+                    apply_player_event(old.clone(), generation, &mut request);
+                    if command_first {
+                        spirc.command(play);
+                    }
+                    spirc.deliver(old);
+                    if !command_first {
+                        spirc.command(play);
+                    }
+                    let current = if play { playing_event(152_000) } else { paused };
+                    spirc.deliver(current.clone());
+                    apply_player_event(current, generation, &mut request);
+                    assert_eq!(engine_is_playing(), play);
+                    assert_eq!(spirc.is_paused(), !play);
+                    assert_eq!(POSITION_MS.load(Ordering::SeqCst), 152_000);
+                    eprintln!(
+                        "synthetic transport_trace={} command_first={} elapsed_us={}",
+                        if play {
+                            "play-before-old-paused"
+                        } else {
+                            "pause-before-old-playing"
+                        },
+                        command_first,
+                        started.elapsed().as_micros()
+                    );
+                }
+            }
+        })
+        .expect("offline retained-handler trace");
+        with_engine(|engine| engine.observed_resume = saved_resume);
+    }
+
     fn sample_event() -> PlayerEvent {
         PlayerEvent::VolumeChanged { volume: 1 }
     }
@@ -1042,7 +1098,7 @@ mod player_event_pump_policy {
     }
 
     #[test]
-    fn superseded_load_events_cannot_replace_current_resume_evidence() {
+    fn transport_trace_replacement_before_old_position_events() {
         let _guard = lock_lifecycle_test_globals();
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
         let saved_resume = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
@@ -1059,6 +1115,15 @@ mod player_event_pump_policy {
             generation,
             &mut state,
         );
+        let mut spirc = block_on_export(async {
+            librespot_connect::SpottyTransportFixture::new(false, 2, 152_000)
+        })
+        .unwrap();
+        spirc.deliver(PlayerEvent::Paused {
+            play_request_id: 2,
+            track_id: current.clone(),
+            position_ms: 152_000,
+        });
         let local = with_engine(|engine| engine.observed_resume.local.clone());
         let playing = playing_event_stamp();
         for event in [
@@ -1092,7 +1157,10 @@ mod player_event_pump_policy {
                 position_ms: 0,
             },
         ] {
+            spirc.deliver(event.clone());
             apply_player_event(event, generation, &mut state);
+            assert!(spirc.is_paused());
+            assert_eq!(spirc.position_ms(), 152_000);
             assert!(!engine_is_playing());
             assert_eq!(playing_event_stamp(), playing);
             assert_eq!(POSITION_MS.load(Ordering::SeqCst), 152_000);
@@ -1261,12 +1329,17 @@ mod player_event_pump_policy {
     }
 
     #[test]
-    fn deactivation_preserves_the_terminal_stop_and_saved_resume_position() {
+    fn transport_trace_deactivation_before_stopped() {
         let _guard = lock_lifecycle_test_globals();
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
         let saved_resume = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
         let generation = SESSION_GENERATION.load(Ordering::SeqCst);
         let mut state = PlayerRequestState::default();
+        let mut spirc = block_on_export(async {
+            librespot_connect::SpottyTransportFixture::new(true, 1, 152_000)
+        })
+        .unwrap();
+        spirc.deliver(playing_event(152_000));
         state.play_request_id_changed(1);
         apply_player_event(playing_event(152_000), generation, &mut state);
         assert!(engine_is_playing());
@@ -1290,6 +1363,11 @@ mod player_event_pump_policy {
         );
         assert!(!engine_is_playing());
         assert!(!is_active_device());
+        spirc.deliver(PlayerEvent::Stopped {
+            play_request_id: 1,
+            track_id: synthetic_track(),
+        });
+        assert!(spirc.is_stopped());
         assert_eq!(POSITION_MS.load(Ordering::SeqCst), 0);
         assert_eq!(RESUME_POSITION_MS.load(Ordering::SeqCst), 152_000);
         assert!(with_engine(|engine| engine.observed_resume.local.is_none()));

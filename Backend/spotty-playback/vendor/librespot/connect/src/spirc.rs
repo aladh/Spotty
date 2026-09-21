@@ -2099,3 +2099,9 @@ impl Drop for SpircTask {
 #[cfg(test)]
 #[path = "spotty_spirc_tests.rs"]
 mod spotty_spirc_tests;
+
+#[cfg(any(test, feature = "spotty-test-harness"))]
+#[path = "spotty_transport_fixture.rs"]
+mod spotty_transport_fixture;
+#[cfg(feature = "spotty-test-harness")]
+pub use spotty_transport_fixture::SpottyTransportFixture;

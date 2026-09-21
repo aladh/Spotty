@@ -308,11 +308,11 @@ fn rehydration_window_reports_playing_reinit_or_timeout() {
     );
 
     // Merely writing the generation must never validate the older sequence: the current
-    // generation has to publish its own Playing event.
+    // generation needs its own event AND a matching dispatched load observation.
     publish_playing_event(7);
     assert_eq!(
         RUNTIME.block_on(wait_for_rehydration(seq, Duration::ZERO)),
-        RehydrationOutcome::Playing
+        RehydrationOutcome::TimedOut
     );
 }
 

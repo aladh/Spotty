@@ -89,6 +89,11 @@ Preserve these distinctions when changing the boundary:
   still owns it. Local timing samples and a successful command return alone cannot confirm a resume
   or advance its presentation. Legacy resume and sticky load targets remain available for reconnect
   rehydration until consumers adopt the observed-resume entry point.
+- Reconnect/load confirmation also names its dispatched target. A new local Playing event alone
+  cannot close the rehydration wait: current-generation local and fresh protocol evidence must
+  agree on the requested track/context, position window and local ownership. The existing bounded
+  timeout still releases readiness without claiming playback succeeded. Recovery loads retain
+  pre-activation modes and explicitly choose context or supplied-track order.
 
 ## Standing constraints
 

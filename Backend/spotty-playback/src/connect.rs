@@ -525,7 +525,7 @@ pub(crate) fn configured_connect_device_name() -> Option<String> {
 pub(crate) async fn create_spirc(
     session: &Session,
     credentials: &librespot_core::authentication::Credentials,
-    player: Arc<Player>,
+    player: Arc<librespot_playback::player::Player>,
     mixer: Arc<SoftMixer>,
 ) -> Result<(Arc<Spirc>, JoinHandle<()>), InitializationFailure> {
     let device_name = configured_connect_device_name().ok_or(InitializationFailure::Transient)?;

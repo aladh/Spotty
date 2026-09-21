@@ -1,4 +1,5 @@
 use super::*;
+use librespot_playback::player::Player;
 /// Builds librespot's own Player, decoding in-process and delivering PCM through `proxy_sink.rs`.
 fn create_librespot_player(session: &Session) -> Arc<Player> {
     let player_config = PlayerConfig {
@@ -341,11 +342,12 @@ pub(crate) async fn build_player_owned(
     // Create new player - must be created with the new session because Player is
     // tightly coupled to Session's ChannelManager for decryption key requests
     let player = create_librespot_player(&session);
+    let observer = player.observer();
     // Subscribe before Spirc can emit startup or activation events, but defer applying them
     // until the generation is installed. Dropping a failed local build drops this receiver too.
-    let event_channel = player.get_player_event_channel();
+    let event_channel = observer.subscribe();
     let (spirc, spirc_task) =
-        match create_spirc(&session, &credentials, player.clone(), mixer.clone()).await {
+        match create_spirc(&session, &credentials, player, mixer.clone()).await {
             Ok(resources) => resources,
             Err(failure) => {
                 publish_initialization_failure(current_generation, failure, recovery);
@@ -413,7 +415,7 @@ pub(crate) async fn build_player_owned(
             current_generation,
             StagedEngine {
                 session: staged_session,
-                player,
+                player: observer,
                 mixer,
                 spirc: staged_spirc,
                 tasks: staged_tasks,

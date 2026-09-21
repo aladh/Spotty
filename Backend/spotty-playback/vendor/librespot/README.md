@@ -31,6 +31,11 @@ Changes from that source:
   paused event cannot strand resumed audio behind paused Connect state, or undo a newer pause.
 - Explicit ordered loads can retain shuffle/repeat options without shuffling the supplied order
   again. Spotty captures these options before activation can publish empty-player defaults.
+- `PlayerObserver` retains subscription/lifetime access without exposing transport methods.
+  The bridge stores this capability; construction gives the mutable Player to Spirc.
+- The dev-only `spotty-test-harness` feature shares the offline retained-handler fixture with
+  adapter tests. Named `transport_trace` tests deliver the same synthetic events to both consumers;
+  no fixture is enabled in engine artifact builds.
 - `connect/src/spotty_spirc_tests.rs` exercises the command handler, restoration receipt, and
   cancellation without a network connection or audio. `spotty_transfer_tests.rs` follows paused
   hydration through context resolution and natural queue advancement, then decodes the serialized

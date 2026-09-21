@@ -15,7 +15,7 @@ struct HydratedResumeTests {
 
     private func playback(
         revision: UInt64, uri: String, playing: Bool, positionMS: Int64 = 152_000,
-        carriesContext: Bool = true
+        carriesContext: Bool = true, unavailable: Bool = false, audioKeyRefused: Bool = false
     )
         -> RustPlaybackState
     {
@@ -23,6 +23,7 @@ struct HydratedResumeTests {
             revision: revision, sessionGeneration: 1, isPlaying: playing, isPaused: !playing,
             trackURI: uri, positionMS: positionMS, durationMS: 240_000, timestampMS: 0,
             shuffle: !uri.isEmpty, repeatTrack: false, repeatContext: !uri.isEmpty,
+            trackUnavailable: unavailable, audioKeyRefused: audioKeyRefused,
             isActiveDevice: revision > 1, contextURI: carriesContext ? (uri.isEmpty ? "" : context) : nil)
     }
 
@@ -121,6 +122,10 @@ struct HydratedResumeTests {
         engine.executeResult = .ok
         player.play(uri: "spotify:track:chosen")
         await expectEventually { engine.executeCount == 2 && player.state.pendingCommands[.transport] == nil }
+        #expect(player.playbackNotice?.kind == .resumeUnavailable, "a load acknowledgement is not playback")
+        player.receive(
+            playback(revision: 2, uri: "spotify:track:chosen", playing: true, positionMS: 0),
+            revision: 2, receivedAt: now)
         #expect(player.playbackNotice == nil)
         await player.shutdownForTermination()
     }
@@ -149,13 +154,60 @@ struct HydratedResumeTests {
         #expect(action.isEnabled, "an explicit catalog selection must remain a recovery action")
         engine.executeResult = .ok
         action.perform()
-        await expectEventually { engine.executeCount == 2 }
+        await expectEventually { engine.executeCount == 2 && player.state.pendingCommands[.transport] == nil }
         if case let .playURI(uri) = engine.operations.last {
             #expect(uri == (playlist ? context : track))
         } else {
             Issue.record("Recovery must start the explicit selection instead of retrying resume")
         }
+        #expect(player.playbackNotice?.kind == .resumeUnavailable)
+        player.receive(
+            playback(revision: 2, uri: track, playing: true, positionMS: 0), revision: 2, receivedAt: now)
         #expect(player.playbackNotice == nil)
+        await player.shutdownForTermination()
+    }
+
+    enum RecoveryFailure: CaseIterable { case command, unavailable, audioKeyRefused }
+
+    @Test(arguments: RecoveryFailure.allCases)
+    func failedRecoverySelectionPreservesTheResumeBlock(failure: RecoveryFailure) async {
+        let engine = HarnessEngine(executeResult: .resumeMismatch, position: 152_000)
+        let player = await hydratedPlayer(engine: engine)
+        await expectEventually { player.canTogglePlayback }
+        player.togglePlayback()
+        await expectEventually { player.playbackNotice?.kind == .resumeUnavailable }
+        let notice = player.playbackNotice
+        let gate = HarnessEngineGate(result: .error)
+        engine.onExecute = { _ in gate.enter() }
+        let action = CatalogPlaybackAccess(player: player).action(
+            for: HarnessFixtures.track(uri: track, title: "Hydrated", duration: 240),
+            behavior: .activateSelection)
+        action.perform()
+        await expectEventually { gate.hasStarted }
+        #expect(player.playbackNotice == notice, "admission must not erase the safety block")
+        if failure != .command {
+            player.receive(
+                playback(
+                    revision: 2, uri: track, playing: false, carriesContext: false, unavailable: true,
+                    audioKeyRefused: failure == .audioKeyRefused),
+                revision: 2, receivedAt: now)
+        }
+        gate.finish(with: failure == .command ? .error : .ok)
+        await expectEventually { player.state.pendingCommands[.transport] == nil && player.canStartPlayback }
+        #expect(player.playbackNotice?.kind == .resumeUnavailable)
+        let expectedMessage =
+            switch failure {
+            case .command: notice?.message
+            case .unavailable: PlaybackNotice.trackUnavailableMessage
+            case .audioKeyRefused: PlaybackNotice.audioKeyRefusedMessage
+            }
+        #expect(player.playbackNotice?.message == expectedMessage)
+        #expect(!player.canTogglePlayback && player.canStartPlayback)
+        #expect(player.state.transport == .paused)
+        #expect(action.isEnabled, "another explicit selection remains possible")
+        #expect(engine.executeCount == 2)
+        player.togglePlayback()
+        #expect(engine.executeCount == 2, "failed recovery cannot advertise another stale resume")
         await player.shutdownForTermination()
     }
 

@@ -808,6 +808,14 @@ private func transientNoticePreservesResumeBlock(
         pre.notice?.kind == .resumeUnavailable
     else { return nil }
     switch envelope.event {
+    case .commandStarted:
+        if post.notice != pre.notice {
+            return "optimistic command admission erased the persistent resume block"
+        }
+    case let .enginePlayback(snapshot):
+        if snapshot.trackUnavailable, post.notice?.kind != .resumeUnavailable {
+            return "a failed recovery load erased the persistent resume block"
+        }
     case let .notice(notice), let .commandFinished(_, _, notice):
         if notice?.kind == .command, post.notice != pre.notice {
             return "a transient error erased the persistent resume block"

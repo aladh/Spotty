@@ -74,7 +74,10 @@ impl PlayerRequestState {
     }
 
     fn disconnected(&mut self) {
-        self.clear();
+        // Deactivation is followed by Stopped for this same request. Retain its ID so
+        // the terminal event can clear live position and local resume evidence, while
+        // disarming failure notices for the device that just lost ownership.
+        self.loading_track_uri = None;
     }
 
     /// Consumes a matching pending load so duplicate Unavailable events can never emit a second
@@ -1255,6 +1258,43 @@ mod player_event_pump_policy {
         );
         assert!(!is_active_device());
         assert_eq!(RESUME_POSITION_MS.load(Ordering::SeqCst), 1_200);
+    }
+
+    #[test]
+    fn deactivation_preserves_the_terminal_stop_and_saved_resume_position() {
+        let _guard = lock_lifecycle_test_globals();
+        let _restore = RestorePlaybackGlobals(capture_playback_globals());
+        let saved_resume = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let mut state = PlayerRequestState::default();
+        state.play_request_id_changed(1);
+        apply_player_event(playing_event(152_000), generation, &mut state);
+        assert!(engine_is_playing());
+        assert!(with_engine(|engine| engine.observed_resume.local.is_some()));
+
+        apply_player_event(
+            PlayerEvent::SessionDisconnected {
+                connection_id: "synthetic-connection".into(),
+                user_name: String::new(),
+            },
+            generation,
+            &mut state,
+        );
+        apply_player_event(
+            PlayerEvent::Stopped {
+                play_request_id: 1,
+                track_id: synthetic_track(),
+            },
+            generation,
+            &mut state,
+        );
+        assert!(!engine_is_playing());
+        assert!(!is_active_device());
+        assert_eq!(POSITION_MS.load(Ordering::SeqCst), 0);
+        assert_eq!(RESUME_POSITION_MS.load(Ordering::SeqCst), 152_000);
+        assert!(with_engine(|engine| engine.observed_resume.local.is_none()));
+        assert_eq!(state, PlayerRequestState::default());
+        with_engine(|engine| engine.observed_resume = saved_resume);
     }
 
     #[test]

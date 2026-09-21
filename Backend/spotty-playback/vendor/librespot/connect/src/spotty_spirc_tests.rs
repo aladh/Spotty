@@ -124,6 +124,32 @@ async fn spotty_delayed_playing_load_event_cannot_undo_a_newer_pause() {
 }
 
 #[tokio::test]
+async fn spotty_pause_command_updates_connect_before_the_player_event() {
+    let mut task = task();
+    task.connect_state.set_active(true);
+    task.play_request_id = Some(7);
+    task.play_status = SpircPlayStatus::Playing {
+        nominal_start_time: task.now_ms() - 152_000,
+        preloading_of_next_track_triggered: false,
+    };
+    // The transfer adapter uses this same command path. State changes before notify's
+    // transport request; an offline test need not complete that request.
+    let _ = task.handle_command(SpircCommand::Pause).now_or_never();
+    assert!(matches!(task.play_status, SpircPlayStatus::Paused { .. }));
+    assert!(task.connect_state.player().is_paused);
+    task.handle_player_event(PlayerEvent::Paused {
+        track_id: SpotifyUri::from_uri("spotify:track:0000000000000000000001").unwrap(),
+        play_request_id: 7,
+        position_ms: 152_075,
+    })
+    .unwrap();
+    assert_eq!(
+        task.connect_state.player().position_as_of_timestamp,
+        152_075
+    );
+}
+
+#[tokio::test]
 async fn spotty_ordered_selection_retains_modes_without_reshuffling_its_tracks() {
     use crate::model::Options;
     let mut task = task();

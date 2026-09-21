@@ -653,12 +653,10 @@ pub extern "C" fn spotty_playback_transfer_playback(
 
         match result {
             Ok(_) => {
-                // Pause local playback after successful transfer. Cloned out of its global
-                // first: with the Swift audio path in use `pause()` forwards into Swift, which
-                // may call straight back into this crate, and no lock may be held across that.
-                if let Some(player) = current_player() {
-                    player.pause();
-                }
+                // Keep Connect's requested transport state and its player command ordered.
+                // A direct Player pause bypasses Spirc's event fence and can leave its
+                // published state playing until the handoff's disconnect arrives.
+                let _ = spirc_command("Transfer pause", Spirc::pause);
                 clear_engine_playing();
                 set_active_device(false);
                 0

@@ -50,7 +50,7 @@ struct DiscographyChecks {
         host.layoutSubtreeIfNeeded()
         try await requireEventually {
             host.layoutSubtreeIfNeeded()
-            return player.catalog.discographyStore.albums.values.contains { $0.tracks.count == 3 }
+            return player.catalog.discographyStore.albums[releases[0].uri]?.tracks.count == 3
         }
         #expect(provider.albumRequestCount > 0)
         #expect(provider.albumRequestCount < releases.count)

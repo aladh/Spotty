@@ -28,7 +28,7 @@ struct AccountEpochOwnershipTests {
         #expect(engine.count(.shutdown) == 1, "the final playback publication cannot wait behind storage")
         #expect(engine.count(.cleanup) == 1, "the engine must drain its final publication before other cleanup")
         #expect(account.clearCount == 0)
-        #expect(player.isTearingDown)
+        await expectEventually { player.isTearingDown }
         retirement.releaseAll()
         await quit.value
         #expect(engine.count(.shutdown) == 1)

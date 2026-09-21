@@ -27,6 +27,8 @@ Changes from that source:
   the paused position for another client. The transfer/advancement regression checks this handoff.
 - Periodic position events expose their request ID through the same accessor as transport events,
   so late samples cannot replace a newer load's resume position.
+- Spirc ignores paused/playing load events that contradict a newer transport command, so a delayed
+  paused event cannot strand resumed audio behind paused Connect state, or undo a newer pause.
 - Explicit ordered loads can retain shuffle/repeat options without shuffling the supplied order
   again. Spotty captures these options before activation can publish empty-player defaults.
 - `connect/src/spotty_spirc_tests.rs` exercises the command handler, restoration receipt, and

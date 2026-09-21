@@ -910,7 +910,7 @@ impl SpircTask {
                             return Ok(());
                         }
                     }
-                    SpircPlayStatus::LoadingPlay { .. } | SpircPlayStatus::LoadingPause { .. } => {
+                    SpircPlayStatus::LoadingPlay { .. } => {
                         self.connect_state
                             .update_position(position_ms, self.now_ms());
                         self.play_status = SpircPlayStatus::Playing {
@@ -927,7 +927,7 @@ impl SpircTask {
             } => {
                 trace!("==> Paused");
                 match self.play_status {
-                    SpircPlayStatus::Paused { .. } | SpircPlayStatus::Playing { .. } => {
+                    SpircPlayStatus::Paused { .. } | SpircPlayStatus::LoadingPause { .. } => {
                         self.connect_state
                             .update_position(new_position_ms, self.now_ms());
                         self.play_status = SpircPlayStatus::Paused {
@@ -935,14 +935,9 @@ impl SpircTask {
                             preloading_of_next_track_triggered: false,
                         };
                     }
-                    SpircPlayStatus::LoadingPlay { .. } | SpircPlayStatus::LoadingPause { .. } => {
-                        self.connect_state
-                            .update_position(new_position_ms, self.now_ms());
-                        self.play_status = SpircPlayStatus::Paused {
-                            position_ms: new_position_ms,
-                            preloading_of_next_track_triggered: false,
-                        };
-                    }
+                    // A Play command may win the select before the earlier load's Paused
+                    // event. The later Playing event must still be able to finish that load;
+                    // this obsolete pause cannot change its requested transport state.
                     _ => return Ok(()),
                 }
             }

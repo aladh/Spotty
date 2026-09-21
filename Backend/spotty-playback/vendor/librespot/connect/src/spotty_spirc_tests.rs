@@ -59,6 +59,71 @@ fn task() -> SpircTask {
 }
 
 #[tokio::test]
+async fn spotty_delayed_paused_load_event_cannot_undo_a_newer_resume() {
+    for loading in [false, true] {
+        let mut task = task();
+        task.play_request_id = Some(7);
+        task.play_status = if loading {
+            SpircPlayStatus::LoadingPause {
+                position_ms: 152_000,
+            }
+        } else {
+            SpircPlayStatus::Paused {
+                position_ms: 152_000,
+                preloading_of_next_track_triggered: false,
+            }
+        };
+        let track_id = SpotifyUri::from_uri("spotify:track:0000000000000000000001").unwrap();
+        // The adapter's event receiver has already seen Paused and authorized resume,
+        // but Spirc can select the Play command before draining its own Paused event.
+        task.handle_play();
+        task.handle_player_event(PlayerEvent::Paused {
+            track_id: track_id.clone(),
+            play_request_id: 7,
+            position_ms: 152_000,
+        })
+        .unwrap();
+        task.handle_player_event(PlayerEvent::Playing {
+            track_id,
+            play_request_id: 7,
+            position_ms: 152_000,
+        })
+        .unwrap();
+        assert!(matches!(task.play_status, SpircPlayStatus::Playing { .. }));
+        task.connect_state.set_status(&task.play_status);
+        assert!(!task.connect_state.player().is_paused);
+    }
+}
+
+#[tokio::test]
+async fn spotty_delayed_playing_load_event_cannot_undo_a_newer_pause() {
+    let mut task = task();
+    task.play_request_id = Some(7);
+    task.play_status = SpircPlayStatus::LoadingPlay {
+        position_ms: 152_000,
+    };
+    let track_id = SpotifyUri::from_uri("spotify:track:0000000000000000000001").unwrap();
+    task.handle_pause();
+    task.handle_player_event(PlayerEvent::Playing {
+        track_id: track_id.clone(),
+        play_request_id: 7,
+        position_ms: 152_000,
+    })
+    .unwrap();
+    assert!(matches!(
+        task.play_status,
+        SpircPlayStatus::LoadingPause { .. }
+    ));
+    task.handle_player_event(PlayerEvent::Paused {
+        track_id,
+        play_request_id: 7,
+        position_ms: 152_000,
+    })
+    .unwrap();
+    assert!(matches!(task.play_status, SpircPlayStatus::Paused { .. }));
+}
+
+#[tokio::test]
 async fn spotty_ordered_selection_retains_modes_without_reshuffling_its_tracks() {
     use crate::model::Options;
     let mut task = task();
@@ -68,22 +133,38 @@ async fn spotty_ordered_selection_retains_modes_without_reshuffling_its_tracks()
         "spotify:track:0000000000000000000003".to_owned(),
     ];
     task.handle_load(
-        LoadRequest::from_tracks(tracks.clone(), LoadRequestOptions {
-            context_options: Some(LoadContextOptions::Options(Options {
-                shuffle: true, repeat: true, repeat_track: true,
-            })),
-            preserve_track_order: true,
-            ..Default::default()
-        }),
+        LoadRequest::from_tracks(
+            tracks.clone(),
+            LoadRequestOptions {
+                context_options: Some(LoadContextOptions::Options(Options {
+                    shuffle: true,
+                    repeat: true,
+                    repeat_track: true,
+                })),
+                preserve_track_order: true,
+                ..Default::default()
+            },
+        ),
         None,
         None,
-    ).await.unwrap();
-    assert_eq!(task.connect_state.current_track(|track| track.uri.clone()), tracks[0]);
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        task.connect_state.current_track(|track| track.uri.clone()),
+        tracks[0]
+    );
     assert!(task.connect_state.shuffling_context());
     assert!(task.connect_state.repeat_context());
     assert!(task.connect_state.repeat_track());
     assert_eq!(
-        task.connect_state.player().next_tracks.iter().take(2).map(|track| track.uri.clone()).collect::<Vec<_>>(),
+        task.connect_state
+            .player()
+            .next_tracks
+            .iter()
+            .take(2)
+            .map(|track| track.uri.clone())
+            .collect::<Vec<_>>(),
         tracks[1..],
     );
 }

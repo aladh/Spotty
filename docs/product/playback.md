@@ -50,7 +50,7 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
 - With no track, disable Play. Show Pause only for observed playing state. Pending resume retains
   track, context, position, and modes through local loading/timing and empty activation observations
   until Spotify confirms playback. Stale/unavailable/unconfirmed resume stays paused with a durable
-  “choose a track or playlist” notice. The unsafe resume target stays blocked independently of that
+  “choose a track or playlist” notice. The refused resume target stays blocked independently of that
   message: dismissal, replacement, selection admission, cancellation, and failure cannot re-enable
   it. Only matching observed playback from an explicit recovery selection releases the block.
   The active

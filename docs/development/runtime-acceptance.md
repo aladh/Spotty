@@ -49,6 +49,20 @@ OAuth storage remains as specified in [PRIVACY.md](../../PRIVACY.md#local-storag
 migration needs recoverable grant migration plus update, developer-build, lock/unlock, and reinstall
 evidence; old Keychain entries remain untouched.
 
+### Quit and playback position
+
+Distinguish the final Connect position from another app's local resume cache. Under explicit
+playback-test permission, record the paused position, whether the destination was open before
+Spotty quit, and the position that a fresh Connect observation returns after quit. Also check the
+destination after Spotty has disconnected. A successful shutdown or fresh server observation alone
+does not prove what the official Spotify app will restore on a later launch.
+
+Spotify describes closed apps restoring their own cached sessions in its
+[cross-device synchronization explanation](https://community.spotify.com/t5/Other-Podcasts-Partners-etc/Sync-player-progress-between-devices/m-p/5515721/redirect_from_archived_page/true).
+Opening Spotify while Spotty is still running lets it observe the current Connect position before
+Spotty disconnects. Do not retain a phantom active device or modify Spotify's files to bypass its
+cache behavior. Quit must still stop the in-process runtime; window closure is a separate case.
+
 ## Product expansions outside this cutover
 
 Local queue removal needs retained-engine protocol support. Broader playlist administration,

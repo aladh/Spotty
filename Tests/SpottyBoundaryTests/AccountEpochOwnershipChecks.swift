@@ -8,6 +8,33 @@ import Foundation
 @Suite("Account Epoch Ownership")
 struct AccountEpochOwnershipTests {
     @Test @MainActor
+    func terminationDrainsPlaybackBeforeWaitingForCatalogStorage() async {
+        let retirement = HarnessClock.parked()
+        defer { retirement.releaseAll() }
+        let cache = HarnessCatalogCacheLifecycle { purge in
+            #expect(!purge, "quitting retains the catalog and saved account")
+            try? await retirement.sleep(seconds: 1)
+            return true
+        }
+        let engine = HarnessEngine()
+        let account = HarnessAccount(hasGrant: true)
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: engine, account: account, catalogCacheLifecycle: cache))
+        await player.restore()
+
+        let quit = Task { await player.shutdownForTermination() }
+        await expectEventually { retirement.waiterCount == 1 }
+
+        #expect(engine.count(.shutdown) == 1, "the final playback publication cannot wait behind storage")
+        #expect(engine.count(.cleanup) == 1, "the engine must drain its final publication before other cleanup")
+        #expect(account.clearCount == 0)
+        await expectEventually { player.isTearingDown }
+        retirement.releaseAll()
+        await quit.value
+        #expect(engine.count(.shutdown) == 1)
+    }
+
+    @Test @MainActor
     func failedGrantRemovalStillRetiresTheSessionAndReportsTheRetainedLogin() async {
         let account = HarnessAccount(hasGrant: true, clearSucceeds: false)
         let engine = HarnessEngine()

@@ -200,10 +200,14 @@ final class AccountStore {
     func completeShutdownForTermination(staleConnectionTask: Task<Void, Never>?) async {
         let artworkEpoch = retiredAccountEpoch
         if let staleConnectionTask { await staleConnectionTask.value }
-        await environment.artwork.retire(accountEpoch: artworkEpoch)
-        _ = await environment.catalogCacheLifecycle?.retire(purge: false)
+        // Publish and drain the last playback state before cache retirement can consume the
+        // app's termination allowance. Account admission and callbacks are already fenced.
+        SpottyLog.lifecycle.info("Process termination draining playback")
         _ = await coordinator.shutdownEngine()
         await coordinator.cleanupEngine()
+        SpottyLog.lifecycle.info("Process termination finished draining playback")
+        await environment.artwork.retire(accountEpoch: artworkEpoch)
+        _ = await environment.catalogCacheLifecycle?.retire(purge: false)
         phase = .signedOut
     }
 

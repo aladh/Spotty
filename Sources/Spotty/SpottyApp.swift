@@ -26,9 +26,7 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
     private var terminationHandler: (@MainActor () async -> Void)?
     private var mediaControls: SystemMediaControls?
     private var keyboardControls: PlaybackKeyboardControls?
-    private var terminationPending = false
-    private var terminationShutdownTask: Task<Void, Never>?
-    private var terminationTimeoutTask: Task<Void, Never>?
+    private let termination = AppTermination()
 
     func installKeyboardControls(player: PlaybackStore) {
         guard keyboardControls == nil else { return }
@@ -94,32 +92,15 @@ final class SpottyAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
         guard let terminationHandler else { return .terminateNow }
-        guard !terminationPending else { return .terminateLater }
-        terminationPending = true
+        guard !termination.hasBegun else { return .terminateLater }
         mediaControls?.stop()
         keyboardControls?.stop()
         SpottyLog.lifecycle.info("Application termination began")
 
-        terminationShutdownTask = Task { [weak self] in
-            await terminationHandler()
-            self?.finishTermination()
-        }
-        terminationTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
-            self?.finishTermination()
+        termination.begin(shutdown: terminationHandler) {
+            NSApplication.shared.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
-    }
-
-    private func finishTermination() {
-        guard terminationPending else { return }
-        terminationPending = false
-        terminationShutdownTask?.cancel()
-        terminationTimeoutTask?.cancel()
-        terminationShutdownTask = nil
-        terminationTimeoutTask = nil
-        NSApplication.shared.reply(toApplicationShouldTerminate: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {

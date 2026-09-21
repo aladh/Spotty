@@ -236,13 +236,16 @@ pub(crate) fn issue_load_target(
     if !arm_load_observation(generation, target.clone()) {
         return Some(ERROR_GENERAL);
     }
-    let (load_request, what) = target.into_load(policy);
+    let (load_request, what) = target.clone().into_load(policy);
     match spirc.load(load_request) {
         Ok(_) => Some(0),
-        Err(e) => match spirc_error(what, &e) {
-            ERROR_NEEDS_REINIT => Some(ERROR_NEEDS_REINIT),
-            _ => None,
-        },
+        Err(e) => {
+            discard_load_observation(generation, &target);
+            match spirc_error(what, &e) {
+                ERROR_NEEDS_REINIT => Some(ERROR_NEEDS_REINIT),
+                _ => None,
+            }
+        }
     }
 }
 

@@ -58,6 +58,21 @@ pub(crate) fn arm_load_observation(generation: u64, target: ResumeLoadTarget) ->
     .is_ok()
 }
 
+/// Load sends are serialized by the generation mutation gate. A rejected send cannot leave
+/// evidence armed, or clear a receipt belonging to a replacement generation/target.
+pub(crate) fn discard_load_observation(generation: u64, target: &ResumeLoadTarget) {
+    let _ = with_engine_owned(generation, |engine| {
+        if engine
+            .observed_resume
+            .load
+            .as_ref()
+            .is_some_and(|load| load.target == *target)
+        {
+            engine.observed_resume.load = None;
+        }
+    });
+}
+
 pub(crate) fn load_observation_confirmed(
     generation: u64,
     expected_load: Option<&ResumeLoadTarget>,
@@ -79,6 +94,9 @@ pub(crate) fn load_observation_confirmed(
                 track_hint,
                 position_ms,
             } => ObservedResumeTarget {
+                // A hintless context names no particular track. Require the local player to
+                // agree with the newly observed protocol track, plus the requested context
+                // and position; this does not prove selection of a pre-dispatch track.
                 track_uri: track_hint
                     .clone()
                     .filter(|s| !s.is_empty())
@@ -489,6 +507,7 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::selection_load_policy::{SelectionLoadPolicy, SelectionOrder};
 
     fn target(track: &str, position_ms: u32) -> ObservedResumeTarget {
         ObservedResumeTarget {
@@ -759,6 +778,58 @@ mod tests {
             engine.observed_resume.protocol_active = false;
         });
         assert!(!load_observation_confirmed(generation, None));
+        let hintless = ResumeLoadTarget::Context {
+            uri: expected.context_uri.clone().unwrap(),
+            track_hint: None,
+            position_ms: 152_000,
+        };
+        assert!(arm_load_observation(generation, hintless.clone()));
+        with_engine(|engine| {
+            engine.observed_resume.protocol_active = true;
+            engine.observed_resume.revision += 1;
+            engine.observed_resume.observed = Some(target("resolved-context-track", 152_000));
+        });
+        publish_playing_event(generation);
+        assert!(
+            !load_observation_confirmed(generation, None),
+            "hintless context still needs matching local track"
+        );
+        with_engine(|engine| {
+            engine.observed_resume.local = Some(target("resolved-context-track", 152_000))
+        });
+        assert!(
+            load_observation_confirmed(generation, None),
+            "hintless context confirms the resolved track, not a preselected one"
+        );
+        discard_load_observation(generation.wrapping_add(1), &hintless);
+        discard_load_observation(
+            generation,
+            &ResumeLoadTarget::Track {
+                uri: "other".into(),
+                position_ms: 0,
+            },
+        );
+        assert!(
+            load_observation_confirmed(generation, None),
+            "stale cleanup cannot remove the current receipt"
+        );
+
+        let closed = librespot_connect::SpottyTransportFixture::closed_handle();
+        assert_eq!(
+            issue_load_target(
+                &closed,
+                hintless,
+                SelectionLoadPolicy::capture(SelectionOrder::Context),
+                generation
+            ),
+            Some(ERROR_NEEDS_REINIT)
+        );
+        with_engine(|engine| engine.observed_resume.revision += 1);
+        publish_playing_event(generation);
+        assert!(
+            !load_observation_confirmed(generation, None),
+            "a failed load cannot confirm from later matching events"
+        );
         with_engine(|engine| engine.observed_resume = saved);
         set_engine_playing_for_test(saved_playing);
         replace_playing_event_stamp_for_test(saved_stamp);

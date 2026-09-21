@@ -69,15 +69,15 @@ ordering. The retained handler owns desired transport, while the adapter owns ob
 | Current Stopped/EndOfTrack after deactivation | Release live position and local loaded-track evidence without erasing the saved resume position. |
 | Command dispatch/acknowledgement | Admission evidence only. Resume/recovery confirmation requires fresh matching generation, track/context, position and local/protocol ownership evidence within the existing bounded wait. |
 
-`Scripts/check-transport-traces.sh` runs the named offline Spirc/adapter traces and reports source,
+The manual timing helper `Scripts/check-transport-traces.sh` runs the named offline Spirc/adapter traces and reports source,
 engine identity and runtime. They use synthetic identities and no credentials,
 connection or audio output; the normal Rust gate includes them. Pair them with the Demo for visible
 controls, since a single synthetic authority cannot prove the real two-consumer ordering.
 
 Rust supplies bounded PCM and typed protocol observations through the
-[C boundary](../../Sources/SpottyPlaybackCore/include/spotty_playback.h). That checked-in header is
-the producer-canonical copy; the app actually compiles against the copy shipped inside the pinned
-XCFramework. It retains sticky resume identity, while Swift selects resume targets. Readiness stays
+[C boundary](../../Sources/SpottyPlaybackCore/include/spotty_playback.h). The checked-in header is
+producer-canonical; the app compiles the pinned XCFramework's copy. Rust retains sticky resume
+identity, while Swift selects targets. Readiness stays
 held until reconnect rehydration finishes; do not create a second protocol state machine across
 that boundary.
 

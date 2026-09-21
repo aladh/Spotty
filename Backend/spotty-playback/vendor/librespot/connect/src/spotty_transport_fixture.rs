@@ -67,6 +67,13 @@ pub struct SpottyTransportFixture {
 
 #[cfg(feature = "spotty-test-harness")]
 impl SpottyTransportFixture {
+    /// An actual command handle whose task has exited, without creating a session or player.
+    pub fn closed_handle() -> Spirc {
+        let (commands, receiver) = mpsc::unbounded_channel();
+        drop(receiver);
+        Spirc { commands }
+    }
+
     /// Begin a synthetic load with its desired transport and request identity.
     pub fn new(playing: bool, request: u64, position_ms: u32) -> Self {
         let mut task = task();

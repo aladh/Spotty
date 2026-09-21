@@ -3,8 +3,7 @@
 [Product index](README.md) · [Playback contract](playback.md) · [Queue contract](queue.md)
 
 Which checks support the intended user outcome, and what do they leave unproved? These are the
-closest existing proofs, not a claim of complete coverage. The product index owns the contracts;
-the former monolithic product-and-acceptance-contract page is obsolete.
+closest existing proofs, not a claim of complete coverage. The product index owns the contracts.
 
 | Accepted outcome | Closest proof | Limit or gap |
 | --- | --- | --- |
@@ -14,7 +13,7 @@ the former monolithic product-and-acceptance-contract page is obsolete.
 | Current activation resumes/pauses; different selection and explicit restart load the chosen target while retaining modes and supplied order. | [Catalog action matrix](../../Tests/SpottyBoundaryTests/CatalogPlaybackActionChecks.swift), [playlist routing checks](../../Tests/SpottyBoundaryTests/CatalogPlaylistShuffleChecks.swift), and [engine selection policy](../../Backend/spotty-playback/src/selection_load_policy.rs). | Remote payload/routing tests cannot prove every receiving Spotify client honors the request. |
 | Transfer acknowledgement cannot claim that the destination plays the expected track and position. | [Intent outcome checks](../../Tests/SpottyDomainTests/PlaybackIntentChecks.swift) require matching playback and identified ownership in either order. | No live multi-device timing guarantee. Engine readiness measurement remains [#378](https://github.com/aladh/Spotty/issues/378). |
 | Queue order survives delayed metadata and startup refreshes. | [Queue convergence checks](../../Tests/SpottyBoundaryTests/QueueRefreshConvergenceChecks.swift) and [Demo hydration measurement](../../Tests/BrowsingHarness/Support/QueueHydrationMeasurement.swift). | Synthetic hydration costs exclude live network latency. |
-| Removing selected upcoming occurrences preserves duplicates and protocol metadata; incomplete, restricted or stale evidence fails closed. | [Mutation policy](../../Tests/SpottyDomainTests/QueueMutationChecks.swift), [management boundary checks](../../Tests/SpottyBoundaryTests/QueueManagementChecks.swift), and intent occurrence-count checks. | Local-owner removal remains unsupported. Real queue mutations need explicit authorization; ordinary gates do not perform them. |
+| Removing selected upcoming occurrences preserves duplicates and protocol metadata; incomplete, restricted or stale evidence fails closed. | [Mutation policy](../../Tests/SpottyDomainTests/QueueMutationChecks.swift), [management boundary checks](../../Tests/SpottyBoundaryTests/QueueManagementChecks.swift), and [intent occurrence-count checks](../../Tests/SpottyDomainTests/PlaybackIntentChecks.swift). | Local-owner removal remains unsupported. Real queue mutations need explicit authorization; ordinary gates do not perform them. |
 
 Run the [normal verification gates](../development/verification.md#normal-verification) for code
 changes. `./Scripts/browse-synthetic.sh Tests/BrowsingHarness/playback.json` records Demo recovery

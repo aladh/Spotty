@@ -186,17 +186,25 @@ private struct EnvelopeGenerator {
             let expectedShuffle: Bool? = optionsPending.flatMap { $0.expectedShuffle }
             let expectedRepeat: RepeatFlags? = optionsPending.flatMap { $0.expectedRepeatFlags }
             let fallbackShuffle: Bool? = nextBool(&rng) ? nextBool(&rng) : nil
+            let recovery = transportPending?.recoveryTarget
+            let context: String? =
+                switch recovery?.selection {
+                case let .context(uri): uri
+                case .track: ""
+                case nil: nextBool(&rng) ? pick(modelTrackURIs, &rng) : nil
+                }
             return EnginePlaybackSnapshot(
                 transport: expectedTransport ?? pick(modelTransports, &rng),
                 trackURI: target,
-                timing: expectedTiming ?? randomTiming(),
+                timing: recovery == nil
+                    ? (expectedTiming ?? randomTiming()) : PlaybackTiming(position: 0, anchoredAt: clock),
                 trackUnavailable: nextInt(&rng, 12) == 0,
                 audioKeyRefused: nextBool(&rng),
                 shuffle: expectedShuffle ?? fallbackShuffle,
                 repeatMode: nil,
                 repeatFlags: expectedRepeat,
-                contextURI: nextBool(&rng) ? pick(modelTrackURIs, &rng) : nil,
-                isActiveDevice: nextBool(&rng)
+                contextURI: context,
+                isActiveDevice: recovery?.local ?? nextBool(&rng)
             )
         }
         return EnginePlaybackSnapshot(
@@ -259,6 +267,7 @@ private struct EnvelopeGenerator {
         var expectedTrack: CurrentTrack?
         var expectedTrackURI: String?
         var resumeTarget: PlaybackResumeTarget?
+        var recoveryTarget: PlaybackRecoveryTarget?
         var expectedShuffle: Bool?
         var expectedRepeatFlags: RepeatFlags?
         var expectedOwner: PlaybackOwner?
@@ -291,6 +300,14 @@ private struct EnvelopeGenerator {
         case .navigation, .queue:
             break
         }
+        if kind == .transport, resumeTarget == nil, state.blockedResumeTarget != nil,
+            let uri = expectedTrack?.uri ?? expectedTrackURI, !uri.isEmpty
+        {
+            expectedTransport = .playing
+            recoveryTarget = PlaybackRecoveryTarget(
+                selection: nextBool(&rng) ? .track(uri) : .context("spotify:playlist:recovery"),
+                engineGeneration: state.engineEpoch, local: true)
+        }
         return PendingPlaybackCommand(
             id: id,
             kind: kind,
@@ -299,6 +316,7 @@ private struct EnvelopeGenerator {
             expectedTrack: expectedTrack,
             expectedTrackURI: expectedTrackURI,
             resumeTarget: resumeTarget,
+            recoveryTarget: recoveryTarget,
             expectedShuffle: expectedShuffle,
             expectedRepeatFlags: expectedRepeatFlags,
             expectedOwner: expectedOwner,
@@ -801,28 +819,18 @@ private func emptyResumeObservationPreservesIdentity(
     return nil
 }
 
-private func transientNoticePreservesResumeBlock(
+private func resumeBlockRequiresObservedRecovery(
     pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope
 ) -> String? {
-    guard pre.accountEpoch == post.accountEpoch, pre.engineEpoch == post.engineEpoch,
-        pre.notice?.kind == .resumeUnavailable
+    guard pre.accountEpoch == post.accountEpoch, pre.blockedResumeTarget != nil,
+        post.blockedResumeTarget == nil
     else { return nil }
-    switch envelope.event {
-    case .commandStarted:
-        if post.notice != pre.notice {
-            return "optimistic command admission erased the persistent resume block"
-        }
-    case let .enginePlayback(snapshot):
-        if snapshot.trackUnavailable, post.notice?.kind != .resumeUnavailable {
-            return "a failed recovery load erased the persistent resume block"
-        }
-    case let .notice(notice), let .commandFinished(_, _, notice):
-        if notice?.kind == .command, post.notice != pre.notice {
-            return "a transient error erased the persistent resume block"
-        }
-    default: break
+    if case .reset(.signedOut) = envelope.event { return nil }
+    let confirmedRecovery = post.intents.contains { intent in
+        intent.command.recoveryTarget != nil && intent.outcome == .observedConfirmed
+            && pre.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed
     }
-    return nil
+    return confirmedRecovery ? nil : "resume block cleared without a newly observed recovery target"
 }
 
 private func resumeConfirmationRequiresContext(
@@ -870,7 +878,7 @@ private func firstViolation(
     {
         return violation
     }
-    if let violation = transientNoticePreservesResumeBlock(pre: pre, post: post, envelope: envelope) {
+    if let violation = resumeBlockRequiresObservedRecovery(pre: pre, post: post, envelope: envelope) {
         return violation
     }
     if let violation = resumeConfirmationRequiresContext(pre: pre, post: post, envelope: envelope) {
@@ -957,6 +965,82 @@ private func runModelTrace(seed: UInt64, steps: Int, commandHeavy: Bool) -> Stri
 
 @Suite("Playback Reducer Model")
 struct PlaybackReducerModelChecks {
+    @Test(arguments: [false, true], [false, true])
+    func recoveryTraceReachesObservedSuccess(local: Bool, contextSelection: Bool) {
+        let now = Date(timeIntervalSince1970: 100)
+        let resume = UUID(), cancelled = UUID(), recovery = UUID()
+        let track = "spotify:track:recovery"
+        let context = "spotify:playlist:recovery"
+        var state = PlaybackState(
+            accountEpoch: 1, engineEpoch: 1, session: .ready,
+            transport: .paused, currentTrack: CurrentTrack(uri: track), playbackContextURI: context,
+            timing: PlaybackTiming(position: 152, anchoredAt: now))
+        let target = PlaybackRecoveryTarget(
+            selection: contextSelection ? .context(context) : .track(track),
+            engineGeneration: 1, local: local)
+        func load(_ id: UUID) -> PlaybackEvent {
+            .commandStarted(
+                PendingPlaybackCommand(
+                    id: id, kind: .transport, expectedTransport: .playing,
+                    expectedTrackURI: contextSelection ? nil : track, recoveryTarget: target, startedAt: now))
+        }
+        func snapshot(position: Double, context: String?, active: Bool) -> PlaybackEvent {
+            .enginePlayback(
+                EnginePlaybackSnapshot(
+                    transport: .playing, trackURI: track,
+                    timing: PlaybackTiming(position: position, anchoredAt: now), contextURI: context,
+                    isActiveDevice: active))
+        }
+        let events: [(PlaybackEventSource, PlaybackEvent)] = [
+            (
+                .command,
+                .commandStarted(
+                    PendingPlaybackCommand(
+                        id: resume, kind: .transport, expectedTransport: .playing,
+                        expectedTrackURI: track,
+                        resumeTarget: PlaybackResumeTarget(
+                            trackURI: track, contextURI: context,
+                            positionMS: 152_000, engineGeneration: 1), startedAt: now))
+            ),
+            (.command, .commandDispatched(id: resume, at: now)),
+            (
+                .command,
+                .commandFinished(
+                    id: resume, accepted: false,
+                    notice: PlaybackNotice(message: "refused", kind: .resumeUnavailable))
+            ),
+            (.user, .notice(nil)),
+            (.user, .notice(PlaybackNotice(message: "replacement message"))),
+            (.command, load(cancelled)),
+            (.command, .commandFinished(id: cancelled, accepted: false, notice: nil)),
+            (.command, load(recovery)),
+            (.command, .commandDispatched(id: recovery, at: now)),
+            (.command, .commandFinished(id: recovery, accepted: true, notice: nil)),
+            (.enginePlayback, snapshot(position: 0, context: nil, active: local)),
+            (.enginePlayback, snapshot(position: 152, context: context, active: local)),
+            (.enginePlayback, snapshot(position: 0, context: context, active: !local)),
+            (.enginePlayback, snapshot(position: 0, context: context, active: local)),
+        ]
+        for (index, entry) in events.enumerated() {
+            let envelope = PlaybackEventEnvelope(
+                accountEpoch: 1, engineEpoch: 1, source: entry.0,
+                revision: UInt64(index + 1), receivedAt: now, event: entry.1)
+            let pre = state
+            #expect(PlaybackReducer.reduce(&state, envelope: envelope))
+            #expect(resumeBlockRequiresObservedRecovery(pre: pre, post: state, envelope: envelope) == nil)
+            if index >= 2 && index < events.count - 1 {
+                #expect(state.blockedResumeTarget != nil, "step \(index) cannot restore resume")
+            }
+            if index >= 7 && index < events.count - 1 {
+                #expect(state.pendingCommands[.transport]?.id == recovery, "unmatched evidence cannot settle recovery")
+            }
+        }
+        #expect(state.blockedResumeTarget == nil)
+        #expect(state.intents.last?.outcome == .observedConfirmed)
+        #expect(state.intents.first(where: { $0.command.id == cancelled })?.outcome == .rejected)
+        #expect(state.notice?.message == "replacement message", "recovery does not dismiss an unrelated notice")
+    }
+
     /// Broad coverage: every event case, stale and advancing epochs, replayed revisions.
     @Test
     func reducerHoldsInvariantsUnderRandomTraces() {

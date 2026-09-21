@@ -25,6 +25,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
     /// Requested identity even when no optimistic metadata/presentation was supplied.
     public let expectedTrackURI: String?
     public let resumeTarget: PlaybackResumeTarget?
+    public let recoveryTarget: PlaybackRecoveryTarget?
     /// Exact presentation captured at `commandStarted` for a known play target.
     public let rollbackPresentation: PlaybackPresentationSnapshot?
     /// Requested shuffle value for a live options command. Repeat commands leave this nil.
@@ -52,6 +53,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
         expectedTrack: CurrentTrack? = nil,
         expectedTrackURI: String? = nil,
         resumeTarget: PlaybackResumeTarget? = nil,
+        recoveryTarget: PlaybackRecoveryTarget? = nil,
         rollbackPresentation: PlaybackPresentationSnapshot? = nil,
         expectedShuffle: Bool? = nil,
         rollbackShuffle: Bool? = nil,
@@ -71,6 +73,7 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
         self.expectedTrack = expectedTrack
         self.expectedTrackURI = expectedTrackURI
         self.resumeTarget = resumeTarget
+        self.recoveryTarget = recoveryTarget
         self.rollbackPresentation = rollbackPresentation
         self.expectedShuffle = expectedShuffle
         self.rollbackShuffle = rollbackShuffle
@@ -86,6 +89,8 @@ public struct PendingPlaybackCommand: Equatable, Sendable {
 /// without `commandFinished`. Stored per command id so a later pause/resume cannot recycle
 /// the nil catch-all. `commandFinished` consumes a matching entry (pending rollback or
 /// consume-only) so the map does not grow for the process/session lifetime.
+/// These receipts protect reconciled presentation from rollback. Only `PlaybackIntent` reports
+/// complete target confirmation; a transfer's observed owner can protect presentation before that.
 public enum PlaybackTransportCommandResolution: Equatable, Sendable {
     case confirmed
     case superseded

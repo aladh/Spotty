@@ -9,7 +9,7 @@ import SpottyRuntimeContracts
 /// server, decoder or audio device. State and fault injection share one lock; delivery happens
 /// after unlocking, through the production bounded fan-out and normal store intake.
 final class SyntheticPlayback: @unchecked Sendable {
-    enum Fault: String, Sendable { case reject, holdObservation, disconnect }
+    enum Fault: String, Sendable { case reject, resumeMismatch, holdObservation, disconnect }
     struct Snapshot: Codable, Sendable {
         let generation: UInt64
         let revision: UInt64
@@ -186,6 +186,10 @@ final class SyntheticPlayback: @unchecked Sendable {
             commandCount += 1
             let fault = nextFault
             nextFault = nil
+            if fault == .resumeMismatch {
+                rejectedCount += 1
+                return (.resumeMismatch, nil)
+            }
             if fault == .reject || !connected || (target != nil && target != activeID) {
                 rejectedCount += 1
                 return (.error, nil)

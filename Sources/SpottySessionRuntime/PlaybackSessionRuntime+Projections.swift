@@ -59,7 +59,7 @@ package extension PlaybackSessionRuntime {
         isConnected && !isTearingDown && terminationGate.allowsCommands && !isPlaybackCommandPending
     }
     var canTogglePlayback: Bool {
-        canStartPlayback && hasCurrentTrack && (isPlaying || playbackNotice?.kind != .resumeUnavailable)
+        canStartPlayback && hasCurrentTrack && (isPlaying || semantic.blockedResumeTarget == nil)
     }
     var canSkipTrack: Bool { canStartPlayback && hasCurrentTrack }
 
@@ -161,6 +161,7 @@ package struct PlaybackSemanticProjection: Equatable, Sendable {
     package let playbackContextURI: String?
     package let options: PlaybackOptions
     package let notice: PlaybackNotice?
+    package let blockedResumeTarget: PlaybackResumeTarget?
     package let pendingSeekID: UUID?
 
     package init(state: PlaybackState) {
@@ -173,6 +174,7 @@ package struct PlaybackSemanticProjection: Equatable, Sendable {
         playbackContextURI = state.playbackContextURI
         options = state.options
         notice = state.notice
+        blockedResumeTarget = state.blockedResumeTarget
         pendingSeekID = state.pendingCommands[.seek]?.id
     }
 }

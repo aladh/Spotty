@@ -52,7 +52,7 @@ extension PlaybackStore {
     var isPlaybackAvailable: Bool { isConnected && !isTearingDown && allowsCommands }
     var canStartPlayback: Bool { isPlaybackAvailable && !isPlaybackCommandPending }
     var canTogglePlayback: Bool {
-        canStartPlayback && hasCurrentTrack && (isPlaying || playbackNotice?.kind != .resumeUnavailable)
+        canStartPlayback && hasCurrentTrack && (isPlaying || semantic.blockedResumeTarget == nil)
     }
     var canSkipTrack: Bool { canStartPlayback && hasCurrentTrack }
 

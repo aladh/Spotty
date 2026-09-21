@@ -422,6 +422,7 @@ private struct BrowsingApp: App {
                     if run.world.scenario.mode == .playback {
                         Divider()
                         Button("Reject Next Playback Command") { run.world.playback.inject(.reject) }
+                        Button("Refuse Next Resume") { run.world.playback.inject(.resumeMismatch) }
                         Button("Hold Next Observation") { run.world.playback.inject(.holdObservation) }
                         Button("Release Held Observations") {
                             run.world.playback.releaseHeldObservations(reversed: true)

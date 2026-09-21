@@ -120,11 +120,13 @@ public enum PlaybackReducer {
 
         switch envelope.event {
         case let .reset(session):
+            let blockedTarget = session == .signedOut ? nil : candidate.blockedResumeTarget
             candidate = PlaybackState(
                 accountEpoch: envelope.accountEpoch,
                 engineEpoch: envelope.engineEpoch,
                 session: session
             )
+            candidate.blockedResumeTarget = blockedTarget
         case let .session(session):
             candidate.session = session
         case let .owner(owner):
@@ -145,7 +147,7 @@ public enum PlaybackReducer {
             let holdsUnconfirmedResume =
                 snapshot.contextURI == nil && !snapshot.trackUnavailable
                 && (candidate.pendingCommands[.transport]?.resumeTarget != nil
-                    || candidate.notice?.kind == .resumeUnavailable)
+                    || candidate.blockedResumeTarget != nil)
             if holdsUnconfirmedResume || shouldHoldOptimisticPlayTarget(incomingURI: incomingURI, in: candidate) {
                 if !holdsUnconfirmedResume, candidate.pendingCommands[.transport]?.resumeTarget == nil {
                     applyEnginePlaybackOptions(snapshot, in: &candidate)
@@ -183,14 +185,6 @@ public enum PlaybackReducer {
                     isTrackUnavailable: snapshot.trackUnavailable,
                     in: &candidate
                 )
-                if candidate.notice?.kind == .resumeUnavailable,
-                    snapshot.contextURI != nil, incomingURI != nil, snapshot.transport == .playing,
-                    !snapshot.trackUnavailable
-                {
-                    // Only observed protocol playback releases a failed-resume block. A
-                    // recovery load's optimistic presentation or command return cannot.
-                    candidate.notice = nil
-                }
                 if snapshot.trackUnavailable, incomingURI != nil {
                     candidate.notice = PlaybackNotice(
                         message: snapshot.audioKeyRefused
@@ -323,6 +317,7 @@ public enum PlaybackReducer {
                 expectedTrack: command.expectedTrack,
                 expectedTrackURI: command.expectedTrackURI,
                 resumeTarget: command.resumeTarget,
+                recoveryTarget: command.recoveryTarget,
                 rollbackPresentation: command.rollbackPresentation
                     ?? (command.expectedTrack == nil
                         ? nil
@@ -347,8 +342,15 @@ public enum PlaybackReducer {
             var intent = PlaybackIntent(command: prepared, baselineTrackURI: candidate.currentTrack?.uri)
             intent.baselineOwner = candidate.owner
             intent.baselinePosition = candidate.timing.position
+            intent.baselineTransport = candidate.transport
             if command.kind == .transfer, command.expectedOwner == nil {
                 intent.localTransferTargetID = candidate.devices.localDeviceID
+            }
+            if command.kind == .transfer, let track = candidate.currentTrack, !track.uri.isEmpty {
+                intent.transferTarget = PlaybackResumeTarget(
+                    trackURI: track.uri, contextURI: candidate.playbackContextURI,
+                    positionMS: UInt32(max(0, min(Double(UInt32.max), candidate.timing.position * 1_000))),
+                    engineGeneration: candidate.engineEpoch)
             }
             candidate.intents.append(intent)
             while candidate.intents.count > 128,
@@ -405,11 +407,14 @@ public enum PlaybackReducer {
             if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
                 // A resume retains confirmed presentation until Spotify accepts it. Timing out
                 // cannot turn an unconfirmed local player sample into playback authority.
-                if pair.value.resumeTarget != nil {
+                if let target = pair.value.resumeTarget {
+                    candidate.blockedResumeTarget = target
                     candidate.notice = PlaybackNotice(
                         message: PlaybackNotice.resumeUnavailableMessage, kind: .resumeUnavailable)
                 }
-                if candidate.intents[index].dispatchedAt == nil || pair.value.resumeTarget != nil {
+                if candidate.intents[index].dispatchedAt == nil || pair.value.resumeTarget != nil
+                    || pair.value.recoveryTarget != nil
+                {
                     restoreCommandPresentation(pair.value, in: &candidate, at: envelope.receivedAt)
                 }
                 candidate.pendingCommands[pair.key] = nil
@@ -421,11 +426,14 @@ public enum PlaybackReducer {
                 candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
             }
             if let pair = candidate.pendingCommands.first(where: { $0.value.id == id }) {
-                if !accepted || pair.value.resumeTarget == nil {
+                if !accepted || (pair.value.resumeTarget == nil && pair.value.recoveryTarget == nil) {
                     candidate.pendingCommands[pair.key] = nil
                 }
                 candidate.transportCommandResolutions[id] = nil
                 if !accepted {
+                    if let target = pair.value.resumeTarget, notice?.kind == .resumeUnavailable {
+                        candidate.blockedResumeTarget = target
+                    }
                     restoreCommandPresentation(pair.value, in: &candidate, at: envelope.receivedAt)
                     // A rejected finish with no notice restores rollback without replacing an
                     // unrelated existing notice. Cancellation is one caller of that rule.
@@ -467,14 +475,27 @@ public enum PlaybackReducer {
                 let intent = candidate.intents[index]
                 guard previous != intent.outcome else { continue }
                 if intent.command.resumeTarget != nil, intent.outcome == .superseded || intent.outcome == .rejected {
+                    candidate.blockedResumeTarget = intent.command.resumeTarget
                     candidate.notice = PlaybackNotice(
                         message: PlaybackNotice.resumeUnavailableMessage, kind: .resumeUnavailable)
                 }
                 let resolution: PlaybackTransportCommandResolution?
                 switch intent.outcome {
-                case .observedConfirmed: resolution = .confirmed
+                case .observedConfirmed:
+                    resolution = .confirmed
+                    if intent.command.recoveryTarget != nil {
+                        candidate.blockedResumeTarget = nil
+                        if candidate.notice?.kind == .resumeUnavailable { candidate.notice = nil }
+                    }
                 case .superseded: resolution = .superseded
                 default: resolution = nil
+                }
+                if intent.command.recoveryTarget != nil, intent.outcome == .rejected,
+                    candidate.pendingCommands[intent.command.kind]?.id == intent.command.id
+                {
+                    restoreCommandPresentation(intent.command, in: &candidate, at: envelope.receivedAt)
+                    candidate.pendingCommands[intent.command.kind] = nil
+                    candidate.transportCommandResolutions[intent.command.id] = .superseded
                 }
                 if let resolution, intent.command.kind != .queue {
                     if candidate.pendingCommands[intent.command.kind]?.id == intent.command.id {
@@ -607,15 +628,17 @@ public enum PlaybackReducer {
         in state: inout PlaybackState
     ) {
         if let pending = state.pendingCommands[.transport],
+            pending.resumeTarget != nil || pending.recoveryTarget != nil
+        {
+            // Resume/recovery confirmation belongs to intent observation, including context
+            // selections without a known first track. Presentation alone cannot settle them.
+            state.transport = transport
+            return
+        }
+        if let pending = state.pendingCommands[.transport],
             let targetURI = playbackTrackURI(pending.expectedTrack?.uri ?? pending.expectedTrackURI)
         {
             let incoming = playbackTrackURI(incomingTrackURI)
-            if pending.resumeTarget != nil {
-                // Paused transfer is real playback truth. Intent observation owns resume
-                // confirmation, including track, context and position checks.
-                state.transport = transport
-                return
-            }
             if incoming != targetURI {
                 state.transport = pending.expectedTransport ?? transport
                 return

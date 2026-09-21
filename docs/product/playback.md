@@ -50,7 +50,10 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
 - With no track, disable Play. Show Pause only for observed playing state. Pending resume retains
   track, context, position, and modes through local loading/timing and empty activation observations
   until Spotify confirms playback. Stale/unavailable/unconfirmed resume stays paused with a durable
-  “choose a track or playlist” notice; disable stale Play until new playback clears it. The active
+  “choose a track or playlist” notice. The unsafe resume target stays blocked independently of that
+  message: dismissal, replacement, selection admission, cancellation, and failure cannot re-enable
+  it. Only matching observed playback from an explicit recovery selection releases the block.
+  The active
   playlist stays green in sidebar/Home while paused; disconnect/cleared track removes it.
 - Keep transport colors steady while a command is pending, while disabling duplicate input.
   Starting a new selection retains the observed shuffle and repeat modes; an explicitly ordered
@@ -92,3 +95,4 @@ both the page and shelf without undoing later manual scrolling. Use a 40-point q
 and the existing 48-point artwork-overlay control.
 
 See [Queue behavior](queue.md) for ordering and occurrence-safe mutations.
+See [playback and queue evidence](playback-evidence.md) for proof paths and their limits.

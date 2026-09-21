@@ -37,8 +37,9 @@ dimensions, ordering, and deliberate exceptions.
 
 The control's glyph, label, tooltip, availability, and dispatch must describe one action. Current
 selection activation pauses observed playback or resumes its retained position; a different
-selection starts playback. After an unsafe-resume notice, explicitly selecting even the current
-track or collection starts that selection afresh. Track controls match the track URI; collections match context, never
+selection starts playback. After resume is refused, explicitly selecting even the current
+track or collection starts that selection afresh, including after dismissing its notice.
+Track controls match the track URI; collections match context, never
 membership. Revalidate the target and account against current runtime authority when activated.
 Controls target the current owner without implicitly transferring playback.
 

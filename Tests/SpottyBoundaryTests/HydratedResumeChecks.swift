@@ -121,7 +121,7 @@ struct HydratedResumeTests {
         #expect(engine.executeCount == 1, "the stale track is not advertised as resumable")
         engine.executeResult = .ok
         player.play(uri: "spotify:track:chosen")
-        await expectEventually { engine.executeCount == 2 && player.state.pendingCommands[.transport] == nil }
+        await expectEventually { engine.executeCount == 2 && player.state.intents.last?.outcome == .sent }
         #expect(player.playbackNotice?.kind == .resumeUnavailable, "a load acknowledgement is not playback")
         player.receive(
             playback(revision: 2, uri: "spotify:track:chosen", playing: true, positionMS: 0),
@@ -154,7 +154,7 @@ struct HydratedResumeTests {
         #expect(action.isEnabled, "an explicit catalog selection must remain a recovery action")
         engine.executeResult = .ok
         action.perform()
-        await expectEventually { engine.executeCount == 2 && player.state.pendingCommands[.transport] == nil }
+        await expectEventually { engine.executeCount == 2 && player.state.intents.last?.outcome == .sent }
         if case let .playURI(uri) = engine.operations.last {
             #expect(uri == (playlist ? context : track))
         } else {
@@ -208,6 +208,35 @@ struct HydratedResumeTests {
         #expect(engine.executeCount == 2)
         player.togglePlayback()
         #expect(engine.executeCount == 2, "failed recovery cannot advertise another stale resume")
+        await player.shutdownForTermination()
+    }
+
+    @Test func dismissalReplacementAndCancelledSelectionCannotRestoreResume() async {
+        let engine = HarnessEngine(executeResult: .resumeMismatch, position: 152_000)
+        let player = await hydratedPlayer(engine: engine)
+        await expectEventually { player.canTogglePlayback }
+        player.togglePlayback()
+        await expectEventually { player.playbackNotice?.kind == .resumeUnavailable && player.canStartPlayback }
+        if let notice = player.playbackNotice { player.dismissPlaybackNotice(id: notice.id) }
+        await expectEventually { player.playbackNotice == nil }
+        #expect(!player.canTogglePlayback)
+        player.showTransientCommandError("Unrelated message")
+        await expectEventually { player.playbackNotice?.message == "Unrelated message" }
+        #expect(!player.canTogglePlayback)
+        let gate = HarnessEngineGate(result: .ok)
+        engine.onExecute = { _ in gate.enter() }
+        let action = CatalogPlaybackAccess(player: player).action(
+            for: HarnessFixtures.track(uri: track, title: "Hydrated", duration: 240), behavior: .activateSelection)
+        action.perform()
+        await expectEventually { gate.hasStarted }
+        if let id = player.state.pendingCommands[.transport]?.id { player.effects.cancel(.command(id)) }
+        gate.finish(with: .ok)
+        await expectEventually { player.canStartPlayback && player.state.pendingCommands.isEmpty }
+        #expect(player.state.intents.last?.outcome == .rejected)
+        #expect(player.state.blockedResumeTarget != nil && !player.canTogglePlayback)
+        #expect(action.isEnabled && !action.showsPause)
+        player.togglePlayback()
+        #expect(engine.executeCount == 2, "dismissal and cancellation cannot retry the refused resume")
         await player.shutdownForTermination()
     }
 

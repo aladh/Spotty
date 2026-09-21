@@ -94,7 +94,7 @@ struct NowPlayingTransportControls: View {
 
     private var isToggleAvailable: Bool {
         player.isPlaybackAvailable && player.hasCurrentTrack
-            && (player.isPlaying || player.playbackNotice?.kind != .resumeUnavailable)
+            && (player.isPlaying || player.semantic.blockedResumeTarget == nil)
     }
 
     var body: some View {

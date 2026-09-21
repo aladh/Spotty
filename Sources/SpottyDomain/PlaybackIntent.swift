@@ -17,8 +17,12 @@ public struct PlaybackIntent: Equatable, Sendable {
     public let command: PendingPlaybackCommand
     public let baselineTrackURI: String?
     public var baselinePosition: TimeInterval? = nil
+    public var baselineTransport: PlaybackTransportState? = nil
     public var localTransferTargetID: String? = nil
     public var baselineOwner: PlaybackOwner? = nil
+    public var transferTarget: PlaybackResumeTarget? = nil
+    private var transferOwnerConfirmed = false
+    private var transferPlaybackConfirmed = false
     public var queueMinimumCounts: [String: Int]? = nil
     public var removedQueueUIDs: Set<String>? = nil
     public var queueContextURI: String? = nil
@@ -44,9 +48,23 @@ public struct PlaybackIntent: Equatable, Sendable {
     /// an unchanged same-track sample cannot confirm an unknown target.
     public mutating func observe(_ envelope: PlaybackEventEnvelope) {
         guard let dispatchedAt, envelope.receivedAt >= dispatchedAt, !outcome.isTerminal else { return }
+        if let target = transferTarget, envelope.engineEpoch != target.engineGeneration { return }
         switch envelope.event {
         case let .enginePlayback(snapshot) where envelope.source == .enginePlayback:
+            if command.kind == .transfer {
+                observeTransferPlayback(snapshot, envelope: envelope, dispatchedAt: dispatchedAt)
+                return
+            }
             guard command.kind != .queue, command.kind != .transfer else { return }
+            if let target = command.recoveryTarget {
+                if snapshot.trackUnavailable,
+                    snapshot.trackURI == (command.expectedTrack?.uri ?? command.expectedTrackURI)
+                {
+                    settle(.rejected, at: envelope.receivedAt)
+                    return
+                }
+                guard target.matches(snapshot, envelope: envelope, dispatchedAt: dispatchedAt) else { return }
+            }
             if command.resumeTarget != nil, snapshot.contextURI == nil, !snapshot.trackUnavailable { return }
             let uri = snapshot.trackURI.flatMap { $0.isEmpty ? nil : $0 }
             if command.resumeTarget != nil && uri == nil { return }
@@ -62,12 +80,13 @@ public struct PlaybackIntent: Equatable, Sendable {
                     if uri != baselineTrackURI { settle(.superseded, at: envelope.receivedAt) }
                     return
                 }
-            } else if let baselineTrackURI, uri != baselineTrackURI {
+            } else if command.recoveryTarget == nil, let baselineTrackURI, uri != baselineTrackURI {
                 settle(.superseded, at: envelope.receivedAt)
                 return
             }
             if snapshot.trackUnavailable { settle(.rejected, at: envelope.receivedAt); return }
             if let target = command.resumeTarget {
+                guard envelope.engineEpoch == target.engineGeneration else { return }
                 let targetPosition = Double(target.positionMS) / 1_000
                 let elapsed = max(0, envelope.receivedAt.timeIntervalSince(dispatchedAt))
                 guard snapshot.timing.position >= targetPosition - 1,
@@ -143,9 +162,34 @@ public struct PlaybackIntent: Equatable, Sendable {
         else { return }
         let incomingID = PlaybackReducer.playbackOwnerStableDeviceID(owner)
         if incomingID == targetID {
-            if PlaybackReducer.isIdentifiedPlaybackOwner(owner) { settle(.observedConfirmed, at: date) }
-        } else if incomingID != baselineOwner.flatMap(PlaybackReducer.playbackOwnerStableDeviceID) {
-            settle(.superseded, at: date)
+            transferOwnerConfirmed = PlaybackReducer.isIdentifiedPlaybackOwner(owner)
+            if transferOwnerConfirmed, transferTarget == nil || transferPlaybackConfirmed {
+                settle(.observedConfirmed, at: date)
+            }
+        } else {
+            transferOwnerConfirmed = false
+            if incomingID != baselineOwner.flatMap(PlaybackReducer.playbackOwnerStableDeviceID) {
+                settle(.superseded, at: date)
+            }
+        }
+    }
+
+    private mutating func observeTransferPlayback(
+        _ snapshot: EnginePlaybackSnapshot, envelope: PlaybackEventEnvelope, dispatchedAt: Date
+    ) {
+        guard let target = transferTarget, envelope.engineEpoch == target.engineGeneration,
+            let context = snapshot.contextURI
+        else { return }
+        let elapsed = snapshot.transport == .playing ? max(0, envelope.receivedAt.timeIntervalSince(dispatchedAt)) : 0
+        let position = Double(target.positionMS) / 1_000
+        transferPlaybackConfirmed =
+            !snapshot.trackUnavailable
+            && snapshot.transport == baselineTransport
+            && snapshot.trackURI == target.trackURI && (context.isEmpty ? nil : context) == target.contextURI
+            && snapshot.isActiveDevice == (localTransferTargetID != nil)
+            && snapshot.timing.position >= position - 1 && snapshot.timing.position <= position + elapsed + 1
+        if transferOwnerConfirmed && transferPlaybackConfirmed {
+            settle(.observedConfirmed, at: envelope.receivedAt)
         }
     }
 

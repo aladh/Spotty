@@ -64,6 +64,7 @@ extension PlaybackSessionRuntime {
             expectedTrack: expectedTrack,
             observedTrackURI: observationTrackURI(for: operation),
             resumeTarget: observedResumeTarget(for: operation),
+            recoveryTarget: recoveryTarget(for: operation, local: true),
             expectedShuffle: expectedShuffle,
             expectedRepeatFlags: expectedRepeatFlags,
             expectedOwner: expectedOwner,
@@ -266,6 +267,7 @@ extension PlaybackSessionRuntime {
                 expectedTiming: expectedTiming,
                 expectedTrack: expectedTrack,
                 observedTrackURI: observationTrackURI(for: local),
+                recoveryTarget: recoveryTarget(for: local, local: false),
                 expectedShuffle: expectedShuffle,
                 expectedRepeatFlags: expectedRepeatFlags,
                 expectedOwner: expectedOwner,
@@ -293,6 +295,20 @@ extension PlaybackSessionRuntime {
         return nil
     }
 
+    private func recoveryTarget(for operation: LocalPlaybackOperation, local: Bool) -> PlaybackRecoveryTarget? {
+        guard state.blockedResumeTarget != nil else { return nil }
+        let selection: PlaybackRecoveryTarget.Selection
+        switch operation {
+        case let .playURI(uri):
+            selection = uri.hasPrefix("spotify:track:") ? .track(uri) : .context(uri)
+        case let .playTracks(uris):
+            guard let first = uris.first else { return nil }
+            selection = .track(first)
+        default: return nil
+        }
+        return PlaybackRecoveryTarget(selection: selection, engineGeneration: engineGeneration, local: local)
+    }
+
     private func observationTrackURI(for operation: LocalPlaybackOperation) -> String? {
         switch operation {
         case let .playURI(uri): uri.hasPrefix("spotify:track:") ? uri : nil
@@ -313,6 +329,7 @@ extension PlaybackSessionRuntime {
         expectedTrack: CurrentTrack?,
         observedTrackURI: String? = nil,
         resumeTarget: PlaybackResumeTarget? = nil,
+        recoveryTarget: PlaybackRecoveryTarget? = nil,
         expectedShuffle: Bool?,
         expectedRepeatFlags: RepeatFlags?,
         expectedOwner: PlaybackOwner?,
@@ -341,6 +358,7 @@ extension PlaybackSessionRuntime {
                     expectedTrack: expectedTrack,
                     expectedTrackURI: observedTrackURI,
                     resumeTarget: resumeTarget,
+                    recoveryTarget: recoveryTarget,
                     expectedShuffle: expectedShuffle,
                     expectedRepeatFlags: expectedRepeatFlags,
                     expectedOwner: expectedOwner,

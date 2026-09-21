@@ -44,6 +44,12 @@ metadata cannot. Spotify does not echo our operation ID, so confirmation means a
 state, not proof that our command caused it. Navigation matches a changed track or restarted
 position on the same owner; unchanged same-track observations remain unconfirmed.
 
+Resume and recovery loads require matching generation, track/context, position and protocol
+ownership evidence. Transfer of a known track requires both the identified destination and matching
+playback at the retained position, in either delivery order. Ownership alone suffices only without
+a retained track. Refused resume targets remain reducer-owned semantic state, separate from notices;
+only observed confirmation of an explicit recovery selection clears that block within the account.
+
 Each admitted request gets an eight-second account-scoped deadline.
 Expiration releases pending admission and invalidates unsent permits, while sent actions remain
 irrevocable. Late observations still update playback truth; terminal intent outcomes never change.

@@ -14,6 +14,8 @@ public struct PlaybackState: Equatable, Sendable {
     public var pendingCommands: [PlaybackCommandKind: PendingPlaybackCommand]
     public var intents: [PlaybackIntent] = []
     public var notice: PlaybackNotice?
+    /// A safety fact owned by the reducer, independent of whether its notice is visible.
+    public internal(set) var blockedResumeTarget: PlaybackResumeTarget?
     public var sourceRevisions: [PlaybackEventSource: UInt64]
     public var transportCommandResolutions: [UUID: PlaybackTransportCommandResolution]
 

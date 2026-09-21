@@ -19,5 +19,6 @@ integration may violate Spotify's terms.
 | Search categories, results, and retained interaction | [Search](search.md) |
 | Connect ownership, transport, and progress | [Playback](playback.md) |
 | Queue ordering, selection, and mutations | [Queue](queue.md) |
+| Closest playback/queue proofs and explicit gaps | [Playback and queue evidence](playback-evidence.md) |
 | Playlist presentation, sorting, and editing | [Playlists](playlists.md) |
 | Live-account authorization and bounded playback tests | [Safe testing](safe-testing.md) |

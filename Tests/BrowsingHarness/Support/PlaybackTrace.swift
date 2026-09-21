@@ -12,6 +12,9 @@ struct PlaybackTraceCheckpoint: Codable, Sendable {
     let admissionToDispatchMilliseconds: Double?
     let admissionToSettlementMilliseconds: Double?
     let actionToStateFeedbackMilliseconds: Double?
+    let resumeBlocked: Bool
+    let canTogglePlayback: Bool
+    let canStartSelection: Bool
 }
 
 /// A finite scenario through production action entry points. Conditions, not scheduler turns,
@@ -38,7 +41,9 @@ struct PlaybackTrace {
                     admissionToSettlementMilliseconds: intent.flatMap { intent in
                         intent.settledAt.map { $0.timeIntervalSince(intent.command.startedAt) * 1_000 }
                     },
-                    actionToStateFeedbackMilliseconds: feedbackMilliseconds))
+                    actionToStateFeedbackMilliseconds: feedbackMilliseconds,
+                    resumeBlocked: player.state.blockedResumeTarget != nil,
+                    canTogglePlayback: player.canTogglePlayback, canStartSelection: player.canStartPlayback))
         }
         try await until("playback.ready") { player.isConnected && player.canTogglePlayback && player.duration > 0 }
         func milliseconds(since start: ContinuousClock.Instant) -> Double {
@@ -115,6 +120,57 @@ struct PlaybackTrace {
             throw BrowsingFailure.checkpoint("recovery.preserved-position")
         }
         checkpoint("disconnect.recovered", since: started)
+
+        // Visible control projections share the real reducer; this single-authority Demo
+        // complements (but cannot replace) the retained Spirc/adapter delivery-order traces.
+        started = .now
+        world.playback.inject(.resumeMismatch)
+        player.togglePlayback()
+        try await until("recovery.resume-refused") {
+            player.state.blockedResumeTarget != nil && player.state.pendingCommands.isEmpty
+                && player.playbackNotice?.kind == .resumeUnavailable && !player.isPlaybackCommandPending
+        }
+        guard let notice = player.playbackNotice else { throw BrowsingFailure.checkpoint("recovery.notice") }
+        player.dismissPlaybackNotice(id: notice.id)
+        try await until("recovery.notice-dismissed") { player.playbackNotice == nil }
+        guard !player.canTogglePlayback && player.canStartPlayback else {
+            throw BrowsingFailure.checkpoint("recovery.dismissal-keeps-block")
+        }
+        checkpoint("recovery.resume-refused", since: started)
+        let selected = CatalogTrack(
+            id: "synthetic0x0", uri: "spotify:track:synthetic0x0", title: "Silver Lining",
+            artist: "Harbor Lights", album: "Signals at Dusk", duration: 180, artworkURL: nil, addedAt: nil)
+        let recoveryAction = CatalogPlaybackAccess(player: player).action(for: selected, behavior: .activateSelection)
+        started = .now
+        let beforeFailedSelection = world.playback.snapshot().commandCount
+        world.playback.inject(.reject)
+        recoveryAction.perform()
+        try await until("recovery.selection-failed") {
+            world.playback.snapshot().commandCount > beforeFailedSelection
+                && player.state.intents.last?.outcome == .rejected && player.state.pendingCommands.isEmpty
+                && recoveryAction.isEnabled
+        }
+        guard !player.canTogglePlayback && recoveryAction.isEnabled else {
+            throw BrowsingFailure.checkpoint("recovery.failure-keeps-selection")
+        }
+        checkpoint("recovery.selection-failed", since: started, intent: player.state.intents.last)
+        started = .now
+        world.playback.inject(.holdObservation)
+        recoveryAction.perform()
+        try await until("recovery.selection-sent") {
+            player.state.intents.last?.outcome == .sent && !recoveryAction.isEnabled
+        }
+        guard player.state.blockedResumeTarget != nil && !recoveryAction.isEnabled else {
+            throw BrowsingFailure.checkpoint("recovery.acknowledgement-is-not-confirmation")
+        }
+        world.playback.releaseHeldObservations()
+        try await until("recovery.selection-confirmed") {
+            player.state.intents.last?.outcome == .observedConfirmed && player.state.blockedResumeTarget == nil
+                && recoveryAction.showsPause && recoveryAction.isEnabled
+        }
+        checkpoint("recovery.selection-confirmed", since: started, intent: player.state.intents.last)
+        player.togglePlayback()
+        try await until("recovery.paused") { !player.isPlaying && player.canTogglePlayback }
 
         started = .now
         let oldAccount = player.accountEpoch

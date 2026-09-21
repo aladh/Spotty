@@ -7,20 +7,33 @@ import Testing
 @Suite("Catalog row playback actions")
 @MainActor
 struct CatalogPlaybackActionChecks {
-    @Test(arguments: [false, true])
-    func currentRowResumesOrPausesWithoutReloading(playing: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func currentRowResumesOrPausesWithoutReloading(playing: Bool, local: Bool) async throws {
         let remote = HarnessRemote(send: .park)
-        let engine = HarnessEngine()
+        let engine = HarnessEngine(position: 42_000)
+        let gate = HarnessEngineGate(result: .ok)
+        if local { engine.onExecute = { _ in gate.enter() } }
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine, remote: remote))
         let track = HarnessFixtures.track(uri: "spotify:track:current", title: "Current", duration: 200)
-        seed(player, track: track, playing: playing)
+        seed(player, track: track, playing: playing, local: local)
         let access = CatalogPlaybackAccess(player: player)
         #expect(access.action(for: track, behavior: .activateSelection).isEnabled)
         access.action(for: track, behavior: .activateSelection).perform()
-        try await requireEventually { remote.sendCount == 1 }
-        #expect(remote.endpoints == [playing ? .pause : .resume])
+        try await requireEventually { local ? gate.hasStarted : remote.sendCount == 1 }
+        if local {
+            #expect(remote.sendCount == 0)
+            if playing {
+                if case .pause = engine.operations.first {} else { Issue.record("Current local playback must pause") }
+            } else if case let .resumeObserved(target) = engine.operations.first {
+                #expect(target.trackURI == track.uri && target.positionMS == 42_000)
+            } else {
+                Issue.record("Current local selection must validate the retained resume")
+            }
+        } else {
+            #expect(remote.endpoints == [playing ? .pause : .resume])
+            #expect(engine.operations.isEmpty)
+        }
         #expect(player.trackURI == track.uri && player.position == 42)
-        #expect(engine.operations.isEmpty)
         #expect(
             !access.action(for: track, behavior: .activateSelection).isEnabled,
             "pending transport disables repeat activation")
@@ -28,7 +41,41 @@ struct CatalogPlaybackActionChecks {
             access.action(for: track, behavior: .activateSelection).isAvailable,
             "a pending command must not flash the row's resting appearance")
         access.action(for: track, behavior: .activateSelection).perform()
-        #expect(remote.sendCount == 1)
+        #expect(local ? engine.executeCount == 1 : remote.sendCount == 1)
+        gate.finish(with: .ok)
+        await player.shutdownForTermination()
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func explicitRestartAndDifferentSelectionLoadWithoutChangingModes(local: Bool, current: Bool) async throws {
+        let engine = HarnessEngine()
+        let remote = HarnessRemote(send: .park)
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine, remote: remote))
+        let track = HarnessFixtures.track(uri: "spotify:track:selected", title: "Selected", duration: 200)
+        seed(
+            player, track: current ? track : HarnessFixtures.track(uri: "spotify:track:other"), playing: false,
+            local: local)
+        player.withRuntime {
+            $0.setShuffleEnabled(true)
+            $0.setRepeatMode(.track)
+        }
+        CatalogPlaybackAccess(player: player).action(
+            for: track,
+            behavior: current ? .startFromBeginning : .activateSelection
+        ).perform()
+        try await requireEventually { local ? engine.executeCount == 1 : remote.sendCount == 1 }
+        if local {
+            if case let .playURI(uri) = engine.operations.first {
+                #expect(uri == track.uri)
+            } else {
+                Issue.record("Selection must load the chosen URI")
+            }
+        } else {
+            #expect(remote.endpoints == [.play])
+            #expect(remote.commands.first?.context?.uri == track.uri)
+        }
+        #expect(player.trackURI == track.uri && player.position == 0)
+        #expect(player.isShuffleEnabled && player.repeatMode == .track)
         await player.shutdownForTermination()
     }
 
@@ -104,12 +151,12 @@ struct CatalogPlaybackActionChecks {
         await player.shutdownForTermination()
     }
 
-    private func seed(_ player: PlaybackStore, track: CatalogTrack, playing: Bool) {
-        player.withRuntime { seed($0, track: track, playing: playing) }
+    private func seed(_ player: PlaybackStore, track: CatalogTrack, playing: Bool, local: Bool = false) {
+        player.withRuntime { seed($0, track: track, playing: playing, local: local) }
     }
 
     @SessionRuntimeActor
-    private func seed(_ runtime: PlaybackSessionRuntime, track: CatalogTrack, playing: Bool) {
+    private func seed(_ runtime: PlaybackSessionRuntime, track: CatalogTrack, playing: Bool, local: Bool = false) {
         _ = runtime.send(.session(.ready), source: .account)
         _ = runtime.send(
             .devices(
@@ -127,7 +174,10 @@ struct CatalogPlaybackActionChecks {
                     timing: PlaybackTiming(position: 42, duration: 200, anchoredAt: HarnessDates.fixed))),
             source: .user)
         _ = runtime.send(
-            .owner(.remote(PlaybackDevice(id: "speaker", name: "Speaker", type: "speaker"))),
+            .owner(
+                local
+                    ? .local(PlaybackDevice(id: "mac", name: "Mac", type: "computer"))
+                    : .remote(PlaybackDevice(id: "speaker", name: "Speaker", type: "speaker"))),
             source: .engineConnection)
     }
 }

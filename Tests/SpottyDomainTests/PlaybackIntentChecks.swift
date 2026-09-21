@@ -110,6 +110,73 @@ struct PlaybackIntentChecks {
         #expect(intent.outcome == .observedConfirmed)
     }
 
+    @Test(arguments: [false, true], [(false, false), (false, true), (true, false), (true, true)])
+    func transferRequiresMatchingPlaybackAndOwner(local: Bool, ordering: (Bool, Bool)) {
+        let (playing, ownerFirst) = ordering
+        let target = PlaybackDevice(id: local ? "mac" : "speaker", name: "Target", type: "computer")
+        let source = PlaybackDevice(id: "source", name: "Source", type: "computer")
+        let transport: PlaybackTransportState = playing ? .playing : .paused
+        let command = PendingPlaybackCommand(
+            id: UUID(), kind: .transfer, expectedTransport: nil,
+            expectedOwner: local ? nil : .uncertain(target), startedAt: now)
+        var state = PlaybackState(
+            engineEpoch: 7, session: .ready, transport: transport,
+            currentTrack: CurrentTrack(uri: "spotify:track:transfer"), playbackContextURI: "spotify:playlist:transfer",
+            timing: PlaybackTiming(position: 42, anchoredAt: now))
+        state.owner = .remote(source)
+        state.devices = PlaybackDeviceSnapshot(devices: [target], localDeviceID: "mac", revision: 1)
+        _ = PlaybackReducer.reduce(
+            &state,
+            envelope: PlaybackEventEnvelope(
+                accountEpoch: 0, engineEpoch: 7,
+                source: .command, receivedAt: now, event: .commandStarted(command)))
+        var intent = state.intents[0]
+        intent.dispatchedAt = now
+        intent.outcome = .sent
+        func owner(epoch: UInt64 = 7) -> PlaybackEventEnvelope {
+            PlaybackEventEnvelope(
+                accountEpoch: 0, engineEpoch: epoch, source: .engineConnection, receivedAt: now,
+                event: .engineConnection(
+                    EngineConnectionSnapshot(
+                        session: .ready,
+                        owner: local ? .local(target) : .remote(target), localDeviceID: "mac")))
+        }
+        func playback(
+            epoch: UInt64 = 7, track: String = "spotify:track:transfer",
+            context: String? = "spotify:playlist:transfer", position: Double = 42,
+            active: Bool? = nil, observedTransport: PlaybackTransportState? = nil
+        ) -> PlaybackEventEnvelope {
+            PlaybackEventEnvelope(
+                accountEpoch: 0, engineEpoch: epoch, source: .enginePlayback, receivedAt: now,
+                event: .enginePlayback(
+                    EnginePlaybackSnapshot(
+                        transport: observedTransport ?? transport, trackURI: track,
+                        timing: PlaybackTiming(position: position, anchoredAt: now), contextURI: context,
+                        isActiveDevice: active ?? local)))
+        }
+        intent.observe(owner(epoch: 6))
+        intent.observe(playback())
+        #expect(intent.outcome == .sent, "an old generation cannot supply destination ownership")
+        // Start each ordering without remembered evidence from the negative checks.
+        intent = state.intents[0]
+        intent.dispatchedAt = now
+        intent.outcome = .sent
+        for mismatch in [
+            playback(epoch: 6), playback(track: "spotify:track:other"), playback(context: nil),
+            playback(context: "spotify:playlist:other"), playback(position: 0), playback(active: !local),
+            playback(observedTransport: .stopped),
+        ] {
+            var rejected = intent
+            rejected.observe(owner())
+            rejected.observe(mismatch)
+            #expect(rejected.outcome == .sent)
+        }
+        intent.observe(ownerFirst ? owner() : playback())
+        #expect(intent.outcome == .sent)
+        intent.observe(ownerFirst ? playback() : owner())
+        #expect(intent.outcome == .observedConfirmed)
+    }
+
     @Test func unsentExpirationRestoresOptimism() {
         var state = PlaybackState(session: .ready, transport: .paused)
         let id = UUID()

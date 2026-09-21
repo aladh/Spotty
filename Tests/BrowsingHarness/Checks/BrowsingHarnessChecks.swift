@@ -79,7 +79,10 @@ struct BrowsingHarnessTests {
             await player.shutdownForTermination()
             throw error
         }
-        #expect(checkpoints.count == 8)
+        #expect(checkpoints.count == 11)
+        #expect(checkpoints.first(where: { $0.name == "recovery.resume-refused" })?.resumeBlocked == true)
+        #expect(checkpoints.first(where: { $0.name == "recovery.selection-failed" })?.canStartSelection == true)
+        #expect(checkpoints.first(where: { $0.name == "recovery.selection-confirmed" })?.resumeBlocked == false)
         #expect(checkpoints.prefix(3).allSatisfy { $0.intentOutcome == "observedConfirmed" })
         #expect(
             checkpoints.prefix(3).allSatisfy {
@@ -87,7 +90,7 @@ struct BrowsingHarnessTests {
                     && $0.admissionToSettlementMilliseconds != nil && $0.actionToStateFeedbackMilliseconds != nil
             })
         #expect(world.snapshot().mutationAttempts == 0)
-        #expect(world.playback.snapshot().rejectedCount == 1)
+        #expect(world.playback.snapshot().rejectedCount == 3)
         await player.shutdownForTermination()
     }
 

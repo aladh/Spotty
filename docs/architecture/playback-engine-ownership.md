@@ -48,8 +48,9 @@ Construction and teardown must publish or discard an engine generation atomicall
 arbitration and active-device facts remain protocol work; display sorting and transport presentation
 do not belong here.
 
-Spirc is the only ordinary play, pause, load, seek and transfer command owner. Construction hands
-it the mutable Player; published generations and the adapter event pump hold `PlayerObserver`,
+Spirc owns ordinary local Player mutations: play, pause, load, seek and transfer-to-local.
+Remote handoff uses the session's SpClient transfer request; its local pause goes through Spirc.
+Construction hands Spirc the mutable Player; published generations and the adapter event pump hold `PlayerObserver`,
 which exposes subscription and lifetime retention only. Shutdown also goes through Spirc, with
 bounded task abort and Player drop as lifecycle fallbacks. Loads require captured modes and an
 explicit context/supplied-order policy before activation; recovery uses that same boundary.

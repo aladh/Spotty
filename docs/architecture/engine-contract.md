@@ -19,10 +19,9 @@
   Diagnostics report one named terminal outcome, monotonic trigger-to-settlement time, and attempt
   count per lease, without account/device identifiers or a network-latency guarantee. Silent-session
   detection runs every 60 seconds. Swift owns account admission and child-work drain, not engine retries.
-- Each AP attempt bounds socket/proxy setup plus handshake at five seconds; see the retained
-  [connection patch](../../Backend/spotty-playback/vendor/librespot/core/src/connection/mod.rs) and
-  [patch record](../../Backend/spotty-playback/vendor/librespot/README.md). Retry count, authentication,
-  token fetching, and total initialization have separate budgets. Timeouts are transient and retain credentials.
+- Each AP socket/proxy setup and handshake has a five-second budget;
+  [other initialization stages](../../Backend/spotty-playback/vendor/librespot/README.md) have separate budgets.
+  Timeouts are transient and retain credentials.
 - Swift supplies a validated, opaque installation identity before authorization or playback
   sessions begin. The engine copies it once and rejects a conflicting process-lifetime value.
   Authorization and playback share this identity: the authorization session obtains reusable
@@ -45,12 +44,10 @@
 
 ## FFI surface
 
-The checked-in [declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
+Checked-in [declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
 and [annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h) own producer
-layouts, signatures, nullability, and allocation contracts. The app compiles against headers in
-[Package.swift](../../Package.swift)'s pinned XCFramework; [check.sh](../../Scripts/check.sh) validates that copy.
-Connection, playback, devices, and queue cross as typed protocol snapshots, not raw protobuf or
-presentation copy.
+types and ownership. [check.sh](../../Scripts/check.sh) validates the headers actually compiled from
+[Package.swift](../../Package.swift)'s pinned XCFramework. The boundary carries typed protocol snapshots.
 
 The aggregate Connect-cluster callback carries local identity, devices, connection, and optional
 playback/queue facts under one generation/revision, with explicit bootstrap/dealer-push provenance.
@@ -97,10 +94,8 @@ Preserve these distinctions when changing the boundary:
 
 ## Standing constraints
 
-Keep PCM, sessions, Spirc, streaming, decryption, and decoding in the retained engine under
+Keep PCM, sessions, Spirc, streaming, decryption, and decoding under
 [ADR 005](adrs/ADR-005-retain-librespot.md). Swift owns resume target order; do not widen the legacy
-resume export. User resume expectations must be checked against engine observations, never treated
-as proof that the local player has loaded the displayed track. Reconnect backoff stays local to
-its loop; connection presentation must not acquire duplicate device-name, retry-counter, timestamp,
-or session-identity state. New protocol or ownership boundaries require an architectural decision,
-not a parallel engine or state machine.
+resume export. Check user expectations against engine observations. Reconnect backoff stays local;
+connection presentation must not duplicate device-name, retry-counter, timestamp, or session-identity
+state. New protocol or ownership boundaries require an architectural decision.

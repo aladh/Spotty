@@ -40,8 +40,8 @@
   are cleared only for their owning account generation. The adapter must distinguish definitive
   rejection from general permission failures; its comparison against private upstream errors
   requires review on librespot updates.
-- Playback observations include their active-device fact. Swift must not infer ownership from
-  callback arrival order. Account/engine lifetimes and source revisions reject stale observations.
+- Playback observations carry ownership; callback order cannot establish it. Account/engine
+  lifetimes, source revisions, and local load IDs fence stale events, including position samples.
 
 ## FFI surface
 
@@ -78,7 +78,8 @@ Preserve these distinctions when changing the boundary:
   as an expectation. An idle join validates against ordered protocol observations; an active local
   player uses its loaded track and current position with track-scoped protocol context. An idle
   local join restores the Connect session paused, then requires completed queue restoration,
-  protocol ownership, and matching local player evidence before sending Play. It preserves the
+  protocol ownership, and matching local player evidence before sending Play. Provisional
+  samples wait within the restoration deadline for agreement. It preserves the
   observed queue occurrences and options even when the resolved playlist has changed; it never
   loads a playlist or another track as a fallback. Changed or unavailable evidence returns the
   resume-mismatch result. Concurrent resumes return a separate retryable busy result. Restoration

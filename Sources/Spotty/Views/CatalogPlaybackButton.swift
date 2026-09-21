@@ -17,10 +17,22 @@ struct CatalogArtworkPlaybackButton<Label: View>: View {
     @ViewBuilder let label: (Bool, Bool) -> Label
 
     var body: some View {
-        CatalogCardButton(isPointerRevealed: isPointerRevealed, action: action.perform) { focused in
+        CatalogCardButton(
+            isPointerRevealed: isPointerRevealed, isPlaybackAvailable: action.isAvailable, action: action.perform
+        ) { focused in
             label(action.showsPause, focused)
         }
         .modifier(CatalogPlaybackControl(action: action))
+    }
+}
+
+/// Preserve resting colors through the brief input fence of an in-flight playback command.
+/// Native disabled semantics still own mouse, keyboard, and accessibility admission.
+struct PlaybackControlButtonStyle: ButtonStyle {
+    let isAvailable: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(isAvailable ? (configuration.isPressed ? 0.8 : 1) : 0.4)
     }
 }
 

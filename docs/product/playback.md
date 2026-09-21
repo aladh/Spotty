@@ -52,6 +52,9 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
   until Spotify confirms playback. Stale/unavailable/unconfirmed resume stays paused with a durable
   “choose a track or playlist” notice; disable stale Play until new playback clears it. The active
   playlist stays green in sidebar/Home while paused; disconnect/cleared track removes it.
+- Keep transport colors steady while a command is pending, while disabling duplicate input.
+  Starting a new selection retains the observed shuffle and repeat modes; an explicitly ordered
+  selection keeps its chosen order.
 - A failed current local track load explains how to retry or choose another track through existing controls, without
   raw upstream errors or permanent-unavailability claims. Suppress notices for preload/superseded
   requests, stale lifetimes, and observations behind newer optimistic targets. Show the notice above

@@ -20,7 +20,7 @@ struct CatalogCardPlayButton: View {
                         .frame(width: diameter / 2, height: diameter / 2)
                         .foregroundStyle(.black)
                 }
-                .opacity(isRevealed ? (action.isEnabled ? 1 : 0.4) : 0)
+                .opacity(isRevealed ? 1 : 0)
                 .contentShape(Circle())
                 .animation(.easeOut(duration: 0.15), value: isRevealed)
         }

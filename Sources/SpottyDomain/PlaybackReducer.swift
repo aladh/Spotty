@@ -183,10 +183,19 @@ public enum PlaybackReducer {
                     isTrackUnavailable: snapshot.trackUnavailable,
                     in: &candidate
                 )
+                if candidate.notice?.kind == .resumeUnavailable,
+                    snapshot.contextURI != nil, incomingURI != nil, snapshot.transport == .playing,
+                    !snapshot.trackUnavailable
+                {
+                    // Only observed protocol playback releases a failed-resume block. A
+                    // recovery load's optimistic presentation or command return cannot.
+                    candidate.notice = nil
+                }
                 if snapshot.trackUnavailable, incomingURI != nil {
                     candidate.notice = PlaybackNotice(
                         message: snapshot.audioKeyRefused
-                            ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage
+                            ? PlaybackNotice.audioKeyRefusedMessage : PlaybackNotice.trackUnavailableMessage,
+                        kind: candidate.notice?.kind == .resumeUnavailable ? .resumeUnavailable : .command
                     )
                 }
             }
@@ -359,11 +368,6 @@ public enum PlaybackReducer {
             }
             if command.resumeTarget == nil, let expected = command.expectedTiming {
                 candidate.timing = expected
-            }
-            if command.expectedTransport == .playing, command.resumeTarget == nil,
-                candidate.notice?.kind == .resumeUnavailable
-            {
-                candidate.notice = nil
             }
             if let expectedShuffle = command.expectedShuffle {
                 candidate.options.shuffle = expectedShuffle

@@ -92,6 +92,11 @@ struct NowPlayingProgress: View {
 struct NowPlayingTransportControls: View {
     let player: PlaybackStore
 
+    private var isToggleAvailable: Bool {
+        player.isPlaybackAvailable && player.hasCurrentTrack
+            && (player.isPlaying || player.playbackNotice?.kind != .resumeUnavailable)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             optionButton(
@@ -102,18 +107,19 @@ struct NowPlayingTransportControls: View {
                 action: player.toggleShuffle
             )
             TransportIconButton(
-                symbol: .previous, label: "Previous", disabled: !player.canSkipTrack, action: player.previous)
+                symbol: .previous, label: "Previous", disabled: !player.canSkipTrack,
+                isAvailable: player.isPlaybackAvailable && player.hasCurrentTrack, action: player.previous)
             Button(action: player.togglePlayback) {
                 ZStack {
                     Circle().fill(
-                        player.canTogglePlayback
+                        isToggleAvailable
                             ? SpottyPalette.playerPrimary
                             : SpottyPalette.playerDisabledControl
                     )
                     TransportSymbol(kind: player.showsPauseControl ? .pause : .play)
                         .frame(width: 16, height: 16)
                         .foregroundStyle(
-                            player.canTogglePlayback
+                            isToggleAvailable
                                 ? SpottyPalette.playerButtonForeground
                                 : SpottyPalette.playerDisabledForeground
                         )
@@ -122,14 +128,15 @@ struct NowPlayingTransportControls: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PlaybackControlButtonStyle(isAvailable: true))
             .padding(.horizontal, 8)
             .disabled(!player.canTogglePlayback)
             .pointingHandCursor(enabled: player.canTogglePlayback)
             .help(player.hasCurrentTrack ? (player.showsPauseControl ? "Pause" : "Play") : "Choose music to begin")
             .accessibilityLabel(player.showsPauseControl ? "Pause" : "Play")
             TransportIconButton(
-                symbol: .next, label: "Next", disabled: !player.canSkipTrack, action: player.next)
+                symbol: .next, label: "Next", disabled: !player.canSkipTrack,
+                isAvailable: player.isPlaybackAvailable && player.hasCurrentTrack, action: player.next)
             optionButton(
                 symbol: player.repeatMode == .track ? .repeatOne : .repeatAll,
                 active: player.repeatMode != .off,
@@ -160,7 +167,7 @@ struct NowPlayingTransportControls: View {
                     }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PlaybackControlButtonStyle(isAvailable: player.isPlaybackAvailable))
         .disabled(!player.canStartPlayback)
         .pointingHandCursor(enabled: player.canStartPlayback)
         .help(help)
@@ -227,6 +234,7 @@ private struct TransportIconButton: View {
     let symbol: TransportSymbol.Kind
     let label: String
     let disabled: Bool
+    let isAvailable: Bool
     let action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -236,7 +244,7 @@ private struct TransportIconButton: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PlaybackControlButtonStyle(isAvailable: isAvailable))
         .disabled(disabled)
         .pointingHandCursor(enabled: !disabled)
         .help(label)

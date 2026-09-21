@@ -82,7 +82,8 @@ struct CatalogItemPlaybackChecks {
         await player.shutdownForTermination()
     }
 
-    @Test func rejectedResumeDisablesCurrentSelectionButAllowsAnother() async throws {
+    @Test(arguments: [false, true])
+    func rejectedResumeAllowsAnExplicitCurrentOrDifferentSelection(chooseCurrent: Bool) async throws {
         let engine = HarnessEngine(executeResult: .resumeMismatch, position: 42_000)
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine))
         let item = selection(.playlist)
@@ -90,22 +91,20 @@ struct CatalogItemPlaybackChecks {
         let access = CatalogPlaybackAccess(player: player)
         access.action(for: item, behavior: .activateSelection).perform()
         try await requireEventually { player.playbackNotice?.kind == .resumeUnavailable }
-        #expect(!access.action(for: item, behavior: .activateSelection).isEnabled)
+        #expect(!player.canTogglePlayback)
+        #expect(access.action(for: item, behavior: .activateSelection).isEnabled)
         #expect(!access.action(for: item, behavior: .activateSelection).showsPause)
         #expect(access.canStartPlayback, "shuffle and new selections remain available")
-        let before = player.state
-        access.action(for: item, behavior: .activateSelection).perform()
-        #expect(player.state == before)
         #expect(engine.executeCount == 1)
-        let other = selection(.playlist, id: "other")
-        #expect(access.action(for: other, behavior: .activateSelection).isEnabled)
+        let chosen = chooseCurrent ? item : selection(.playlist, id: "other")
+        #expect(access.action(for: chosen, behavior: .activateSelection).isEnabled)
         engine.executeResult = .ok
-        access.action(for: other, behavior: .activateSelection).perform()
+        access.action(for: chosen, behavior: .activateSelection).perform()
         try await requireEventually { engine.executeCount == 2 }
         if case let .playURI(uri) = engine.operations.last {
-            #expect(uri == other.uri)
+            #expect(uri == chosen.uri)
         } else {
-            Issue.record("Choosing another playlist starts its own context")
+            Issue.record("An explicit recovery selection starts its own context")
         }
         await player.shutdownForTermination()
     }

@@ -151,7 +151,16 @@ impl ObservedResumeState {
         {
             return ResumeAction::Reject;
         }
-        if transferred && !self.protocol_active {
+        // Restoration, protocol ownership and decoder position arrive independently. A
+        // provisional sample is not a permanent mismatch while our paused transfer is still
+        // settling. Keep the same bounded wait; never send Play until both sources agree.
+        if transferred
+            && (!self.protocol_active
+                || !self
+                    .observed
+                    .as_ref()
+                    .is_some_and(|target| expected.matches(target)))
+        {
             return ResumeAction::Wait;
         }
         if local_active {
@@ -165,6 +174,8 @@ impl ObservedResumeState {
                 }
                 return if expected.matches(local) {
                     ResumeAction::Play
+                } else if transferred {
+                    ResumeAction::Wait
                 } else {
                     ResumeAction::Reject
                 };
@@ -557,7 +568,7 @@ mod tests {
                 ..Default::default()
             };
             assert_eq!(state.action(&expected, false, false), ResumeAction::Reject);
-            assert_eq!(state.action(&expected, true, true), ResumeAction::Reject);
+            assert_eq!(state.action(&expected, true, true), ResumeAction::Wait);
         }
         let state = ObservedResumeState {
             observed: Some(expected.clone()),
@@ -571,6 +582,25 @@ mod tests {
             ObservedResumeState::default().action(&expected, false, false),
             ResumeAction::Reject
         );
+    }
+
+    #[test]
+    fn paused_transfer_waits_for_converging_protocol_and_local_positions() {
+        let expected = target("current", 152_000);
+        let mut state = ObservedResumeState {
+            observed: Some(target("current", 0)),
+            local: Some(target("current", 0)),
+            local_context_known: true,
+            protocol_active: true,
+            ..Default::default()
+        };
+        assert_eq!(state.action(&expected, true, true), ResumeAction::Wait);
+        state.observed = Some(expected.clone());
+        assert_eq!(state.action(&expected, true, true), ResumeAction::Wait);
+        state.local = Some(expected.clone());
+        assert_eq!(state.action(&expected, true, true), ResumeAction::Play);
+        state.remote_owner = true;
+        assert_eq!(state.action(&expected, true, true), ResumeAction::Reject);
     }
 
     #[test]

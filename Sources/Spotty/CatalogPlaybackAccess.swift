@@ -21,6 +21,8 @@ struct CatalogPlaybackAccess {
     func toggleShuffle() { if isCurrentAccount { player.toggleShuffle() } }
 
     var canStartPlayback: Bool { isCurrentAccount && player.canStartPlayback }
+    fileprivate var isPlaybackAvailable: Bool { isCurrentAccount && player.isPlaybackAvailable }
+    fileprivate var isPlaybackCommandPending: Bool { player.isPlaybackCommandPending }
     var currentTrackIndicator: CurrentTrackIndicator { player.currentTrackIndicator }
     func isPlayingPlaylist(_ uri: String) -> Bool {
         player.playingContextURI == uri
@@ -59,14 +61,6 @@ struct CatalogPlaybackAccess {
         player.play(track: track)
     }
 
-    fileprivate func canActivateTrack(_ track: CatalogTrack, isPlayable: Bool = true) -> Bool {
-        guard isCurrentAccount else { return false }
-        if player.trackURI == track.uri {
-            return (isPlayable || player.isPlaying) && player.canTogglePlayback
-        }
-        return isPlayable && player.canStartPlayback
-    }
-
     /// A row targets its own track even if playback changes while the control is retained.
     fileprivate func activateTrack(_ track: CatalogTrack, isPlayable: Bool = true) {
         guard isCurrentAccount else { return }
@@ -84,11 +78,6 @@ struct CatalogPlaybackAccess {
 
     fileprivate func showsPause(for item: CatalogItem) -> Bool {
         isConnected && isCurrentItem(item) && player.showsPauseControl
-    }
-
-    fileprivate func canActivateItem(_ item: CatalogItem) -> Bool {
-        guard isCurrentAccount else { return false }
-        return isCurrentItem(item) ? player.canTogglePlayback : player.canStartPlayback
     }
 
     fileprivate func activateItem(_ item: CatalogItem) {
@@ -132,11 +121,15 @@ struct CatalogPlaybackAction {
     let behavior: CatalogPlaybackBehavior
 
     var isEnabled: Bool {
-        switch (behavior, target) {
-        case let (.activateSelection, .item(item)): access.canActivateItem(item)
-        case let (.activateSelection, .track(track, playable)): access.canActivateTrack(track, isPlayable: playable)
-        case (.startFromBeginning, .item): access.canStartPlayback
-        case let (.startFromBeginning, .track(_, playable)): playable && access.canStartPlayback
+        isAvailable && !access.isPlaybackCommandPending
+    }
+
+    /// A short command admission fence disables input without flashing the artwork or row.
+    var isAvailable: Bool {
+        guard access.isPlaybackAvailable else { return false }
+        switch target {
+        case .item: return true
+        case let .track(_, playable): return playable || showsPause
         }
     }
 

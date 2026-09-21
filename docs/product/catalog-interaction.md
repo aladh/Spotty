@@ -37,7 +37,8 @@ dimensions, ordering, and deliberate exceptions.
 
 The control's glyph, label, tooltip, availability, and dispatch must describe one action. Current
 selection activation pauses observed playback or resumes its retained position; a different
-selection starts playback. Track controls match the track URI; collections match context, never
+selection starts playback. After an unsafe-resume notice, explicitly selecting even the current
+track or collection starts that selection afresh. Track controls match the track URI; collections match context, never
 membership. Revalidate the target and account against current runtime authority when activated.
 Controls target the current owner without implicitly transferring playback.
 
@@ -58,8 +59,9 @@ status alongside the ordinal. Browsing selection alone never starts playback.
 
 Keep navigation and playback as separate native actions, without nested buttons. Hover or
 keyboard/accessibility focus reveals artwork playback controls; assistive technology can discover
-them at rest. Hidden controls do not intercept pointer navigation. Disabled visible controls are
-dimmed while navigation remains usable. Tab reaches each available action; Space activates once
+them at rest. Hidden controls do not intercept pointer navigation. Unavailable controls are
+dimmed while navigation remains usable; the brief input fence during a pending command preserves
+the control's resting colors and hovered glyph. Tab reaches each available action; Space activates once
 per press, including repeat and key-up phases.
 
 In the sidebar, Search preview, Queue, and Recently played native lists, Tab enters the available

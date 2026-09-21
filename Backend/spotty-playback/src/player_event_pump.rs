@@ -226,6 +226,14 @@ fn apply_player_event_locked(
     request_state: &mut PlayerRequestState,
     applied: &mut AppliedPlayerEvent,
 ) {
+    // A generation can load more than one track. Match Spirc's request fence for every
+    // request-scoped event, not just Loading/Unavailable: a late Paused/Stopped or position
+    // sample must not erase the new player's evidence and make its next resume fail.
+    if let Some(request) = event.get_play_request_id() {
+        if request_state.current_play_request_id != Some(request) {
+            return;
+        }
+    }
     match event {
         // Mirror librespot's Spirc request filter. The event is emitted before each load and
         // carries no track, so the following Loading event supplies the URI for the identity
@@ -962,6 +970,9 @@ mod player_event_pump_policy {
 
     fn apply_current_generation_event(event: PlayerEvent, generation: u64) {
         let mut request_state = PlayerRequestState::default();
+        if let Some(request) = event.get_play_request_id() {
+            request_state.play_request_id_changed(request);
+        }
         apply_current_generation_event_with_state(event, generation, &mut request_state);
     }
 
@@ -1028,6 +1039,70 @@ mod player_event_pump_policy {
     }
 
     #[test]
+    fn superseded_load_events_cannot_replace_current_resume_evidence() {
+        let _guard = lock_lifecycle_test_globals();
+        let _restore = RestorePlaybackGlobals(capture_playback_globals());
+        let saved_resume = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let mut state = PlayerRequestState::default();
+        state.play_request_id_changed(2);
+        let current = parse_spotify_uri("spotify:track:0000000000000000000002").unwrap();
+        apply_player_event(
+            PlayerEvent::Paused {
+                play_request_id: 2,
+                track_id: current.clone(),
+                position_ms: 152_000,
+            },
+            generation,
+            &mut state,
+        );
+        let local = with_engine(|engine| engine.observed_resume.local.clone());
+        let playing = playing_event_stamp();
+        for event in [
+            playing_event(0),
+            PlayerEvent::Paused {
+                play_request_id: 1,
+                track_id: synthetic_track(),
+                position_ms: 0,
+            },
+            PlayerEvent::Stopped {
+                play_request_id: 1,
+                track_id: synthetic_track(),
+            },
+            PlayerEvent::EndOfTrack {
+                play_request_id: 1,
+                track_id: synthetic_track(),
+            },
+            PlayerEvent::Seeked {
+                play_request_id: 1,
+                track_id: synthetic_track(),
+                position_ms: 0,
+            },
+            PlayerEvent::PositionCorrection {
+                play_request_id: 1,
+                track_id: synthetic_track(),
+                position_ms: 0,
+            },
+            PlayerEvent::PositionChanged {
+                play_request_id: 1,
+                track_id: synthetic_track(),
+                position_ms: 0,
+            },
+        ] {
+            apply_player_event(event, generation, &mut state);
+            assert!(!engine_is_playing());
+            assert_eq!(playing_event_stamp(), playing);
+            assert_eq!(POSITION_MS.load(Ordering::SeqCst), 152_000);
+            assert!(current_track_uri_matches(&current.to_string()));
+            assert_eq!(
+                with_engine(|engine| engine.observed_resume.local.clone()),
+                local
+            );
+        }
+        with_engine(|engine| engine.observed_resume = saved_resume);
+    }
+
+    #[test]
     fn a_playing_event_is_the_authoritative_playing_transition() {
         let _guard = lock_lifecycle_test_globals();
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
@@ -1055,6 +1130,7 @@ mod player_event_pump_policy {
         let track_id = synthetic_track();
         let generation = SESSION_GENERATION.load(Ordering::SeqCst);
         let mut request_state = PlayerRequestState::default();
+        request_state.play_request_id_changed(1);
 
         set_engine_playing_for_test(true);
         apply_player_event(
@@ -1081,6 +1157,7 @@ mod player_event_pump_policy {
         );
         assert!(!engine_is_playing());
 
+        request_state.play_request_id_changed(1);
         apply_player_event(playing_event(1_250), generation, &mut request_state);
         assert!(with_engine(|engine| engine.observed_resume.local.is_some()));
         apply_player_event(

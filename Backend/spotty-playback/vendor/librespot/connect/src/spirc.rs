@@ -1204,6 +1204,7 @@ impl SpircTask {
                             seek_to: play.options.seek_to.unwrap_or_default(),
                             playing_track: play.options.skip_to.and_then(|s| s.try_into().ok()),
                             context_options,
+                            preserve_track_order: false,
                         },
                     },
                     play.context.pages.pop(),
@@ -1578,7 +1579,8 @@ impl SpircTask {
             self.connect_state.set_repeat_track(options.repeat_track);
         }
 
-        if matches!(cmd_options.context_options, Some(LoadContextOptions::Options(ref o)) if o.shuffle)
+        if !cmd_options.preserve_track_order
+            && matches!(cmd_options.context_options, Some(LoadContextOptions::Options(ref o)) if o.shuffle)
         {
             if let Some(index) = index {
                 self.connect_state.set_current_track(index)?;

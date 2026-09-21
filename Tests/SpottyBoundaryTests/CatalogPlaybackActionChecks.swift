@@ -24,6 +24,9 @@ struct CatalogPlaybackActionChecks {
         #expect(
             !access.action(for: track, behavior: .activateSelection).isEnabled,
             "pending transport disables repeat activation")
+        #expect(
+            access.action(for: track, behavior: .activateSelection).isAvailable,
+            "a pending command must not flash the row's resting appearance")
         access.action(for: track, behavior: .activateSelection).perform()
         #expect(remote.sendCount == 1)
         await player.shutdownForTermination()

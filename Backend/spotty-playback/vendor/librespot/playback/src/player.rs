@@ -324,6 +324,9 @@ impl PlayerEvent {
             | PositionCorrection {
                 play_request_id, ..
             }
+            | PositionChanged {
+                play_request_id, ..
+            }
             | Seeked {
                 play_request_id, ..
             } => Some(*play_request_id),

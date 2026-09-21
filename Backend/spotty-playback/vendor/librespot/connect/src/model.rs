@@ -44,6 +44,8 @@ pub struct LoadRequestOptions {
     ///
     /// If `None` is provided and `shuffle` is `true`, a random track is played, otherwise the first
     pub playing_track: Option<PlayingTrack>,
+    /// Keep an explicitly ordered selection while retaining its shuffle/repeat modes.
+    pub preserve_track_order: bool,
 }
 
 /// The options which decide how the playback is started

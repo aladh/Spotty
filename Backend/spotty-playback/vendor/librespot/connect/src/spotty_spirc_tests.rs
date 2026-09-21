@@ -59,6 +59,36 @@ fn task() -> SpircTask {
 }
 
 #[tokio::test]
+async fn spotty_ordered_selection_retains_modes_without_reshuffling_its_tracks() {
+    use crate::model::Options;
+    let mut task = task();
+    let tracks = vec![
+        "spotify:track:0000000000000000000001".to_owned(),
+        "spotify:track:0000000000000000000002".to_owned(),
+        "spotify:track:0000000000000000000003".to_owned(),
+    ];
+    task.handle_load(
+        LoadRequest::from_tracks(tracks.clone(), LoadRequestOptions {
+            context_options: Some(LoadContextOptions::Options(Options {
+                shuffle: true, repeat: true, repeat_track: true,
+            })),
+            preserve_track_order: true,
+            ..Default::default()
+        }),
+        None,
+        None,
+    ).await.unwrap();
+    assert_eq!(task.connect_state.current_track(|track| track.uri.clone()), tracks[0]);
+    assert!(task.connect_state.shuffling_context());
+    assert!(task.connect_state.repeat_context());
+    assert!(task.connect_state.repeat_track());
+    assert_eq!(
+        task.connect_state.player().next_tracks.iter().take(2).map(|track| track.uri.clone()).collect::<Vec<_>>(),
+        tracks[1..],
+    );
+}
+
+#[tokio::test]
 async fn spotty_self_transfer_does_not_wait_inside_the_dealer_command_handler() {
     let mut task = task();
     let outcome = task

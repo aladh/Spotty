@@ -125,6 +125,40 @@ struct HydratedResumeTests {
         await player.shutdownForTermination()
     }
 
+    @Test(arguments: [false, true])
+    func currentSelectionCanRecoverAfterResumeIsRefused(playlist: Bool) async {
+        let engine = HarnessEngine(executeResult: .resumeMismatch, position: 152_000)
+        let player = await hydratedPlayer(engine: engine)
+        await expectEventually { player.canTogglePlayback }
+        player.togglePlayback()
+        await expectEventually { player.playbackNotice?.kind == .resumeUnavailable }
+        let access = CatalogPlaybackAccess(player: player)
+        let action: CatalogPlaybackAction
+        if playlist {
+            action = access.action(
+                for: CatalogItem(
+                    id: "hydrated-context", uri: context, title: "Hydrated playlist", subtitle: "",
+                    artworkURL: nil, kind: .playlist),
+                behavior: .activateSelection)
+        } else {
+            action = access.action(
+                for: HarnessFixtures.track(uri: track, title: "Hydrated", duration: 240),
+                behavior: .activateSelection)
+        }
+        #expect(!player.canTogglePlayback, "the player shelf cannot retry the refused resume")
+        #expect(action.isEnabled, "an explicit catalog selection must remain a recovery action")
+        engine.executeResult = .ok
+        action.perform()
+        await expectEventually { engine.executeCount == 2 }
+        if case let .playURI(uri) = engine.operations.last {
+            #expect(uri == (playlist ? context : track))
+        } else {
+            Issue.record("Recovery must start the explicit selection instead of retrying resume")
+        }
+        #expect(player.playbackNotice == nil)
+        await player.shutdownForTermination()
+    }
+
     @Test func aMovedPositionCannotConfirmTheHydratedResume() async {
         let engine = HarnessEngine(position: 152_000)
         let gate = HarnessEngineGate(result: .resumeMismatch)

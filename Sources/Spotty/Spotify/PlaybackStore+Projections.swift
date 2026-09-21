@@ -49,9 +49,8 @@ extension PlaybackStore {
     }
     /// Connect is account-wide: another device playing is still live playback Spotty can control.
     var showsPauseControl: Bool { hasCurrentTrack && isPlaying }
-    var canStartPlayback: Bool {
-        isConnected && !isTearingDown && allowsCommands && !isPlaybackCommandPending
-    }
+    var isPlaybackAvailable: Bool { isConnected && !isTearingDown && allowsCommands }
+    var canStartPlayback: Bool { isPlaybackAvailable && !isPlaybackCommandPending }
     var canTogglePlayback: Bool {
         canStartPlayback && hasCurrentTrack && (isPlaying || playbackNotice?.kind != .resumeUnavailable)
     }

@@ -135,7 +135,7 @@ struct NativeTrackCell: View {
 
         return CatalogPlaybackButton(action: action) { showsPause in
             Group {
-                if indexHovered && action.isEnabled {
+                if indexHovered && action.isAvailable {
                     TransportSymbol(kind: showsPause ? .pause : .play)
                         .frame(width: 16, height: 16)
                         .foregroundStyle(SpottyPalette.textPrimary)

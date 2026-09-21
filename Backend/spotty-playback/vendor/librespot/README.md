@@ -25,6 +25,10 @@ Changes from that source:
   and exhausting Spotify's request limit. Transferred duration remains available while loading.
 - Disconnect advances the position timestamp without adding paused time to played time, preserving
   the paused position for another client. The transfer/advancement regression checks this handoff.
+- Periodic position events expose their request ID through the same accessor as transport events,
+  so late samples cannot replace a newer load's resume position.
+- Explicit ordered loads can retain shuffle/repeat options without shuffling the supplied order
+  again. Spotty captures these options before activation can publish empty-player defaults.
 - `connect/src/spotty_spirc_tests.rs` exercises the command handler, restoration receipt, and
   cancellation without a network connection or audio. `spotty_transfer_tests.rs` follows paused
   hydration through context resolution and natural queue advancement, then decodes the serialized

@@ -23,7 +23,7 @@ package extension PlaybackSessionRuntime {
     func activateTrack(_ track: CatalogTrack, isPlayable: Bool = true) {
         guard canStartPlayback else { return }
         // Choose against runtime authority: the desktop may still display the preceding track.
-        if trackURI == track.uri {
+        if trackURI == track.uri && canTogglePlayback {
             guard isPlayable || isPlaying else { return }
             togglePlayback()
         } else {
@@ -36,7 +36,7 @@ package extension PlaybackSessionRuntime {
         guard canStartPlayback else { return }
         // A retained control must target its own selection, even before the desktop catches up.
         let isCurrent = item.kind == .track ? trackURI == item.uri : playingContextURI == item.uri
-        if isCurrent {
+        if isCurrent && canTogglePlayback {
             togglePlayback()
         } else if item.kind == .playlist {
             playPlaylist(item, contents: contents)

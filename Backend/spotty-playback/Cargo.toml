@@ -40,3 +40,4 @@ librespot-playback = { path = "vendor/librespot/playback" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
+librespot-connect = { git = "https://github.com/librespot-org/librespot", rev = "939dc5ee9d833e1980f9495241219d9d4868a061", features = ["spotty-test-harness"] }

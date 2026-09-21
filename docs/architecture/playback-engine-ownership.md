@@ -48,10 +48,36 @@ Construction and teardown must publish or discard an engine generation atomicall
 arbitration and active-device facts remain protocol work; display sorting and transport presentation
 do not belong here.
 
+Spirc owns ordinary local Player mutations: play, pause, load, seek and transfer-to-local.
+Remote handoff uses the session's SpClient transfer request; its local pause goes through Spirc.
+Construction hands Spirc the mutable Player; published generations and the adapter event pump hold `PlayerObserver`,
+which exposes subscription and lifetime retention only. Shutdown also goes through Spirc, with
+bounded task abort and Player drop as lifecycle fallbacks. Loads require captured modes and an
+explicit context/supplied-order policy before activation; recovery uses that same boundary.
+
+### Event admissibility
+
+These dimensions are independent; arrival order across the two consumers establishes no command
+ordering. The retained handler owns desired transport, while the adapter owns observed evidence.
+
+| Event/evidence | Admission and effect |
+| --- | --- |
+| Replaced engine generation | Inert, including terminal events; only its own tasks may drain. |
+| Old load request | Inert for transport, position and resume evidence. |
+| Current Playing/Paused against newer opposite intent | Spirc preserves desired transport until the matching event. Adapter samples alone cannot confirm protocol playback. |
+| Deactivation | Save nonzero resume position and disarm load failure notices; retain current request identity. |
+| Current Stopped/EndOfTrack after deactivation | Release live position and local loaded-track evidence without erasing the saved resume position. |
+| Command dispatch/acknowledgement | Admission evidence only. Resume/recovery confirmation requires fresh matching generation, track/context, position and local/protocol ownership evidence within the existing bounded wait. |
+
+The manual timing helper `Scripts/check-transport-traces.sh` runs the named offline Spirc/adapter traces and reports source,
+engine identity and runtime. They use synthetic identities and no credentials,
+connection or audio output; the normal Rust gate includes them. Pair them with the Demo for visible
+controls, since a single synthetic authority cannot prove the real two-consumer ordering.
+
 Rust supplies bounded PCM and typed protocol observations through the
-[C boundary](../../Sources/SpottyPlaybackCore/include/spotty_playback.h). That checked-in header is
-the producer-canonical copy; the app actually compiles against the copy shipped inside the pinned
-XCFramework. It retains sticky resume identity, while Swift selects resume targets. Readiness stays
+[C boundary](../../Sources/SpottyPlaybackCore/include/spotty_playback.h). The checked-in header is
+producer-canonical; the app compiles the pinned XCFramework's copy. Rust retains sticky resume
+identity, while Swift selects targets. Readiness stays
 held until reconnect rehydration finishes; do not create a second protocol state machine across
 that boundary.
 

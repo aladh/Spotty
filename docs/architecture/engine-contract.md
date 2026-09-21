@@ -16,13 +16,13 @@
   flight; construction still settles transactionally under the lifecycle mutex. A retired
   task cannot clear its replacement's ownership. Transient outages retry indefinitely with
   delays of 0, 2, 5, 10, then 30 seconds; credential rejection terminates the owning run.
-  Diagnostics report one named terminal outcome, monotonic trigger-to-settlement time, and attempt
-  count per lease, without account/device identifiers or a network-latency guarantee. Silent-session
-  detection runs every 60 seconds. Swift owns account admission and child-work drain, not engine retries.
-- Each AP attempt bounds socket/proxy setup plus handshake at five seconds; see the retained
-  [connection patch](../../Backend/spotty-playback/vendor/librespot/core/src/connection/mod.rs) and
-  [patch record](../../Backend/spotty-playback/vendor/librespot/README.md). Retry count, authentication,
-  token fetching, and total initialization have separate budgets. Timeouts are transient and retain credentials.
+  Diagnostics report a named terminal outcome, monotonic trigger-to-settlement time and attempts
+  per lease, without identifiers or network-latency guarantees. Silent-session
+  detection runs every 60 seconds. Swift owns account admission and child-work drain.
+- Each AP attempt shares one five-second socket/proxy-setup-plus-handshake deadline;
+  see the [connection patch](../../Backend/spotty-playback/vendor/librespot/core/src/connection/mod.rs)
+  and [patch record](../../Backend/spotty-playback/vendor/librespot/README.md). Other stages have separate budgets;
+  timeouts are transient and retain credentials.
 - Swift supplies a validated, opaque installation identity before authorization or playback
   sessions begin. The engine copies it once and rejects a conflicting process-lifetime value.
   Authorization and playback share this identity: the authorization session obtains reusable
@@ -45,21 +45,19 @@
 
 ## FFI surface
 
-The checked-in [declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
+Checked-in [declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
 and [annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h) own producer
-layouts, signatures, nullability, and allocation contracts. The app compiles against headers in
-[Package.swift](../../Package.swift)'s pinned XCFramework; [check.sh](../../Scripts/check.sh) validates that copy.
-Connection, playback, devices, and queue cross as typed protocol snapshots, not raw protobuf or
-presentation copy.
+types and ownership. [check.sh](../../Scripts/check.sh) validates the headers actually compiled from
+[Package.swift](../../Package.swift)'s pinned XCFramework. The boundary carries typed protocol snapshots.
 
-The aggregate Connect-cluster callback carries local identity, devices, connection, and optional
-playback/queue facts under one generation/revision, with explicit bootstrap/dealer-push provenance.
-Registration replaces cluster-origin legacy notifications only; player-local and lifecycle callbacks
-remain separate ordered sources. Copy borrowed nested pointers before returning. Snapshot capture
-holds the revision lock; callback delivery does not. Update canonical queue/playback caches before
-delivery so reentrant getters see published facts and reentrant cleanup cannot precede a stale write.
+The aggregate callback carries local identity, devices, connection, and optional playback/queue
+facts under one generation/revision with bootstrap/dealer-push provenance. It replaces only
+cluster-origin legacy notifications; player and lifecycle sources remain separately ordered.
+Copy borrowed nested pointers before returning. Capture snapshots under the revision lock; deliver
+unlocked. Update canonical caches first so reentrant getters see published facts and cleanup
+cannot precede a stale write.
 
-Preserve these distinctions when changing the boundary:
+Boundary distinctions:
 
 - Missing and interior-NUL strings normalize before callback delivery. Empty strings normally mean
   absent, but playback context uses null for no update and empty for an explicit clear.
@@ -86,16 +84,21 @@ Preserve these distinctions when changing the boundary:
   and Playing confirmation have separate five- and two-second budgets. Success requires a fresh
   protocol observation naming this device and the expected playing track/context/position as well
   as a new local Playing event. A failed confirmation pauses the same local track if this generation
-  still owns it. Local timing samples and a successful command return alone cannot confirm a resume
-  or advance its presentation. Legacy resume and sticky load targets remain available for reconnect
+  still owns it. Neither local timing nor command acknowledgement confirms resume or advances
+  presentation. Legacy resume and sticky load targets remain available for reconnect
   rehydration until consumers adopt the observed-resume entry point.
+- Reconnect/load confirmation also names its dispatched target. A new local Playing event alone
+  cannot close the rehydration wait: current-generation local and fresh protocol evidence must
+  agree on the requested track/context, position window and local ownership. A context without a
+  track hint confirms its context/position and agreement on the resolved track, not a particular
+  pre-dispatch track. Failed sends discard their receipt. The existing bounded
+  timeout still releases readiness without claiming playback succeeded. Recovery loads retain
+  pre-activation modes and explicitly choose context or supplied-track order.
 
 ## Standing constraints
 
-Keep PCM, sessions, Spirc, streaming, decryption, and decoding in the retained engine under
+Keep PCM, sessions, Spirc, streaming, decryption, and decoding under
 [ADR 005](adrs/ADR-005-retain-librespot.md). Swift owns resume target order; do not widen the legacy
-resume export. User resume expectations must be checked against engine observations, never treated
-as proof that the local player has loaded the displayed track. Reconnect backoff stays local to
-its loop; connection presentation must not acquire duplicate device-name, retry-counter, timestamp,
-or session-identity state. New protocol or ownership boundaries require an architectural decision,
-not a parallel engine or state machine.
+resume export. Check user expectations against engine observations. Reconnect backoff stays local;
+connection presentation must not duplicate device-name, retry-counter, timestamp, or session-identity
+state. New protocol or ownership boundaries require an architectural decision.

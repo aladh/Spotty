@@ -1,62 +1,6 @@
 use super::*;
-use crate::core::SessionConfig;
-use crate::playback::{
-    audio_backend::{Sink, SinkResult},
-    config::PlayerConfig,
-    convert::Converter,
-    decoder::AudioPacket,
-    mixer::{MixerConfig, NoOpVolume, softmixer::SoftMixer},
-};
-use futures_util::{FutureExt, stream};
-
-struct SilentSink;
-impl Sink for SilentSink {
-    fn write(&mut self, _: AudioPacket, _: &mut Converter) -> SinkResult<()> {
-        panic!("command scheduling tests must not render audio")
-    }
-}
-
-// Exercise the actual command handler without connecting a Session, resolving a context,
-// or loading a track. The Player remains stopped and all Dealer streams stay pending.
-fn task() -> SpircTask {
-    let session = Session::new(SessionConfig::default(), None);
-    let player = Player::new(
-        PlayerConfig::default(),
-        session.clone(),
-        Box::new(NoOpVolume),
-        || Box::new(SilentSink),
-    );
-    SpircTask {
-        player,
-        mixer: Arc::new(SoftMixer::open(MixerConfig::default()).unwrap()),
-        connect_state: ConnectState::new(ConnectConfig::default(), &session),
-        connect_established: true,
-        play_request_id: None,
-        play_status: SpircPlayStatus::Stopped,
-        connection_id_update: Box::pin(stream::pending()),
-        connect_state_update: Box::pin(stream::pending()),
-        connect_state_volume_update: Box::pin(stream::pending()),
-        connect_state_logout_request: Box::pin(stream::pending()),
-        playlist_update: Box::pin(stream::pending()),
-        session_update: Box::pin(stream::pending()),
-        connect_state_command: Box::pin(stream::pending()),
-        user_attributes_update: Box::pin(stream::pending()),
-        user_attributes_mutation: Box::pin(stream::pending()),
-        commands: None,
-        player_events: None,
-        context_resolver: ContextResolver::new(session.clone()),
-        emit_set_queue_events: false,
-        shutdown: false,
-        session,
-        transfer_state: None,
-        pending_transfer: None,
-        transfer_snapshot: None,
-        transfer_restored: None,
-        update_volume: false,
-        update_state: false,
-        spirc_id: 0,
-    }
-}
+use super::spotty_transport_fixture::task;
+use futures_util::FutureExt;
 
 #[tokio::test]
 async fn spotty_delayed_paused_load_event_cannot_undo_a_newer_resume() {

@@ -77,6 +77,21 @@ pub struct Player {
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 
+/// Subscription and lifetime capability without transport mutation authority.
+/// Spirc retains the Player; adapters retain only this handle. There is deliberately no
+/// Deref or conversion back to Player, including for shutdown (which goes through Spirc).
+#[derive(Clone)]
+pub struct PlayerObserver {
+    player: Arc<Player>,
+}
+
+impl PlayerObserver {
+    /// Subscribe without acquiring a play, pause, load, seek, or stop capability.
+    pub fn subscribe(&self) -> PlayerEventChannel {
+        self.player.get_player_event_channel()
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum SinkStatus {
     Running,
@@ -482,6 +497,11 @@ impl NormalisationData {
 }
 
 impl Player {
+    /// Retain observation/lifetime access while giving transport ownership to Spirc.
+    pub fn observer(self: &Arc<Self>) -> PlayerObserver {
+        PlayerObserver { player: Arc::clone(self) }
+    }
+
     pub fn new<F>(
         config: PlayerConfig,
         session: Session,

@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "shell.signed-out",
+      "version": 1,
+      "corpus": "representative",
+      "workload": "Tests/BrowsingHarness/Scenarios/signed-out.json",
+      "contracts": [
+        "docs/product/safe-testing.md#spotty-demo-standing-authorization"
+      ],
+      "actions": [
+        "Restore the synthetic signed-out account"
+      ],
+      "assertions": [
+        "The account remains signed out",
+        "No engine initialization or forbidden mutation occurs"
+      ],
+      "safety": {
+        "dependencies": "synthetic",
+        "liveMutations": false,
+        "audioOutput": false
+      },
+      "timeoutSeconds": 60,
+      "terminalCondition": "All declared state checkpoints pass",
+      "evidence": [
+        "checkpoints",
+        "timeline",
+        "isolation"
+      ]
+    },
+    {
+      "id": "browsing.navigation",
+      "version": 1,
+      "corpus": "representative",
+      "workload": "Tests/BrowsingHarness/scenario.json",
+      "contracts": [
+        "docs/product/scope.md#visual-fidelity-and-interaction"
+      ],
+      "actions": [
+        "Restore the synthetic account",
+        "Load and revisit both fixture playlists",
+        "Return to Home"
+      ],
+      "assertions": [
+        "The catalog contains the declared track count",
+        "Revisits retain the correct playlist",
+        "No forbidden mutation occurs"
+      ],
+      "safety": {
+        "dependencies": "synthetic",
+        "liveMutations": false,
+        "audioOutput": false
+      },
+      "timeoutSeconds": 120,
+      "terminalCondition": "All declared state checkpoints pass",
+      "evidence": [
+        "checkpoints",
+        "timeline",
+        "isolation"
+      ]
+    },
+    {
+      "id": "playback.recovery",
+      "version": 1,
+      "corpus": "representative",
+      "workload": "Tests/BrowsingHarness/playback.json",
+      "contracts": [
+        "docs/product/playback-evidence.md"
+      ],
+      "actions": [
+        "Select, pause, and resume synthetic playback",
+        "Reject seek and selection",
+        "Inject stale handoff, disconnect, refused resume, and account replacement",
+        "Hydrate queue metadata"
+      ],
+      "assertions": [
+        "Only matching observations confirm commands",
+        "Rejected commands settle without false playback truth",
+        "Dismissed recovery notices retain the semantic resume block",
+        "Old owners cannot publish after replacement"
+      ],
+      "safety": {
+        "dependencies": "synthetic",
+        "liveMutations": false,
+        "audioOutput": false
+      },
+      "timeoutSeconds": 120,
+      "terminalCondition": "All declared state checkpoints pass",
+      "evidence": [
+        "checkpoints",
+        "timeline",
+        "isolation"
+      ]
+    },
+    {
+      "id": "holdout.playback-stale-order",
+      "version": 1,
+      "corpus": "holdout",
+      "workload": "Tests/BrowsingHarness/Scenarios/stale-order.json",
+      "variation": "stale-observation-reversed",
+      "contracts": [
+        "docs/product/playback-evidence.md"
+      ],
+      "actions": [
+        "Deliver stale observations in the acceptance-only ordering variation"
+      ],
+      "assertions": [
+        "The newer current position survives older partial playback observations"
+      ],
+      "safety": {
+        "dependencies": "synthetic",
+        "liveMutations": false,
+        "audioOutput": false
+      },
+      "timeoutSeconds": 120,
+      "terminalCondition": "All declared state checkpoints pass",
+      "evidence": [
+        "checkpoints",
+        "timeline",
+        "isolation"
+      ]
+    }
+  ]
+}

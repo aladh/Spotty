@@ -8,6 +8,7 @@ import plistlib
 import re
 import stat
 import subprocess
+import uuid
 
 
 def sha256_file(path: Path) -> str:
@@ -165,7 +166,11 @@ def write_launch(root: Path, scratch: Path, run_root: Path, app: Path, configura
     if before != after:
         raise ValueError("Source, compiler, SDK or local engine inputs changed during the build; rerun with stable inputs")
     engine = engine_identity(root, scratch)
+    scenario_path = app / "Contents/Resources/scenario.json"
+    scenario = json.loads(scenario_path.read_text())
+    workload = {key: value for key, value in scenario.items() if key != "forceSynchronousLayout"}
     launch = {
+        "schemaVersion": 1, "runID": str(uuid.uuid4()),
         "runRoot": str(run_root), "automated": automated, "waitForProfiler": profile,
         "revision": after["source"]["revision"], "diffSHA256": after["source"]["diffSHA256"],
         "source": after["source"],
@@ -182,8 +187,16 @@ def write_launch(root: Path, scratch: Path, run_root: Path, app: Path, configura
             "buildProductSHA256": sha256_file(app / "Contents/MacOS/SpottyDemo"),
         },
         "engine": engine,
+        "fixture": {
+            "sha256": sha256_file(scenario_path),
+            "workloadSHA256": hashlib.sha256(json.dumps(workload, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        },
+        "layout": {"forceSynchronousLayout": scenario.get("forceSynchronousLayout", True)},
     }
     (app / "Contents/Resources/launch.json").write_text(json.dumps(launch, sort_keys=True))
+    temporary = run_root / "manifest.json.tmp"
+    temporary.write_text(json.dumps(launch, indent=2, sort_keys=True) + "\n")
+    temporary.replace(run_root / "manifest.json")
 
 
 def main() -> None:

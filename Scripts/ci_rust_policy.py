@@ -19,7 +19,17 @@ APP_ONLY_DIRECTORIES = (
 )
 APP_ONLY_FILES = {
     "Package.swift", "Package.resolved", ".swift-format",
+    # Audited Demo launch/profiling helpers; shared packaging, ABI and provenance owners
+    # deliberately remain conservative. Their harness tests run independently of Rust.
+    "Scripts/browse-synthetic.sh", "Scripts/profile_synthetic.py",
+    "Scripts/summarize_synthetic_trace.py", "Scripts/compare_synthetic_profiles.py",
+    "Scripts/browsing_process.py", "Scripts/browsing_preflight.swift",
+    "Scripts/acceptance_scenarios.py", "Scripts/smoke-synthetic-ui.sh", "Scripts/synthetic_ui_smoke.swift",
+    "Scripts/test_harness_profile_synthetic.py", "Scripts/test_harness_trace_summary.py",
+    "Scripts/test_harness_profile_comparison.py",
+    "Scripts/test_harness_browsing_process.py", "Scripts/test_harness_acceptance_scenarios.py",
 }
+HARNESS_SUFFIXES = {".swift", ".json", ".png", ".jpg", ".icns"}
 
 
 DOCUMENTATION_FILES = {"README.md", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md"}
@@ -29,6 +39,11 @@ DOCUMENTATION_SUFFIXES = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp
 def documentation_path(path):
     return (Path(path).name == "AGENTS.md" or path in DOCUMENTATION_FILES
             or (path.startswith("docs/") and Path(path).suffix in DOCUMENTATION_SUFFIXES))
+
+
+def app_only_path(path):
+    return (path in APP_ONLY_FILES or path.startswith(APP_ONLY_DIRECTORIES)
+            or (path.startswith("Tests/BrowsingHarness/") and Path(path).suffix in HARNESS_SUFFIXES))
 
 
 def verification_needed(event, base, repository):
@@ -47,8 +62,7 @@ def verification_needed(event, base, repository):
     )
     paths = [path for path in result.decode("utf-8", errors="surrogateescape").split("\0") if path]
     return {
-        "rust_needed": any(not documentation_path(path) and path not in APP_ONLY_FILES
-                           and not path.startswith(APP_ONLY_DIRECTORIES) for path in paths),
+        "rust_needed": any(not documentation_path(path) and not app_only_path(path) for path in paths),
         "macos_needed": any(not documentation_path(path) for path in paths),
     }
 

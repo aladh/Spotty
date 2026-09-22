@@ -94,16 +94,32 @@ zero unexpected mutations, and completed workload establish functional acceptanc
 
 ### Visible Instruments captures
 
-Add `--profile` before the scenario to use Xcode's Animation Hitches template. Keep the window
-unoccluded; the workload waits for profiling. `--profile --interactive` lets you open the queue
-inspector before choosing **Demo → Run Measurement** (once per process).
+Add `--profile` before the scenario to use Xcode's Animation Hitches template. The launcher checks
+the selected Xcode/SDK, recorder/template, active console session, and lock/display state before
+building. It never unlocks the session or requests security grants. Keep the window unoccluded;
+the workload waits for an exact-PID recorder attach. `--profile --interactive` lets you open the
+queue inspector before choosing **Demo → Run Measurement** (once per process). An unusable tracing
+grant fails the recorder handshake before releasing the workload.
+
+`manifest.json` retains a versioned run ID, complete tracked and relevant untracked source digest,
+fixture digests, declared layout mode, and build/engine identity. `process.json` binds that run to
+its PID, process start identity, and exact executable. The Demo atomically publishes bounded
+readiness/window/display fields in `run-status.json`; these files contain no account or catalog
+content. The local native preflight explicitly distinguishes an observed lock flag from inferred
+unlocked state (an active, logged-in session with no lock flag); unavailable session evidence fails
+closed. The recorder rechecks process identity and window eligibility before admission.
 
 The report deadline is 600 seconds; the recorder can take another 180 seconds to save after
-interruption. Failed/incomplete saves are invalid evidence. A successful capture can still lack
-presentation events. Compare profiled runs only with profiled runs. Raw traces can contain host
-information; keep them local and publish reviewed aggregates.
+interruption. `profiler-state.json` publishes preparing, recording, workload-finished, saving, and
+complete/failed states, with stable failure codes and actionable reasons on failure. Completion
+requires the matching successful workload, recorder save, all four exported tables, and nonempty
+complete application frames. An interrupted run cannot retain an accepted summary. A successful
+capture can still lack presentation events. Compare profiled runs only with profiled runs. Raw
+traces can contain host information; keep them local and publish reviewed aggregates.
 
-Export run 1's `os-signpost`, `hitches`, `hitches-updates`, and `hitches-frame-lifetimes` tables:
+The launcher automatically exports run 1's `os-signpost`, `hitches`, `hitches-updates`, and
+`hitches-frame-lifetimes` tables and writes `trace-summary.json` after saving. For an existing local
+capture, the underlying manual export remains:
 
 ```bash
 xcrun xctrace export --input TRACE --xpath \
@@ -115,6 +131,34 @@ Name exports `PREFIX-signposts.xml`, `PREFIX-hitches.xml`, `PREFIX-hitches-updat
 `PREFIX-hitches-frame-lifetimes.xml`. The summarizer rejects missing workload markers or app frames.
 Filter to the Demo process and `Demo workload` interval. Do not treat full pipelined frame lifetime
 as a one-refresh deadline. Check visibility and functional results separately.
+
+Compare two completed captures with:
+
+```bash
+python3 Scripts/compare_synthetic_profiles.py RUN_A RUN_B
+```
+
+The validator rejects incomplete, mismatched, or failed artifacts. Incompatible source, fixture,
+build, window, display, motion, or observed target-cadence conditions are explicitly descriptive
+only; `--allow-descriptive` permits reporting that classification without accepting a performance
+comparison. Display maximum refresh rate is a capability. The measured target callback-rate
+distribution is separate from both callback gaps and actual frame presentation. A target-cadence
+difference beyond one percent is reported explicitly. Unknown inspector state also prevents a
+comparable classification; current native table evidence identifies queue/history only.
+
+Prepare, capture, and summarize an exact-source two-layout experiment with one command:
+
+```bash
+python3 Scripts/profile_synthetic.py --compare-layouts Tests/BrowsingHarness/queue-rendering.json \
+  --output .build/layout-comparison
+```
+
+Use a new output directory. The command prepares both scenario copies before building, records
+them sequentially through the optimized launcher, closes each owned Demo, and writes
+`comparison.json`. Only `forceSynchronousLayout` and its full fixture digest may differ; the
+canonical workload digest, source, and all other conditions must match. Incompatible or incomplete
+runs return nonzero with the classification preserved. For previously captured variants, pass
+`--variant-field layout.forceSynchronousLayout` to the comparator directly.
 
 For a matched publication control, apply
 [queue-unbatched.patch](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) in a disposable

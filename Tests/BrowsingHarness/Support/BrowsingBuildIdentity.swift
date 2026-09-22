@@ -1,5 +1,14 @@
 import Foundation
 
+struct BrowsingFixtureIdentity: Codable {
+    let sha256: String
+    let workloadSHA256: String
+}
+
+struct BrowsingLayoutIdentity: Codable {
+    let forceSynchronousLayout: Bool
+}
+
 struct BrowsingSourceIdentity: Codable {
     let revision: String
     let diffSHA256: String

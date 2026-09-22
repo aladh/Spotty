@@ -67,6 +67,11 @@ for (const [file, command] of reviewers) {
   const group = context => render(caller.concurrency.group, context);
   const eligible = context => evaluate(job.if, context) === 'true';
 
+  test(`${file}: caller allows only read access to acceptance artifacts`, () => {
+    assert.equal(job.permissions.actions, 'read');
+    assert.equal(workflow('agent-review.yml').jobs.review.permissions.actions, 'read');
+  });
+
   test(`${file}: valid reruns and newer heads share only their PR's group`, () => {
     const original = group(pullRequest());
     assert.equal(caller.concurrency['cancel-in-progress'], true);

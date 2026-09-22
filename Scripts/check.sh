@@ -26,6 +26,12 @@ if [[ "$check_scope" == full ]]; then
     "$project_root/Scripts/check-source-policy.sh"
 fi
 
+# Synthetic helpers belong to the app harness even when Rust is unnecessary. Keep the
+# normal Rust command's former helper coverage; CI's compiled-only lane runs them on Linux.
+if [[ "$check_scope" != rust-compiled ]]; then
+    python3 -B "$project_root/Scripts/script_tests.py" harness
+fi
+
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
 if [[ "$check_scope" != rust && "$check_scope" != rust-compiled ]]; then

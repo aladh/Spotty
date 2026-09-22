@@ -3,6 +3,28 @@
 Start with [AGENTS.md](AGENTS.md) for repository rules and the
 [documentation index](docs/README.md#development) for development guides.
 
+## Verification commands
+
+Run from the repository root. `python3 Scripts/verify.py --help` explains the focused command surface;
+it delegates to SwiftPM and existing gates. See [verification](docs/development/verification.md)
+for prerequisites, diagnostics, and choosing a normal or clean rebuild.
+
+| Command | Purpose |
+| --- | --- |
+| `python3 Scripts/verify.py preflight` | Read-only tool discovery; gates validate versions and dependencies |
+| `python3 Scripts/verify.py list` | Discover Swift Testing tests, including the synthetic harness |
+| `python3 Scripts/verify.py test --filter ProtobufTests/testProtobuf` | Run focused tests with the existing timeout watchdog and native result artifacts |
+| `python3 Scripts/verify.py swift` | Swift gate against the selected engine artifact, including synthetic helper checks |
+| `python3 Scripts/verify.py rust` | Python playback checks and compiled Rust/header checks |
+| `python3 -B Scripts/script_tests.py harness` | Synthetic browsing, measurement, and trace helper checks |
+| `./Scripts/check-source-policy.sh` | Source, topology, documentation, and script policy checks |
+| `./Scripts/check.sh` | Complete normal verification gate |
+| `./Scripts/check-clean.sh` | Clean engine rebuild and complete Debug/Release verification |
+
+Focused filters optimize local iteration and do not replace the complete gate. The wrapper's
+`source`, `check`, and `clean` commands delegate to the same scripts above. `list` and `test` forward
+remaining arguments to SwiftPM; the watchdog collects native Swift Testing event streams when supported.
+
 ## Pull-request execution
 
 A request to open a PR authorizes the agent to create a branch, commit the complete in-scope change,
@@ -10,6 +32,11 @@ push it, open the PR, monitor available checks and reviews during the run, and a
 findings. It does not authorize merge, release, tag, or repository-setting changes unless the
 request says so.
 Declare changes to product contracts, repository rules, and historical records in the PR description.
+For behavior changes, also name affected product contracts, representative scenario IDs run,
+scenario IDs added or changed, and unverified acceptance scope with reasons. Use the
+[acceptance manifest](Tests/BrowsingHarness/Scenarios/manifest.json) for stable IDs; explain when
+the change falls outside its coverage. [Thermos](docs/development/thermos-review.md) compares
+these declarations with the manifest and revision-matched evidence.
 
 ### Preventing recurrence
 

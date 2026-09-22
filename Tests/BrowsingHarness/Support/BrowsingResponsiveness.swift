@@ -6,6 +6,11 @@ import QuartzCore
 @testable import SpottyCore
 
 struct BrowsingResponsivenessReport: Codable {
+    struct ObservedTargetFramesPerSecond: Codable {
+        let minimum: Double
+        let p50: Double
+        let maximum: Double
+    }
     let observerInvalidations: [String: Int]
     let displayCallbackCount: Int
     let callbackGapP95Milliseconds: Double
@@ -14,6 +19,7 @@ struct BrowsingResponsivenessReport: Codable {
     let missedDisplayOpportunityCount: Int
     let reducedMotion: Bool
     let nominalFramesPerSecond: Int
+    let observedTargetFramesPerSecond: ObservedTargetFramesPerSecond?
     let windowVisibleAtStart: Bool
     let windowVisibleAtEnd: Bool
 }
@@ -27,6 +33,7 @@ final class BrowsingResponsiveness: NSObject {
     private var link: CADisplayLink?
     private var previousCallback: CFTimeInterval?
     private var gaps: [Double] = []
+    private var targetRates: [Double] = []
     private var missed = 0
     private var callbackCount = 0
     private var counts: [String: Int] = [:]
@@ -60,6 +67,7 @@ final class BrowsingResponsiveness: NSObject {
         link?.invalidate()
         link = nil
         let ordered = gaps.sorted()
+        let orderedTargets = targetRates.sorted()
         func percentile(_ p: Double) -> Double {
             guard !ordered.isEmpty else { return 0 }
             return ordered[min(ordered.count - 1, Int(Double(ordered.count - 1) * p))]
@@ -69,7 +77,13 @@ final class BrowsingResponsiveness: NSObject {
             callbackGapP95Milliseconds: percentile(0.95), callbackGapP99Milliseconds: percentile(0.99),
             maximumCallbackGapMilliseconds: ordered.last ?? 0, missedDisplayOpportunityCount: missed,
             reducedMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            nominalFramesPerSecond: refreshRate, windowVisibleAtStart: visibleAtStart,
+            nominalFramesPerSecond: refreshRate,
+            observedTargetFramesPerSecond: orderedTargets.isEmpty
+                ? nil
+                : .init(
+                    minimum: orderedTargets[0], p50: orderedTargets[(orderedTargets.count - 1) / 2],
+                    maximum: orderedTargets[orderedTargets.count - 1]),
+            windowVisibleAtStart: visibleAtStart,
             windowVisibleAtEnd: window?.occlusionState.contains(.visible) ?? false)
     }
 
@@ -96,12 +110,13 @@ final class BrowsingResponsiveness: NSObject {
 
     @objc private func displayTick(_ link: CADisplayLink) {
         callbackCount += 1
+        let expected = link.targetTimestamp - link.timestamp
+        if expected > 0, targetRates.count < 100_000 { targetRates.append(1 / expected) }
         let now = CACurrentMediaTime()
         defer { previousCallback = now }
         guard let previousCallback, gaps.count < 100_000 else { return }
         let gap = now - previousCallback
         gaps.append(gap * 1_000)
-        let expected = link.targetTimestamp - link.timestamp
         if expected > 0, gap > expected * 1.5 { missed += max(1, Int((gap / expected).rounded()) - 1) }
     }
 }

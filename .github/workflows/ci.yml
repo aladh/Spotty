@@ -136,6 +136,9 @@ jobs:
       - name: Run playback script checks
         run: python3 -B Scripts/script_tests.py playback
 
+      - name: Run harness script checks
+        run: python3 -B Scripts/script_tests.py harness
+
   macos:
     name: macOS checks
     needs: [policy, domain_linux, playback_python]
@@ -322,6 +325,29 @@ jobs:
           SPOTTY_CHECK_REPEATS: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
         run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
 
+      # This credential-free state-boundary corpus does not launch a GUI or attest a sandbox.
+      - name: Run acceptance scenarios
+        id: acceptance
+        timeout-minutes: 10
+        env:
+          SPOTTY_ACCEPTANCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 Scripts/acceptance_scenarios.py run --corpus all --output "$RUNNER_TEMP/spotty-acceptance"
+
+      - name: Summarize acceptance evidence
+        id: acceptance_summary
+        if: always()
+        run: python3 Scripts/acceptance_scenarios.py summary --output "$RUNNER_TEMP/spotty-acceptance" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload acceptance evidence
+        id: acceptance_upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/spotty-acceptance
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload Swift test diagnostics
         if: always() && steps.debug.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -360,6 +386,9 @@ jobs:
           CANDIDATE_BUILD_RESULT: ${{ steps.candidate_build.outcome }}
           CANDIDATE_UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}
           CHECKS_RESULT: ${{ steps.debug.outcome }}
+          ACCEPTANCE_RESULT: ${{ steps.acceptance.outcome }}
+          ACCEPTANCE_SUMMARY_RESULT: ${{ steps.acceptance_summary.outcome }}
+          ACCEPTANCE_UPLOAD_RESULT: ${{ steps.acceptance_upload.outcome }}
           RELEASE_RESULT: ${{ steps.release.outcome }}
         run: |
           test "$POLICY_RESULT" = success
@@ -370,6 +399,9 @@ jobs:
             *) echo "Rust or candidate results disagree with verification selection" >&2; exit 1 ;;
           esac
           test "$CHECKS_RESULT" = success
+          test "$ACCEPTANCE_RESULT" = success
+          test "$ACCEPTANCE_SUMMARY_RESULT" = success
+          test "$ACCEPTANCE_UPLOAD_RESULT" = success
           test "$RELEASE_RESULT" = success
 
       - name: Save pinned cbindgen

@@ -69,6 +69,8 @@ class BrowsingProvenanceTests(unittest.TestCase):
             root = Path(directory)
             app = root / "Demo.app"
             (app / "Contents/Resources").mkdir(parents=True)
+            scenario = {"version": 1, "forceSynchronousLayout": False, "trackCount": 100}
+            (app / "Contents/Resources/scenario.json").write_text(json.dumps(scenario))
             (app / "Contents/MacOS").mkdir()
             product = b"synthetic compiled product before signing"
             (app / "Contents/MacOS/SpottyDemo").write_bytes(product)
@@ -97,6 +99,10 @@ class BrowsingProvenanceTests(unittest.TestCase):
             self.assertEqual(launch["build"]["buildProductSHA256"], hashlib.sha256(product).hexdigest())
             self.assertEqual(launch["engine"], engine)
             self.assertEqual(launch["source"], snapshot["source"])
+            self.assertEqual(launch["schemaVersion"], 1)
+            self.assertEqual(json.loads((root / "manifest.json").read_text()), launch)
+            self.assertEqual(launch["layout"], {"forceSynchronousLayout": False})
+            self.assertEqual(launch["fixture"]["sha256"], hashlib.sha256(json.dumps(scenario).encode()).hexdigest())
 
     def test_sdk_settings_describe_requested_sdk_without_claiming_compiler_selection(self):
         with TemporaryDirectory() as directory:

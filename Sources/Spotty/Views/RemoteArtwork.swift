@@ -60,7 +60,7 @@ struct RemoteArtwork: View {
                 loaded = nil
                 guard let request,
                     let asset = try? await artwork.provider.artwork(for: request),
-                    !Task.isCancelled, let image = Self.displayImage(asset)
+                    !Task.isCancelled, let image = asset.makeCGImage()
                 else { return }
                 loaded = LoadedArtwork(request: request, image: image)
             }
@@ -80,23 +80,6 @@ struct RemoteArtwork: View {
         guard value.isFinite else { return 64 }
         let requested = Int(min(1_024, max(64, value.rounded(.up))))
         return [64, 128, 256, 512, 1_024].first { $0 >= requested } ?? 1_024
-    }
-
-    /// Binds pixels decoded by the runtime to a native image; no image file is decoded here.
-    private static func displayImage(_ asset: ArtworkAsset) -> CGImage? {
-        guard asset.pixelWidth > 0, asset.pixelHeight > 0,
-            asset.pixelWidth <= 1_024, asset.pixelHeight <= 1_024,
-            asset.rgbaPixels.count == asset.pixelWidth * asset.pixelHeight * 4,
-            let provider = CGDataProvider(data: asset.rgbaPixels as CFData),
-            let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
-        else { return nil }
-        return CGImage(
-            width: asset.pixelWidth, height: asset.pixelHeight, bitsPerComponent: 8, bitsPerPixel: 32,
-            bytesPerRow: asset.pixelWidth * 4, space: colorSpace,
-            bitmapInfo: CGBitmapInfo(
-                rawValue: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
-        )
     }
 
     private var placeholder: some View {

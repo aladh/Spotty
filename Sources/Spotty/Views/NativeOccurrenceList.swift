@@ -54,6 +54,7 @@ struct NativeOccurrenceList: NSViewRepresentable {
         private var applyingUpdate = false
         private var hasAppliedContent = false
         private weak var scroll: NativeOccurrenceScrollView?
+        private var retainedFocus: (id: String, cell: NativeTrackHostingCell, responder: NSResponder, hosted: Bool)?
 
         init(_ content: NativeOccurrenceList) { self.content = content }
 
@@ -98,7 +99,18 @@ struct NativeOccurrenceList: NSViewRepresentable {
 
         func update(_ next: NativeOccurrenceList, in scroll: NativeOccurrenceScrollView) {
             applyingUpdate = true
-            defer { applyingUpdate = false }
+            defer {
+                retainedFocus?.cell.identifier = NSUserInterfaceItemIdentifier("occurrence")
+                retainedFocus = nil
+                applyingUpdate = false
+            }
+            if let focused = focusedCell(in: scroll.table),
+                next.artworkAccess.accountEpoch != content.artworkAccess.accountEpoch
+                    || !next.rows.contains(where: { $0.id == focused.id })
+            {
+                scroll.window?.makeFirstResponder(scroll.table)
+                focused.cell.prepareFocusTarget(contentID: "retired", table: nil)
+            }
             let offset = next.scrollState?.offset ?? scroll.contentView.bounds.minY
             let previousRows = content.rows
             let structureChanged =
@@ -150,22 +162,63 @@ struct NativeOccurrenceList: NSViewRepresentable {
                     }
                 } ?? offset
             let restored = min(maximum, max(0, requested))
+            if let retainedFocus, let row = next.rows.firstIndex(where: { $0.id == retainedFocus.id }) {
+                _ = scroll.table.view(atColumn: 0, row: row, makeIfNecessary: true)
+                scroll.layoutSubtreeIfNeeded()
+                if retainedFocus.cell.window === scroll.window {
+                    if retainedFocus.hosted {
+                        _ = retainedFocus.cell.focusTarget.focus()
+                    } else {
+                        scroll.window?.makeFirstResponder(retainedFocus.responder)
+                    }
+                }
+            }
             scroll.contentView.scroll(to: NSPoint(x: 0, y: restored))
             scroll.reflectScrolledClipView(scroll.contentView)
             next.scrollState?.offset = restored
         }
 
-        /// Keep unaffected library cells attached so folder controls retain keyboard focus.
-        /// Mixed-height lists retain full reloads: incremental AppKit insertion can leave stale
-        /// offscreen row origins. Comparing shared ends stays linear even for large reorders.
+        /// Keep the focused leaf across a full geometry reload. Returning the same owned cell
+        /// preserves its native control without discovering SwiftUI's private responder classes.
+        private func reloadRows(to next: NativeOccurrenceList, in table: NSTableView) {
+            retainedFocus = focusedCell(in: table)
+            // Release hosted FocusState before detaching; restoring an old framework responder
+            // cannot reestablish its native control after a hosting view is reattached.
+            if let retainedFocus, retainedFocus.hosted {
+                table.window?.makeFirstResponder(table)
+                retainedFocus.cell.host.layoutSubtreeIfNeeded()
+            }
+            // Do not allow AppKit's general reuse pool to assign this cell to a different row.
+            retainedFocus?.cell.identifier = nil
+            content = next
+            table.reloadData()
+        }
+
+        private func focusedCell(in table: NSTableView) -> (
+            id: String, cell: NativeTrackHostingCell, responder: NSResponder, hosted: Bool
+        )? {
+            guard let responder = table.window?.firstResponder else { return nil }
+            var ancestor: NSResponder? = responder
+            while let current = ancestor {
+                if let cell = current as? NativeTrackHostingCell {
+                    let row = table.row(for: cell)
+                    guard content.rows.indices.contains(row) else { return nil }
+                    return (content.rows[row].id, cell, responder, cell.focusTarget.control?.hasKeyboardFocus == true)
+                }
+                ancestor = current.nextResponder
+            }
+            return nil
+        }
+
+        /// Uniform rows can update incrementally. Mixed-height lists reload AppKit's geometry:
+        /// incremental insertion leaves stale offscreen row origins even after height notifications.
         private func updateRows(to next: NativeOccurrenceList, in table: NSTableView) {
             let previous = content.rows
             let rows = next.rows
             guard let height = previous.first?.height,
                 previous.allSatisfy({ $0.height == height }), rows.allSatisfy({ $0.height == height })
             else {
-                content = next
-                table.reloadData()
+                reloadRows(to: next, in: table)
                 return
             }
             let sharedLimit = min(previous.count, rows.count)
@@ -176,8 +229,7 @@ struct NativeOccurrenceList: NSViewRepresentable {
                 previous[previous.count - suffix - 1].id == rows[rows.count - suffix - 1].id
             { suffix += 1 }
             guard prefix + suffix > 0 else {
-                content = next
-                table.reloadData()
+                reloadRows(to: next, in: table)
                 return
             }
             NSAnimationContext.runAnimationGroup { context in
@@ -205,6 +257,10 @@ struct NativeOccurrenceList: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard content.rows.indices.contains(row) else { return nil }
             let identifier = NSUserInterfaceItemIdentifier("occurrence")
+            if let retainedFocus, retainedFocus.id == content.rows[row].id {
+                configure(retainedFocus.cell, at: row)
+                return retainedFocus.cell
+            }
             let cell =
                 tableView.makeView(withIdentifier: identifier, owner: nil) as? NativeTrackHostingCell
                 ?? NativeTrackHostingCell()

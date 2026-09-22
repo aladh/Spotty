@@ -25,7 +25,8 @@ enum HarnessEnvironment {
         catalog: any CatalogProviding = HarnessCatalog(),
         playlistMutations: any PlaylistMutationDispatching = HarnessPlaylistMutations(),
         catalogCacheLifecycle: (any CatalogCacheLifecycle)? = nil,
-        queueServiceHook: (any QueueServiceHook)? = nil
+        queueServiceHook: (any QueueServiceHook)? = nil,
+        artwork: any ArtworkProviding = UnavailableArtworkProvider()
     ) -> PlaybackEnvironment {
         PlaybackEnvironment(
             remote: remote,
@@ -39,7 +40,8 @@ enum HarnessEnvironment {
             catalog: catalog,
             playlistMutations: playlistMutations,
             queueServiceHook: queueServiceHook,
-            catalogCacheLifecycle: catalogCacheLifecycle
+            catalogCacheLifecycle: catalogCacheLifecycle,
+            artwork: artwork
         )
     }
 

@@ -75,6 +75,8 @@ final class CatalogCardFocusView: NSView {
     private weak var focusTarget: NativeRowFocusTarget?
     private var keyboardFocusRequest: (() -> Bool)?
 
+    var hasKeyboardFocus: Bool { isKeyboardFocused || isKeyboardFocusPending }
+
     func registerFocus(target: NativeRowFocusTarget?, request: (() -> Bool)?) {
         if focusTarget !== target {
             if focusTarget?.control === self { focusTarget?.control = nil }

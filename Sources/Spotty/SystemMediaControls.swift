@@ -1,6 +1,8 @@
 import Foundation
+import AppKit
 import MediaPlayer
 import Observation
+import SpottyRuntimeContracts
 import Synchronization
 
 /// The system boundary is injected so tests and the isolated demo never claim media keys.
@@ -23,6 +25,21 @@ struct SystemMediaSnapshot: Equatable {
     let playing: Bool
     let canToggle: Bool
     let canSkip: Bool
+    var artworkIdentity: SystemMediaArtworkIdentity?
+    var artwork: SystemMediaArtwork?
+}
+
+struct SystemMediaArtworkIdentity: Equatable {
+    let trackURI: String
+    let engineGeneration: UInt64
+    let request: ArtworkRequest
+}
+
+/// Reference equality keeps progress publications independent of the size of the loaded pixels.
+final class SystemMediaArtwork: Equatable {
+    let asset: ArtworkAsset
+    init(_ asset: ArtworkAsset) { self.asset = asset }
+    static func == (lhs: SystemMediaArtwork, rhs: SystemMediaArtwork) -> Bool { lhs === rhs }
 }
 
 /// App-owned projection and command adapter; the playback store remains the state/effect owner.
@@ -33,6 +50,11 @@ final class SystemMediaControls {
     private var running = false
     private var publication = SystemMediaPublicationGate()
     private var publishedSemantic: PlaybackSemanticProjection?
+    private var artworkIdentity: SystemMediaArtworkIdentity?
+    private var artwork: SystemMediaArtwork?
+    private var artworkTask: Task<Void, Never>?
+
+    deinit { artworkTask?.cancel() }
 
     init(player: PlaybackStore, output: any SystemMediaControlsOutput) {
         self.player = player
@@ -51,24 +73,58 @@ final class SystemMediaControls {
         running = false
         publication = SystemMediaPublicationGate()
         publishedSemantic = nil
+        artworkTask?.cancel()
+        artworkTask = nil
+        artworkIdentity = nil
+        artwork = nil
         output.remove()
     }
 
     private func observe() {
         guard running else { return }
         let snapshot = withObservationTracking {
-            guard player.isConnected, !player.isTearingDown, player.hasCurrentTrack else {
-                return Optional<SystemMediaSnapshot>.none
-            }
-            return SystemMediaSnapshot(
-                title: player.displayedTrackTitle, artist: player.displayedArtistName,
-                duration: player.duration, position: player.displayedPosition(at: Date()),
-                playing: player.isPlaying, canToggle: player.canTogglePlayback,
-                canSkip: player.canSkipTrack)
+            makeSnapshot()
         } onChange: { [weak self] in
             // Observation fires before mutation. Re-read after the accepted store update finishes.
             DispatchQueue.main.async { [weak self] in self?.observe() }
         }
+        loadArtwork(for: snapshot?.artworkIdentity)
+        publish(snapshot)
+    }
+
+    private func makeSnapshot() -> SystemMediaSnapshot? {
+        guard player.isConnected, !player.isTearingDown, player.hasCurrentTrack else { return nil }
+        let identity = player.displayedArtworkURL.map {
+            SystemMediaArtworkIdentity(
+                trackURI: player.trackURI, engineGeneration: player.engineGeneration,
+                request: ArtworkRequest(url: $0, maximumPixelDimension: 512, accountEpoch: player.accountEpoch))
+        }
+        return SystemMediaSnapshot(
+            title: player.displayedTrackTitle, artist: player.displayedArtistName,
+            duration: player.duration, position: player.displayedPosition(at: Date()),
+            playing: player.isPlaying, canToggle: player.canTogglePlayback, canSkip: player.canSkipTrack,
+            artworkIdentity: identity, artwork: identity == artworkIdentity ? artwork : nil)
+    }
+
+    private func loadArtwork(for identity: SystemMediaArtworkIdentity?) {
+        guard identity != artworkIdentity else { return }
+        artworkTask?.cancel()
+        artworkTask = nil
+        artworkIdentity = identity
+        artwork = nil
+        guard let identity else { return }
+        let provider = player.artworkProvider
+        artworkTask = Task { [weak self] in
+            guard let asset = try? await provider.artwork(for: identity.request), !Task.isCancelled,
+                let self, running, artworkIdentity == identity,
+                makeSnapshot()?.artworkIdentity == identity
+            else { return }
+            artwork = SystemMediaArtwork(asset)
+            publish(makeSnapshot())
+        }
+    }
+
+    private func publish(_ snapshot: SystemMediaSnapshot?) {
         let semantic = player.semantic
         if publication.admit(snapshot, at: Date(), force: semantic != publishedSemantic) {
             publishedSemantic = semantic
@@ -107,6 +163,7 @@ struct SystemMediaPublicationGate {
                 snapshot.title != previous.title || snapshot.artist != previous.artist
                 || snapshot.duration != previous.duration || snapshot.playing != previous.playing
                 || snapshot.canToggle != previous.canToggle || snapshot.canSkip != previous.canSkip
+                || snapshot.artworkIdentity != previous.artworkIdentity || snapshot.artwork != previous.artwork
             let projected = previous.position + (previous.playing ? max(0, elapsed) : 0)
             let expected = previous.duration > 0 ? min(previous.duration, projected) : projected
             discontinuity = abs(snapshot.position - expected) > 0.25
@@ -127,6 +184,8 @@ final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
     private let info = MPNowPlayingInfoCenter.default()
     private let admission = SystemMediaAdmission()
     private var targets: [(MPRemoteCommand, Any)] = []
+    private var artwork: SystemMediaArtwork?
+    private var nativeArtwork: MPMediaItemArtwork?
 
     func install(_ handler: @escaping @MainActor @Sendable (SystemMediaCommand) -> Bool) {
         guard targets.isEmpty else { return }
@@ -151,6 +210,10 @@ final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
     }
 
     func update(_ snapshot: SystemMediaSnapshot?) {
+        if artwork != snapshot?.artwork {
+            artwork = snapshot?.artwork
+            nativeArtwork = artwork.flatMap { Self.makeArtwork($0.asset) }
+        }
         admission.update(snapshot)
         commands.togglePlayPauseCommand.isEnabled = snapshot?.canToggle ?? false
         commands.playCommand.isEnabled = snapshot?.canToggle == true && snapshot?.playing == false
@@ -162,14 +225,23 @@ final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
             info.nowPlayingInfo = nil
             return
         }
-        info.nowPlayingInfo = [
+        var metadata: [String: Any] = [
             MPMediaItemPropertyTitle: snapshot.title,
             MPMediaItemPropertyArtist: snapshot.artist,
             MPMediaItemPropertyPlaybackDuration: snapshot.duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: snapshot.position,
             MPNowPlayingInfoPropertyPlaybackRate: snapshot.playing ? 1.0 : 0.0,
         ]
+        metadata[MPMediaItemPropertyArtwork] = nativeArtwork
+        info.nowPlayingInfo = metadata
         info.playbackState = snapshot.playing ? .playing : .paused
+    }
+
+    /// MediaPlayer's synchronous callback only returns already-loaded native pixels.
+    static func makeArtwork(_ asset: ArtworkAsset) -> MPMediaItemArtwork? {
+        guard let pixels = asset.makeCGImage() else { return nil }
+        let image = NSImage(cgImage: pixels, size: NSSize(width: pixels.width, height: pixels.height))
+        return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     func remove() {

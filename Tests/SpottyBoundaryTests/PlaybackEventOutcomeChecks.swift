@@ -157,20 +157,6 @@ private func awaitCapturedEffect(
     await settlement?.wait()
 }
 
-@MainActor
-private final class RecordingSystemMediaOutput: SystemMediaControlsOutput {
-    var handler: (@MainActor @Sendable (SystemMediaCommand) -> Bool)?
-    var snapshot: SystemMediaSnapshot?
-    var installations = 0
-    var removals = 0
-    func install(_ handler: @escaping @MainActor @Sendable (SystemMediaCommand) -> Bool) {
-        self.handler = handler
-        installations += 1
-    }
-    func update(_ snapshot: SystemMediaSnapshot?) { self.snapshot = snapshot }
-    func remove() { removals += 1; snapshot = nil }
-}
-
 /// Kept as a bespoke fake: it maps commands to simplified strings and tracks `to` destinations
 /// separately, which `HarnessRemote`'s `commands`/`endpoints` observation does not expose.
 private actor MediaKeyRemote: RemotePlaybackClient {
@@ -198,7 +184,7 @@ struct PlaybackEventOutcomeTests {
     func systemMediaKeysFollowRemoteOwnerAndStopWithLifetime() async {
         let remote = MediaKeyRemote()
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: remote))
-        let output = RecordingSystemMediaOutput()
+        let output = HarnessSystemMediaOutput()
         let controls = SystemMediaControls(player: player, output: output)
         controls.start()
         controls.start()

@@ -29,8 +29,10 @@ renders decoded PCM; see [engine ownership](../architecture/playback-engine-owne
 
 - Play/Pause, Previous, and Next media keys share Playback-menu admission and routing. Explicit
   system Play/Pause are idempotent and never transfer playback.
-- System Now Playing mirrors title, artist, duration, position, transport, and identified remote
-  ownership. macOS chooses the active media app.
+- System Now Playing mirrors title, artist, current-track artwork, duration, position, transport, and
+  identified remote ownership. Artwork loads asynchronously; missing or failed images leave metadata
+  and controls usable, and images from retired tracks or sessions cannot replace current artwork.
+  macOS chooses the active media app.
 - Sign-out, disconnection, or quit clears system metadata and disables commands. Closing a window
   retains controls while Spotty runs. Demo/tests never register system media commands.
 

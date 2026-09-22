@@ -3,8 +3,8 @@
 [Verification](verification.md) · [Safe testing](../product/safe-testing.md)
 
 The versioned [manifest](../../Tests/BrowsingHarness/Scenarios/manifest.json) assigns stable IDs to
-existing workloads. Each entry names its product contracts, initial world JSON, actions, assertions,
-isolation, deadline, terminal condition, and evidence. The validator in
+existing workloads. Each entry names its `contracts`, initial `workload` JSON, `actions`, `assertions`,
+`safety`, `timeoutSeconds`, `terminalCondition`, and `evidence`. The validator in
 [acceptance_scenarios.py](../../Scripts/acceptance_scenarios.py) owns schema version 1 and rejects
 unknown fields, duplicate IDs, unsafe dependencies, unbounded deadlines, and paths outside the repo.
 Change a scenario version when its declared behavior changes; retain its ID for the same outcome.
@@ -51,8 +51,10 @@ command/observation timeline, forbidden-mutation results, and references to `run
 Missing reports and failed test hosts produce failed evidence. CI retains these files and concise
 summaries. The test host does not establish App Sandbox, UI, live Spotify, or audible-output behavior.
 
-Automated Demo runs retain `report.json` and add `evidence.json`, including sandbox verification,
-build identity, visible workload checkpoints, and available process/profiler artifacts. Timings stay
+Automated Demo runs retain `report.json` and add `demo-evidence.json`, including sandbox verification,
+build identity, visible workload checkpoints, and available process/profiler artifacts. This separate
+Demo report supports linked local evidence; the CI/Thermos collector consumes only the corpus summary
+above. Timings stay
 diagnostic unless a declared, matching configuration establishes a comparison; a single run is not
 a performance budget. No screenshot or model judgment replaces auth, playback, or lifetime assertions.
 

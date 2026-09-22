@@ -15,8 +15,8 @@ for prerequisites, diagnostics, and choosing a normal or clean rebuild.
 | `python3 Scripts/verify.py list` | Discover Swift Testing tests, including the synthetic harness |
 | `python3 Scripts/verify.py test --filter ProtobufTests/testProtobuf` | Run focused tests with the existing timeout watchdog and native result artifacts |
 | `python3 Scripts/verify.py swift` | Swift gate against the selected engine artifact, including synthetic helper checks |
-| `python3 Scripts/verify.py rust` | Python playback checks and compiled Rust/header checks |
-| `python3 -B Scripts/script_tests.py harness` | Synthetic browsing, measurement, and trace helper checks |
+| `python3 Scripts/verify.py rust` | Python playback/harness checks and compiled Rust/header checks |
+| `python3 Scripts/verify.py harness` | Synthetic browsing, measurement, and trace helper checks |
 | `./Scripts/check-source-policy.sh` | Source, topology, documentation, and script policy checks |
 | `./Scripts/check.sh` | Complete normal verification gate |
 | `./Scripts/check-clean.sh` | Clean engine rebuild and complete Debug/Release verification |

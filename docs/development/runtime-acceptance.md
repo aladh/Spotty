@@ -89,10 +89,11 @@ Keep the window unoccluded. `--profile --interactive` lets you prepare the inspe
 **Demo → Run Measurement**. The workload waits for the exact-PID recorder handshake and refreshed
 session/window/process admission. Unusable tracing grants fail before measurement starts.
 
-`manifest.json` retains run/source/fixture/build/engine/layout identities, including untracked source
-inputs. `process.json` binds the PID, start identity, and executable; `run-status.json` publishes
-bounded readiness/window/display state without account or catalog content. Field definitions belong
-to the [producers](../../Scripts/browsing_provenance.py).
+[`manifest.json`](../../Scripts/browsing_provenance.py) retains run/source/fixture/build/engine/layout
+identities, including untracked inputs. [`process.json`](../../Scripts/browsing_process.py) binds PID,
+start, and executable; [`run-status.json`](../../Tests/BrowsingHarness/Support/BrowsingRunStatus.swift)
+publishes bounded readiness/window/display state without account or catalog content. Each link owns
+its field definitions.
 
 Wait for `profiler-state.json` to reach complete/failed; workload completion precedes recorder saving.
 The workload deadline is 600 seconds, with another 180 seconds allowed for save. Completion requires

@@ -199,7 +199,9 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             acceptance.write_json(root / "report.json", report)
             arguments = mock.Mock(output=root, workload=None, exit_code=0)
             acceptance.demo_evidence(arguments)
-            self.assertEqual(acceptance.read_json(root / "evidence.json")["outcome"], "failed")
+            self.assertEqual(acceptance.read_json(root / "demo-evidence.json")["outcome"], "failed")
+            self.assertFalse((root / "evidence.json").exists())
+            self.assertFalse((root / "summary.json").exists())
             self.assertEqual(acceptance.read_json(root / "report.json"), report)
 
 

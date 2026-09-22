@@ -302,7 +302,7 @@ def demo_evidence(args):
               "artifacts": [name for name in ("report.json", "manifest.json", "process.json", "run-status.json", "profiler-state.json", "trace-summary.json") if (root / name).exists()],
               "limits": ["Demo state and layout checkpoints do not establish live Spotify or audible output.",
                          "No comparable performance configuration is declared; timings remain in report.json."]}
-    write_json(root / "evidence.json", bundle)
+    write_json(root / "demo-evidence.json", bundle)
     return 0
 
 

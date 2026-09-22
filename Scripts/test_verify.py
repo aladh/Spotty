@@ -36,7 +36,10 @@ with open(os.environ['VERIFY_TEST_LOG'], 'a') as log:
                          'harness': os.environ.get('SPOTTY_BUILD_BROWSING_HARNESS')}}) + '\\n')
 raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
 """
-        for relative in ("Scripts/check.sh", "Scripts/check-clean.sh", "Scripts/check-source-policy.sh", "swift"):
+        for relative in (
+            "Scripts/check.sh", "Scripts/check-clean.sh", "Scripts/check-source-policy.sh",
+            "Scripts/script_tests.py", "swift",
+        ):
             tool = self.root / relative
             tool.write_text(stub)
             tool.chmod(0o755)
@@ -78,6 +81,22 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
             "test", "list", "--disable-sandbox", "--package-path", str(self.root), "--skip-build",
         ])
         self.assertEqual(calls[0]["harness"], "1")
+
+    def test_harness_delegates_to_existing_suite_and_preserves_failure(self):
+        for status in (0, 17):
+            with self.subTest(status=status):
+                self.log.unlink(missing_ok=True)
+                self.environment["VERIFY_TEST_STATUS"] = str(status)
+                result, calls = self.invoke("harness")
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(calls[0]["command"], [
+                    str(self.root / "Scripts/script_tests.py"), "harness",
+                ])
+                self.assertEqual(calls[0]["cwd"], str(self.root))
+                self.assertEqual(len(calls), 1)
+                self.assertFalse((self.root / "diagnostics").exists())
+                if status:
+                    self.assertIn("Failed delegated command (exit 17)", result.stderr)
 
     def test_focused_failure_preserves_filter_status_command_and_native_artifacts(self):
         self.environment["VERIFY_TEST_STATUS"] = "17"

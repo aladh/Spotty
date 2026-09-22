@@ -81,7 +81,8 @@ def main(argv: list[str] | None = None) -> int:
   list       swift test list, including the synthetic browsing harness
   test       Watchdog-backed swift test; pass standard SwiftPM filters/options
   swift      Existing Swift gate against the selected playback artifact
-  rust       Existing Python playback and compiled Rust/header checks
+  rust       Existing Python playback/harness and compiled Rust/header checks
+  harness    Existing synthetic browsing, measurement, and trace helper checks
   source     Existing source, topology, documentation, and script policy checks
   check      Complete normal gate (never narrowed by SPOTTY_CHECK_SCOPE)
   clean      Existing clean Debug-and-Release gate; use only for a needed rebuild
@@ -97,7 +98,7 @@ iteration; Scripts/check.sh remains the complete gate. These commands do not lau
 apps, sign in, or start playback. Setup: docs/development/verification.md
 """,
     )
-    parser.add_argument("command", choices=("preflight", "list", "test", *GATES), nargs="?")
+    parser.add_argument("command", choices=("preflight", "list", "test", "harness", *GATES), nargs="?")
     parser.add_argument("arguments", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.command is None:
@@ -134,6 +135,8 @@ apps, sign in, or start playback. Setup: docs/development/verification.md
                 "--event-stream-path", str(artifacts / "focused-repeat-1-events.jsonl"),
                 "--", *command,
             ]
+    elif args.command == "harness":
+        command = [sys.executable, "-B", str(ROOT / "Scripts/script_tests.py"), "harness"]
     else:
         script, scope = GATES[args.command]
         command = [str(ROOT / "Scripts" / script)]

@@ -259,6 +259,32 @@ def profile(root):
         raise InvalidRun(code) from error
 
 
+def capture_diagnostics(root, side, error):
+    """Retain the capture stage and validator's bounded per-side evidence failures."""
+    from compare_synthetic_profiles import load_run
+
+    code = error.code if isinstance(error, InvalidRun) else "capture-incomplete"
+    failures = []
+    if root is not None:
+        try:
+            state = read_json(root / "profiler-state.json")
+            manifest_path = root / "manifest.json"
+            # Preflight can fail before a manifest exists. Later status must bind that run.
+            if manifest_path.exists():
+                run_id = read_json(manifest_path).get("runID")
+                identity_matches = isinstance(run_id, str) and bool(run_id) and state.get("runID") == run_id
+            else:
+                identity_matches = state.get("runID") is None
+            if (state.get("schemaVersion") == 1 and state.get("state") == "failed"
+                    and identity_matches and isinstance(state.get("failureCode"), str)
+                    and state["failureCode"] in REASONS):
+                code = state["failureCode"]
+        except InvalidRun:
+            pass
+        _, failures = load_run(root, side)
+    return list(dict.fromkeys([f"{side}.{code}", *(failure["code"] for failure in failures)])), failures
+
+
 def compare_layouts(scenario, output):
     """Prepare both inputs before building, then reuse the existing bounded capture workflow."""
     from compare_synthetic_profiles import compare
@@ -273,10 +299,10 @@ def compare_layouts(scenario, output):
     labels = ("synchronous", "scheduled")
     for label, enabled in zip(labels, (True, False)):
         write_json(output / f"{label}.json", {**fixture, "forceSynchronousLayout": enabled})
-    runs = []
+    runs = {}
     result = {"schemaVersion": 1, "classification": "invalid", "reasonCodes": ["capture-incomplete"]}
     try:
-        for label in labels:
+        for side, label in zip(("left", "right"), labels):
             pointer = output / f"{label}-run.txt"
             run_root = None
             try:
@@ -286,28 +312,30 @@ def compare_layouts(scenario, output):
                 )
                 if not pointer.is_file():
                     raise InvalidRun("capture-incomplete")
-                run_root = Path(pointer.read_text().strip()).resolve()
-                if run_root.parent != project / ".build/browsing-runs":
+                candidate = Path(pointer.read_text().strip()).resolve()
+                if candidate.parent != project / ".build/browsing-runs":
                     raise InvalidRun("invalid-manifest")
+                run_root = candidate
+                runs[label] = run_root
                 if completed.returncode != 0:
                     raise InvalidRun("capture-incomplete")
-                runs.append(run_root)
             finally:
                 # The launcher's recorded identity is the only authority to stop a Demo.
                 if run_root is None and pointer.is_file():
                     candidate = Path(pointer.read_text().strip()).resolve()
                     if candidate.parent == project / ".build/browsing-runs":
                         run_root = candidate
+                        runs[label] = run_root
                 if run_root is not None and (run_root / "process.json").is_file():
                     browsing_process.terminate(browsing_process.load_record(run_root))
-        result = compare(runs[0], runs[1], "layout.forceSynchronousLayout")
-        result["runRoots"] = {label: str(root) for label, root in zip(labels, runs)}
+        result = compare(runs[labels[0]], runs[labels[1]], "layout.forceSynchronousLayout")
         return result
     except (InvalidRun, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
-        result["reasonCodes"] = [error.code if isinstance(error, InvalidRun) else "capture-incomplete"]
+        result["reasonCodes"], result["invalidEvidence"] = capture_diagnostics(run_root, side, error)
+        result["failedCapture"] = {"side": side, "variant": label}
         return result
     finally:
-        result["runRoots"] = {label: str(root) for label, root in zip(labels, runs)}
+        result["runRoots"] = {label: str(root) for label, root in runs.items()}
         write_json(output / "comparison.json", result)
 
 

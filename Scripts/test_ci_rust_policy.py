@@ -2,7 +2,6 @@
 
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -345,7 +344,12 @@ class CheckScopeOwnershipTests(unittest.TestCase):
             root = Path(directory)
             scripts = root / "Scripts"
             scripts.mkdir()
-            shutil.copy2(ROOT / "Scripts/check.sh", scripts / "check.sh")
+            script = (ROOT / "Scripts/check.sh").read_text()
+            # The tested scope branches are Bash-compatible. Normalize only zsh's path
+            # modifier; the Linux policy job must exercise them without installing zsh.
+            root_assignment = 'project_root="${0:A:h:h}"'
+            self.assertEqual(script.count(root_assignment), 1)
+            (scripts / "check.sh").write_text(script.replace(root_assignment, 'project_root="$PWD"'))
             for name in ("swiftpm-env.sh", "playback-xcframework.sh"):
                 (scripts / name).write_text("# Toolchain-free scope fixture\n")
             (scripts / "script_tests.py").write_text(
@@ -356,7 +360,7 @@ class CheckScopeOwnershipTests(unittest.TestCase):
                 path.chmod(0o755)
             for scope in ("full", "swift", "rust", "rust-compiled"):
                 with self.subTest(scope=scope):
-                    result = subprocess.run(["zsh", str(scripts / "check.sh")], cwd=root,
+                    result = subprocess.run(["bash", str(scripts / "check.sh")], cwd=root,
                                             capture_output=True, text=True,
                                             env={**os.environ, "SPOTTY_CHECK_SCOPE": scope,
                                                  "SPOTTY_BUILD_CONFIGURATION": "debug"})

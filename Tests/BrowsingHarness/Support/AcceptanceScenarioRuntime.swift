@@ -174,6 +174,7 @@ enum AcceptanceScenarioRuntime {
                 try await browse(player: player, world: world, navigation: navigation, recorder: recorder)
                 if world.scenario.mode == .playback {
                     _ = try await PlaybackTrace.run(player: player, world: world, recorder: recorder)
+                    try await replacementCatalog(player: player, world: world, recorder: recorder)
                     if world.scenario.acceptanceVariation == "stale-observation-reversed" {
                         try await stalePlayback(player: player, world: world, recorder: recorder)
                     }
@@ -201,6 +202,34 @@ enum AcceptanceScenarioRuntime {
                 "boundaryMutation": seed == .none ? "none" : "delayed-playback-uses-arrival-revision",
             ],
             playbackCheckpoints: recorder.playbackCheckpoints)
+    }
+
+    /// Account replacement in the trace starts a new catalog load independently of playback
+    /// readiness. Join that production effect before returning the same player to the GUI loop.
+    private static func replacementCatalog(
+        player: PlaybackStore, world: BrowsingWorld, recorder: AcceptanceRecorder
+    ) async throws {
+        let name = "account.replacement-catalog-ready"
+        let expected = [
+            "session": "ready", "playlistCount": String(world.fixtures.playlists.count),
+            "homeSectionCount": world.scenario.expandedLibrary == true ? "4" : "1",
+        ]
+        func observed() -> [String: String] {
+            [
+                "session": String(describing: player.accountStore.phase),
+                "playlistCount": String(player.catalog.homeLibrary.playlists.count),
+                "homeSectionCount": String(player.catalog.homeLibrary.homeSections.count),
+            ]
+        }
+        recorder.event("action", "catalog.await-account-replacement")
+        await player.effects.settlement(of: .catalogLoad)?.wait()
+        do {
+            try await PlaybackTrace.until(name) { observed() == expected }
+        } catch {
+            recorder.record(name, expected: expected, observed: observed(), passed: false)
+            throw error
+        }
+        try recorder.check(name, expected: expected, observed: observed())
     }
 
     private static func browse(

@@ -77,6 +77,27 @@ struct AcceptanceCorpusTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func replacementCatalogIsReadyForTheFollowingDemoWorkload(expanded: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyAcceptanceCatalog-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var scenario = BrowsingScenario(trackCount: 30, artworkCount: 1, artworkPixels: 64, cycles: 1)
+        scenario.version = 2
+        scenario.mode = .playback
+        scenario.expandedLibrary = expanded
+        let world = try BrowsingWorld(scenario: scenario, artworkDirectory: root)
+        let player = PlaybackStore(environment: world.environment, feedback: TransientFeedbackPresenter(clock: world))
+        let report = await AcceptanceScenarioRuntime.runWithDeadline(
+            player: player, world: world, navigation: CatalogNavigation())
+        #expect(report.passed)
+        #expect(world.snapshot().requests["account.synthetic-replacement"] == 1)
+        #expect(world.snapshot().requests["library"] == 2)
+        #expect(player.catalog.homeLibrary.playlists.count == world.fixtures.playlists.count)
+        #expect(player.catalog.homeLibrary.homeSections.count == (expanded ? 4 : 1))
+        #expect(report.checkpoints.contains { $0.name == "account.replacement-catalog-ready" && $0.passed })
+        await player.shutdownForTermination()
+    }
+
     private func execute(
         _ scenario: BrowsingScenario, timeoutSeconds: Int = 120, seed: AcceptanceSeed = .none
     ) async throws -> AcceptanceRuntimeReport {

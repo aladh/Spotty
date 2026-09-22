@@ -61,10 +61,13 @@ struct BrowsingRunStatus: Encodable {
     }
 
     @MainActor
-    private static func inspector(in window: NSWindow?) -> String {
+    static func inspector(in window: NSWindow?) -> String {
         guard let window else { return "unobserved" }
         var pending: [Any] = [window]
         var inspected = 0
+        var queueClosed = false
+        var devicesClosed = false
+        var devicesOpen = false
         while let element = pending.popLast(), inspected < 10_000 {
             inspected += 1
             guard let accessible = element as? any NSAccessibilityProtocol else { continue }
@@ -73,10 +76,17 @@ struct BrowsingRunStatus: Encodable {
             switch accessible.accessibilityLabel() {
             case "Queue" where accessible.accessibilityRole() == .table: return "queue"
             case "Recently played" where accessible.accessibilityRole() == .table: return "history"
+            case "Show queue and history panel":
+                queueClosed = accessible.accessibilityValue() as? String == "Closed"
+            case "Playback devices":
+                devicesClosed = accessible.accessibilityValue() as? String == "Closed"
+                devicesOpen = accessible.accessibilityValue() as? String == "Open"
             default: break
             }
             pending.append(contentsOf: accessible.accessibilityChildren() ?? [])
         }
+        if queueClosed && devicesClosed { return "closed" }
+        if queueClosed && devicesOpen { return "connect" }
         return "unobserved"
     }
 }

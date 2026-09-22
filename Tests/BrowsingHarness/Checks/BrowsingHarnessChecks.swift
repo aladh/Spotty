@@ -371,6 +371,30 @@ struct BrowsingHarnessTests {
     }
 
     @Test
+    func inspectorStatusRequiresObservedControlValues() {
+        let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        let queue = NSButton()
+        queue.setAccessibilityLabel("Show queue and history panel")
+        queue.setAccessibilityValue("Closed")
+        let devices = NSButton()
+        devices.setAccessibilityLabel("Playback devices")
+        devices.setAccessibilityValue("Closed")
+        window.setAccessibilityChildren([queue, devices])
+        #expect(BrowsingRunStatus.inspector(in: window) == "closed")
+        devices.setAccessibilityValue("Open")
+        #expect(BrowsingRunStatus.inspector(in: window) == "connect")
+        window.setAccessibilityChildren([devices])
+        #expect(BrowsingRunStatus.inspector(in: window) == "unobserved")
+        window.setAccessibilityChildren([queue, devices])
+        queue.setAccessibilityValue("Unknown")
+        #expect(BrowsingRunStatus.inspector(in: window) == "unobserved")
+        let table = NSTableView()
+        table.setAccessibilityLabel("Recently played")
+        window.setAccessibilityChildren([table])
+        #expect(BrowsingRunStatus.inspector(in: window) == "history")
+    }
+
+    @Test
     func fixtureFilesAreReadable() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "SpottyBrowsingTests-\(UUID().uuidString)")

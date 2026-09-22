@@ -13,6 +13,7 @@ Product contracts define behavior, ADRs record decisions, and development guides
 - [Generated local state](development/local-state.md): build outputs and artwork regeneration.
 - [Build and verification](development/verification.md): launch, formatting, tests, and diagnostics.
 - [Runtime acceptance and measurements](development/runtime-acceptance.md): evidence requirements, synthetic workloads, and profiling.
+- [Synthetic acceptance](development/synthetic-acceptance.md): named corpora, failure evidence, and semantic UI smoke.
 - [Playback binary artifacts](development/playback-artifacts.md): local candidates, publication, and app pins.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.
 - [Agent reviews](development/agent-reviews.md): shared review pipeline, approval, thread handling, and trust.

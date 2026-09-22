@@ -38,6 +38,19 @@ the workflow identifies missing evidence. App installation permissions are not c
 failures report the endpoint and sanitized HTTP status without response bodies or credentials.
 Reviewers name these limits precisely; evidence collection grants no new permissions.
 
+The collector also snapshots the [scenario manifest](../../Tests/BrowsingHarness/Scenarios/manifest.json)
+at the PR head and reads `summary.json` from the latest completed, head-matched CI attempt's
+`acceptance-evidence-RUN-ATTEMPT` artifact. It verifies the artifact's run and head, recorded PR head,
+clean and unchanged source, manifest digest, and complete scenario ID/version/corpus set. The checkout revision
+remains recorded separately because PR CI may execute GitHub's merge revision. Old attempts,
+expired artifacts, malformed summaries and dirty or mismatched sources cannot establish coverage.
+The ZIP is bounded and its JSON member is read without extracting or executing artifact contents.
+
+This summary records credential-free state-boundary assertions. Signed Demo network isolation,
+visual fidelity, live playback and performance remain separate evidence surfaces. A missing artifact
+or pending CI is a coverage gap. A successful scenario step cannot fill those other gaps, and
+reviewers must inspect the summary's nested status and outcome even when the snapshot is present.
+
 ## Thread ownership
 
 All reviewers share one App identity. A unique HTML-comment marker on each review and finding

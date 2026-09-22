@@ -8,17 +8,27 @@ cd "$project_root"
 automated=true
 profile=false
 optimized=false
+scenario_id=""
 while (( $# > 0 )); do
     case "$1" in
         --profile) profile=true ;;
         --interactive) automated=false ;;
         --optimized) optimized=true ;;
+        --scenario)
+            (( $# >= 2 )) || { print -u2 "--scenario requires a stable scenario ID"; exit 2; }
+            scenario_id="$2"
+            shift
+            ;;
+        --list)
+            python3 "$project_root/Scripts/acceptance_scenarios.py" list
+            exit
+            ;;
         *) break ;;
     esac
     shift
 done
 if (( $# > 1 )); then
-    print -u2 "Usage: $0 [--optimized] [--profile] [--interactive] [scenario.json]"
+    print -u2 "Usage: $0 [--optimized] [--profile] [--interactive] [--scenario ID | scenario.json]"
     exit 2
 fi
 default_scenario="$project_root/Tests/BrowsingHarness/scenario.json"
@@ -26,7 +36,29 @@ if [[ "$automated" == false && "$profile" == false ]]; then
     default_scenario="$project_root/Tests/BrowsingHarness/demo.json"
 fi
 scenario="${1:-$default_scenario}"
+if [[ -n "$scenario_id" && $# != 0 ]]; then
+    print -u2 "Choose a named scenario or a workload path, not both"
+    exit 2
+fi
+mkdir -p "$project_root/.build/browsing-runs"
+run_root="$(mktemp -d "$project_root/.build/browsing-runs/run.XXXXXXXX")"
+if [[ -n "$scenario_id" ]]; then
+    scenario="$run_root/scenario.json"
+    python3 "$project_root/Scripts/acceptance_scenarios.py" prepare-demo "$scenario_id" --output "$scenario"
+fi
 [[ -f "$scenario" ]] || { print -u2 "Scenario file does not exist"; exit 2; }
+# Keep legacy report.json and add evidence even when launch or workload fails.
+TRAPEXIT() {
+    local result=$?
+    if [[ "$automated" == true || "$profile" == true ]]; then
+        python3 "$project_root/Scripts/acceptance_scenarios.py" demo-evidence \
+            --output "$run_root" --workload "$scenario" --exit-code "$result" || return 1
+    fi
+    return "$result"
+}
+if [[ "$profile" == true ]]; then
+    python3 "$project_root/Scripts/profile_synthetic.py" --preflight "$run_root"
+fi
 
 signing_identity="${SPOTTY_DEVELOPMENT_SIGNING_IDENTITY:-${SPOTTY_SIGNING_IDENTITY:-}}"
 if [[ -z "$signing_identity" ]]; then
@@ -39,8 +71,6 @@ if [[ -z "$signing_identity" ]]; then
     signing_identity="$identities"
 fi
 
-mkdir -p "$project_root/.build/browsing-runs"
-run_root="$(mktemp -d "$project_root/.build/browsing-runs/run.XXXXXXXX")"
 configuration=debug
 scratch="$project_root/.build"
 build_arguments=(--disable-sandbox --sdk "$SDKROOT" --configuration debug)
@@ -101,15 +131,22 @@ if ! print -r -- "$signing_details" | rg -q '^TeamIdentifier=[A-Z0-9]+$'; then
 fi
 # Validate first, then replace only this demo's stable install location.
 installed_app="$project_root/.build/Spotty Demo.app"
-pkill -x SpottyDemo >/dev/null 2>&1 || true
-for _ in {1..50}; do
-    pgrep -x SpottyDemo >/dev/null || break
-    sleep 0.1
-done
-if pgrep -x SpottyDemo >/dev/null; then
-    print -u2 "The demo did not terminate; leaving the installed bundle in place"
-    exit 1
-fi
+python3 - "$project_root/Scripts" "$installed_app/Contents/MacOS/SpottyDemo" <<'PYSTOP'
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from browsing_process import capture, executable_path, process_ids, terminate
+
+expected = str(Path(sys.argv[2]).resolve())
+for pid in process_ids():
+    try:
+        if executable_path(pid) != expected:
+            continue
+        record = capture(pid, expected)
+    except (OSError, ValueError):
+        continue
+    terminate(record)
+PYSTOP
 if [[ -d "$installed_app" ]]; then
     mv "$installed_app" "$run_root/previous-demo.app"
 fi
@@ -121,6 +158,10 @@ if ! mv "$app" "$installed_app"; then
 fi
 app="$installed_app"
 /usr/bin/open -n "$app"
+python3 "$project_root/Scripts/browsing_process.py" discover "$run_root" "$app/Contents/MacOS/SpottyDemo"
+if [[ -n "${SPOTTY_BROWSING_RUN_ROOT_FILE:-}" ]]; then
+    print -r -- "$run_root" > "$SPOTTY_BROWSING_RUN_ROOT_FILE"
+fi
 print "Synthetic browsing launched: $app"
 if [[ "$profile" == true ]]; then
     if [[ "$automated" == false ]]; then
@@ -130,21 +171,23 @@ if [[ "$profile" == true ]]; then
 fi
 if [[ "$automated" == true || "$profile" == true ]]; then
     print "Report: $run_root/report.json"
-    python3 - "$run_root/report.json" <<'PYWAIT'
+    python3 - "$run_root/report.json" "$project_root/Scripts" <<'PYWAIT'
 import json
 from pathlib import Path
-import subprocess
 import sys
 import time
+sys.path.insert(0, sys.argv[2])
+from browsing_process import load_record, matches
 
 report = Path(sys.argv[1])
 started = time.monotonic()
+owned = load_record(report.parent)
 # Covers the maximum validated scenario, including bounded view-readiness waits.
 while not report.exists():
     elapsed = time.monotonic() - started
     if elapsed > 600:
         sys.exit("Timed out waiting for the demo workload report")
-    if elapsed > 5 and subprocess.run(["pgrep", "-x", "SpottyDemo"], stdout=subprocess.DEVNULL).returncode:
+    if elapsed > 5 and not matches(owned):
         sys.exit("The demo exited without a workload report")
     time.sleep(0.25)
 result = json.loads(report.read_text())

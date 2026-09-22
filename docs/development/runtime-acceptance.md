@@ -2,9 +2,9 @@
 
 [Verification](verification.md) · [Architecture decisions](../architecture/adrs/README.md)
 
-A green PR satisfies [PR acceptance](../../CONTRIBUTING.md#pr-acceptance), not every architecture,
-visual, or performance goal in [proposal #424](https://github.com/aladh/Spotty/issues/424).
-Attach evidence to the reviewed revision and report missing measurements explicitly.
+Attach evidence to the reviewed revision and report missing measurements.
+[PR acceptance](../../CONTRIBUTING.md#pr-acceptance) does not establish all architecture,
+visual, or performance goals in [proposal #424](https://github.com/aladh/Spotty/issues/424).
 
 ## Implemented boundary
 
@@ -16,29 +16,20 @@ nor establish faster rendering. Spotify appearance remains a [product requiremen
 
 ## Evidence for the implemented scope
 
-Use the complete gate for boundary changes, retaining independent expected behavior in tests.
-Focus failure tests on the changed ownership boundary:
+Use the complete gate for boundary changes, with independent expected behavior. Cover admission,
+account/engine replacement, cancellation, retirement during I/O, late publications, and partial or
+corrupt retained data at the changed owner. Stored identities never replace fresh mutation admission.
 
-- Account replacement, cancellation, late publications, account/engine identity, stamped admission,
-  retirement during I/O, corrupt/unsupported caches, purge failure, and complete versus partial collections.
-  Stored owners and occurrence IDs cannot replace fresh mutation admission.
-- Shared artwork fetching across size/tint requests, memory bounds, oversized-image rejection, and
-  retirement during fetch/decode. Keep artwork memory-only; request/memory evidence is separate from rendering speed.
-- A → B → A route restoration, stale content after read failure, and old-account/route rejection.
-  Successful or uncertain admitted writes must invalidate retained routes too.
-- Shared-track enrichment across active and retained playlists/albums without another collection
-  read. Preserve duplicate IDs, UIDs, order, date added, selection, freshness, and ownership;
-  unchanged collections keep their versions. Cover bounded/paged revisions, coalescing, missing
-  entities, and retirement during reads. Partial or superseded results cannot update rows or
-  become fresh mutation authority.
-- Native surface states and input, including resized layouts, under the
-  [visual fidelity contract](../product/scope.md#visual-fidelity-and-interaction).
-  Record the reference, deliberate differences, and unperformed states. Behavior tests do not
-  establish visual parity.
+Verify route restoration and invalidation after successful or uncertain writes. Shared enrichment
+must preserve collection order, duplicates, selection, versions, freshness, and ownership without
+another collection read. Artwork remains memory-only, with bounded fetching/decoding and retirement
+checks. Detailed cases belong to the linked ADRs and executable tests.
 
-Use synthetic data and [safe testing](../product/safe-testing.md); architecture acceptance does
-not expand live-account permissions. Never infer performance from native ownership, fewer
-publications, or compilation alone.
+Inspect native states, inputs, and resized layouts under the
+[visual fidelity contract](../product/scope.md#visual-fidelity-and-interaction), recording the
+reference, deviations, and unperformed states. Tests do not establish visual parity. Use synthetic
+data and [safe testing](../product/safe-testing.md); architecture acceptance expands no live-account
+permissions. Native ownership, fewer publications, and compilation alone establish no speedup.
 
 ## Production process
 
@@ -51,42 +42,37 @@ evidence; old Keychain entries remain untouched.
 
 ### Quit and playback position
 
-Distinguish the final Connect position from another app's local resume cache. Under explicit
-playback-test permission, record the paused position, whether the destination was open before
-Spotty quit, and the position that a fresh Connect observation returns after quit. Also check the
-destination after Spotty has disconnected. A successful shutdown or fresh server observation alone
-does not prove what the official Spotify app will restore on a later launch.
-
-Spotify describes closed apps restoring their own cached sessions in its
-[cross-device synchronization explanation](https://community.spotify.com/t5/Other-Podcasts-Partners-etc/Sync-player-progress-between-devices/m-p/5515721/redirect_from_archived_page/true).
-Opening Spotify while Spotty is still running lets it observe the current Connect position before
-Spotty disconnects. Do not retain a phantom active device or modify Spotify's files to bypass its
-cache behavior. Quit must still stop the in-process runtime; window closure is a separate case.
+Under explicit playback-test permission, record the paused position, whether the destination was
+open before quit, and fresh Connect observations after quit and disconnection. Successful shutdown
+cannot prove what Spotify restores: closed apps restore their own
+[cached sessions](https://community.spotify.com/t5/Other-Podcasts-Partners-etc/Sync-player-progress-between-devices/m-p/5515721/redirect_from_archived_page/true).
+Opening Spotify before disconnection lets it observe the current position. Never retain a phantom
+active device or modify Spotify's files to bypass caching. Quit stops the runtime; window closure
+is separate.
 
 ## Product expansions outside this cutover
 
-Local queue removal needs retained-engine protocol support. Broader playlist administration,
-preferences, and multi-selection drag mutations require separate product scope and verification;
-architecture work does not imply them. See [product scope](../product/scope.md).
+[Product scope](../product/scope.md) still governs expansion. Queue removal needs retained-engine
+support; playlist administration, preferences, and multi-selection mutations require separate
+scope and verification.
 
 ## Measurements
 
-Record source and engine identities, scenario, system, display refresh/scale, window size/visibility,
-and workload. Compare repeated runs with identical configurations and no concurrent
-compilation or UI inspection. Historical Debug samples are not an optimized baseline.
+Record source/engine identities, scenario, system, display, window state, and workload. Compare repeated
+identical configurations without concurrent compilation or UI inspection. Historical Debug samples
+are not an optimized baseline.
 
 ```bash
 ./Scripts/browse-synthetic.sh --optimized Tests/BrowsingHarness/queue-rendering.json
 ./Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json
 ```
 
-`--optimized` uses instrumented, testable Release code with synthetic dependencies, not production
-audio. `report.json` records CPU/memory, hydration, and publication evidence. Main-run-loop callback
-gaps are display opportunities, not GPU presentation or input-to-pixel latency. Subtract first from
-last cumulative CPU counters to exclude startup. Occluded runs can measure CPU/publications, not
-rendered-frame budgets. Scenario sizes, delays, sample rates, and deadlines belong to the fixtures.
-First visits are cold-process samples; later cycles measure reuse. Even first visits can benefit
-from filesystem caching. The finite workload suppresses App Nap while allowing idle system sleep.
+`--optimized` uses instrumented, testable Release code with synthetic dependencies. `report.json`
+records CPU/memory, hydration, and publications. Callback gaps measure display opportunities, not
+presentation or input-to-pixel latency. Subtract first from last cumulative CPU counters to exclude
+startup. Occluded runs cannot measure rendered-frame budgets. Cold-process visits can benefit from
+filesystem caches; later cycles measure reuse. The workload suppresses App Nap while allowing idle
+sleep. Fixtures own sizes, delays, rates, and deadlines.
 
 The queue-rendering scenario sets `forceSynchronousLayout: false` for normal AppKit scheduling;
 omitting it retains historical synchronous stress. Compare identical modes. A passing sandbox,
@@ -94,27 +80,55 @@ zero unexpected mutations, and completed workload establish functional acceptanc
 
 ### Visible Instruments captures
 
-Add `--profile` before the scenario to use Xcode's Animation Hitches template. Keep the window
-unoccluded; the workload waits for profiling. `--profile --interactive` lets you open the queue
-inspector before choosing **Demo → Run Measurement** (once per process).
+Add `--profile` before the scenario for Xcode's Animation Hitches template. Read-only preflight
+checks the selected Xcode/SDK, recorder/template, console session, and lock/display state before
+building. It never unlocks the session or requests grants. Unavailable session evidence fails
+closed; an absent lock flag in an active logged-in session is explicitly labeled an inference.
 
-The report deadline is 600 seconds; the recorder can take another 180 seconds to save after
-interruption. Failed/incomplete saves are invalid evidence. A successful capture can still lack
-presentation events. Compare profiled runs only with profiled runs. Raw traces can contain host
-information; keep them local and publish reviewed aggregates.
+Keep the window unoccluded. `--profile --interactive` lets you prepare the inspector before choosing
+**Demo → Run Measurement**. The workload waits for the exact-PID recorder handshake and refreshed
+session/window/process admission. Unusable tracing grants fail before measurement starts.
 
-Export run 1's `os-signpost`, `hitches`, `hitches-updates`, and `hitches-frame-lifetimes` tables:
+[`manifest.json`](../../Scripts/browsing_provenance.py) retains run/source/fixture/build/engine/layout
+identities, including untracked inputs. [`process.json`](../../Scripts/browsing_process.py) binds PID,
+start, and executable; [`run-status.json`](../../Tests/BrowsingHarness/Support/BrowsingRunStatus.swift)
+publishes bounded readiness/window/display state without account or catalog content. Each link owns
+its field definitions.
+
+Wait for `profiler-state.json` to reach complete/failed; workload completion precedes recorder saving.
+The workload deadline is 600 seconds, with another 180 seconds allowed for save. Completion requires
+a matching successful workload, saved trace, required exports, and complete application frames.
+Failures carry stable reason codes; interrupted runs cannot retain an accepted summary.
+
+The launcher exports the required tables and writes `trace-summary.json` automatically. The
+[summarizer](../../Scripts/summarize_synthetic_trace.py) owns manual export inputs and filters to the
+Demo workload/process. Pipelined frame lifetime is not a one-refresh deadline. Keep raw traces local
+and publish reviewed aggregates; they can contain host information.
+
+Compare completed captures:
 
 ```bash
-xcrun xctrace export --input TRACE --xpath \
-  '/trace-toc/run[@number="1"]/data/table[@schema="SCHEMA"]' --output FILE
-python3 Scripts/summarize_synthetic_trace.py PREFIX
+python3 Scripts/compare_synthetic_profiles.py RUN_A RUN_B
 ```
 
-Name exports `PREFIX-signposts.xml`, `PREFIX-hitches.xml`, `PREFIX-hitches-updates.xml`, and
-`PREFIX-hitches-frame-lifetimes.xml`. The summarizer rejects missing workload markers or app frames.
-Filter to the Demo process and `Demo workload` interval. Do not treat full pipelined frame lifetime
-as a one-refresh deadline. Check visibility and functional results separately.
+The validator rejects incomplete/failed evidence. Incompatible conditions or unknown inspector state
+are descriptive only; `--allow-descriptive` changes the exit status without accepting a performance
+comparison. Inspector evidence uses existing controls and native tables. Display maximum refresh
+is capability; observed target cadence, callback gaps, and frame presentation are separate evidence.
+Target-cadence differences beyond one percent are explicit. Compare profiled runs only with profiled runs.
+
+Prepare, capture, and summarize an exact-source two-layout experiment:
+
+```bash
+python3 Scripts/profile_synthetic.py --compare-layouts Tests/BrowsingHarness/queue-rendering.json \
+  --output .build/layout-comparison
+```
+
+Use a new output directory. This prepares both fixtures before building, records sequentially,
+closes each owned Demo, and writes `comparison.json`. Only `forceSynchronousLayout` and its full
+fixture digest may differ; source, workload digest, and other conditions must match. Incompatible
+or incomplete runs return nonzero. For existing variants, pass
+`--variant-field layout.forceSynchronousLayout` to the comparator.
 
 For a matched publication control, apply
 [queue-unbatched.patch](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) in a disposable

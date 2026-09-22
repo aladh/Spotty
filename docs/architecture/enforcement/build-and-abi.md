@@ -42,20 +42,25 @@ Their executable owners are [CI](../../../.github/workflows/ci.yml) and its asse
 [check-ci-workflow.rb](../../../Scripts/check-ci-workflow.rb), invoked by
 [check.sh](../../../Scripts/check.sh). The `Linux domain` job builds `SpottyDomain` and runs
 `SpottyDomainTests` in a Swift container; `Playback script checks` runs the portable Python playback
-suite on Linux in parallel. The single `macOS checks` runner requires both results alongside source
+and harness suites on Linux in parallel. The single `macOS checks` runner requires both results alongside source
 policies, then serially owns compiled Rust/header verification, candidate production, Swift checks,
-and Release compilation. [Source policies](source-checks.md) cover the syntax-only
+the synthetic acceptance corpus, and Release compilation. [Source policies](source-checks.md) cover the syntax-only
 facets of Rust-free app scripts, workflow trust, and published-engine use; artifact validation and
-build execution remain here. The required checks include source policies, playback scripts, Rust,
-Swift/architecture, and Release compilation. Source policies and playback scripts run unconditionally
+build execution remain here. The required checks include source policies, playback/harness scripts, Rust,
+Swift/architecture, synthetic acceptance, and Release compilation. Source policies and script suites run unconditionally
 in Linux jobs; the trusted classifier runs in the `policy`
 job; [ci_rust_policy.py](../../../Scripts/ci_rust_policy.py) sets `macos_needed=false` for
 docs-only PR changes, which skips the single `macos` job and with it Rust, Swift/architecture, and Release
-compilation. Rust runs on main and on PRs outside the
+compilation and synthetic acceptance. Rust runs on main and on PRs outside the
 [app-only scope](../../development/verification.md#normal-verification); detection failures cannot
 authorize a skip. Swift CI uses only published engines. Candidate builds
 are selected by [input comparison](../../../Scripts/playback-candidate-needed.sh); producer validation
 and publication do not depend on app compatibility with unpublished candidates.
+
+The [acceptance workflow](../../../.github/workflows/acceptance-scenarios.yml) also permits explicit
+dispatch or reusable calls. Both entry points run representative and holdout state scenarios once
+with a deadline, preserve their summaries and artifacts on failure, and require execution, summary,
+and upload success. These synthetic service checks do not establish GUI, sandbox, or live-account behavior.
 
 Ordinary non-candidate PRs target five minutes on macOS; producing an XCFramework is an explicit
 exception. The Swift Debug step has a 15-minute watchdog within the candidate-capable job's

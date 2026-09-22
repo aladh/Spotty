@@ -40,6 +40,7 @@ required_test_steps = {
   'playback_python' => [
     'python3 -B Scripts/script_tests.py watchdog',
     'python3 -B Scripts/script_tests.py playback',
+    'python3 -B Scripts/script_tests.py harness',
   ],
 }
 required_test_steps.each do |job_id, commands|
@@ -134,10 +135,81 @@ check.call(gate['if'] == 'always()', 'aggregate must run even after failures')
   'DOMAIN_LINUX_RESULT' => '${{ needs.domain_linux.result }}',
   'PLAYBACK_PYTHON_RESULT' => '${{ needs.playback_python.result }}',
   'CHECKS_RESULT' => '${{ steps.debug.outcome }}',
+  'ACCEPTANCE_RESULT' => '${{ steps.acceptance.outcome }}',
+  'ACCEPTANCE_SUMMARY_RESULT' => '${{ steps.acceptance_summary.outcome }}',
+  'ACCEPTANCE_UPLOAD_RESULT' => '${{ steps.acceptance_upload.outcome }}',
   'RELEASE_RESULT' => '${{ steps.release.outcome }}'
 }.each do |result, binding|
   check.call(gate.dig('env', result) == binding && gate.fetch('run', '').include?("test \"$#{result}\" = success"), "aggregate must require #{result} success")
 end
+acceptance_contract = lambda do |job_steps, result_gate, head_binding|
+  check.call(job_steps.count { |step| step.fetch('run', '').include?('acceptance_scenarios.py run') } == 1,
+             'acceptance corpus must execute once without implicit retries')
+  spec = {
+    'acceptance' => {
+      'name' => 'Run acceptance scenarios',
+      'timeout-minutes' => 10,
+      'env' => { 'SPOTTY_ACCEPTANCE_HEAD_SHA' => head_binding },
+      'run' => 'python3 Scripts/acceptance_scenarios.py run --corpus all --output "$RUNNER_TEMP/spotty-acceptance"',
+    },
+    'acceptance_summary' => {
+      'name' => 'Summarize acceptance evidence',
+      'if' => 'always()',
+      'run' => 'python3 Scripts/acceptance_scenarios.py summary --output "$RUNNER_TEMP/spotty-acceptance" >> "$GITHUB_STEP_SUMMARY"',
+    },
+    'acceptance_upload' => {
+      'name' => 'Upload acceptance evidence',
+      'if' => 'always()',
+      'uses' => 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+      'with' => {
+        'name' => 'acceptance-evidence-${{ github.run_id }}-${{ github.run_attempt }}',
+        'path' => '${{ runner.temp }}/spotty-acceptance',
+        'if-no-files-found' => 'error',
+        'retention-days' => 7,
+      },
+    },
+  }
+  positions = []
+  spec.each do |id, fields|
+    matches = job_steps.select { |step| step['id'] == id || step['name'] == fields['name'] }
+    expected = fields.merge('id' => id)
+    check.call(matches.length == 1 && matches.first == expected, "#{id} must retain its single bounded execution and evidence contract")
+    positions << job_steps.index(matches.first)
+  end
+  positions << job_steps.index(result_gate)
+  check.call(positions.none?(&:nil?) && positions == positions.sort && positions.uniq.length == positions.length,
+             'acceptance execution, summary, upload, and aggregate must remain ordered')
+  %w[ACCEPTANCE_RESULT ACCEPTANCE_SUMMARY_RESULT ACCEPTANCE_UPLOAD_RESULT].zip(spec.keys).each do |result, id|
+    check.call(result_gate.dig('env', result) == "${{ steps.#{id}.outcome }}" && result_gate.fetch('run', '').lines.map(&:strip).include?("test \"$#{result}\" = success"),
+               "acceptance aggregate must require #{result} success")
+  end
+end
+acceptance_contract.call(mac_steps, gate, '${{ github.event.pull_request.head.sha || github.sha }}')
+acceptance_index = mac_steps.index { |step| step['id'] == 'acceptance' }
+debug_index = mac_steps.index(debug_step)
+release_index = mac_steps.index { |step| step['id'] == 'release' }
+check.call(acceptance_index && debug_index && release_index && debug_index < acceptance_index && acceptance_index < release_index,
+           'acceptance corpus must reuse the macOS lane after Swift checks and before Release compilation')
+
+standalone_path = ARGV[1] || File.join(__dir__, '..', '.github', 'workflows', 'acceptance-scenarios.yml')
+standalone = YAML.safe_load(File.read(standalone_path), permitted_classes: [], aliases: true)
+triggers = standalone.fetch('on', standalone[true])
+check.call(triggers.is_a?(Hash) && triggers.keys.sort == %w[workflow_call workflow_dispatch],
+           'standalone acceptance must support only explicit dispatch and reusable calls')
+check.call(standalone['permissions'] == { 'contents' => 'read' }, 'standalone acceptance must have read-only contents permissions')
+standalone_jobs = standalone.fetch('jobs', {})
+check.call(standalone_jobs.keys == ['acceptance'], 'standalone acceptance must run exactly one attempt without fanout')
+standalone_job = standalone_jobs.fetch('acceptance', {})
+check.call(standalone_job['runs-on'] == 'macos-26' && standalone_job['timeout-minutes'] == 20 &&
+           (%w[strategy if continue-on-error secrets environment permissions] & standalone_job.keys).empty?,
+           'standalone acceptance must retain its credential-free bounded macOS job')
+standalone_steps = standalone_job.fetch('steps', [])
+check.call(standalone_steps.none? { |step| step.key?('continue-on-error') }, 'standalone acceptance steps must propagate failure')
+standalone_gate_matches = standalone_steps.select { |step| step['name'] == 'Require acceptance evidence' }
+standalone_gate = standalone_gate_matches.first || {}
+check.call(standalone_gate_matches.length == 1 && standalone_gate['if'] == 'always()',
+           'standalone acceptance must always require execution and evidence outcomes')
+acceptance_contract.call(standalone_steps, standalone_gate, '${{ github.sha }}')
 {
   'CANDIDATE_SELECTION_RESULT' => '${{ steps.inputs.outcome }}',
   'CANDIDATE_NEEDED' => '${{ steps.inputs.outputs.candidate_needed }}',

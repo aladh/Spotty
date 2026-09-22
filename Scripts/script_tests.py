@@ -9,7 +9,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GROUPS = ("policy", "playback", "watchdog", "review")
+GROUPS = ("policy", "playback", "harness", "watchdog", "review")
 REVIEW_ROOT = PurePosixPath("Scripts/agent-review-tests")
 NODE_SUFFIXES = {".js", ".mjs", ".cjs"}
 
@@ -37,6 +37,8 @@ def inventory(root: Path) -> dict[str, list[Path]]:
         if path.parent == PurePosixPath("Scripts") and path.suffix == ".py":
             if path.name == "test_swift_test_watchdog.py":
                 group = "watchdog"
+            elif path.name.startswith("test_harness_"):
+                group = "harness"
             elif path.name.startswith("test_playback_"):
                 group = "playback"
             else:

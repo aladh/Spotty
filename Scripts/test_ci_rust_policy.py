@@ -83,6 +83,49 @@ class RustSelectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output, "rust_needed=false\nmacos_needed=false\n")
 
+    def test_demo_sources_measurements_and_audited_helpers_skip_rust(self):
+        for name in ("Tests/BrowsingHarness/App/BrowsingHarness.swift",
+                     "Tests/BrowsingHarness/Checks/BrowsingHarnessChecks.swift",
+                     "Tests/BrowsingHarness/Support/BrowsingScenario.swift",
+                     "Tests/BrowsingHarness/queue-rendering.json",
+                     "Tests/BrowsingHarness/Icon/SpottyDemo.icns",
+                     "Tests/BrowsingHarness/Support/Artwork/tidal-light.jpg",
+                     "docs/architecture/measurements/synthetic.json",
+                     "Scripts/browse-synthetic.sh", "Scripts/profile_synthetic.py",
+                     "Scripts/summarize_synthetic_trace.py", "Scripts/compare_synthetic_profiles.py",
+                     "Scripts/browsing_process.py", "Scripts/browsing_preflight.swift",
+                     "Scripts/acceptance_scenarios.py", "Scripts/smoke-synthetic-ui.sh",
+                     "Scripts/synthetic_ui_smoke.swift", "Scripts/test_harness_profile_synthetic.py",
+                     "Scripts/test_harness_profile_comparison.py",
+                     "Scripts/test_harness_trace_summary.py", "Scripts/test_harness_browsing_process.py",
+                     "Scripts/test_harness_acceptance_scenarios.py"):
+            with self.subTest(name=name):
+                self.write(name)
+                self.commit()
+                self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                                 {"rust_needed": False, "macos_needed": True})
+                self.base = self.git("rev-parse", "HEAD")
+
+    def test_mixed_harness_and_engine_changes_keep_both_toolchains(self):
+        self.write("Tests/BrowsingHarness/demo.json")
+        self.write("Scripts/test_harness_trace_summary.py")
+        self.write("Backend/spotty-playback/src/lib.rs")
+        self.commit()
+        self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                         {"rust_needed": True, "macos_needed": True})
+
+    def test_unreviewed_harness_inputs_and_policy_changes_remain_conservative(self):
+        for name in ("Tests/BrowsingHarness/unreviewed.rs", "Tests/BrowsingHarness/tool.sh",
+                     "Scripts/new-harness.sh", "Scripts/test_harness_new.py",
+                     "Scripts/ci_rust_policy.py", "Scripts/script_tests.py",
+                     "Scripts/test_ci_rust_policy.py", "Scripts/check.sh"):
+            with self.subTest(name=name):
+                self.write(name)
+                self.commit()
+                self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                                 {"rust_needed": True, "macos_needed": True})
+                self.base = self.git("rev-parse", "HEAD")
+
     def test_mixed_docs_and_app_change_keeps_macos(self):
         self.write("Tests/AGENTS.md")
         self.write("Sources/Spotty/View.swift")
@@ -119,8 +162,7 @@ class RustSelectionTests(unittest.TestCase):
                      "rust-toolchain.toml", ".github/workflows/ci.yml", "Scripts/check.sh",
                      "Scripts/test_playback_header.py", "Tests/ABI/example.txt", "LICENSE",
                      "Scripts/check-session-scenarios.sh", "Scripts/browsing_provenance.py",
-                     "Scripts/test_playback_browsing_provenance.py", "Scripts/test_playback_session_scenarios.py",
-                     "Scripts/browse-synthetic.sh",
+                     "Scripts/test_harness_browsing_provenance.py", "Scripts/test_playback_session_scenarios.py",
                      "NOTICE", "THIRD_PARTY_NOTICES.md", "new-build-input", ".cargo/config.toml"):
             with self.subTest(name=name):
                 self.write(name)
@@ -140,6 +182,12 @@ class RustSelectionTests(unittest.TestCase):
         self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
         self.git("reset", "--hard", self.base)
         source.unlink()
+        self.commit()
+        self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
+        self.git("reset", "--hard", self.base)
+        harness = self.root / "Tests/BrowsingHarness/renamed.swift"
+        harness.parent.mkdir(parents=True)
+        source.rename(harness)
         self.commit()
         self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
 
@@ -207,6 +255,7 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-latest", playback)
         self.assertIn("apt-get install --no-install-recommends --yes zsh", playback)
         self.assertIn("run: python3 -B Scripts/script_tests.py playback", playback)
+        self.assertIn("run: python3 -B Scripts/script_tests.py harness", playback)
         macos = workflow.split("  macos:\n", 1)[1]
         self.assertNotRegex(macos, r"(?m)^  [^ #\s]",
                             "macOS must remain the final CI job; update the job extractor if this changes")
@@ -290,6 +339,35 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
 
 
 class CheckScopeOwnershipTests(unittest.TestCase):
+    def test_harness_failure_stops_normal_scopes_before_compilation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "Scripts"
+            scripts.mkdir()
+            script = (ROOT / "Scripts/check.sh").read_text()
+            # The tested scope branches are Bash-compatible. Normalize only zsh's path
+            # modifier; the Linux policy job must exercise them without installing zsh.
+            root_assignment = 'project_root="${0:A:h:h}"'
+            self.assertEqual(script.count(root_assignment), 1)
+            (scripts / "check.sh").write_text(script.replace(root_assignment, 'project_root="$PWD"'))
+            for name in ("swiftpm-env.sh", "playback-xcframework.sh"):
+                (scripts / name).write_text("# Toolchain-free scope fixture\n")
+            (scripts / "script_tests.py").write_text(
+                'import sys\nprint(sys.argv[1])\nsys.exit(73 if sys.argv[1] == "harness" else 0)\n')
+            for name, status in (("check-source-policy.sh", 0), ("generate-c-header.sh", 74)):
+                path = scripts / name
+                path.write_text(f"#!/bin/sh\nexit {status}\n")
+                path.chmod(0o755)
+            for scope in ("full", "swift", "rust", "rust-compiled"):
+                with self.subTest(scope=scope):
+                    result = subprocess.run(["bash", str(scripts / "check.sh")], cwd=root,
+                                            capture_output=True, text=True,
+                                            env={**os.environ, "SPOTTY_CHECK_SCOPE": scope,
+                                                 "SPOTTY_BUILD_CONFIGURATION": "debug"})
+                    compiled_only = scope == "rust-compiled"
+                    self.assertEqual(result.returncode, 74 if compiled_only else 73, result.stderr)
+                    self.assertEqual("harness" in result.stdout, not compiled_only)
+
     def test_playback_source_checks_run_once_and_only_ci_compiled_scope_skips_them(self):
         script = (ROOT / "Scripts/check.sh").read_text()
         python_check = 'python3 -B "$project_root/Scripts/script_tests.py" playback'
@@ -353,6 +431,8 @@ class AggregateGateTests(unittest.TestCase):
         env = {**os.environ, "POLICY_RESULT": "success", "DOMAIN_LINUX_RESULT": "success",
                "PLAYBACK_PYTHON_RESULT": "success",
                "CHECKS_RESULT": "success", "RELEASE_RESULT": "success",
+               "ACCEPTANCE_RESULT": "success", "ACCEPTANCE_SUMMARY_RESULT": "success",
+               "ACCEPTANCE_UPLOAD_RESULT": "success",
                "RUST_NEEDED": "false", "RUST_RESULT": "skipped",
                "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
                "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"}
@@ -391,11 +471,13 @@ class AggregateGateTests(unittest.TestCase):
                                                    env={**env, **base, field: value})
                         self.assertNotEqual(completed.returncode, 0)
         for lane in ("POLICY_RESULT", "DOMAIN_LINUX_RESULT", "PLAYBACK_PYTHON_RESULT",
-                     "CHECKS_RESULT", "RELEASE_RESULT"):
-            with self.subTest(lane=lane):
-                completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                           env={**env, lane: "failure"})
-                self.assertNotEqual(completed.returncode, 0)
+                     "CHECKS_RESULT", "RELEASE_RESULT", "ACCEPTANCE_RESULT",
+                     "ACCEPTANCE_SUMMARY_RESULT", "ACCEPTANCE_UPLOAD_RESULT"):
+            for outcome in ("failure", "skipped", "cancelled", ""):
+                with self.subTest(lane=lane, outcome=outcome):
+                    completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
+                                               env={**env, lane: outcome})
+                    self.assertNotEqual(completed.returncode, 0)
 
 
 if __name__ == "__main__":

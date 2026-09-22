@@ -1,0 +1,68 @@
+name: Acceptance scenarios
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      evidence_artifact_url:
+        description: Normalized scenario evidence and compact failure packet for this attempt
+        value: ${{ jobs.acceptance.outputs.evidence_artifact_url }}
+      outcome:
+        description: The single corpus execution outcome
+        value: ${{ jobs.acceptance.outputs.outcome }}
+
+permissions:
+  contents: read
+
+# Standalone/reusable entrypoint only. CI runs this same corpus inside its existing macOS job.
+# One attempt ends in success or a bounded failure packet; another implementation pass is explicit.
+jobs:
+  acceptance:
+    name: Acceptance scenario corpus
+    runs-on: macos-26
+    timeout-minutes: 20
+    outputs:
+      evidence_artifact_url: ${{ steps.acceptance_upload.outputs.artifact-url }}
+      outcome: ${{ steps.acceptance.outcome }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      # Injected state boundaries only: no live credentials, GUI, or sandbox attestation.
+      - name: Run acceptance scenarios
+        id: acceptance
+        timeout-minutes: 10
+        env:
+          SPOTTY_ACCEPTANCE_HEAD_SHA: ${{ github.sha }}
+        run: python3 Scripts/acceptance_scenarios.py run --corpus all --output "$RUNNER_TEMP/spotty-acceptance"
+
+      - name: Summarize acceptance evidence
+        id: acceptance_summary
+        if: always()
+        run: python3 Scripts/acceptance_scenarios.py summary --output "$RUNNER_TEMP/spotty-acceptance" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload acceptance evidence
+        id: acceptance_upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/spotty-acceptance
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Require acceptance evidence
+        if: always()
+        env:
+          ACCEPTANCE_RESULT: ${{ steps.acceptance.outcome }}
+          ACCEPTANCE_SUMMARY_RESULT: ${{ steps.acceptance_summary.outcome }}
+          ACCEPTANCE_UPLOAD_RESULT: ${{ steps.acceptance_upload.outcome }}
+        run: |
+          test "$ACCEPTANCE_RESULT" = success
+          test "$ACCEPTANCE_SUMMARY_RESULT" = success
+          test "$ACCEPTANCE_UPLOAD_RESULT" = success

@@ -46,6 +46,7 @@ final class SyntheticPlayback: @unchecked Sendable {
     }
     private var nextFault: Fault?
     private var held: [RustPlaybackEvent] = []
+    private var seedDelayedPlaybackArrivalRevision = false
 
     init(fixtures: BrowsingFixtures) {
         self.fixtures = fixtures
@@ -63,6 +64,10 @@ final class SyntheticPlayback: @unchecked Sendable {
     }
 
     func inject(_ fault: Fault) { lock.withLock { nextFault = fault } }
+
+    func seedDelayedPlaybackArrivalRevisionRegression() {
+        lock.withLock { seedDelayedPlaybackArrivalRevision = true }
+    }
 
     @discardableResult
     func publish() -> UInt64 {
@@ -106,9 +111,49 @@ final class SyntheticPlayback: @unchecked Sendable {
         let events = lock.withLock {
             let result = held
             held.removeAll()
-            return result
+            return (reversed ? result.reversed() : result).map { event in
+                guard seedDelayedPlaybackArrivalRevision, case let .playback(old) = event else { return event }
+                // Deliberately broken boundary for the mutation proof: arrival order must never
+                // replace an observation's original source revision. Atomic clusters are intact.
+                revision += 1
+                return RustPlaybackEvent.playback(
+                    RustPlaybackState(
+                        revision: revision, sessionGeneration: old.sessionGeneration,
+                        isPlaying: old.isPlaying, isPaused: old.isPaused, trackURI: old.trackURI,
+                        positionMS: old.positionMS, durationMS: old.durationMS, timestampMS: old.timestampMS,
+                        shuffle: old.shuffle, repeatTrack: old.repeatTrack, repeatContext: old.repeatContext,
+                        isActiveDevice: old.isActiveDevice, contextURI: old.contextURI))
+            }
         }
-        for event in reversed ? events.reversed() : events { fanout.emit(event) }
+        for event in events { fanout.emit(event) }
+    }
+
+    /// Acceptance-only partial observations exercise the separate playback revision gate.
+    /// It uses the same retention and delivery path as the Demo's delayed atomic clusters.
+    func holdPlaybackObservation() {
+        lock.withLock {
+            revision += 1
+            held.append(.playback(playbackLocked()))
+        }
+    }
+
+    /// A later observation in the same ordered stream proves the stale playback was consumed
+    /// without publishing a fresh position that could hide its incorrect intermediate adoption.
+    func publishDevicesFence() -> UInt64 {
+        let (event, fence) = lock.withLock {
+            revision += 1
+            return (
+                RustPlaybackEvent.devices(
+                    RustDevicesState(
+                        revision: revision, sessionGeneration: generation, activeDeviceID: activeID,
+                        devices: [
+                            ConnectProtocolDevice(id: Self.localID, name: "Personal MacBook", type: "computer"),
+                            ConnectProtocolDevice(id: Self.remoteID, name: "Living Room", type: "speaker"),
+                        ])), revision
+            )
+        }
+        fanout.emit(event)
+        return fence
     }
 
     func advance(milliseconds: Int64) {

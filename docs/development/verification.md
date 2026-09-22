@@ -20,12 +20,9 @@ Choose the smallest check that covers the change. Documentation-only edits need 
 UI work also follows [visual fidelity](../product/scope.md#visual-fidelity-and-interaction) and
 [Demo/Spotify inspection permissions](../product/safe-testing.md).
 
-| Command | Coverage |
-| --- | --- |
-| `./Scripts/check.sh` | Complete gate, including source policies |
-| `./Scripts/check-source-policy.sh` | Source, topology, and documentation policies |
-| `SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh` | Swift checks against the published engine pin |
-| `SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh` | Python playback checks and compiled Rust/header checks |
+Use [CONTRIBUTING's command table](../../CONTRIBUTING.md#verification-commands) for tool discovery,
+focused Swift tests, language scopes, and complete gates. `SPOTTY_CHECK_SCOPE=swift` or `rust` also
+selects the corresponding scope when invoking `check.sh` directly.
 
 All scopes need Python 3. Full/Swift checks also need Ruby; full/Rust checks need the
 [engine toolchain](setup.md#engine-development) and pinned cbindgen. Source policies also need Ruby,
@@ -45,7 +42,9 @@ replacing the published engine. Packaging and Swift checks need no Rust tools.
 
 [Script-test discovery](../../Scripts/script_tests.py) owns Python and Node suite routing for local
 and CI gates. Name Python tests `test_*.py`, `*_test.py`, or `test.py`; keep helpers outside those
-names. New top-level Python tests in `Scripts/` join the policy lane unless playback or watchdog owns them.
+names. New top-level Python tests in `Scripts/` join the policy lane unless playback, harness, or
+watchdog owns them. The harness suite runs in both normal language scopes and in the unconditional
+Linux helper job, so Swift Demo changes retain helper coverage when compiled Rust is skipped.
 Review tests live directly in `Scripts/agent-review-tests/`. Recognized test
 files outside these owners and empty suites fail instead of being silently skipped.
 
@@ -62,11 +61,11 @@ pinned executable. Preserve [pointer ownership](../../Sources/SpottyPlaybackCore
 extend `Scripts/check-c-header-imports.sh` for new pointer shapes.
 
 Format Swift with `./Scripts/format-swift.sh --check` or `--write`. Discover focused tests with
-`swift test list`, then filter:
+`python3 Scripts/verify.py list` (SwiftPM's `swift test list` with the harness enabled), then filter:
 
 ```bash
-swift test --disable-sandbox --filter ProtobufTests/testProtobuf
-swift test --disable-sandbox --no-parallel --filter AuthFlowTests/testAuthFlow
+python3 Scripts/verify.py test --filter ProtobufTests/testProtobuf
+python3 Scripts/verify.py test --filter AuthFlowTests/testAuthFlow
 ```
 
 Set `SPOTTY_BUILD_BROWSING_HARNESS=1` to include harness targets; `check.sh` already does so.
@@ -78,6 +77,9 @@ Each Swift test invocation has a process-group watchdog: five minutes in CI, twe
 samples and terminates only that invocation, without retrying it or killing unrelated processes.
 CI uploads per-lane logs and supported Swift Testing event streams from
 `$RUNNER_TEMP/spotty-swift-test-diagnostics` when Debug checks fail.
+The focused wrapper preserves exit status and reports commands and diagnostics. Override its unique
+temporary directory with `SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR`; the watchdog collects supported native
+Swift Testing event streams.
 
 ## Clean and risk-specific verification
 
@@ -115,6 +117,15 @@ Invalid scenarios fail closed. Each run writes fixtures and `report.json` under
 faults through a synthetic playback authority. Add `--interactive` before the scenario to use its
 Demo fault menu. Version-1 scenarios remain read-only; all harness targets stay outside the shipping
 package graph. See [runtime acceptance](runtime-acceptance.md) for evidence limits.
+
+### Semantic UI smoke
+
+```bash
+./Scripts/smoke-synthetic-ui.sh
+```
+
+See [synthetic acceptance](synthetic-acceptance.md) for permission preflight, the bounded public
+Accessibility flow, and its pass/fail result.
 
 ### Combined hydration and lifecycle measurements
 

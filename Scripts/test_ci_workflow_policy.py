@@ -17,11 +17,20 @@ class WorkflowInvariantTests(unittest.TestCase):
             'ruby', '-ryaml', '-rjson', '-e',
             'puts JSON.generate(YAML.safe_load(File.read(ARGV[0]), aliases: true))',
             str(ROOT / '.github/workflows/ci.yml')], text=True))
+        cls.acceptance_workflow = json.loads(subprocess.check_output([
+            'ruby', '-ryaml', '-rjson', '-e',
+            'puts JSON.generate(YAML.safe_load(File.read(ARGV[0]), aliases: true))',
+            str(ROOT / '.github/workflows/acceptance-scenarios.yml')], text=True))
+        # Ruby's YAML 1.1 loader reads unquoted "on" as true; JSON must retain the intended key.
+        cls.acceptance_workflow['on'] = cls.acceptance_workflow.pop('true')
 
-    def check_workflow(self, workflow, script_edit=None):
+    def check_workflow(self, workflow, script_edit=None, acceptance_workflow=None):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'workflow.yml'
             path.write_text(json.dumps(workflow))  # JSON is a YAML subset; layout is irrelevant.
+            acceptance_path = Path(temporary) / 'acceptance.yml'
+            acceptance_path.write_text(json.dumps(
+                self.acceptance_workflow if acceptance_workflow is None else acceptance_workflow))
             scripts = Path(temporary) / 'Scripts'
             scripts.mkdir()
             for name in ('check-ci-workflow.rb', 'check-source-policy.sh', 'playback-candidate-needed.sh'):
@@ -33,7 +42,7 @@ class WorkflowInvariantTests(unittest.TestCase):
                 script = scripts / name
                 self.assertIn(old, script.read_text())
                 script.write_text(script.read_text().replace(old, new))
-            return subprocess.run(['ruby', str(scripts / 'check-ci-workflow.rb'), str(path)],
+            return subprocess.run(['ruby', str(scripts / 'check-ci-workflow.rb'), str(path), str(acceptance_path)],
                                   text=True, capture_output=True)
 
     def test_current_workflow_passes_and_additional_macos_lane_fails(self):
@@ -72,9 +81,11 @@ class WorkflowInvariantTests(unittest.TestCase):
                 elif kind == 'cbindgen':
                     next(s for s in steps if s['name'] == 'Install pinned cbindgen').pop('if')
                 elif kind == 'playback':
-                    variant['jobs']['playback_python']['steps'][-1]['run'] = 'true'
+                    next(s for s in variant['jobs']['playback_python']['steps']
+                         if s.get('run') == 'python3 -B Scripts/script_tests.py playback')['run'] = 'true'
                 elif kind == 'playback_dependency':
-                    variant['jobs']['playback_python']['steps'][-2]['run'] = 'zsh --version'
+                    next(s for s in variant['jobs']['playback_python']['steps']
+                         if s.get('name') == 'Install playback script dependencies')['run'] = 'zsh --version'
                 elif kind == 'compiled_scope':
                     next(s for s in steps if s.get('id') == 'rust')['run'] = 'SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh'
                 elif kind == 'job_gate':
@@ -97,12 +108,109 @@ class WorkflowInvariantTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('Swift Run checks must retain its 15-minute timeout', result.stderr)
 
+    def test_acceptance_corpus_and_evidence_cannot_be_skipped_or_made_optional(self):
+        for standalone in (False, True):
+            for step_id in ('acceptance', 'acceptance_summary', 'acceptance_upload'):
+                for mutation in ('remove', 'conditional', 'optional', 'duplicate', 'mask_failure', 'move'):
+                    with self.subTest(standalone=standalone, step=step_id, mutation=mutation):
+                        variant = copy.deepcopy(self.acceptance_workflow if standalone else self.workflow)
+                        job = variant['jobs']['acceptance' if standalone else 'macos']
+                        step = next(s for s in job['steps'] if s.get('id') == step_id)
+                        if mutation == 'remove':
+                            job['steps'].remove(step)
+                        elif mutation == 'conditional':
+                            step['if'] = 'success()'
+                        elif mutation == 'optional':
+                            step['continue-on-error'] = True
+                        elif mutation == 'duplicate':
+                            job['steps'].append(copy.deepcopy(step))
+                        elif mutation == 'move':
+                            job['steps'].remove(step)
+                            job['steps'].append(step)
+                        elif 'run' in step:
+                            step['run'] += ' || true'
+                        else:
+                            step['with']['if-no-files-found'] = 'warn'
+                        result = (self.check_workflow(self.workflow, acceptance_workflow=variant)
+                                  if standalone else self.check_workflow(variant))
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        self.assertIn('acceptance', result.stderr)
+
+    def test_acceptance_gate_rejects_fabricated_missing_or_ignored_outcomes(self):
+        for standalone in (False, True):
+            for binding in ('ACCEPTANCE_RESULT', 'ACCEPTANCE_SUMMARY_RESULT', 'ACCEPTANCE_UPLOAD_RESULT'):
+                for mutation in ('fabricated', 'missing', 'ignored'):
+                    with self.subTest(standalone=standalone, binding=binding, mutation=mutation):
+                        variant = copy.deepcopy(self.acceptance_workflow if standalone else self.workflow)
+                        job = variant['jobs']['acceptance' if standalone else 'macos']
+                        gate = next(s for s in job['steps'] if s['name'] in (
+                            'Require every quality lane', 'Require acceptance evidence'))
+                        if mutation == 'fabricated':
+                            gate['env'][binding] = 'success'
+                        elif mutation == 'missing':
+                            gate['env'].pop(binding)
+                        else:
+                            gate['run'] = gate['run'].replace(f'test "${binding}" = success', 'true')
+                        result = (self.check_workflow(self.workflow, acceptance_workflow=variant)
+                                  if standalone else self.check_workflow(variant))
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        self.assertIn(f'require {binding} success', result.stderr)
+
+    def test_acceptance_workflow_is_bounded_explicit_and_read_only(self):
+        cases = ('job_timeout', 'step_timeout', 'fanout', 'matrix', 'retry', 'permissions', 'trigger', 'head',
+                 'artifact_attempt', 'artifact_path', 'holdouts')
+        for mutation in cases:
+            with self.subTest(mutation=mutation):
+                variant = copy.deepcopy(self.acceptance_workflow)
+                job = variant['jobs']['acceptance']
+                run = next(s for s in job['steps'] if s.get('id') == 'acceptance')
+                upload = next(s for s in job['steps'] if s.get('id') == 'acceptance_upload')
+                if mutation == 'job_timeout':
+                    job.pop('timeout-minutes')
+                elif mutation == 'step_timeout':
+                    run['timeout-minutes'] = 30
+                elif mutation == 'fanout':
+                    variant['jobs']['retry'] = copy.deepcopy(job)
+                elif mutation == 'matrix':
+                    job['strategy'] = {'matrix': {'attempt': [1, 2]}}
+                elif mutation == 'retry':
+                    retry = copy.deepcopy(run)
+                    retry['id'] = 'acceptance_retry'
+                    retry['name'] = 'Retry scenarios'
+                    job['steps'].append(retry)
+                elif mutation == 'permissions':
+                    variant['permissions']['contents'] = 'write'
+                elif mutation == 'trigger':
+                    variant['on']['pull_request'] = None
+                elif mutation == 'head':
+                    run['env']['SPOTTY_ACCEPTANCE_HEAD_SHA'] = 'HEAD'
+                elif mutation == 'artifact_attempt':
+                    upload['with']['name'] = 'acceptance-evidence-${{ github.run_id }}'
+                elif mutation == 'artifact_path':
+                    upload['with']['path'] += '/summary.json'
+                else:
+                    run['run'] = run['run'].replace('--corpus all', '--corpus representative')
+                result = self.check_workflow(self.workflow, acceptance_workflow=variant)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('acceptance', result.stderr)
+
+    def test_acceptance_execution_remains_after_swift_checks_in_existing_lane(self):
+        variant = copy.deepcopy(self.workflow)
+        steps = variant['jobs']['macos']['steps']
+        acceptance = next(s for s in steps if s.get('id') == 'acceptance')
+        steps.remove(acceptance)
+        steps.insert(0, acceptance)
+        result = self.check_workflow(variant)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('after Swift checks and before Release compilation', result.stderr)
+
     def test_script_suites_cannot_be_removed_skipped_moved_or_made_optional(self):
         for job_id, command in (
             ('policy', 'npm ci --ignore-scripts --prefix Scripts/agent-review-tests'),
             ('policy', './Scripts/check-source-policy.sh --test-only'),
             ('playback_python', 'python3 -B Scripts/script_tests.py watchdog'),
             ('playback_python', 'python3 -B Scripts/script_tests.py playback'),
+            ('playback_python', 'python3 -B Scripts/script_tests.py harness'),
         ):
             for mutation in ('remove', 'conditional', 'optional', 'move', 'duplicate', 'mask_failure'):
                 with self.subTest(command=command, mutation=mutation):

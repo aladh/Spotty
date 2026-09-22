@@ -48,6 +48,11 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var detailRefreshMilliseconds: Int? = nil
     /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
     var forceSynchronousLayout: Bool? = nil
+    /// Added by the versioned acceptance manifest; historical workloads remain valid.
+    var acceptanceScenarioID: String? = nil
+    var acceptanceScenarioVersion: Int? = nil
+    var acceptanceTimeoutSeconds: Int? = nil
+    var acceptanceVariation: String? = nil
 
     func validate() throws {
         guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),
@@ -60,7 +65,15 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
             (0...60_000).contains(searchRefreshMilliseconds ?? 0),
             (0...3).contains(albumFailures ?? 0),
             (0...3).contains(artistRefreshFailures ?? 0),
-            (0...60_000).contains(detailRefreshMilliseconds ?? 0)
+            (0...60_000).contains(detailRefreshMilliseconds ?? 0),
+            (acceptanceScenarioID == nil) == (acceptanceScenarioVersion == nil),
+            (acceptanceScenarioID == nil) == (acceptanceTimeoutSeconds == nil),
+            acceptanceScenarioID.map({ !$0.isEmpty }) ?? true,
+            acceptanceScenarioVersion.map({ $0 > 0 }) ?? true,
+            acceptanceTimeoutSeconds.map({ (1...600).contains($0) }) ?? true,
+            acceptanceVariation == nil
+                || (acceptanceScenarioID != nil && mode == .playback
+                    && acceptanceVariation == "stale-observation-reversed")
         else { throw BrowsingFailure.invalidScenario }
     }
 

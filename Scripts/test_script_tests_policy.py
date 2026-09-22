@@ -22,6 +22,7 @@ def repository():
         root = Path(directory)
         subprocess.run(["git", "init", "-q", str(root)], check=True)
         for name in ("Scripts/test_existing_policy.py", "Scripts/test_playback_existing.py",
+                     "Scripts/test_harness_existing.py",
                      "Scripts/test_swift_test_watchdog.py", "Scripts/agent-review-tests/publication_test.py"):
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +51,8 @@ class ScriptTestCoverageTests(unittest.TestCase):
         files = [path for paths in groups.values() for path in paths]
         self.assertEqual(len(files), len(set(files)))
         self.assertIn(ROOT / "Scripts/test_documentation_policy.py", groups["policy"])
+        for name in ("profile_synthetic", "trace_summary", "browsing_provenance"):
+            self.assertIn(ROOT / f"Scripts/test_harness_{name}.py", groups["harness"])
         self.assertIn(ROOT / "Scripts/agent-review-tests/publication_test.py", groups["review"])
         self.assertIn(ROOT / "Scripts/agent-review-tests/review.test.mjs", groups["review"])
 
@@ -77,6 +80,19 @@ class ScriptTestCoverageTests(unittest.TestCase):
             result = execute(root, "review")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("node test ran", result.stdout)
+
+    def test_harness_helpers_have_an_independent_failing_owner(self):
+        with repository() as root:
+            path = root / "Scripts/test_harness_new.py"
+            path.write_text(PASSING_PYTHON.replace("assertTrue(True)", "fail('harness test ran')"))
+            groups = inventory(root)
+            self.assertIn(path, groups["harness"])
+            self.assertNotIn(path, groups["playback"])
+            self.assertNotIn(path, groups["policy"])
+            result = execute(root, "harness")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("harness test ran", result.stderr)
+            self.assertEqual(execute(root, "playback").returncode, 0)
 
     def test_tests_outside_owned_roots_or_in_unsupported_languages_fail(self):
         for name in ("Scripts/nested/test_hidden.py", "Tools/test_new.py",
@@ -113,7 +129,7 @@ class ScriptTestCoverageTests(unittest.TestCase):
                 path.write_text("")
             groups = inventory(root)
             self.assertIn(root / "Scripts/test_existing_policy.py", groups["policy"])
-            self.assertEqual(sum(map(len, groups.values())), 5)
+            self.assertEqual(sum(map(len, groups.values())), 6)
 
 
 if __name__ == "__main__":

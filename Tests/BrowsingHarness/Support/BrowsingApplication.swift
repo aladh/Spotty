@@ -9,12 +9,16 @@ import SwiftUI
 @testable import SpottyGateway
 
 struct BrowsingLaunch: Codable {
+    let schemaVersion: Int
+    let runID: String
     let runRoot: String
     let revision: String
     let diffSHA256: String
     let source: BrowsingSourceIdentity
     let build: BrowsingBuildIdentity
     let engine: BrowsingEngineIdentity
+    let fixture: BrowsingFixtureIdentity
+    let layout: BrowsingLayoutIdentity
     let automated: Bool
     var waitForProfiler: Bool? = nil
 
@@ -26,7 +30,8 @@ struct BrowsingLaunch: Codable {
             Self.self, from: Data(contentsOf: root.appendingPathComponent("launch.json")))
         let scenario = try BrowsingScenario.decode(Data(contentsOf: root.appendingPathComponent("scenario.json")))
         let execution = BrowsingExecutionConfiguration.current
-        guard launch.runRoot.hasPrefix("/"), FileManager.default.fileExists(atPath: launch.runRoot),
+        guard launch.schemaVersion == 1, UUID(uuidString: launch.runID) != nil,
+            launch.runRoot.hasPrefix("/"), FileManager.default.fileExists(atPath: launch.runRoot),
             launch.build.configuration == execution.configuration,
             launch.build.optimization == execution.optimization, launch.build.testabilityEnabled,
             launch.source.includesUntrackedNonignoredFiles,
@@ -111,6 +116,7 @@ private struct BrowsingReport: Encodable {
     let world: BrowsingWorld.Snapshot
     let playback: SyntheticPlayback.Snapshot
     let playbackCheckpoints: [PlaybackTraceCheckpoint]
+    let acceptanceRuntime: AcceptanceRuntimeReport?
     let responsiveness: BrowsingResponsivenessReport?
     let queueHydration: [QueueHydrationMeasurement]
     let queueRefresh: QueueRefreshDiagnostics
@@ -131,6 +137,7 @@ final class BrowsingRun {
     @ObservationIgnored private var responsiveness: BrowsingResponsiveness?
     @ObservationIgnored private var playbackClock: Task<Void, Never>?
     @ObservationIgnored private var playbackCheckpoints: [PlaybackTraceCheckpoint] = []
+    @ObservationIgnored private var acceptanceRuntime: AcceptanceRuntimeReport?
     @ObservationIgnored private var queueHydration: [QueueHydrationMeasurement] = []
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var samples: [BrowsingSample] = []
@@ -150,7 +157,7 @@ final class BrowsingRun {
     var items: [CatalogItem] { world.fixtures.playlists.compactMap(CatalogMapping.item(from:)) }
 
     func start() {
-        if world.scenario.mode == .playback {
+        if world.scenario.mode == .playback && world.scenario.acceptanceScenarioID == nil {
             // Match engine delivery: UI work must not reduce the offered 5 Hz source load.
             playbackClock = Task.detached(priority: .userInitiated) { [weak playback = world.playback] in
                 let clock = ContinuousClock()
@@ -163,9 +170,33 @@ final class BrowsingRun {
                 }
             }
         }
-        guard launch.automated else { return }
         // The finite workload retains its app-owned model until the report is written.
-        workload = Task { await perform() }
+        workload = Task {
+            do {
+                try await prepare()
+                if launch.automated { await perform() }
+            } catch {
+                status = error.localizedDescription
+                try? writeRunStatus(.failed, failureCode: "app-not-ready")
+                try? await writeReport(failure: status)
+            }
+        }
+    }
+
+    private func prepare() async throws {
+        try verifyNetworkSandbox()
+        networkSandboxVerified = true
+        for _ in 0..<200 {
+            if window() != nil, world.snapshot().requests["account.has-grant"] != nil,
+                player.accountStore.phase == (world.scenario.mode != .signedOut ? .ready : .signedOut)
+            {
+                await player.effects.settlement(of: .catalogLoad)?.wait()
+                try writeRunStatus(.ready)
+                return
+            }
+            try await ContinuousClock().sleep(for: .milliseconds(50))
+        }
+        throw BrowsingFailure.checkpoint("window.startup")
     }
 
     func perform() async {
@@ -177,31 +208,18 @@ final class BrowsingRun {
         defer { ProcessInfo.processInfo.endActivity(activity) }
         let started = Date()
         do {
-            try verifyNetworkSandbox()
-            networkSandboxVerified = true
-            for _ in 0..<200 {
-                if window() != nil, world.snapshot().requests["account.has-grant"] != nil,
-                    player.accountStore.phase == (world.scenario.mode != .signedOut ? .ready : .signedOut)
-                {
-                    break
-                }
-                try await ContinuousClock().sleep(for: .milliseconds(50))
-            }
-            guard window() != nil, world.snapshot().requests["account.has-grant"] != nil else {
-                throw BrowsingFailure.checkpoint("window.startup")
-            }
-            await player.effects.settlement(of: .catalogLoad)?.wait()
+            try await prepare()
+            try writeRunStatus(.measurementReady)
             if launch.waitForProfiler == true {
                 let ready = URL(fileURLWithPath: launch.runRoot).appendingPathComponent("profiler-ready")
-                let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+                let deadline = ContinuousClock.now.advanced(by: .seconds(120))
                 while !FileManager.default.fileExists(atPath: ready.path) {
                     guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("profiler.ready") }
-                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                    try writeRunStatus(.measurementReady)
+                    try await ContinuousClock().sleep(for: .milliseconds(100))
                 }
             }
             if let window = window() {
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate()
                 let deadline = ContinuousClock.now.advanced(by: .seconds(5))
                 while launch.waitForProfiler == true && !window.occlusionState.contains(.visible) {
                     guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("window.occluded") }
@@ -210,6 +228,16 @@ final class BrowsingRun {
                 let measurement = BrowsingResponsiveness(player: player)
                 responsiveness = measurement
                 measurement.start(window: window)
+            }
+            try writeRunStatus(.workloadRunning)
+            if world.scenario.acceptanceScenarioID != nil {
+                let acceptance = await AcceptanceScenarioRuntime.runWithDeadline(
+                    player: player, world: world, navigation: navigation,
+                    timeoutSeconds: world.scenario.acceptanceTimeoutSeconds ?? 120,
+                    networkSandboxVerified: networkSandboxVerified)
+                acceptanceRuntime = acceptance
+                playbackCheckpoints = acceptance.playbackCheckpoints
+                if let failure = acceptance.failure { throw BrowsingFailure.checkpoint(failure.checkpoint) }
             }
             if world.scenario.mode == .signedOut {
                 guard player.accountStore.phase == .signedOut else { throw BrowsingFailure.checkpoint("signed-out") }
@@ -220,7 +248,7 @@ final class BrowsingRun {
                     player.catalog.homeLibrary.homeSections.count == (world.scenario.expandedLibrary == true ? 4 : 1)
                 else { throw BrowsingFailure.checkpoint("home.ready") }
                 try await sample("home.ready", started: started)
-                if world.scenario.mode == .playback {
+                if world.scenario.mode == .playback, world.scenario.acceptanceScenarioID == nil {
                     playbackCheckpoints = try await PlaybackTrace.run(player: player, world: world)
                 }
                 for cycle in 1...world.scenario.cycles {
@@ -274,10 +302,12 @@ final class BrowsingRun {
         } catch {
             status = error.localizedDescription
             try? await writeReport(failure: status)
+            try? writeRunStatus(.failed, failureCode: "workload-failed")
         }
     }
 
     private func sample(_ checkpoint: String, started: Date, loadSeconds: Double = 0) async throws {
+        try writeRunStatus(.workloadRunning)
         status = checkpoint
         // The stores above provide readiness; this explicit cadence gives rendering and image
         // decoding the same viewing time on every run. It is not a network readiness heuristic.
@@ -301,6 +331,11 @@ final class BrowsingRun {
 
     private func window() -> NSWindow? {
         NSApp.windows.first { $0.identifier?.rawValue == "main" } ?? NSApp.mainWindow
+    }
+
+    private func writeRunStatus(_ state: BrowsingRunStatus.State, failureCode: String? = nil) throws {
+        try BrowsingRunStatus(launch: launch, state: state, failureCode: failureCode, window: window()).write(
+            to: URL(fileURLWithPath: launch.runRoot).appendingPathComponent("run-status.json"))
     }
 
     /// Verify the operating-system guard before constructing any browsing workload. An
@@ -375,7 +410,8 @@ final class BrowsingRun {
             fixtureBytes: world.fixtures.artworkBytes, demoCacheBytes: cacheBytes,
             networkSandboxVerified: networkSandboxVerified,
             samples: samples, world: world.snapshot(), playback: world.playback.snapshot(),
-            playbackCheckpoints: playbackCheckpoints, responsiveness: responsivenessReport,
+            playbackCheckpoints: playbackCheckpoints, acceptanceRuntime: acceptanceRuntime,
+            responsiveness: responsivenessReport,
             queueHydration: queueHydration, queueRefresh: await player.queueService.refreshDiagnostics,
             passed: failure == nil, failure: failure
         )
@@ -383,6 +419,8 @@ final class BrowsingRun {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(report).write(
             to: URL(fileURLWithPath: launch.runRoot).appendingPathComponent("report.json"), options: .atomic)
+        try writeRunStatus(
+            failure == nil ? .workloadFinished : .failed, failureCode: failure == nil ? nil : "workload-failed")
     }
 }
 

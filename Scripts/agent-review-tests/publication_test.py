@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -7,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -376,6 +379,135 @@ class EvidenceTests(unittest.TestCase):
                 result = evidence.collect(self.context, self.directory, self.fetch)
                 source = next(item for item in result['inputs'] if item['name'] == 'source_and_history')
                 self.assertEqual(source['status'], status)
+
+    def scenario_fixture(self):
+        manifest = {'schemaVersion': 1, 'scenarios': [
+            {'id': 'visible', 'version': 1, 'corpus': 'representative'},
+            {'id': 'variation', 'version': 2, 'corpus': 'holdout'}]}
+        path = self.directory / evidence.SCENARIO_MANIFEST
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(manifest))
+        subprocess.run(['git', 'add', evidence.SCENARIO_MANIFEST], check=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=test@example.invalid',
+                        'commit', '-qm', 'scenarios'], check=True, capture_output=True)
+        self.head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+        self.context.update(head=self.head, base=self.head)
+        summary = {'schemaVersion': 1, 'source': {'revision': 'b' * 40, 'prHeadRevision': self.head,
+                   'trackedDiffDigest': hashlib.sha256(b'').hexdigest(), 'dirty': False},
+                   'manifestDigest': hashlib.sha256(path.read_bytes()).hexdigest(), 'outcome': 'passed',
+                   'sourceUnchanged': True,
+                   'scenarios': [dict(scenario, outcome='passed') for scenario in manifest['scenarios']]}
+        artifact = {'id': 45, 'name': 'acceptance-evidence-123-2', 'size_in_bytes': 1000,
+                    'expired': False, 'workflow_run': {'id': 123, 'head_sha': self.head}}
+        return summary, artifact
+
+    def collect_scenarios(self, summary, artifacts, mutate_run=None):
+        def fetch(endpoint):
+            if '/artifacts?' in endpoint:
+                return {'total_count': len(artifacts), 'artifacts': artifacts}
+            response = self.fetch(endpoint)
+            if mutate_run is not None and '/workflows/' in endpoint:
+                mutate_run(response['workflow_runs'][0])
+            return response
+        downloads = []
+        def download(endpoint):
+            downloads.append(endpoint)
+            return summary
+        result = evidence.collect(self.context, self.directory, fetch, download)
+        item = next(item for item in result['inputs'] if item['name'] == 'acceptance_scenarios')
+        snapshot = json.loads(Path(item['path']).read_text())['data'] if 'path' in item else None
+        return item, snapshot, downloads
+
+    def test_acceptance_evidence_binds_head_manifest_and_latest_attempt(self):
+        summary, artifact = self.scenario_fixture()
+        item, snapshot, downloads = self.collect_scenarios(summary, [artifact])
+        self.assertEqual(item['status'], 'present')
+        self.assertEqual(snapshot['status'], 'present')
+        self.assertEqual(snapshot['summary'], summary)
+        self.assertEqual(downloads, ['repos/owner/repo/actions/artifacts/45/zip'])
+        self.assertIn('Does not establish signed Demo network isolation', snapshot['limits'])
+        self.assertEqual(json.loads((self.directory / 'acceptance-manifest.json').read_text())['scenarios'][1]['version'], 2)
+
+    def test_acceptance_evidence_rejects_changed_identity_and_incomplete_corpus(self):
+        summary, artifact = self.scenario_fixture()
+        mutations = [
+            lambda s: s['source'].update(prHeadRevision='c' * 40),
+            lambda s: s['source'].update(dirty=True),
+            lambda s: s.update(sourceUnchanged=False),
+            lambda s: s.update(manifestDigest='d' * 64),
+            lambda s: s.update(schemaVersion=2),
+            lambda s: s['scenarios'].pop(),
+            lambda s: s['scenarios'].append(s['scenarios'][0]),
+            lambda s: s['scenarios'][0].update(version=9),
+            lambda s: s['scenarios'][0].update(corpus='holdout'),
+            lambda s: s['scenarios'][0].update(outcome='failed'),
+        ]
+        for mutation in mutations:
+            changed = json.loads(json.dumps(summary))
+            mutation(changed)
+            with self.subTest(summary=changed):
+                item, snapshot, _ = self.collect_scenarios(changed, [artifact])
+                self.assertEqual(item['status'], 'unavailable')
+                self.assertIsNone(snapshot)
+
+    def test_failed_acceptance_packet_is_retained_as_failed_evidence(self):
+        summary, artifact = self.scenario_fixture()
+        summary['outcome'] = 'failed'
+        summary['scenarios'][1].update(outcome='failed', failedCheckpoint={
+            'id': 'stale-owner', 'expected': 'new owner', 'observed': 'old owner'})
+        item, snapshot, _ = self.collect_scenarios(summary, [artifact])
+        self.assertEqual(item['status'], 'present')
+        self.assertEqual(snapshot['summary']['outcome'], 'failed')
+        self.assertEqual(snapshot['summary']['scenarios'][1]['failedCheckpoint']['id'], 'stale-owner')
+
+    def test_missing_old_attempt_and_pending_artifacts_never_supply_execution(self):
+        summary, artifact = self.scenario_fixture()
+        artifact['name'] = 'acceptance-evidence-123-1'
+        for artifacts in ([], [artifact]):
+            item, snapshot, downloads = self.collect_scenarios(summary, artifacts)
+            self.assertEqual(snapshot['status'], 'not_supplied')
+            self.assertEqual(downloads, [])
+        item, snapshot, downloads = self.collect_scenarios(
+            summary, [artifact], lambda run: run.update(status='in_progress'))
+        self.assertEqual(item['status'], 'not_supplied')
+        self.assertIsNone(snapshot)
+        self.assertEqual(downloads, [])
+
+    def test_artifact_metadata_is_validated_before_download(self):
+        summary, artifact = self.scenario_fixture()
+        mutations = [lambda a: a.update(expired=True),
+                     lambda a: a.update(size_in_bytes=evidence.MAX_ARTIFACT_BYTES + 1),
+                     lambda a: a['workflow_run'].update(head_sha='c' * 40),
+                     lambda a: a['workflow_run'].update(id=456),
+                     lambda a: a.update(id='../../secret')]
+        for mutation in mutations:
+            changed = json.loads(json.dumps(artifact))
+            mutation(changed)
+            item, _, downloads = self.collect_scenarios(summary, [changed])
+            self.assertEqual(item['status'], 'unavailable')
+            self.assertEqual(downloads, [])
+
+    def test_artifact_archive_reads_only_bounded_summary_without_extraction(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, 'w') as bundle:
+            bundle.writestr('summary.json', json.dumps({'outcome': 'failed'}))
+            bundle.writestr('../escape', 'untrusted')
+        def run(arguments, stdout, **kwargs):
+            self.assertEqual(arguments, ['gh', 'api', 'artifact/zip'])
+            self.assertEqual(kwargs['timeout'], 40)
+            stdout.write(archive.getvalue())
+            return subprocess.CompletedProcess(arguments, 0, stderr=b'')
+        with patch.object(evidence.subprocess, 'run', side_effect=run):
+            self.assertEqual(evidence.artifact_summary('artifact/zip'), {'outcome': 'failed'})
+        self.assertFalse((self.directory.parent / 'escape').exists())
+        for files in ([('nested/summary.json', '{}')],
+                      [('summary.json', 'x' * (evidence.MAX_SUMMARY_BYTES + 1))]):
+            archive = io.BytesIO()
+            with zipfile.ZipFile(archive, 'w') as bundle:
+                for name, content in files:
+                    bundle.writestr(name, content)
+            with patch.object(evidence.subprocess, 'run', side_effect=run), self.assertRaises(ValueError):
+                evidence.artifact_summary('artifact/zip')
 
 
 if __name__ == '__main__':

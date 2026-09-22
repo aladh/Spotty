@@ -13,4 +13,3 @@ final class HarnessSystemMediaOutput: SystemMediaControlsOutput {
     func update(_ snapshot: SystemMediaSnapshot?) { self.snapshot = snapshot }
     func remove() { removals += 1; snapshot = nil }
 }
-

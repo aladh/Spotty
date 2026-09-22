@@ -72,7 +72,8 @@ struct SystemMediaArtworkChecks {
         case "stop": controls.stop()
         default:
             player.send(
-                .engineConnection(EngineConnectionSnapshot(session: .ready, owner: .none, localDeviceID: nil)), source: .engineConnection,
+                .engineConnection(EngineConnectionSnapshot(session: .ready, owner: .none, localDeviceID: nil)),
+                source: .engineConnection,
                 engineEpoch: player.engineGeneration + 1)
         }
         if change == "engine" {
@@ -105,7 +106,8 @@ struct SystemMediaArtworkChecks {
         try await requireEventually { await images.requests.count == 2 }
         let requests = await images.requests
         #expect(requests[0].accountEpoch != requests[1].accountEpoch)
-        let replacement = ArtworkAsset(encodedThumbnail: Data(), rgbaPixels: Data([0, 0, 255, 255]),
+        let replacement = ArtworkAsset(
+            encodedThumbnail: Data(), rgbaPixels: Data([0, 0, 255, 255]),
             pixelWidth: 1, pixelHeight: 1, tint: nil)
         await images.complete(1, with: .success(replacement))
         try await requireEventually { output.snapshot?.artwork != nil }
@@ -125,20 +127,23 @@ struct SystemMediaArtworkChecks {
         let native = try #require(MacSystemMediaControlsOutput.makeArtwork(asset))
         #expect(native.bounds.size == NSSize(width: 1, height: 1))
         #expect(native.image(at: NSSize(width: 100, height: 100))?.size == NSSize(width: 1, height: 1))
-        #expect(MacSystemMediaControlsOutput.makeArtwork(
-            ArtworkAsset(encodedThumbnail: Data(), rgbaPixels: Data(), pixelWidth: 1, pixelHeight: 1, tint: nil)) == nil)
+        #expect(
+            MacSystemMediaControlsOutput.makeArtwork(
+                ArtworkAsset(encodedThumbnail: Data(), rgbaPixels: Data(), pixelWidth: 1, pixelHeight: 1, tint: nil))
+                == nil)
     }
 
     private func present(_ player: PlaybackStore, uri: String, title: String, image: String?, position: Double = 5) {
         player.send(.session(.ready), source: .account)
         player.send(
-            .presentation(PlaybackPresentationSnapshot(
-                currentTrack: CurrentTrack(
-                    uri: "spotify:track:\(uri)", title: title, artist: "Artist",
-                    artworkURL: image.flatMap { URL(string: "https://artwork.invalid/\($0)") },
-                    duration: 200, metadataSource: .catalog),
-                transport: .paused,
-                timing: PlaybackTiming(position: position, duration: 200, anchoredAt: HarnessDates.fixed))),
+            .presentation(
+                PlaybackPresentationSnapshot(
+                    currentTrack: CurrentTrack(
+                        uri: "spotify:track:\(uri)", title: title, artist: "Artist",
+                        artworkURL: image.flatMap { URL(string: "https://artwork.invalid/\($0)") },
+                        duration: 200, metadataSource: .catalog),
+                    transport: .paused,
+                    timing: PlaybackTiming(position: position, duration: 200, anchoredAt: HarnessDates.fixed))),
             source: .user)
     }
 }

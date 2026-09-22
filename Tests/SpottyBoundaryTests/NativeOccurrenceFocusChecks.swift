@@ -1,4 +1,5 @@
 import AppKit
+@testable import SpottyDomain
 import SwiftUI
 import Testing
 @testable import SpottyCore
@@ -182,6 +183,57 @@ struct NativeOccurrenceFocusChecks {
         #expect(scroll.table.rect(ofRow: 1).minY == 96, "Changed row heights retain the full-reload geometry path")
     }
 
+    @Test func playingGlyphPreservesTheFocusedTrackControl() async throws {
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make())
+        let track = HarnessFixtures.track(uri: "spotify:track:focus")
+        player.send(.session(.ready), source: .account)
+        func present(playing: Bool) {
+            player.send(
+                .presentation(
+                    PlaybackPresentationSnapshot(
+                        currentTrack: CurrentTrack(
+                            uri: track.uri, title: track.title, artist: track.artist,
+                            duration: track.duration, metadataSource: .catalog),
+                        transport: playing ? .playing : .paused,
+                        timing: PlaybackTiming(position: 5, duration: track.duration, anchoredAt: HarnessDates.fixed))),
+                source: .user)
+        }
+        present(playing: false)
+        let probe = FocusProbe()
+        let row = NativeOccurrenceListRow(
+            id: track.id, height: 56,
+            content: AnyView(IndexCellFixture(player: player, track: track, probe: probe)))
+        let harness = HostedSurfaceHarness(
+            NativeOccurrenceList(
+                rows: [row], selection: .constant([track.id]),
+                accessibilityLabel: "Discography"))
+        defer { harness.detach() }
+        let table = try await harness.table()
+        let cell = try #require(table.view(atColumn: 0, row: 0, makeIfNecessary: false) as? NativeTrackHostingCell)
+        try await requireEventually { cell.focusTarget.control != nil }
+        try #require(harness.window.makeFirstResponder(table))
+        table.keyDown(with: try harness.key(48, "\t"))
+        try await requireEventually {
+            harness.host.layoutSubtreeIfNeeded()
+            return cell.focusTarget.control?.hasKeyboardFocus == true
+                && harness.window.firstResponder !== table && harness.window.firstResponder !== harness.window
+        }
+        let responder = harness.window.firstResponder
+        let control = cell.focusTarget.control
+        for playing in [true, false, true, false] {
+            present(playing: playing)
+            try await requireEventually {
+                harness.host.layoutSubtreeIfNeeded()
+                return probe.observedPlaying == playing
+            }
+            let retained = harness.window.firstResponder === responder
+            #expect(retained, "Changing between a track number and its playing glyph must keep keyboard focus")
+            #expect(cell.focusTarget.control === control)
+            #expect(control?.hasKeyboardFocus == true)
+        }
+        await player.shutdownForTermination()
+    }
+
     @Test func offscreenMixedInsertionsPreserveTheFocusedControlAndExactAnchor() async throws {
         let state = NativeListScrollState()
         state.offset = 640
@@ -257,6 +309,7 @@ struct NativeOccurrenceFocusChecks {
     @MainActor
     private final class FocusProbe {
         weak var button: NSButton?
+        var observedPlaying = false
     }
 
     @MainActor
@@ -265,6 +318,20 @@ struct NativeOccurrenceFocusChecks {
         var focused: String?
         var activations = 0
         var lastActivated: String?
+    }
+
+    private struct IndexCellFixture: View {
+        let player: PlaybackStore
+        let track: CatalogTrack
+        let probe: FocusProbe
+        var body: some View {
+            NativeTrackCell(
+                row: TrackTableRow(track: track, sourceIndex: 0), column: .index,
+                position: 1, total: 1, variant: .album, isSelected: true,
+                playback: CatalogPlaybackAccess(player: player), searchQuery: "", onSelect: nil
+            )
+            .onChange(of: player.isPlaying) { _, value in probe.observedPlaying = value }
+        }
     }
 
     private struct ProbeButton: NSViewRepresentable {

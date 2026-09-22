@@ -105,7 +105,7 @@ private func playbackTarget() -> Target {
             .library(name: "SpottyDomain", targets: ["SpottyDomain"]),
         ],
         dependencies: [
-            .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+            .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
         ],
         targets: [
             playbackSelection,

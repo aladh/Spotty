@@ -239,7 +239,7 @@ def run_corpus(args):
     # Reuse the normal test watchdog, SDK setup and Swift Testing discovery. No retry loop.
     command = ["zsh", "-c", 'project_root="$PWD"; source Scripts/swiftpm-env.sh; '
                'exec python3 Scripts/swift_test_watchdog.py --lane acceptance --repetition 1 '
-               '--timeout-seconds "$1" --log-dir "$2" -- swift test --disable-sandbox --no-parallel '
+               '--timeout-seconds "$1" --log-dir "$2" -- swift test --sdk "$SDKROOT" --disable-sandbox --no-parallel '
                '--filter AcceptanceCorpusTests', "acceptance", str(args.timeout_seconds), str(output / "diagnostics")]
     result = subprocess.run(command, cwd=ROOT, env=environment, check=False)
     after = source_record()

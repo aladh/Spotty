@@ -132,21 +132,25 @@ struct NativeTrackCell: View {
         let isCurrent = indicator.trackURI == row.track.uri
         let currentForeground = isSelected ? SpottyPalette.textPrimary : SpottyPalette.mediaGreen
         let action = playback.action(for: row.track, behavior: .activateSelection, isPlayable: isRowPlayable)
+        let showsTransport = indexHovered && action.isAvailable
 
         return CatalogPlaybackButton(action: action) { showsPause in
-            Group {
-                if indexHovered && action.isAvailable {
-                    TransportSymbol(kind: showsPause ? .pause : .play)
-                        .frame(width: 16, height: 16)
-                        .foregroundStyle(SpottyPalette.textPrimary)
-                } else if showsPause {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .foregroundStyle(currentForeground)
-                } else {
-                    Text(String(position))
-                        .monospacedDigit()
-                        .foregroundStyle(isCurrent ? currentForeground : SpottyPalette.dataText)
-                }
+            // Keep the hosted button's label identity when playback or pointer state changes.
+            ZStack(alignment: .trailing) {
+                TransportSymbol(kind: showsPause ? .pause : .play)
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(SpottyPalette.textPrimary)
+                    .opacity(showsTransport ? 1 : 0)
+                    .accessibilityHidden(!showsTransport)
+                Image(systemName: "speaker.wave.2.fill")
+                    .foregroundStyle(currentForeground)
+                    .opacity(!showsTransport && showsPause ? 1 : 0)
+                    .accessibilityHidden(showsTransport || !showsPause)
+                Text(String(position))
+                    .monospacedDigit()
+                    .foregroundStyle(isCurrent ? currentForeground : SpottyPalette.dataText)
+                    .opacity(!showsTransport && !showsPause ? 1 : 0)
+                    .accessibilityHidden(showsTransport || showsPause)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             .contentShape(Rectangle())

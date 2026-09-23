@@ -42,6 +42,10 @@ if [[ -n "$scenario_id" && $# != 0 ]]; then
 fi
 mkdir -p "$project_root/.build/browsing-runs"
 run_root="$(mktemp -d "$project_root/.build/browsing-runs/run.XXXXXXXX")"
+# Publish the owned artifact directory before preflight/build so callers can retain early failures.
+if [[ -n "${SPOTTY_BROWSING_RUN_ROOT_FILE:-}" ]]; then
+    print -r -- "$run_root" > "$SPOTTY_BROWSING_RUN_ROOT_FILE"
+fi
 if [[ -n "$scenario_id" ]]; then
     scenario="$run_root/scenario.json"
     python3 "$project_root/Scripts/acceptance_scenarios.py" prepare-demo "$scenario_id" --output "$scenario"
@@ -164,9 +168,6 @@ fi
 app="$installed_app"
 /usr/bin/open -n "$app"
 python3 "$project_root/Scripts/browsing_process.py" discover "$run_root" "$app/Contents/MacOS/SpottyDemo"
-if [[ -n "${SPOTTY_BROWSING_RUN_ROOT_FILE:-}" ]]; then
-    print -r -- "$run_root" > "$SPOTTY_BROWSING_RUN_ROOT_FILE"
-fi
 print "Synthetic browsing launched: $app"
 if [[ "$profile" == true ]]; then
     if [[ "$automated" == false ]]; then

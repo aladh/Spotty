@@ -12,6 +12,7 @@ from unittest import mock
 
 import acceptance_scenarios as acceptance
 from harness_fixtures import launch_manifest
+import profile_synthetic
 
 
 class AcceptanceEvidenceTests(unittest.TestCase):
@@ -334,6 +335,13 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             (scripts / "swiftpm-env.sh").write_text('SDKROOT=/synthetic/sdk\nspotty_swiftc_warnings_as_errors=()\n')
             (scripts / "embed-sparkle.sh").write_text(':\n')
             (scripts / "browsing_provenance.py").write_text('')
+            (scripts / "profile_synthetic.py").write_text(
+                'import json, os, pathlib, sys\n'
+                'root = pathlib.Path(sys.argv[-1])\n'
+                '(root / "profiler-state.json").write_text(json.dumps({"schemaVersion": 1, "state": "failed", "failureCode": "session-locked"}))\n'
+                'with pathlib.Path(os.environ["DEMO_TEST_EVENTS"]).open("a") as stream:\n'
+                '    stream.write("preflight\\n")\n'
+                'sys.exit(43)\n')
             # A failed final report must fail the launcher, but cannot run during a lookup.
             (scripts / "acceptance_scenarios.py").write_text(
                 'import os, pathlib, sys\n'
@@ -352,13 +360,26 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                 path.write_text(f'#!{sys.executable}\n' + body)
                 path.chmod(0o755)
             events = root / "events.txt"
-            environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"], DEMO_TEST_EVENTS=str(events))
+            pointer = root / "run-root.txt"
+            environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                               DEMO_TEST_EVENTS=str(events), SPOTTY_BROWSING_RUN_ROOT_FILE=str(pointer))
             for key in ("SPOTTY_DEVELOPMENT_SIGNING_IDENTITY", "SPOTTY_SIGNING_IDENTITY"):
                 environment.pop(key, None)
-            result = subprocess.run(["zsh", str(scripts / "browse-synthetic.sh"), str(scenario)],
-                                    env=environment, capture_output=True, text=True, timeout=10)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(events.read_text().splitlines(), ["build", "evidence:42"], result.stderr)
+            for flags, expected in (([], ["build", "evidence:42"]), (["--profile"], ["preflight", "evidence:43"])):
+                with self.subTest(flags=flags):
+                    events.write_text("")
+                    pointer.unlink(missing_ok=True)
+                    result = subprocess.run(["zsh", str(scripts / "browse-synthetic.sh"), *flags, str(scenario)],
+                                            env=environment, capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(events.read_text().splitlines(), expected, result.stderr)
+                    run_root = Path(pointer.read_text().strip())
+                    self.assertEqual(run_root.parent, (root / ".build/browsing-runs").resolve())
+                    self.assertTrue(run_root.is_dir())
+                    self.assertFalse((run_root / "process.json").exists())
+                    if flags:
+                        codes, _ = profile_synthetic.capture_diagnostics(run_root, "left", profile_synthetic.InvalidRun("capture-incomplete"))
+                        self.assertEqual(codes[0], "left.session-locked")
 
     def test_demo_requires_sandbox_and_preserves_legacy_report(self):
         with tempfile.TemporaryDirectory() as directory:

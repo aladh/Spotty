@@ -10,6 +10,7 @@ import sys
 import time
 
 import browsing_process
+from compare_synthetic_profiles import number
 from summarize_synthetic_trace import summarize
 
 WORKLOAD_TIMEOUT_SECONDS = 600
@@ -89,32 +90,45 @@ def session_preflight():
             ["xcrun", "swift", str(Path(__file__).with_name("browsing_preflight.swift"))], "session-unknown"))
     except ValueError as error:
         raise InvalidRun("session-unknown") from error
-    session = native.get("session", {})
-    if native.get("schemaVersion") != 1 or type(session.get("locked")) is not bool:
+    if not isinstance(native, dict):
+        raise InvalidRun("session-unknown")
+    session = native.get("session")
+    if (type(native.get("schemaVersion")) is not int or native["schemaVersion"] != 1
+            or not isinstance(session, dict) or type(session.get("locked")) is not bool):
         raise InvalidRun("session-unknown")
     if session.get("locked") is True:
         raise InvalidRun("session-locked")
     if session.get("onConsole") is not True or session.get("loginDone") is not True:
         raise InvalidRun("session-inactive")
-    if not isinstance(native.get("displayCount"), int) or native["displayCount"] <= 0:
+    if not number(native.get("displayCount"), positive=True, integer=True):
         raise InvalidRun("display-unavailable")
     return native
 
 
 def validate_status(manifest, process, status):
-    if (manifest.get("schemaVersion") != 1 or status.get("schemaVersion") != 1
-            or not manifest.get("runID") or status.get("runID") != manifest["runID"]
+    if (not all(isinstance(value, dict) for value in (manifest, process, status))
+            or type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 1
+            or type(status.get("schemaVersion")) is not int or status["schemaVersion"] != 1
+            or not isinstance(manifest.get("runID"), str) or not manifest["runID"]
+            or status.get("runID") != manifest["runID"]
+            or not number(status.get("pid"), positive=True, integer=True)
+            or status.get("state") not in ("measurement-ready", "workload-running", "workload-finished", "failed")
             or process.get("runID") != manifest["runID"] or status.get("pid") != process.get("pid")):
         raise InvalidRun("invalid-manifest")
+    if status["state"] == "failed" or status.get("failureCode") is not None:
+        raise InvalidRun("workload-failed")
     if not browsing_process.matches(process):
         raise InvalidRun("process-identity-mismatch")
     window = status.get("window", {})
     display = status.get("display", {})
-    if (window.get("visible") is not True or window.get("miniaturized") is not False
-            or not isinstance(window.get("width"), (int, float)) or window["width"] <= 0
-            or not isinstance(window.get("height"), (int, float)) or window["height"] <= 0):
+    if (not isinstance(window, dict)
+            or window.get("visible") is not True or window.get("miniaturized") is not False
+            or not number(window.get("width"), positive=True)
+            or not number(window.get("height"), positive=True)):
         raise InvalidRun("window-ineligible")
-    if display.get("scale", 0) <= 0 or display.get("maximumFramesPerSecond", 0) <= 0:
+    if (not isinstance(display, dict)
+            or not number(display.get("scale"), positive=True)
+            or not number(display.get("maximumFramesPerSecond"), positive=True)):
         raise InvalidRun("display-unavailable")
     return {"window": window, "display": display}
 
@@ -229,7 +243,9 @@ def profile(root):
                     raise InvalidRun("workload-failed")
                 if status.get("state") == "workload-finished":
                     report = read_json(root / "report.json")
-                    if report.get("passed") is not True or report.get("launch", {}).get("runID") != manifest["runID"]:
+                    launch = report.get("launch")
+                    if (report.get("passed") is not True or report.get("failure") is not None
+                            or not isinstance(launch, dict) or launch.get("runID") != manifest["runID"]):
                         raise InvalidRun("workload-failed")
                     break
                 if recorder.poll() is not None:

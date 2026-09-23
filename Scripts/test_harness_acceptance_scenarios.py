@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 import acceptance_scenarios as acceptance
+from harness_fixtures import launch_manifest
 
 
 class AcceptanceEvidenceTests(unittest.TestCase):
@@ -225,6 +226,7 @@ class AcceptanceEvidenceTests(unittest.TestCase):
 
     def demo_report(self):
         return {"passed": True, "networkSandboxVerified": True, "world": {"mutationAttempts": 0},
+                "launch": launch_manifest(),
                 "scenario": {"mode": "browsing", "version": 1},
                 "samples": [{"checkpoint": "home.ready"}]}
 
@@ -232,6 +234,7 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             acceptance.write_json(root / "report.json", report)
+            acceptance.write_json(root / "manifest.json", launch_manifest())
             for name, content in (files or {}).items():
                 (root / name).write_text(content)
             workload_path = root / "workload.json" if workload is not None else None
@@ -288,12 +291,33 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             self.assertEqual(self.demo_result(invalid)["outcome"], "failed")
 
     def test_demo_report_must_match_workload_and_recorded_run(self):
-        report = self.demo_report() | {"launch": {"runID": "new", "source": {"revision": "a"}}}
-        for manifest in ({"runID": "old", "source": {"revision": "a"}},
-                         {"runID": "new", "source": {"revision": "b"}}):
+        report = self.demo_report()
+        for field, changed in (("runID", "22222222-2222-4222-8222-222222222222"),
+                               ("source", {**report["launch"]["source"], "revision": "b" * 40}),
+                               ("build", {**report["launch"]["build"], "configuration": "debug"}),
+                               ("engine", {**report["launch"]["engine"], "librarySHA256": "7" * 64}),
+                               ("fixture", {**report["launch"]["fixture"], "sha256": "7" * 64}),
+                               ("layout", {"forceSynchronousLayout": True})):
+            manifest = launch_manifest() | {field: changed}
             result = self.demo_result(report, files={"manifest.json": json.dumps(manifest)})
             self.assertEqual(result["failure"]["checkpoint"], "demo.identity")
         self.assertEqual(self.demo_result(report, workload={"mode": "playback"})["failure"]["checkpoint"], "demo.scenario")
+
+    def test_demo_cannot_pass_without_valid_launch_and_manifest_provenance(self):
+        for invalid in ({}, {"schemaVersion": True}, {"source": {}}, {"runID": "invalid"}):
+            with self.subTest(invalid=invalid):
+                launch = {} if not invalid else launch_manifest() | invalid
+                result = self.demo_result(self.demo_report() | {"launch": launch},
+                                          files={"manifest.json": json.dumps(launch)})
+                self.assertEqual(result["outcome"], "failed")
+                self.assertEqual([check["name"] for check in result["checkpoints"]], ["home.ready"])
+        report = self.demo_report()
+        report.pop("launch")
+        self.assertEqual(self.demo_result(report)["outcome"], "failed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            acceptance.write_json(root / "report.json", self.demo_report())
+            self.assertEqual(acceptance.demo_evidence(mock.Mock(output=root, workload=None, exit_code=0)), 1)
 
     def test_demo_keeps_completed_checkpoints_when_a_later_sample_is_malformed(self):
         result = self.demo_result(self.demo_report() | {"samples": [{"checkpoint": "home.ready"}, None]})

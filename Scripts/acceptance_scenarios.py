@@ -14,6 +14,7 @@ import subprocess
 import sys
 
 from browsing_provenance import source_identity
+from compare_synthetic_profiles import InvalidEvidence, validate_manifest
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = Path("Tests/BrowsingHarness/Scenarios/manifest.json")
@@ -308,6 +309,7 @@ def demo_evidence(args):
 
     def object_file(path, checkpoint):
         if not path.exists():
+            invalid(checkpoint, "Missing JSON object")
             return {}
         try:
             return object_value(read_json(path), checkpoint)
@@ -319,7 +321,13 @@ def demo_evidence(args):
     report = object_file(report_path, "demo.report")
     manifest = object_file(root / "manifest.json", "demo.manifest")
     launch = object_value(report.get("launch", {}), "demo.launch")
-    if launch and manifest and (launch.get("runID") != manifest.get("runID") or launch.get("source") != manifest.get("source")):
+    for name, value in (("manifest", manifest), ("launch", launch)):
+        try:
+            validate_manifest(value)
+        except InvalidEvidence as error:
+            invalid("demo." + name, "Missing or invalid launch identity: " + str(error))
+    if launch and manifest and any(launch.get(key) != manifest.get(key) for key in
+                                   ("runID", "source", "build", "engine", "fixture", "layout")):
         invalid("demo.identity", "Report does not match this run's manifest")
     launch = launch or manifest
     scenario = object_value(report.get("scenario", {}), "demo.scenario")

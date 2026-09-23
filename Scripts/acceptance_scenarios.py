@@ -53,7 +53,8 @@ def repository_file(root, value):
 
 def manifest(root=ROOT):
     value = read_json(root / MANIFEST)
-    if set(value) != {"schemaVersion", "scenarios"} or value["schemaVersion"] != SCHEMA_VERSION:
+    if (not isinstance(value, dict) or set(value) != {"schemaVersion", "scenarios"}
+            or type(value["schemaVersion"]) is not int or value["schemaVersion"] != SCHEMA_VERSION):
         raise ValueError("Unsupported acceptance manifest schema")
     if not isinstance(value["scenarios"], list) or not value["scenarios"]:
         raise ValueError("Manifest needs scenarios")
@@ -73,7 +74,10 @@ def manifest(root=ROOT):
             raise ValueError("Unknown scenario corpus")
         if type(item["timeoutSeconds"]) is not int or not 1 <= item["timeoutSeconds"] <= 600:
             raise ValueError("Scenario timeout must be bounded")
-        if item["safety"] != {"dependencies": "synthetic", "liveMutations": False, "audioOutput": False}:
+        safety = item["safety"]
+        if (not isinstance(safety, dict) or set(safety) != {"dependencies", "liveMutations", "audioOutput"}
+                or safety["dependencies"] != "synthetic" or safety["liveMutations"] is not False
+                or safety["audioOutput"] is not False):
             raise ValueError("Acceptance requires synthetic services without live mutations or audio")
         for key in ("contracts", "actions", "assertions", "evidence"):
             if not isinstance(item[key], list) or not item[key] or not all(isinstance(x, str) and x.strip() for x in item[key]):
@@ -132,7 +136,9 @@ def normalize(item, raw, source, manifest_digest, fallback=None):
     elif not isinstance(raw, dict):
         problem = problem or failure("invalid-report", "runtime.report", "A scenario report object", type(raw).__name__)
         raw = {}
-    elif raw.get("schemaVersion") != SCHEMA_VERSION or raw.get("scenarioID") != item["id"] or raw.get("scenarioVersion") != item["version"]:
+    elif (type(raw.get("schemaVersion")) is not int or raw["schemaVersion"] != SCHEMA_VERSION
+            or raw.get("scenarioID") != item["id"] or type(raw.get("scenarioVersion")) is not int
+            or raw["scenarioVersion"] != item["version"]):
         problem = failure("invalid-report", "runtime.identity", "Matching scenario and schema versions", "Mismatched report")
     reported_failure = raw.get("failure")
     if reported_failure is not None and (not isinstance(reported_failure, dict)
@@ -145,11 +151,15 @@ def normalize(item, raw, source, manifest_digest, fallback=None):
     isolation = raw.get("isolation", {})
     if not problem and (not isinstance(checks, list) or not checks or any(
             not isinstance(check, dict) or not isinstance(check.get("name"), str) or not check["name"]
-            or not isinstance(check.get("expected"), dict) or not isinstance(check.get("observed"), dict)
+            or not isinstance(check.get("expected"), dict) or not check["expected"]
+            or not isinstance(check.get("observed"), dict)
             or check.get("passed") is not True for check in checks)):
         problem = failure("checkpoint-failed", "runtime.checkpoints", "Completed passing checkpoints with expected and observed state", checks)
     if not problem and (not isinstance(timeline, list) or not timeline or any(
-            not isinstance(event, dict) or not isinstance(event.get("name"), str) or not event["name"] for event in timeline)):
+            not isinstance(event, dict) or not isinstance(event.get("name"), str) or not event["name"]
+            or type(event.get("sequence")) is not int or event["sequence"] != index
+            or not isinstance(event.get("kind"), str) or not event["kind"]
+            or not isinstance(event.get("state"), dict) for index, event in enumerate(timeline, 1))):
         problem = failure("invalid-report", "runtime.timeline", "A retained command/observation timeline", timeline)
     if not problem and (not isinstance(isolation, dict) or isolation.get("dependencyMode") != "synthetic"
                         or type(isolation.get("forbiddenMutationAttempts")) is not int
@@ -170,7 +180,8 @@ def summarize(output):
     request_path = output / "request.json"
     try:
         request = read_json(request_path)
-        if (not isinstance(request, dict) or request.get("schemaVersion") != SCHEMA_VERSION
+        if (not isinstance(request, dict) or type(request.get("schemaVersion")) is not int
+                or request["schemaVersion"] != SCHEMA_VERSION
                 or not isinstance(request.get("source"), dict) or not isinstance(request.get("manifestDigest"), str)
                 or not isinstance(request.get("scenarios"), list) or not request["scenarios"]):
             raise ValueError("Invalid run request")
@@ -241,15 +252,21 @@ def run_corpus(args):
                'exec python3 Scripts/swift_test_watchdog.py --lane acceptance --repetition 1 '
                '--timeout-seconds "$1" --log-dir "$2" -- swift test --sdk "$SDKROOT" --disable-sandbox --no-parallel '
                '--filter AcceptanceCorpusTests', "acceptance", str(args.timeout_seconds), str(output / "diagnostics")]
-    result = subprocess.run(command, cwd=ROOT, env=environment, check=False)
+    host_failure = None
+    try:
+        result = subprocess.run(command, cwd=ROOT, env=environment, check=False)
+        if result.returncode:
+            host_failure = result.returncode
+    except (OSError, subprocess.SubprocessError) as error:
+        host_failure = "Test host could not run: " + type(error).__name__
     after = source_record()
     request["sourceUnchanged"] = before == after
     write_json(output / "request.json", request)
     fallback = None
     if before != after:
         fallback = failure("source-changed", "source.identity", "Stable source throughout execution", "Source changed during run")
-    elif result.returncode:
-        fallback = failure("test-host-failed", "runtime.host", "Swift test host exits successfully", result.returncode)
+    elif host_failure is not None:
+        fallback = failure("test-host-failed", "runtime.host", "Swift test host exits successfully", host_failure)
     for item in items:
         raw_path = output / ("runtime-" + item["id"] + ".json")
         try:
@@ -277,33 +294,86 @@ def print_summary(value):
 
 def demo_evidence(args):
     root = args.output
+    problem = None
+
+    def invalid(checkpoint, observed):
+        nonlocal problem
+        problem = problem or failure("invalid-report", checkpoint, "Well-formed Demo evidence", observed)
+
+    def object_value(value, checkpoint):
+        if not isinstance(value, dict):
+            invalid(checkpoint, "Expected an object")
+            return {}
+        return value
+
+    def object_file(path, checkpoint):
+        if not path.exists():
+            return {}
+        try:
+            return object_value(read_json(path), checkpoint)
+        except (ValueError, OSError):
+            invalid(checkpoint, "Unreadable JSON object")
+            return {}
+
     report_path = root / "report.json"
-    report = read_json(report_path) if report_path.exists() else {}
-    launch = report.get("launch", {})
-    if not launch and (root / "manifest.json").exists():
-        launch = read_json(root / "manifest.json")
-    scenario = report.get("scenario", {})
-    if not scenario and args.workload and args.workload.exists():
-        scenario = read_json(args.workload)
-    source = launch.get("source", {})
-    checkpoints = [{"name": sample["checkpoint"], "passed": True, "observed": sample} for sample in report.get("samples", [])]
+    report = object_file(report_path, "demo.report")
+    manifest = object_file(root / "manifest.json", "demo.manifest")
+    launch = object_value(report.get("launch", {}), "demo.launch")
+    if launch and manifest and (launch.get("runID") != manifest.get("runID") or launch.get("source") != manifest.get("source")):
+        invalid("demo.identity", "Report does not match this run's manifest")
+    launch = launch or manifest
+    scenario = object_value(report.get("scenario", {}), "demo.scenario")
+    workload = object_file(args.workload, "demo.workload") if args.workload else {}
+    if scenario and workload and any(scenario.get(key) != value for key, value in workload.items()):
+        invalid("demo.scenario", "Report does not match the requested workload")
+    scenario = scenario or workload
+    if (scenario.get("mode") not in ("signed-out", "browsing", "playback")
+            or type(scenario.get("version")) is not int or scenario["version"] not in (1, 2)):
+        invalid("demo.scenario", "Missing or unsupported workload identity")
+    source = object_value(launch.get("source", {}), "demo.source")
+    samples = report.get("samples", [])
+    checkpoints = []
+    if not isinstance(samples, list) or not samples:
+        invalid("demo.checkpoints", "Missing visible workload checkpoints")
+    else:
+        for sample in samples:
+            if not isinstance(sample, dict) or not isinstance(sample.get("checkpoint"), str) or not sample["checkpoint"]:
+                invalid("demo.checkpoints", "Malformed visible workload checkpoint")
+                continue
+            checkpoints.append({"name": sample["checkpoint"], "passed": True, "observed": sample})
+    world = object_value(report.get("world", {}), "demo.world")
     isolation = {"dependencyMode": "synthetic", "networkSandboxVerified": report.get("networkSandboxVerified"),
-                 "forbiddenMutationAttempts": report.get("world", {}).get("mutationAttempts")}
-    runtime = report.get("acceptanceRuntime") or {}
-    passed = report.get("passed") is True and args.exit_code == 0 and isolation["networkSandboxVerified"] is True and isolation["forbiddenMutationAttempts"] == 0
-    if scenario.get("acceptanceScenarioID"):
-        passed = passed and runtime.get("passed") is True
-    problem = None if passed else runtime.get("failure") or failure("demo-failed", "demo.workload", "Completed workload with verified sandbox and no forbidden mutations", report.get("failure") or "Launch or workload did not finish")
-    bundle = {"schemaVersion": SCHEMA_VERSION, "scenarioID": scenario.get("acceptanceScenarioID", "legacy." + scenario.get("mode", "unknown")),
+                 "forbiddenMutationAttempts": world.get("mutationAttempts")}
+    runtime = {}
+    identifier = scenario.get("acceptanceScenarioID")
+    if identifier is not None:
+        version = scenario.get("acceptanceScenarioVersion")
+        if (not isinstance(identifier, str) or not re.fullmatch(r"[a-z][a-z0-9.-]{0,79}", identifier)
+                or type(version) is not int or version < 1):
+            invalid("demo.scenario", "Invalid named scenario identity")
+        else:
+            runtime = normalize({"id": identifier, "version": version, "corpus": "demo"},
+                                report.get("acceptanceRuntime"), source, None)
+            problem = problem or runtime["failure"]
+    passed = (problem is None and report.get("passed") is True and report.get("failure") is None and args.exit_code == 0
+              and isolation["networkSandboxVerified"] is True
+              and type(isolation["forbiddenMutationAttempts"]) is int and isolation["forbiddenMutationAttempts"] == 0)
+    if not passed:
+        problem = problem or failure("demo-failed", "demo.workload", "Completed workload with verified sandbox and no forbidden mutations", report.get("failure") or "Launch or workload did not finish")
+    runtime_checks = runtime.get("checkpoints", [])
+    timeline = runtime.get("timeline", report.get("playbackCheckpoints", []))
+    mode = scenario.get("mode")
+    scenario_id = identifier if isinstance(identifier, str) else "legacy." + (mode if isinstance(mode, str) else "unknown")
+    bundle = {"schemaVersion": SCHEMA_VERSION, "scenarioID": scenario_id,
               "scenarioVersion": scenario.get("acceptanceScenarioVersion", scenario.get("version")), "outcome": "passed" if passed else "failed",
-              "source": source, "failure": problem, "checkpoints": runtime.get("checkpoints", []) + checkpoints,
-              "timeline": runtime.get("timeline", report.get("playbackCheckpoints", [])), "isolation": isolation,
+              "source": source, "failure": problem, "checkpoints": (runtime_checks if isinstance(runtime_checks, list) else []) + checkpoints,
+              "timeline": timeline if isinstance(timeline, list) else [], "isolation": isolation,
               "environment": {key: report.get(key) for key in ("os", "processorCount", "windowWidth", "windowHeight", "displayScale")},
               "artifacts": [name for name in ("report.json", "manifest.json", "process.json", "run-status.json", "profiler-state.json", "trace-summary.json") if (root / name).exists()],
               "limits": ["Demo state and layout checkpoints do not establish live Spotify or audible output.",
                          "No comparable performance configuration is declared; timings remain in report.json."]}
     write_json(root / "demo-evidence.json", bundle)
-    return 0
+    return 0 if passed else 1
 
 
 def main():

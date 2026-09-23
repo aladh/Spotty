@@ -96,7 +96,7 @@ final class AcceptanceRecorder {
             "session": String(describing: player.accountStore.phase),
             "connected": String(player.isConnected), "playing": String(player.isPlaying),
             "localOwner": String(player.isActiveDevice),
-            "positionMS": String(Int((player.position * 1_000).rounded())),
+            "positionMS": positionMilliseconds(player.position),
             "authorityPositionMS": String(playback.positionMS),
             "pendingCommands": String(state.pendingCommands.count),
             "intentOutcome": state.intents.last.map { String(describing: $0.outcome) } ?? "none",
@@ -110,6 +110,11 @@ final class AcceptanceRecorder {
             "forbiddenMutationAttempts": String(world.snapshot().mutationAttempts),
             "engineInitializationCount": String(world.snapshot().requests["engine.synthetic-initialize"] ?? 0),
         ]
+    }
+
+    /// Failure reporting must survive the invalid timing value it is trying to diagnose.
+    static func positionMilliseconds(_ position: TimeInterval) -> String {
+        Int(exactly: (position * 1_000).rounded()).map(String.init) ?? "invalid"
     }
 }
 
@@ -141,9 +146,12 @@ enum AcceptanceScenarioRuntime {
                 run.cancel()
             } catch {}
         }
-        let report = await run.value
-        timeout.cancel()
-        return report
+        defer { timeout.cancel() }
+        return await withTaskCancellationHandler {
+            await run.value
+        } onCancel: {
+            run.cancel()
+        }
     }
 
     static func run(
@@ -156,6 +164,7 @@ enum AcceptanceScenarioRuntime {
             recorder.event("seed", "delayed-playback-uses-arrival-revision")
         }
         do {
+            try Task.checkCancellation()
             try world.scenario.validate()
             recorder.event("action", "account.restore")
             await player.restore()

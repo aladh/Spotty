@@ -68,7 +68,9 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
             (0...60_000).contains(detailRefreshMilliseconds ?? 0),
             (acceptanceScenarioID == nil) == (acceptanceScenarioVersion == nil),
             (acceptanceScenarioID == nil) == (acceptanceTimeoutSeconds == nil),
-            acceptanceScenarioID.map({ !$0.isEmpty }) ?? true,
+            acceptanceScenarioID.map({
+                $0.range(of: #"^[a-z][a-z0-9.-]{0,79}\z"#, options: .regularExpression) != nil
+            }) ?? true,
             acceptanceScenarioVersion.map({ $0 > 0 }) ?? true,
             acceptanceTimeoutSeconds.map({ (1...600).contains($0) }) ?? true,
             acceptanceVariation == nil

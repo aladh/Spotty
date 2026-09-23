@@ -190,7 +190,10 @@ package extension PlaybackSessionRuntime {
     }
 
     func seek(to fraction: Double) {
-        let milliseconds = UInt32(max(0, min(1, fraction)) * duration * 1_000)
+        guard fraction.isFinite, duration.isFinite, duration > 0 else { return }
+        // Catalog/remote durations are not bounded by the engine's UInt32 millisecond ABI.
+        // Clamp before conversion, including when multiplying a finite duration overflows.
+        let milliseconds = UInt32(min(Double(UInt32.max), max(0, min(1, fraction)) * duration * 1_000))
         let now = environment.clock.now()
         performRoutedCommand(
             "Seek was rejected",

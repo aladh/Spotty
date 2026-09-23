@@ -75,5 +75,6 @@ The [public Accessibility driver](../../Scripts/synthetic_ui_smoke.swift) revali
 before actions: expand Focus, open Deep Work, await the playlist, press Play then Pause, and assert
 Play is available again. Readiness waits allow 15 seconds per checkpoint within the driver's
 75-second action deadline. The [wrapper](../../Scripts/smoke-synthetic-ui.sh) bounds the driver
-process to 90 seconds; `ui-smoke.json` identifies the outcome. Close the Demo after pass or failure.
+process to 90 seconds. Read the outcome in `.build/browsing-runs/run.*/ui-smoke.json`.
+Close the Demo after pass or failure.
 This proves that flow, not visual parity or live playback.

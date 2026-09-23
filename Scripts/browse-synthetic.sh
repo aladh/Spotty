@@ -50,6 +50,11 @@ fi
 # Keep legacy report.json and add evidence even when launch or workload fails.
 TRAPEXIT() {
     local result=$?
+    # zsh inherits function traps into command substitutions. Only the outer launcher
+    # owns final evidence; a successful signing/build lookup is not a finished run.
+    if (( ZSH_SUBSHELL > 0 )); then
+        return "$result"
+    fi
     if [[ "$automated" == true || "$profile" == true ]]; then
         python3 "$project_root/Scripts/acceptance_scenarios.py" demo-evidence \
             --output "$run_root" --workload "$scenario" --exit-code "$result" || return 1

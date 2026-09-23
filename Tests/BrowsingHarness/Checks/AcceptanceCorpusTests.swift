@@ -8,6 +8,39 @@ import Testing
 @Suite("Manifest acceptance corpus", .serialized)
 @MainActor
 struct AcceptanceCorpusTests {
+    @Test(arguments: [Double.nan, .infinity, -.infinity, .greatestFiniteMagnitude])
+    func invalidTimingRemainsReportable(position: Double) {
+        #expect(AcceptanceRecorder.positionMilliseconds(position) == "invalid")
+        #expect(AcceptanceRecorder.positionMilliseconds(17.125) == "17125")
+    }
+
+    @Test func cancelledCallerCancelsItsScenario() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyCancelledAcceptance-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scenario = BrowsingScenario(trackCount: 30, artworkCount: 1, artworkPixels: 64, cycles: 1)
+        let world = try BrowsingWorld(scenario: scenario, artworkDirectory: root)
+        let player = PlaybackStore(environment: world.environment, feedback: TransientFeedbackPresenter(clock: world))
+        let task = Task {
+            await AcceptanceScenarioRuntime.runWithDeadline(
+                player: player, world: world, navigation: CatalogNavigation())
+        }
+        task.cancel()
+        let report = await task.value
+        #expect(!report.passed)
+        #expect(report.failure?.code == "timeout_or_cancelled")
+        #expect(world.snapshot().requests.isEmpty)
+        await player.shutdownForTermination()
+    }
+
+    @Test(arguments: ["../escape", "UPPER", "with/slash", "trailing\n", String(repeating: "a", count: 81)])
+    func scenarioRejectsInvalidEvidenceIdentifiers(identifier: String) {
+        var scenario = BrowsingScenario()
+        scenario.acceptanceScenarioID = identifier
+        scenario.acceptanceScenarioVersion = 1
+        scenario.acceptanceTimeoutSeconds = 60
+        #expect(throws: (any Error).self) { try scenario.validate() }
+    }
+
     private struct Input: Decodable {
         let id: String
         let version: Int

@@ -36,7 +36,8 @@ tests assertion sensitivity through production intake: it is a fault-injection p
 that the shipping product currently has that defect.
 
 Each invocation makes one attempt. Per-scenario deadlines cancel cooperative state work; the
-outer test-host watchdog supplies the process deadline if an operation cannot be cancelled.
+caller's cancellation also retires that work. The outer test-host watchdog supplies the process
+deadline if an operation cannot be cancelled.
 Named Demo workloads receive the same scenario deadline and retain the GUI runner's report wait bound.
 A failure packet identifies the scenario, checkpoint, expected/observed state, and partial timeline.
 Fix the failure and run a fresh attempt; no agent framework or automatic source-edit retry loop is
@@ -53,7 +54,9 @@ summaries. The test host does not establish App Sandbox, UI, live Spotify, or au
 
 Automated Demo runs retain `report.json` and add `demo-evidence.json`, including sandbox verification,
 build identity, visible workload checkpoints, and available process/profiler artifacts. This separate
-Demo report supports linked local evidence; the CI/Thermos collector consumes only the corpus summary
+report fails closed on malformed or mismatched evidence, preserves completed checkpoints, and
+makes the launcher fail even when a corrupt report claims success. The original report is retained.
+The Demo report supports linked local evidence; the CI/Thermos collector consumes only the corpus summary
 above. Timings stay
 diagnostic unless a declared, matching configuration establishes a comparison; a single run is not
 a performance budget. No screenshot or model judgment replaces auth, playback, or lifetime assertions.

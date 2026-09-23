@@ -10,9 +10,11 @@ For an authorized launch:
 ./script/build_and_run.sh
 ```
 
-This verifies, builds, signs, and replaces the running app. For compile-only work, use the checks
-below. Launch modes include `--debug`, `--logs`, `--telemetry`, `--verify`, `--release`, and
-`--verify-release`; follow the [launch constraints](../../script/AGENTS.md) and [signing setup](signing.md).
+This builds and validates a signed bundle before replacing the running development app. Launch
+modes include `--debug`, `--logs`, `--telemetry`, `--verify`, `--release`, and `--verify-release`;
+follow the [launch constraints](../../script/AGENTS.md) and [signing setup](signing.md).
+The `--verify` modes check that the process launches; use the verification gates below for tests
+and compile-only work.
 
 ## Normal verification
 
@@ -40,46 +42,30 @@ replacing the published engine. Packaging and Swift checks need no Rust tools.
 [Source policies](../architecture/enforcement/source-checks.md) explain their proof limits;
 [Package.swift](../../Package.swift) owns test targets and platform boundaries.
 
-[Script-test discovery](../../Scripts/script_tests.py) owns Python and Node suite routing for local
-and CI gates. Name Python tests `test_*.py`, `*_test.py`, or `test.py`; keep helpers outside those
-names. New top-level Python tests in `Scripts/` join the policy lane unless playback, harness, or
-watchdog owns them. The harness suite runs in both normal language scopes and in the unconditional
-Linux helper job, so Swift Demo changes retain helper coverage when compiled Rust is skipped.
-Review tests live directly in `Scripts/agent-review-tests/`. Recognized test
-files outside these owners and empty suites fail instead of being silently skipped.
+[Script-test discovery](../../Scripts/script_tests.py) owns Python/Node naming and suite routing;
+unowned test files and empty suites fail. See [coverage enforcement](../architecture/enforcement/source-checks.md)
+when adding a suite. [check.sh](../../Scripts/check.sh) runs harness helpers in both normal language
+scopes; unconditional Linux coverage also keeps Demo changes checked when compiled Rust is skipped.
 
-CI runs source policies, Python playback checks, and the Linux domain job before its single macOS
-job. Documentation-only PRs skip macOS. App-only PRs can skip compiled Rust; main runs it.
-Unknown paths and classification errors cannot authorize a skip. The trusted base classifier,
-complete aggregate, caches, and exact workflow behavior belong to
-[CI enforcement](../architecture/enforcement/build-and-abi.md#ci-and-release-workflow),
-[CI policy](../../Scripts/ci_rust_policy.py), and [ci.yml](../../.github/workflows/ci.yml).
+[CI enforcement](../architecture/enforcement/build-and-abi.md#ci-and-release-workflow) owns job order
+and trusted skips: documentation-only PRs skip macOS; app-only PRs may skip compiled Rust; main
+runs both toolchains.
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
 header; never hand-edit it. Use `--check` for reproducibility and `SPOTTY_CBINDGEN` for an alternate
 pinned executable. Preserve [pointer ownership](../../Sources/SpottyPlaybackCore/AGENTS.md) and
 extend `Scripts/check-c-header-imports.sh` for new pointer shapes.
 
-Format Swift with `./Scripts/format-swift.sh --check` or `--write`. Discover focused tests with
-`python3 Scripts/verify.py list` (SwiftPM's `swift test list` with the harness enabled), then filter:
+Format Swift with `./Scripts/format-swift.sh --check` or `--write`. The `verify.py list/test` commands
+and `check.sh` include harness targets; bare SwiftPM needs `SPOTTY_BUILD_BROWSING_HARNESS=1`.
+ABI/compiler/source fixtures are script inputs. For justified lifetime stress, use
+`SPOTTY_CHECK_REPEATS=N` (1–25); main runs three passes.
 
-```bash
-python3 Scripts/verify.py test --filter ProtobufTests/testProtobuf
-python3 Scripts/verify.py test --filter AuthFlowTests/testAuthFlow
-```
-
-Set `SPOTTY_BUILD_BROWSING_HARNESS=1` to include harness targets; `check.sh` already does so.
-ABI/compiler/source fixtures are script inputs, not Swift test targets. For justified lifetime
-stress, use `SPOTTY_CHECK_REPEATS=N` (1–25); main runs three passes.
-
-Each Swift test invocation has a process-group watchdog: five minutes in CI, twenty locally.
-`SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS` overrides the local limit for diagnosis. Timeout handling
-samples and terminates only that invocation, without retrying it or killing unrelated processes.
-CI uploads per-lane logs and supported Swift Testing event streams from
-`$RUNNER_TEMP/spotty-swift-test-diagnostics` when Debug checks fail.
-The focused wrapper preserves exit status and reports commands and diagnostics. Override its unique
-temporary directory with `SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR`; the watchdog collects supported native
-Swift Testing event streams.
+The [watchdog](../../Scripts/swift_test_watchdog.py) bounds each Swift test invocation to five minutes
+in CI or twenty locally, sampling and terminating only that invocation without retry. For diagnosis,
+set `SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS` or `SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR`; `verify.py` reports
+commands, exit status, and the artifact directory. CI uploads logs and supported native event streams
+when Debug checks fail.
 
 ## Clean and risk-specific verification
 
@@ -100,36 +86,26 @@ compile-only Release verification.
 ./Scripts/browse-synthetic.sh      # Automated browsing workload
 ```
 
-The isolated Demo uses the normal UI with synthetic dependencies, a verified network-denying
-sandbox, and no live credentials, engine, or audio output. Its separate Apple Development-signed
-identity is `dev.spotty.demo` at `.build/Spotty Demo.app`; caches/preferences persist separately
-from live Spotty. Follow [standing authorization](../product/safe-testing.md#spotty-demo-standing-authorization).
-
-[demo.json](../../Tests/BrowsingHarness/demo.json) supplies a scrolling playlist library and album/
-artist edge cases, including missing artwork, empty results, long titles, and unavailable tracks.
-Pass another scenario path for a bounded workload; `mode: "signed-out"` exercises sign-out UI.
-Invalid scenarios fail closed. Each run writes fixtures and `report.json` under
-`.build/browsing-runs/`; automated runs fail on workload failure or timeout and leave the Demo open.
+The Apple Development-signed Demo at `.build/Spotty Demo.app` uses synthetic dependencies, a
+network-denying sandbox, and separate `dev.spotty.demo` state under
+[standing authorization](../product/safe-testing.md#spotty-demo-standing-authorization).
+[demo.json](../../Tests/BrowsingHarness/demo.json) supplies interactive fixtures; pass another
+scenario path for a bounded workload. Invalid scenarios fail closed. Automated runs leave the Demo
+open; close it when done. The [launcher](../../Scripts/browse-synthetic.sh) stores reports under
+`.build/browsing-runs/`; [synthetic acceptance](synthetic-acceptance.md) covers named scenarios and
+early-failure diagnostics.
 
 ### Synthetic playback and fault traces
 
-`./Scripts/browse-synthetic.sh Tests/BrowsingHarness/playback.json` exercises transport and injected
-faults through a synthetic playback authority. Add `--interactive` before the scenario to use its
-Demo fault menu. Version-1 scenarios remain read-only; all harness targets stay outside the shipping
-package graph. See [runtime acceptance](runtime-acceptance.md) for evidence limits.
+Pass `Tests/BrowsingHarness/playback.json` for synthetic transport and faults; add `--interactive`
+for the Demo fault menu. Version-1 scenarios remain read-only. Harness targets are non-shipping.
 
 ### Semantic UI smoke
 
-```bash
-./Scripts/smoke-synthetic-ui.sh
-```
-
-See [synthetic acceptance](synthetic-acceptance.md) for permission preflight, the bounded public
-Accessibility flow, and its pass/fail result.
+Follow [synthetic acceptance](synthetic-acceptance.md#semantic-ui-smoke) for the command, permission
+preflight, and bounded Accessibility flow.
 
 ### Combined hydration and lifecycle measurements
 
 Use the [measurement procedure](runtime-acceptance.md#measurements) for optimized runs, Instruments
-captures, queue hydration comparisons, and credential-free lifecycle measurements. Scenario
-parameters live in [harness fixtures](../../Tests/BrowsingHarness); report fields and exact cases
-belong to their producers and tests, not a second inventory here.
+captures, queue hydration comparisons, and credential-free lifecycle measurements.

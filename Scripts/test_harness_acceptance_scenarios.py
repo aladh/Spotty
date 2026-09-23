@@ -344,9 +344,14 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                 'sys.exit(43)\n')
             # A failed final report must fail the launcher, but cannot run during a lookup.
             (scripts / "acceptance_scenarios.py").write_text(
-                'import os, pathlib, sys\n'
+                'import json, os, pathlib, sys\n'
+                'preparing = sys.argv[1] == "prepare-demo"\n'
                 'with pathlib.Path(os.environ["DEMO_TEST_EVENTS"]).open("a") as stream:\n'
-                '    stream.write("evidence:" + sys.argv[-1] + "\\n")\n'
+                '    stream.write("prepare\\n" if preparing else "evidence:" + sys.argv[-1] + "\\n")\n'
+                'if preparing:\n'
+                '    sys.exit(44)\n'
+                'root = pathlib.Path(sys.argv[sys.argv.index("--output") + 1])\n'
+                '(root / "demo-evidence.json").write_text(json.dumps({"exitCode": int(sys.argv[-1])}))\n'
                 'sys.exit(1)\n')
             scenario = root / "scenario.json"
             scenario.write_text('{}')
@@ -365,19 +370,26 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                                DEMO_TEST_EVENTS=str(events), SPOTTY_BROWSING_RUN_ROOT_FILE=str(pointer))
             for key in ("SPOTTY_DEVELOPMENT_SIGNING_IDENTITY", "SPOTTY_SIGNING_IDENTITY"):
                 environment.pop(key, None)
-            for flags, expected in (([], ["build", "evidence:42"]), (["--profile"], ["preflight", "evidence:43"])):
-                with self.subTest(flags=flags):
+            for arguments, expected in (
+                ([str(scenario)], ["build", "evidence:42"]),
+                (["--profile", str(scenario)], ["preflight", "evidence:43"]),
+                (["--scenario", "missing.scenario"], ["prepare", "evidence:44"]),
+                ([str(root / "missing.json")], ["evidence:2"]),
+            ):
+                with self.subTest(arguments=arguments):
                     events.write_text("")
                     pointer.unlink(missing_ok=True)
-                    result = subprocess.run(["zsh", str(scripts / "browse-synthetic.sh"), *flags, str(scenario)],
+                    result = subprocess.run(["zsh", str(scripts / "browse-synthetic.sh"), *arguments],
                                             env=environment, capture_output=True, text=True, timeout=10)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertEqual(events.read_text().splitlines(), expected, result.stderr)
                     run_root = Path(pointer.read_text().strip())
                     self.assertEqual(run_root.parent, (root / ".build/browsing-runs").resolve())
                     self.assertTrue(run_root.is_dir())
+                    self.assertEqual(json.loads((run_root / "demo-evidence.json").read_text()),
+                                     {"exitCode": int(expected[-1].split(":")[1])})
                     self.assertFalse((run_root / "process.json").exists())
-                    if flags:
+                    if "--profile" in arguments:
                         codes, _ = profile_synthetic.capture_diagnostics(run_root, "left", profile_synthetic.InvalidRun("capture-incomplete"))
                         self.assertEqual(codes[0], "left.session-locked")
 

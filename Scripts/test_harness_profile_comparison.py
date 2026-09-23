@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from compare_synthetic_profiles import compare, main
+from harness_fixtures import launch_manifest
 
 
 def completed_run(run_id):
@@ -16,20 +17,7 @@ def completed_run(run_id):
                    "width": 1440, "height": 900, "inspector": "queue"},
         "display": {"scale": 2, "maximumFramesPerSecond": 120, "reducedMotion": False},
     }
-    manifest = {
-        "schemaVersion": 1, "runID": run_id,
-        "source": {"revision": "a" * 40, "sourceSHA256": "b" * 64, "diffSHA256": "c" * 64,
-                   "includesUntrackedNonignoredFiles": True},
-        "build": {"configuration": "release", "optimization": "-O", "testabilityEnabled": True,
-                  "compilerVersion": "Swift version 6.2", "requestedSDKVersion": "26.0",
-                  "requestedSDKName": "macosx26.0", "linkedSDKVersion": "26.0", "buildProductSHA256": "d" * 64},
-        "engine": {"selection": "pinned", "pinURL": "https://example.invalid/engine.zip",
-                   "pinChecksum": "e" * 64, "librarySHA256": "f" * 64, "canonicalHeadersSHA256": "0" * 64,
-                   "sourceRevision": "1" * 40, "engineInputDigest": "2" * 64,
-                   "librespotRevision": "3" * 40, "usedForPlayback": False},
-        "fixture": {"sha256": "4" * 64, "workloadSHA256": "5" * 64},
-        "layout": {"forceSynchronousLayout": False},
-    }
+    manifest = launch_manifest(run_id)
     state = {"schemaVersion": 1, "runID": run_id, "pid": 100, "failureCode": None}
     return {
         "manifest": manifest,

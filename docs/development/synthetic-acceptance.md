@@ -53,8 +53,10 @@ Missing reports and failed test hosts produce failed evidence. CI retains these 
 summaries. The test host does not establish App Sandbox, UI, live Spotify, or audible-output behavior.
 
 Automated Demo runs retain `report.json` and add `demo-evidence.json`, including sandbox verification,
-build identity, visible workload checkpoints, and available process/profiler artifacts. This separate
-report fails closed on malformed or mismatched evidence, preserves completed checkpoints, and
+build identity, visible workload checkpoints, and available process/profiler artifacts. Both the run
+manifest and report's launch identity must be valid and agree on the run, source, build, engine,
+fixture, and layout. This separate report fails closed on malformed or mismatched evidence,
+preserves completed checkpoints, and
 makes the launcher fail even when a corrupt report claims success. The original report is retained.
 The Demo report supports linked local evidence; the CI/Thermos collector consumes only the corpus summary
 above. Timings stay

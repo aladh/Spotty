@@ -98,7 +98,8 @@ its field definitions.
 Wait for `profiler-state.json` to reach complete/failed; workload completion precedes recorder saving.
 The workload deadline is 600 seconds, with another 180 seconds allowed for save. Completion requires
 a matching successful workload, saved trace, required exports, and complete application frames.
-Failures carry stable reason codes; interrupted runs cannot retain an accepted summary.
+Failures carry stable reason codes. Malformed readiness or exports fail closed; interrupted runs
+cannot retain an accepted summary.
 
 The launcher exports the required tables and writes `trace-summary.json` automatically. The
 [summarizer](../../Scripts/summarize_synthetic_trace.py) owns manual export inputs and filters to the

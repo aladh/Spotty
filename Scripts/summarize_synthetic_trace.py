@@ -8,18 +8,34 @@ import xml.etree.ElementTree as ET
 
 
 def read_table(path):
-    root = ET.parse(path).getroot()
-    identifiers = {element.attrib["id"]: element for element in root.iter() if "id" in element.attrib}
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as error:
+        raise ValueError(f"Malformed exported table: {path.name}") from error
+    identifiers = {}
+    for element in root.iter():
+        if "id" in element.attrib:
+            identifier = element.attrib["id"]
+            if not identifier or identifier in identifiers:
+                raise ValueError("Exported table contains ambiguous identifiers")
+            identifiers[identifier] = element
 
     def value(element):
+        visited = set()
         while "ref" in element.attrib:
-            element = identifiers[element.attrib["ref"]]
+            reference = element.attrib["ref"]
+            if reference in visited or reference not in identifiers:
+                raise ValueError("Exported table contains a cyclic or missing reference")
+            visited.add(reference)
+            element = identifiers[reference]
         return element.text or element.attrib.get("fmt", "")
 
     schema = next(root.iter("schema"), None)
     if schema is None:
         raise ValueError(f"Missing exported table schema: {path.name}")
     columns = [column.findtext("mnemonic") for column in schema.findall("col")]
+    if not columns or any(not name for name in columns) or len(set(columns)) != len(columns):
+        raise ValueError("Exported table requires unique named columns")
     return [dict(zip(columns, map(value, row), strict=True)) for row in root.iter("row")]
 
 
@@ -62,6 +78,8 @@ def summarize(prefix):
     overlapping = [row for row in table("hitches-frame-lifetimes")
                    if frame_key(row) in app_keys and int(row["start"]) < end
                    and int(row["start"]) + int(row["duration"]) > start]
+    if any(int(row["duration"]) <= 0 for row in overlapping):
+        raise ValueError("Expected positive application frame lifetimes")
     frames = [row for row in overlapping if int(row["start"]) >= start
               and int(row["start"]) + int(row["duration"]) <= end]
     keys = {frame_key(row) for row in frames}
@@ -69,6 +87,8 @@ def summarize(prefix):
         raise ValueError("Expected nonempty, uniquely identified complete app frames")
     hitches = [row for row in table("hitches")
                if row["process"] == process and frame_key(row) in keys]
+    if any(int(row["duration"]) <= 0 for row in hitches):
+        raise ValueError("Expected positive application hitch durations")
     hitch_keys = {frame_key(row) for row in hitches}
     batches = sorted(int(row["time"]) for row in signs
                      if row["process"] == process and row["name"] == "Queue metadata batch"

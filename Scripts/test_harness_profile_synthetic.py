@@ -58,7 +58,67 @@ class SyntheticProfileTests(unittest.TestCase):
                 self.assertEqual(profile.read_json(root / "profiler-state.json")["failureCode"], reason)
                 self.assertFalse((root / "profiler-ready").exists())
 
-    def run_recorder(self, *, finish_after=244, final_status="workload-finished", exit_early=False, save_timeout=False, export_failure=False, report_identity="synthetic-run"):
+    def test_malformed_session_evidence_fails_with_a_stable_reason(self):
+        valid = {"schemaVersion": 1, "session": {"onConsole": True, "loginDone": True, "locked": False}, "displayCount": 1}
+        for evidence, reason in (
+            ([], "session-unknown"),
+            ({**valid, "schemaVersion": True}, "session-unknown"),
+            ({**valid, "session": []}, "session-unknown"),
+            ({**valid, "displayCount": True}, "display-unavailable"),
+        ):
+            with self.subTest(evidence=evidence), patch.object(profile, "command_output", return_value=json.dumps(evidence)):
+                with self.assertRaisesRegex(profile.InvalidRun, reason):
+                    profile.session_preflight()
+
+    def test_invalid_readiness_is_rejected(self):
+        cases = [
+            ("schemaVersion", True, "invalid-manifest"),
+            ("pid", 42.0, "invalid-manifest"),
+            ("state", "unknown", "invalid-manifest"),
+            ("failureCode", "already-failed", "workload-failed"),
+            ("window", [], "window-ineligible"),
+            ("display", None, "display-unavailable"),
+        ]
+        for field in ("width", "height"):
+            for value in (True, "1200", float("nan"), float("inf"), 10**1000, 0, -1):
+                cases.append((f"window.{field}", value, "window-ineligible"))
+        for field in ("scale", "maximumFramesPerSecond"):
+            for value in (True, "120", float("nan"), float("inf"), 10**1000, 0, -1):
+                cases.append((f"display.{field}", value, "display-unavailable"))
+        for path, value, reason in cases:
+            with self.subTest(path=path, value=value), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest, process, status = self.prepare(root)
+                parts = path.split(".")
+                target = status if len(parts) == 1 else status[parts[0]]
+                target[parts[-1]] = value
+                profile.write_json(root / "run-status.json", status)
+                with patch.object(profile.browsing_process, "matches", return_value=True):
+                    with self.assertRaisesRegex(profile.InvalidRun, reason):
+                        profile.validate_status(manifest, process, status)
+
+    def test_malformed_readiness_retains_failure_without_starting_recorder(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, status = self.prepare(root)
+            status["window"] = None
+            profile.write_json(root / "run-status.json", status)
+            with patch.object(profile.browsing_process, "matches", return_value=True), patch.object(profile.subprocess, "Popen") as recorder:
+                with self.assertRaisesRegex(profile.InvalidRun, "window-ineligible"):
+                    profile.profile(root)
+                recorder.assert_not_called()
+            self.assertEqual(profile.read_json(root / "profiler-state.json")["failureCode"], "window-ineligible")
+            self.assertFalse((root / "profiler-ready").exists())
+
+    def test_malformed_trace_export_has_a_trace_failure_reason(self):
+        with TemporaryDirectory() as directory, patch.object(profile, "command_output"):
+            root = Path(directory)
+            (root / "trace-signposts.xml").write_text("<table>")
+            with self.assertRaisesRegex(profile.InvalidRun, "trace-export-failed"):
+                profile.export_trace(root)
+            self.assertFalse((root / "trace-summary.json").exists())
+
+    def run_recorder(self, *, finish_after=244, final_status="workload-finished", exit_early=False, save_timeout=False, export_failure=False, report_identity="synthetic-run", report_overrides=None):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
@@ -105,7 +165,7 @@ class SyntheticProfileTests(unittest.TestCase):
             if clock["now"] >= finish_after:
                 status["state"] = final_status
                 profile.write_json(root / "run-status.json", status)
-                profile.write_json(root / "report.json", {"passed": final_status != "failed", "launch": {"runID": report_identity}})
+                profile.write_json(root / "report.json", {"passed": final_status != "failed", "launch": {"runID": report_identity}, **(report_overrides or {})})
 
         def export(run_root):
             if export_failure:
@@ -140,6 +200,8 @@ class SyntheticProfileTests(unittest.TestCase):
         for kwargs, reason in (
             ({"final_status": "failed", "finish_after": 1}, "workload-failed"),
             ({"report_identity": "another-run", "finish_after": 1}, "workload-failed"),
+            ({"report_overrides": {"failure": "failed despite pass flag"}, "finish_after": 1}, "workload-failed"),
+            ({"report_overrides": {"launch": None}, "finish_after": 1}, "workload-failed"),
             ({"exit_early": True}, "recorder-ended-early"),
             ({"save_timeout": True, "finish_after": 1}, "recorder-save-failed"),
             ({"export_failure": True, "finish_after": 1}, "trace-export-failed"),

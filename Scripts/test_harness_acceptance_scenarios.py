@@ -11,6 +11,8 @@ import unittest
 from unittest import mock
 
 import acceptance_scenarios as acceptance
+from harness_fixtures import launch_manifest
+import profile_synthetic
 
 
 class AcceptanceEvidenceTests(unittest.TestCase):
@@ -225,6 +227,7 @@ class AcceptanceEvidenceTests(unittest.TestCase):
 
     def demo_report(self):
         return {"passed": True, "networkSandboxVerified": True, "world": {"mutationAttempts": 0},
+                "launch": launch_manifest(),
                 "scenario": {"mode": "browsing", "version": 1},
                 "samples": [{"checkpoint": "home.ready"}]}
 
@@ -232,6 +235,7 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             acceptance.write_json(root / "report.json", report)
+            acceptance.write_json(root / "manifest.json", launch_manifest())
             for name, content in (files or {}).items():
                 (root / name).write_text(content)
             workload_path = root / "workload.json" if workload is not None else None
@@ -288,12 +292,33 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             self.assertEqual(self.demo_result(invalid)["outcome"], "failed")
 
     def test_demo_report_must_match_workload_and_recorded_run(self):
-        report = self.demo_report() | {"launch": {"runID": "new", "source": {"revision": "a"}}}
-        for manifest in ({"runID": "old", "source": {"revision": "a"}},
-                         {"runID": "new", "source": {"revision": "b"}}):
+        report = self.demo_report()
+        for field, changed in (("runID", "22222222-2222-4222-8222-222222222222"),
+                               ("source", {**report["launch"]["source"], "revision": "b" * 40}),
+                               ("build", {**report["launch"]["build"], "configuration": "debug"}),
+                               ("engine", {**report["launch"]["engine"], "librarySHA256": "7" * 64}),
+                               ("fixture", {**report["launch"]["fixture"], "sha256": "7" * 64}),
+                               ("layout", {"forceSynchronousLayout": True})):
+            manifest = launch_manifest() | {field: changed}
             result = self.demo_result(report, files={"manifest.json": json.dumps(manifest)})
             self.assertEqual(result["failure"]["checkpoint"], "demo.identity")
         self.assertEqual(self.demo_result(report, workload={"mode": "playback"})["failure"]["checkpoint"], "demo.scenario")
+
+    def test_demo_cannot_pass_without_valid_launch_and_manifest_provenance(self):
+        for invalid in ({}, {"schemaVersion": True}, {"source": {}}, {"runID": "invalid"}):
+            with self.subTest(invalid=invalid):
+                launch = {} if not invalid else launch_manifest() | invalid
+                result = self.demo_result(self.demo_report() | {"launch": launch},
+                                          files={"manifest.json": json.dumps(launch)})
+                self.assertEqual(result["outcome"], "failed")
+                self.assertEqual([check["name"] for check in result["checkpoints"]], ["home.ready"])
+        report = self.demo_report()
+        report.pop("launch")
+        self.assertEqual(self.demo_result(report)["outcome"], "failed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            acceptance.write_json(root / "report.json", self.demo_report())
+            self.assertEqual(acceptance.demo_evidence(mock.Mock(output=root, workload=None, exit_code=0)), 1)
 
     def test_demo_keeps_completed_checkpoints_when_a_later_sample_is_malformed(self):
         result = self.demo_result(self.demo_report() | {"samples": [{"checkpoint": "home.ready"}, None]})
@@ -310,11 +335,23 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             (scripts / "swiftpm-env.sh").write_text('SDKROOT=/synthetic/sdk\nspotty_swiftc_warnings_as_errors=()\n')
             (scripts / "embed-sparkle.sh").write_text(':\n')
             (scripts / "browsing_provenance.py").write_text('')
+            (scripts / "profile_synthetic.py").write_text(
+                'import json, os, pathlib, sys\n'
+                'root = pathlib.Path(sys.argv[-1])\n'
+                '(root / "profiler-state.json").write_text(json.dumps({"schemaVersion": 1, "state": "failed", "failureCode": "session-locked"}))\n'
+                'with pathlib.Path(os.environ["DEMO_TEST_EVENTS"]).open("a") as stream:\n'
+                '    stream.write("preflight\\n")\n'
+                'sys.exit(43)\n')
             # A failed final report must fail the launcher, but cannot run during a lookup.
             (scripts / "acceptance_scenarios.py").write_text(
-                'import os, pathlib, sys\n'
+                'import json, os, pathlib, sys\n'
+                'preparing = sys.argv[1] == "prepare-demo"\n'
                 'with pathlib.Path(os.environ["DEMO_TEST_EVENTS"]).open("a") as stream:\n'
-                '    stream.write("evidence:" + sys.argv[-1] + "\\n")\n'
+                '    stream.write("prepare\\n" if preparing else "evidence:" + sys.argv[-1] + "\\n")\n'
+                'if preparing:\n'
+                '    sys.exit(44)\n'
+                'root = pathlib.Path(sys.argv[sys.argv.index("--output") + 1])\n'
+                '(root / "demo-evidence.json").write_text(json.dumps({"exitCode": int(sys.argv[-1])}))\n'
                 'sys.exit(1)\n')
             scenario = root / "scenario.json"
             scenario.write_text('{}')
@@ -328,13 +365,33 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                 path.write_text(f'#!{sys.executable}\n' + body)
                 path.chmod(0o755)
             events = root / "events.txt"
-            environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"], DEMO_TEST_EVENTS=str(events))
+            pointer = root / "run-root.txt"
+            environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                               DEMO_TEST_EVENTS=str(events), SPOTTY_BROWSING_RUN_ROOT_FILE=str(pointer))
             for key in ("SPOTTY_DEVELOPMENT_SIGNING_IDENTITY", "SPOTTY_SIGNING_IDENTITY"):
                 environment.pop(key, None)
-            result = subprocess.run(["zsh", str(scripts / "browse-synthetic.sh"), str(scenario)],
-                                    env=environment, capture_output=True, text=True, timeout=10)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(events.read_text().splitlines(), ["build", "evidence:42"], result.stderr)
+            for arguments, expected in (
+                ([str(scenario)], ["build", "evidence:42"]),
+                (["--profile", str(scenario)], ["preflight", "evidence:43"]),
+                (["--scenario", "missing.scenario"], ["prepare", "evidence:44"]),
+                ([str(root / "missing.json")], ["evidence:2"]),
+            ):
+                with self.subTest(arguments=arguments):
+                    events.write_text("")
+                    pointer.unlink(missing_ok=True)
+                    result = subprocess.run(["zsh", str(scripts / "browse-synthetic.sh"), *arguments],
+                                            env=environment, capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(events.read_text().splitlines(), expected, result.stderr)
+                    run_root = Path(pointer.read_text().strip())
+                    self.assertEqual(run_root.parent, (root / ".build/browsing-runs").resolve())
+                    self.assertTrue(run_root.is_dir())
+                    self.assertEqual(json.loads((run_root / "demo-evidence.json").read_text()),
+                                     {"exitCode": int(expected[-1].split(":")[1])})
+                    self.assertFalse((run_root / "process.json").exists())
+                    if "--profile" in arguments:
+                        codes, _ = profile_synthetic.capture_diagnostics(run_root, "left", profile_synthetic.InvalidRun("capture-incomplete"))
+                        self.assertEqual(codes[0], "left.session-locked")
 
     def test_demo_requires_sandbox_and_preserves_legacy_report(self):
         with tempfile.TemporaryDirectory() as directory:

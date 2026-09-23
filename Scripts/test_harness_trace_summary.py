@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 import xml.etree.ElementTree as ET
 
-from summarize_synthetic_trace import summarize
+from summarize_synthetic_trace import read_table, summarize
 
 
 def write_table(prefix, suffix, columns, rows):
@@ -26,6 +26,33 @@ def write_table(prefix, suffix, columns, rows):
 
 
 class TraceSummaryTests(unittest.TestCase):
+    def test_reference_chains_resolve_but_invalid_exports_fail_closed(self):
+        schema = "<schema><col><mnemonic>name</mnemonic></col></schema>"
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "trace.xml"
+            path.write_text(f'<table>{schema}<value id="a" ref="b"/><value id="b">resolved</value><row><value ref="a"/></row></table>')
+            self.assertEqual(read_table(path), [{"name": "resolved"}])
+            for body, reason in (
+                ('<value id="a" ref="a"/><row><value ref="a"/></row>', "cyclic or missing"),
+                ('<value id="a" ref="b"/><value id="b" ref="a"/><row><value ref="a"/></row>', "cyclic or missing"),
+                ('<row><value ref="missing"/></row>', "cyclic or missing"),
+                ('<value id="a">first</value><value id="a">second</value>', "ambiguous identifiers"),
+            ):
+                with self.subTest(body=body):
+                    path.write_text(f"<table>{schema}{body}</table>")
+                    with self.assertRaisesRegex(ValueError, reason):
+                        read_table(path)
+            for xml, reason in (
+                ("<table>", "Malformed exported table"),
+                ("<table><schema/></table>", "unique named columns"),
+                ("<table><schema><col/></schema></table>", "unique named columns"),
+                ("<table><schema><col><mnemonic>a</mnemonic></col><col><mnemonic>a</mnemonic></col></schema></table>", "unique named columns"),
+            ):
+                with self.subTest(xml=xml):
+                    path.write_text(xml)
+                    with self.assertRaisesRegex(ValueError, reason):
+                        read_table(path)
+
     def test_filters_other_processes_and_censored_frames_and_resolves_references(self):
         with TemporaryDirectory() as directory:
             prefix = Path(directory) / "trace"
@@ -64,3 +91,22 @@ class TraceSummaryTests(unittest.TestCase):
             write_table(prefix, "signposts", ["time", "process", "event-type", "identifier", "name"], [])
             with self.assertRaisesRegex(ValueError, "complete Demo workload"):
                 summarize(prefix)
+
+    def test_nonpositive_frame_or_hitch_duration_cannot_complete_a_trace(self):
+        for frame_duration, hitch_duration in ((0, 1), (-1, 1), (1, 0), (1, -1)):
+            with self.subTest(frame=frame_duration, hitch=hitch_duration), TemporaryDirectory() as directory:
+                prefix = Path(directory) / "trace"
+                app = "SpottyDemo (7)"
+                write_table(prefix, "signposts", ["time", "process", "event-type", "identifier", "name"], [
+                    [100, app, "Begin", "work", "Demo workload"],
+                    [200, app, "End", "work", "Demo workload"],
+                ])
+                write_table(prefix, "hitches-updates", ["process", "display", "swap-id"], [[app, "display", "a"]])
+                write_table(prefix, "hitches-frame-lifetimes", ["start", "duration", "display", "swap-id"], [
+                    [150, frame_duration, "display", "a"],
+                ])
+                write_table(prefix, "hitches", ["process", "display", "swap-id", "duration"], [
+                    [app, "display", "a", hitch_duration],
+                ])
+                with self.assertRaisesRegex(ValueError, "Expected positive application"):
+                    summarize(prefix)

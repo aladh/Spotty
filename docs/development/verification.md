@@ -44,7 +44,8 @@ replacing the published engine. Packaging and Swift checks need no Rust tools.
 
 [Script-test discovery](../../Scripts/script_tests.py) owns Python/Node naming and suite routing;
 unowned test files and empty suites fail. See [coverage enforcement](../architecture/enforcement/source-checks.md)
-when adding a suite.
+when adding a suite. [check.sh](../../Scripts/check.sh) runs harness helpers in both normal language
+scopes; unconditional Linux coverage also keeps Demo changes checked when compiled Rust is skipped.
 
 [CI enforcement](../architecture/enforcement/build-and-abi.md#ci-and-release-workflow) owns job order
 and trusted skips: documentation-only PRs skip macOS; app-only PRs may skip compiled Rust; main
@@ -90,8 +91,9 @@ network-denying sandbox, and separate `dev.spotty.demo` state under
 [standing authorization](../product/safe-testing.md#spotty-demo-standing-authorization).
 [demo.json](../../Tests/BrowsingHarness/demo.json) supplies interactive fixtures; pass another
 scenario path for a bounded workload. Invalid scenarios fail closed. Automated runs leave the Demo
-open; close it when done. [Synthetic acceptance](synthetic-acceptance.md) owns named scenarios,
-reports under `.build/browsing-runs/`, and early-failure diagnostics.
+open; close it when done. The [launcher](../../Scripts/browse-synthetic.sh) stores reports under
+`.build/browsing-runs/`; [synthetic acceptance](synthetic-acceptance.md) covers named scenarios and
+early-failure diagnostics.
 
 ### Synthetic playback and fault traces
 

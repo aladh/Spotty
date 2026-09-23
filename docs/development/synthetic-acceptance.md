@@ -73,5 +73,7 @@ This requires a logged-in macOS desktop and Accessibility permission for the inv
 Codex, without Screen Recording. Preflight reports missing permission before building or launching.
 The [public Accessibility driver](../../Scripts/synthetic_ui_smoke.swift) revalidates Demo identity
 before actions: expand Focus, open Deep Work, await the playlist, press Play then Pause, and assert
-Play is available again. Its process is bounded to 90 seconds and saves `ui-smoke.json`. Close the
-Demo after pass or failure. This proves that flow, not visual parity or live playback.
+Play is available again. Readiness waits allow 15 seconds per checkpoint within the driver's
+75-second action deadline. The [wrapper](../../Scripts/smoke-synthetic-ui.sh) bounds the driver
+process to 90 seconds; `ui-smoke.json` identifies the outcome. Close the Demo after pass or failure.
+This proves that flow, not visual parity or live playback.

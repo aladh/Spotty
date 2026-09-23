@@ -21,8 +21,16 @@ artifact independently of the app:
 
 ```bash
 SPOTTY_CHECK_SCOPE=rust ./Scripts/check.sh
-./Backend/spotty-playback/build-xcframework.sh
+./Backend/spotty-playback/build-xcframework.sh \
+  --output "$PWD/.build/local-playback/SpottyPlaybackCore.xcframework"
+SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK="$PWD/.build/local-playback/SpottyPlaybackCore.xcframework" \
+  python3 Scripts/verify.py swift
 ```
+
+`SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK` selects an existing XCFramework directory with its matching
+headers and provenance. Apply it to each local build or check that should consume the candidate;
+keep it command-scoped as above, or unset an exported override to return to the published pin.
+The [resolver and validator](../../Scripts/playback-xcframework.sh) own artifact checks.
 
 The Rust scope verifies Python playback checks, header regeneration, and producer ABI compatibility.
 [Verification](verification.md#normal-verification) owns local gate selection;

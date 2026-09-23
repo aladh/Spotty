@@ -26,41 +26,31 @@
 Generated headers do not replace signature/layout probes or memory-ownership review. Published
 consumers validate their selected artifact; the Rust lane validates the evolving producer ABI.
 
-`SpottyEngineAdapter` is the only production target with a direct dependency on the
-`SpottyPlaybackCore` binary; non-shipping boundary tests declare their own dependency for ABI checks.
-Its `PlaybackCore` implementation is internal. SwiftPM can make transitive modules visible to the
-compiler, so the [desktop import policy](source-checks.md) also forbids importing the adapter and
-binary, while compiler probes reject accidental re-exports and inferred implementation access.
-[Package.swift](../../../Package.swift) owns direct dependency changes. `SpottySessionRuntime` consumes typed adapter ports;
-`SpottyCore` consumes runtime contracts and presentation publications without re-exporting the
-engine adapter. [ADR 008](../adrs/ADR-008-headless-session-runtime.md) owns this separation.
+`SpottyEngineAdapter` is the sole production consumer of `SpottyPlaybackCore`; boundary tests depend
+on it for ABI checks. Its implementation is internal. The [desktop import policy](source-checks.md)
+and compiler probes close SwiftPM's transitive visibility, re-export, and inferred-access gaps.
+[Package.swift](../../../Package.swift) owns dependencies; [ADR 008](../adrs/ADR-008-headless-session-runtime.md)
+owns runtime ports and desktop presentation boundaries.
 
 ## CI and release workflow
 
-CI checks cover workflow presence, tool selection, cache integrity, and complete verification.
-Their executable owners are [CI](../../../.github/workflows/ci.yml) and its assertions in
-[check-ci-workflow.rb](../../../Scripts/check-ci-workflow.rb), invoked by
-[check.sh](../../../Scripts/check.sh). The `Linux domain` job builds `SpottyDomain` and runs
-`SpottyDomainTests` in a Swift container; `Playback script checks` runs the portable Python playback
-and harness suites on Linux in parallel. The single `macOS checks` runner requires both results alongside source
-policies, then serially owns compiled Rust/header verification, candidate production, Swift checks,
-the synthetic acceptance corpus, and Release compilation. [Source policies](source-checks.md) cover the syntax-only
-facets of Rust-free app scripts, workflow trust, and published-engine use; artifact validation and
-build execution remain here. The required checks include source policies, playback/harness scripts, Rust,
-Swift/architecture, synthetic acceptance, and Release compilation. Source policies and script suites run unconditionally
-in Linux jobs; the trusted classifier runs in the `policy`
-job; [ci_rust_policy.py](../../../Scripts/ci_rust_policy.py) sets `macos_needed=false` for
-docs-only PR changes, which skips the single `macos` job and with it Rust, Swift/architecture, and Release
-compilation and synthetic acceptance. Rust runs on main and on PRs outside the
-[app-only scope](../../development/verification.md#normal-verification); detection failures cannot
-authorize a skip. Swift CI uses only published engines. Candidate builds
-are selected by [input comparison](../../../Scripts/playback-candidate-needed.sh); producer validation
-and publication do not depend on app compatibility with unpublished candidates.
+[CI](../../../.github/workflows/ci.yml) and [workflow assertions](../../../Scripts/check-ci-workflow.rb)
+own tool selection, cache integrity, and complete verification. Three unconditional Linux jobs run
+source policies, domain build/tests, and playback/harness script tests. The single macOS job waits
+for all three, then runs compiled Rust/header checks, selected engine candidate builds, Swift checks,
+acceptance scenarios, and Release compilation serially.
 
-The [acceptance workflow](../../../.github/workflows/acceptance-scenarios.yml) also permits explicit
-dispatch or reusable calls. Both entry points run representative and holdout state scenarios once
-with a deadline, preserve their summaries and artifacts on failure, and require execution, summary,
-and upload success. These synthetic service checks do not establish GUI, sandbox, or live-account behavior.
+The [trusted base classifier](../../../Scripts/ci_rust_policy.py) skips macOS only for documentation-only
+PRs and can skip compiled Rust for app-only PRs. Main runs both toolchains. Unknown paths or
+classification failures cannot authorize a skip; source and script checks remain unconditional.
+Swift CI uses published engines. [Candidate selection](../../../Scripts/playback-candidate-needed.sh)
+and [publication](../../development/playback-artifacts.md#publish-a-tested-candidate) validate the
+producer independently of app compatibility with unpublished binaries.
+
+The [acceptance workflow](../../../.github/workflows/acceptance-scenarios.yml) supports dispatch and
+reusable calls. Both run representative and holdout corpora once with a deadline, retain failure
+artifacts, and require execution, summary, and upload success. These synthetic checks do not prove
+GUI, sandbox, or live-account behavior.
 
 Ordinary non-candidate PRs target five minutes on macOS; producing an XCFramework is an explicit
 exception. The Swift Debug step has a 15-minute watchdog within the candidate-capable job's

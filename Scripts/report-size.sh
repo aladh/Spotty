@@ -133,7 +133,7 @@ binary_bytes="$(stat -f %z "$binary_path")"
 archive_bytes="$(stat -f %z "$archive_path")"
 
 to_mib() {
-    awk -v bytes="$1" 'BEGIN { printf "%.2f", bytes / (1024 * 1024) }'
+    LC_ALL=C awk -v bytes="$1" 'BEGIN { printf "%.2f", bytes / (1024 * 1024) }'
 }
 
 binary_mib="$(to_mib "$binary_bytes")"
@@ -151,8 +151,11 @@ if command -v size >/dev/null 2>&1; then
     text_bytes="$(awk -F'[ \t]+' '/Segment __TEXT:/ { print $3; exit }' <<<"$size_output")"
     data_bytes="$(awk -F'[ \t]+' '/Segment __DATA:/ { print $3; exit }' <<<"$size_output")"
     linkedit_bytes="$(awk -F'[ \t]+' '/Segment __LINKEDIT:/ { print $3; exit }' <<<"$size_output")"
-    if [[ -z "$text_bytes" || -z "$data_bytes" || -z "$linkedit_bytes" ]]; then
+    if [[ ! "$text_bytes" =~ ^[0-9]+$ || ! "$data_bytes" =~ ^[0-9]+$ || ! "$linkedit_bytes" =~ ^[0-9]+$ ]]; then
         have_size_tool=0
+        text_bytes=""
+        data_bytes=""
+        linkedit_bytes=""
     fi
 else
     have_size_tool=0
@@ -215,34 +218,40 @@ fi
 
 json_path="$out_dir/size-report.json"
 
-json_number_or_null() {
-    if [[ -n "$1" ]]; then
-        printf '%s' "$1"
-    else
-        printf 'null'
-    fi
-}
+python3 - "$json_path" "$binary_path" "$binary_bytes" "$binary_mib" \
+    "$selected_xcframework" "$archive_path" "$archive_bytes" "$archive_mib" \
+    "$have_size_tool" "$text_bytes" "$data_bytes" "$linkedit_bytes" \
+    "$have_nm_tool" "$symbol_count" <<'PY'
+import json
+from pathlib import Path
+import sys
 
-cat >"$json_path" <<JSON
-{
-  "binary_path": "$binary_path",
-  "binary_bytes": $binary_bytes,
-  "binary_mib": $binary_mib,
-  "xcframework_path": "$selected_xcframework",
-  "archive_path": "$archive_path",
-  "archive_bytes": $archive_bytes,
-  "archive_mib": $archive_mib,
-  "binary_segments": {
-    "available": $([[ "$have_size_tool" -eq 1 ]] && echo true || echo false),
-    "text_bytes": $(json_number_or_null "$text_bytes"),
-    "data_bytes": $(json_number_or_null "$data_bytes"),
-    "linkedit_bytes": $(json_number_or_null "$linkedit_bytes")
-  },
-  "archive_exported_symbols": {
-    "available": $([[ "$have_nm_tool" -eq 1 ]] && echo true || echo false),
-    "count": $(json_number_or_null "$symbol_count")
-  }
+(output, binary, binary_bytes, binary_mib, framework, archive, archive_bytes, archive_mib,
+ segments_available, text, data, linkedit, symbols_available, symbols) = sys.argv[1:]
+
+def optional_number(value):
+    return int(value) if value else None
+
+report = {
+    "binary_path": binary,
+    "binary_bytes": int(binary_bytes),
+    "binary_mib": float(binary_mib),
+    "xcframework_path": framework,
+    "archive_path": archive,
+    "archive_bytes": int(archive_bytes),
+    "archive_mib": float(archive_mib),
+    "binary_segments": {
+        "available": segments_available == "1",
+        "text_bytes": optional_number(text),
+        "data_bytes": optional_number(data),
+        "linkedit_bytes": optional_number(linkedit),
+    },
+    "archive_exported_symbols": {
+        "available": symbols_available == "1",
+        "count": optional_number(symbols),
+    },
 }
-JSON
+Path(output).write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+PY
 
 echo "Wrote $json_path"

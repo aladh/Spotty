@@ -26,7 +26,7 @@ Use [CONTRIBUTING's command table](../../CONTRIBUTING.md#verification-commands) 
 focused Swift tests, language scopes, and complete gates. `SPOTTY_CHECK_SCOPE=swift` or `rust` also
 selects the corresponding scope when invoking `check.sh` directly.
 
-All scopes need Python 3. Full/Swift checks also need Ruby; full/Rust checks need the
+All scopes need Python 3.10 or newer. Full/Swift checks also need Ruby; full/Rust checks need the
 [engine toolchain](setup.md#engine-development) and pinned cbindgen. Source policies also need Ruby,
 Node.js 20+, npm, jq, and the ast-grep version in `Scripts/ast-grep/version`. Install reviewer test
 dependencies with `npm ci --ignore-scripts --prefix Scripts/agent-review-tests`.
@@ -53,7 +53,8 @@ runs both toolchains.
 
 After changing a Rust ABI declaration, run `./Scripts/generate-c-header.sh` and commit the generated
 header; never hand-edit it. Use `--check` for reproducibility and `SPOTTY_CBINDGEN` for an alternate
-pinned executable. Preserve [pointer ownership](../../Sources/SpottyPlaybackCore/AGENTS.md) and
+pinned executable path. `SPOTTY_CARGO` also takes an executable path; preflight resolves relative
+paths from the repository, matching delegated gates. Preserve [pointer ownership](../../Sources/SpottyPlaybackCore/AGENTS.md) and
 extend `Scripts/check-c-header-imports.sh` for new pointer shapes.
 
 Format Swift with `./Scripts/format-swift.sh --check` or `--write`. The `verify.py list/test` commands

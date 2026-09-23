@@ -2,8 +2,8 @@
 
 [Agent operations](../../CONTRIBUTING.md) · Run commands from the repository root.
 
-Ordinary app builds download the pinned playback binary; engine development uses the included Rust
-source.
+App builds and packaging use Xcode's SDK and Clang with the pinned playback binary; they need no
+Rust tools or cbindgen. Engine development uses the included Rust source.
 
 ## Fresh clone
 
@@ -12,11 +12,10 @@ Development requires:
 - An Apple Silicon Mac running macOS 26.2 or newer; the app's runtime target is macOS 15+.
 - Xcode 26.6 with Swift 6.3.3.
 - [ripgrep](https://github.com/BurntSushi/ripgrep) for repository verification.
-- Ruby for the Swift/full verification gate. Pinned cbindgen is required only for the Rust/full
-  source-header check. `package-app.sh`, bare `swift build`, and `compile-release-spotty.sh` do not
-  need cbindgen.
-- Python 3, used by `check.sh`, `check-source-policy.sh`, `package-app.sh`, and
-  `browse-synthetic.sh`.
+- Python 3.10 or newer for verification and helper scripts; engine artifact production needs
+  Python 3.11 or newer as described below.
+- Ruby for Swift/full verification. [Gate prerequisites](verification.md#normal-verification)
+  cover the additional source-policy and engine tools.
 - Spotify Premium only for live integration testing authorized under the
   [product contract](../product/safe-testing.md#safe-acceptance-testing).
 
@@ -39,19 +38,15 @@ Build directly with SwiftPM, or run the Swift verification scope:
 
 ```bash
 swift build --product Spotty
-SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
+python3 Scripts/verify.py swift
 ```
 
-Run [source policies](verification.md#normal-verification) separately for the complete app/source
-verification coverage; that portable check requires the pinned ast-grep CLI.
+Run [source policies](verification.md#normal-verification) separately for complete app/source
+coverage. Verification does not sign in or start playback. `verify.py preflight` inventories all
+gate tools without running them; missing Rust tools do not prevent app-only work.
 
-App builds, Swift tests, the Swift verification scope, and `package-app.sh` need the Apple SDK and
-Clang but no Rust tools or cbindgen.
-Verification does not sign in or start playback.
-
-For authenticated launches, follow [development signing](signing.md), including identity selection
-and credential recovery. See [generated local state](local-state.md) for build outputs and artwork
-regeneration.
+Follow [development signing](signing.md) for authenticated launches and credential recovery, and
+[local state](local-state.md) for build outputs and artwork regeneration.
 
 ## Engine development
 
@@ -63,6 +58,5 @@ regeneration: `cargo install cbindgen --locked --version 0.29.4`.
 
 Producing an engine artifact also requires Python 3.11 or newer for dependency-notice generation.
 
-See [build and verification](verification.md#normal-verification) for Rust checks and
-[playback binary artifacts](playback-artifacts.md#playback-binary-artifacts) for source builds, the local
-override, publication, and pin updates.
+Use [verification](verification.md#normal-verification) for Rust checks and
+[playback artifacts](playback-artifacts.md) for source builds, overrides, publication, and pin updates.

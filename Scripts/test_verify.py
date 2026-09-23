@@ -143,6 +143,49 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
         self.assertIn("Discovery only", result.stdout)
         self.assertFalse((self.root / "diagnostics").exists())
 
+    def test_preflight_resolves_override_paths_from_the_gate_working_directory(self):
+        tools = self.root / "local tools"
+        tools.mkdir()
+        for name, variable in (
+            ("cargo", "SPOTTY_CARGO"), ("cbindgen", "SPOTTY_CBINDGEN"),
+            ("ast-grep", "SPOTTY_AST_GREP"),
+        ):
+            tool = tools / name
+            shutil.copy2(self.root / "swift", tool)
+            self.environment[variable] = str(tool.relative_to(self.root))
+        result, calls = self.invoke("preflight")
+        for name in ("cargo", "cbindgen", "ast-grep"):
+            self.assertIn(f"{name}: {tools / name}", result.stdout)
+        self.assertEqual(calls, [])
+
+    def test_preflight_does_not_find_path_only_overrides_on_path(self):
+        tools = self.root / "path-tools"
+        tools.mkdir()
+        for name, variable in (("cargo", "SPOTTY_CARGO"), ("cbindgen", "SPOTTY_CBINDGEN")):
+            shutil.copy2(self.root / "swift", tools / name)
+            self.environment[variable] = name
+        self.environment["PATH"] = str(tools) + os.pathsep + self.environment["PATH"]
+        result, calls = self.invoke("preflight")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("cargo: missing", result.stdout)
+        self.assertIn("cbindgen: missing", result.stdout)
+        self.assertEqual(calls, [])
+
+    def test_preflight_resolves_relative_path_entries_from_the_repository(self):
+        tools = self.root / "path-tools"
+        tools.mkdir()
+        for name, variable in (
+            ("cargo", "SPOTTY_CARGO"), ("cbindgen", "SPOTTY_CBINDGEN"),
+            ("ast-grep", "SPOTTY_AST_GREP"),
+        ):
+            shutil.copy2(self.root / "swift", tools / name)
+            self.environment.pop(variable, None)
+        self.environment["PATH"] = "path-tools"
+        result, calls = self.invoke("preflight")
+        for name in ("cargo", "cbindgen", "ast-grep"):
+            self.assertIn(f"{name}: {tools / name}", result.stdout)
+        self.assertEqual(calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

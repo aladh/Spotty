@@ -4,15 +4,6 @@ use crate::*;
 /// How often the playing-event waits re-read [`PlayingEventStamp`].
 pub(crate) const PLAYING_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
-/// How long `resume_playback` gives `Spirc::play` before Swift may issue load fallbacks.
-/// `play` only queues a command, so this is the window in which an accepted one produces audio.
-pub(crate) const PLAY_COMMAND_PLAYING_TIMEOUT: Duration = Duration::from_millis(500);
-
-/// How long each seek-capable user-resume load waits for a Playing event before Swift may
-/// try the next target. Inside a reconnect's rehydration window a load returns as soon as
-/// it is queued; [`REHYDRATION_WINDOW`] is the only Playing wait there.
-pub(crate) const RESUME_LOAD_PLAYING_TIMEOUT: Duration = Duration::from_secs(2);
-
 /// How long a reconnect keeps readiness unpublished after publishing `resume_pending`: the
 /// single Playing wait for Swift's queued rehydration load, sized as the previous engine-side
 /// three-second wait plus Swift dispatch. A timeout gives up on the wait, not on the
@@ -135,7 +126,8 @@ pub(crate) fn open_rehydration_window_locked(generation: u64) -> u64 {
 /// calling thread, immediately before the load, so Swift's own pre-checks are an early-out
 /// rather than the guarantee.
 pub(crate) fn rehydration_load_is_current(generation: u64) -> bool {
-    SESSION_GENERATION.load(Ordering::SeqCst) == generation
+    generation != 0
+        && SESSION_GENERATION.load(Ordering::SeqCst) == generation
         && REHYDRATION_WINDOW_GENERATION.load(Ordering::SeqCst) == generation
         && with_connection(|c| c.resume_pending)
 }
@@ -143,6 +135,7 @@ pub(crate) fn rehydration_load_is_current(generation: u64) -> bool {
 /// Records a closed-channel load result for the window it belongs to. A load stamped with a
 /// generation other than the open window's owner is stale and is ignored here (its caller
 /// still sees `ERROR_NEEDS_REINIT`).
+#[cfg(test)]
 pub(crate) fn note_load_needs_reinit(load_generation: u64) {
     with_generation_mutation(|| note_load_needs_reinit_locked(load_generation));
 }
@@ -204,28 +197,6 @@ pub(crate) fn ensure_active_for_playback(spirc: &Arc<Spirc>) -> Result<(), i32> 
     Ok(())
 }
 
-/// Whether the Playing-event sequence has advanced past the value captured before a command.
-pub(crate) fn playing_event_advanced(previous_seq: u64) -> bool {
-    playing_event_stamp().sequence > previous_seq
-}
-
-/// Waits for the Player to report playback, blocking the calling thread.
-///
-/// For the synchronous FFI entry points, which are called on Swift's own threads. Inside the
-/// runtime use the async twin below instead.
-pub(crate) fn wait_for_playing_event(previous_seq: u64, timeout: Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        if playing_event_advanced(previous_seq) {
-            return true;
-        }
-        if std::time::Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(PLAYING_EVENT_POLL_INTERVAL);
-    }
-}
-
 /// Queues one `LoadRequest`. `None` means try the next fallback; a closed channel is terminal.
 pub(crate) fn issue_load_target(
     spirc: &Spirc,
@@ -249,25 +220,10 @@ pub(crate) fn issue_load_target(
     }
 }
 
-/// One seek-capable load for Swift `ResumeLoadPlan` targets, for user resume and for
-/// reconnect rehydration alike.
-///
-/// `rehydrating_generation == 0` is a user-resume load: each target is given the resume-load
-/// playing timeout, and a timeout lets Swift try the next fallback. A nonzero value names the
-/// engine session generation Swift is rehydrating. The engine is the enforcement point for
-/// that token: the load runs only if that generation is current and its rehydration window
-/// is still open, so a rehydration queued behind another command in Swift cannot land in a
-/// later session or after the window closed. A rehydration load returns `0` as soon as Spirc
-/// queued it: the reconnect's window is the one Playing wait, and a queued context load must
-/// not be superseded by a single-track fallback merely because a cold session took longer
-/// than the per-target timeout to start.
-///
-/// `Spirc::load` only hands the command to a channel, so `Ok` means "queued", not
-/// "accepted", and `SpircTask` drops `Load` while its connect state is inactive. Activity is
-/// therefore established by `ensure_active_for_playback` here (or by `build_player_async`
-/// before it publishes `resume_pending`), never inferred from a queued command. This used to
-/// be inferred, which turned a discarded load into an apparent takeover: Swift believed
-/// Spotty was the active device and routed every later command to a player ignoring them.
+/// Queues one Swift-ordered reconnect target while its engine generation owns an open
+/// rehydration window. The reconnect has already activated Spirc and holds readiness until
+/// matching Playing evidence arrives or its window expires. Returning 0 means queued, so a
+/// cold session cannot trigger a second fallback merely because playback takes time to start.
 pub(crate) fn load_at_position(
     uri: String,
     track_hint: Option<String>,
@@ -275,27 +231,12 @@ pub(crate) fn load_at_position(
     from_context: bool,
     rehydrating_generation: u64,
 ) -> i32 {
-    if uri.is_empty() {
-        return ERROR_GENERAL;
-    }
-    let rehydrating = rehydrating_generation != 0;
-    if rehydrating && !rehydration_load_is_current(rehydrating_generation) {
-        debug!(
-            "Rehydration load for generation {} declined: window closed or session moved on",
-            rehydrating_generation
-        );
+    if uri.is_empty() || !rehydration_load_is_current(rehydrating_generation) {
         return ERROR_GENERAL;
     }
     if let Err(e) = require_session_connected() {
         return e;
     }
-    // Stamped before the Spirc handle is taken, so a closed channel found below is attributed
-    // to the generation this load actually ran against.
-    let load_generation = if rehydrating {
-        rehydrating_generation
-    } else {
-        SESSION_GENERATION.load(Ordering::SeqCst)
-    };
     let Some(spirc) = current_spirc("Load") else {
         return ERROR_GENERAL;
     };
@@ -304,11 +245,6 @@ pub(crate) fn load_at_position(
     } else {
         SelectionOrder::Supplied
     });
-    if !rehydrating {
-        if let Err(e) = ensure_active_for_playback(&spirc) {
-            return e;
-        }
-    }
     let target = if from_context {
         ResumeLoadTarget::Context {
             uri,
@@ -318,70 +254,29 @@ pub(crate) fn load_at_position(
     } else {
         ResumeLoadTarget::Track { uri, position_ms }
     };
-    let confirmation_target = target.clone();
-    let issue_result = if rehydrating {
-        // `ensure_active_for_playback` above may have re-entered Swift and allowed teardown to
-        // start. Revalidate generation/window ownership and the concrete Spirc immediately before
-        // sending the command. The short synchronous gate excludes the generation invalidation
-        // point for the send itself; it never spans a callback or an await.
-        let Some(result) = with_current_generation_mutation(rehydrating_generation, || {
-            if !rehydration_load_is_current(rehydrating_generation) {
-                return Err(ERROR_GENERAL);
-            }
-            let Some(current_spirc) = current_spirc("Load") else {
-                return Err(ERROR_GENERAL);
-            };
-            if !Arc::ptr_eq(&spirc, &current_spirc) {
-                return Err(ERROR_GENERAL);
-            }
-            if !is_active_device() {
-                return Err(ERROR_NOT_CONNECTED);
-            }
-            let result = issue_load_target(&spirc, target, policy, load_generation);
-            if result == Some(ERROR_NEEDS_REINIT) {
-                note_load_needs_reinit_locked(load_generation);
-            }
-            Ok(result)
-        }) else {
+
+    // Revalidate ownership and the concrete Spirc immediately before sending. This short
+    // synchronous gate excludes generation invalidation and never spans a callback or await.
+    with_current_generation_mutation(rehydrating_generation, || {
+        if !rehydration_load_is_current(rehydrating_generation) {
+            return ERROR_GENERAL;
+        }
+        let Some(current_spirc) = current_spirc("Load") else {
             return ERROR_GENERAL;
         };
-        match result {
-            Ok(result) => result,
-            Err(error) => return error,
+        if !Arc::ptr_eq(&spirc, &current_spirc) {
+            return ERROR_GENERAL;
         }
-    } else {
-        with_current_generation_mutation(load_generation, || {
-            issue_load_target(&spirc, target, policy, load_generation)
-        })
-        .flatten()
-    };
-
-    match issue_result {
-        Some(0) => {
-            if rehydrating {
-                debug!("Rehydration load queued; the reconnect window waits for Playing");
-                0
-            } else if wait_for_load_observation(
-                load_generation,
-                &confirmation_target,
-                RESUME_LOAD_PLAYING_TIMEOUT,
-            ) {
-                0
-            } else {
-                ERROR_GENERAL
-            }
+        if !is_active_device() {
+            return ERROR_NOT_CONNECTED;
         }
-        Some(ERROR_NEEDS_REINIT) => {
-            // Reported to the caller as usual, and also to a reconnect that may be holding
-            // readiness open for this very load: its Spirc is already dead.
-            if !rehydrating {
-                note_load_needs_reinit(load_generation);
-            }
-            ERROR_NEEDS_REINIT
+        let result = issue_load_target(&spirc, target, policy, rehydrating_generation);
+        if result == Some(ERROR_NEEDS_REINIT) {
+            note_load_needs_reinit_locked(rehydrating_generation);
         }
-        Some(code) => code,
-        None => ERROR_GENERAL,
-    }
+        result.unwrap_or(ERROR_GENERAL)
+    })
+    .unwrap_or(ERROR_GENERAL)
 }
 
 /// Publishes the accepted local pause so Swift does not keep interpolating time.
@@ -408,89 +303,4 @@ pub(crate) fn pause_playback() -> i32 {
         publish_accepted_local_pause();
         Ok(())
     })
-}
-
-/// Resumes playback: activate, `play()`, then return so Swift can issue seek-capable
-/// load fallbacks. Reconnect rehydration uses the same Swift targets through
-/// [`load_at_position`] while `build_player_async` holds readiness open.
-pub(crate) fn resume_playback() -> i32 {
-    debug!("spotty_playback_resume called");
-    if let Err(e) = require_session_connected() {
-        return e;
-    }
-
-    // Read the playing flag and claim the resume slot together. Separately, a Playing event
-    // landing between the two let a second resume claim the slot and restart the track.
-    // A resume already working is what this caller wanted, so joining it reports success
-    // rather than starting a second one.
-    enum ResumeClaim {
-        AlreadyPlaying,
-        AlreadyResuming,
-        Claimed,
-    }
-    let claim = with_engine(|engine| {
-        if engine.is_playing() {
-            ResumeClaim::AlreadyPlaying
-        } else if engine.claim_resume() {
-            ResumeClaim::Claimed
-        } else {
-            ResumeClaim::AlreadyResuming
-        }
-    });
-    match claim {
-        ResumeClaim::AlreadyPlaying => return 0,
-        ResumeClaim::AlreadyResuming => {
-            debug!("Resume already in progress");
-            return 0;
-        }
-        ResumeClaim::Claimed => {}
-    }
-    let _resuming = ResumeGuard;
-
-    let Some(spirc) = current_spirc("Resume") else {
-        return ERROR_GENERAL;
-    };
-
-    // Activation is a precondition, not an optimization. `SpircTask` matches
-    // `_ if !self.connect_state.is_active()` ahead of every transport command, so `Play`,
-    // `Load`, `Next`, `Prev`, `Shuffle` and `SetPosition` are discarded with a warning while
-    // inactive — the whole resume path below, load fallback included, would be dropped and
-    // nothing would play. Waking from sleep lands here every time: the sleep teardown shuts
-    // Spirc down, librespot answers with `SessionDisconnected`, and its handler clears the
-    // active flag.
-    if let Err(e) = ensure_active_for_playback(&spirc) {
-        return e;
-    }
-
-    let play_seq_before = playing_event_stamp().sequence;
-    if let Err(e) = spirc.play() {
-        return spirc_error("Resume", &e);
-    }
-
-    if wait_for_playing_event(play_seq_before, PLAY_COMMAND_PLAYING_TIMEOUT) {
-        return 0;
-    }
-
-    debug!("Resume play() produced no Playing event within timeout; Swift may load fallbacks");
-    ERROR_GENERAL
-}
-
-/// Bounded FFI wait for this generation's dispatched load target, never any Playing event.
-fn wait_for_load_observation(
-    generation: u64,
-    target: &ResumeLoadTarget,
-    timeout: Duration,
-) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        if load_observation_confirmed(generation, Some(target)) {
-            return true;
-        }
-        if SESSION_GENERATION.load(Ordering::SeqCst) != generation
-            || std::time::Instant::now() >= deadline
-        {
-            return false;
-        }
-        std::thread::sleep(PLAYING_EVENT_POLL_INTERVAL);
-    }
 }

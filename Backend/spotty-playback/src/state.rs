@@ -103,9 +103,7 @@ pub(crate) struct EngineGeneration {
     /// task is ever awaited while holding this lock.
     pub(crate) tasks: Option<Vec<JoinHandle<()>>>,
     /// Local playing flag. `true` only after `PlayerEvent::Playing`. `Spirc::load` `Ok` means
-    /// the command was queued, not that audio started, so the play commands must not set it:
-    /// `resume_playback` returns success without issuing play or its fallback whenever this
-    /// flag is already set.
+    /// the command was queued, not that audio started, so the play commands must not set it.
     ///
     /// Private on purpose. The only way it becomes `true` is [`EngineGeneration::note_playing_event`],
     /// which is inseparable from publishing a Playing event — the compiler now enforces what the
@@ -113,15 +111,9 @@ pub(crate) struct EngineGeneration {
     /// assert about the literal `IS_PLAYING.store(true, ...)` spelling.
     is_playing: bool,
     playing_event: PlayingEventStamp,
-    /// Set while a `spotty_playback_resume` is working, so only one runs at a time.
-    ///
-    /// Resuming is not instantaneous: `Spirc::play` only queues a command, then that export
-    /// waits briefly for a `Playing` event. Swift `RustPlaybackEngine` then iterates
-    /// `ResumeLoadPlan` targets through `spotty_playback_load` (reconnect rehydration issues the
-    /// same targets inside `build_player_async`'s window). `PlaybackCoordinator` serializes that
-    /// whole `execute(.resume)` so the app path does not stack play-then-load. This flag still
-    /// covers overlapping C `spotty_playback_resume` calls. The playing flag does not cover the
-    /// gap: it stays false until the first sequence actually produces audio.
+    /// Claimed by observed resume until restoration and Playing confirmation settle.
+    /// The generation-owned guard releases it; overlapping resumes return the busy result.
+    /// The playing flag cannot cover this interval because audio has not started yet.
     resuming: bool,
     pub(crate) observed_resume: ObservedResumeState,
     pub(crate) shuffle: bool,
@@ -378,15 +370,6 @@ pub(crate) fn replace_playing_event_stamp_for_test(stamp: PlayingEventStamp) {
 #[cfg(test)]
 pub(crate) fn set_engine_playing_for_test(is_playing: bool) {
     with_engine(|engine| engine.set_playing_for_test(is_playing));
-}
-
-/// Clears the resume claim however `spotty_playback_resume` returns.
-pub(crate) struct ResumeGuard;
-
-impl Drop for ResumeGuard {
-    fn drop(&mut self) {
-        with_engine(|engine| engine.release_resume());
-    }
 }
 
 /// Process-lifetime control callback registry.

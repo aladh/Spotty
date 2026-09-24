@@ -344,7 +344,7 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
     if !claimed {
         return ERROR_RESUME_BUSY;
     }
-    // Unlike the legacy resume guard, a retired call must not release a replacement's claim.
+    // A retired call must not release a replacement generation's claim.
     struct ObservedResumeGuard {
         generation: u64,
         track_uri: String,

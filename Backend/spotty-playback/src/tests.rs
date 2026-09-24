@@ -156,23 +156,24 @@ fn a_paused_local_player_is_not_resumed() {
 }
 
 #[test]
-fn load_at_position_rejects_an_empty_uri_before_session_checks() {
-    assert_eq!(
-        load_at_position(String::new(), None, 0, false, 0),
-        ERROR_GENERAL
-    );
-    assert_eq!(
-        load_at_position(String::new(), Some("spotify:track:x".into()), 10, true, 0),
-        ERROR_GENERAL
-    );
-}
-
-#[test]
 fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window() {
     let _guard = lock_global_state();
     let previous_generation = SESSION_GENERATION.load(Ordering::SeqCst);
-    let previous_pending = with_connection(|c| std::mem::replace(&mut c.resume_pending, false));
+    let previous_pending = with_connection(|c| std::mem::replace(&mut c.resume_pending, true));
+    let previous_window = REHYDRATION_WINDOW_GENERATION.load(Ordering::SeqCst);
 
+    set_session_generation_for_test(0);
+    let _ = open_rehydration_window(0);
+    assert!(
+        !rehydration_load_is_current(0),
+        "zero is not a session owner"
+    );
+    assert_eq!(
+        load_at_position("spotify:track:x".into(), None, 0, false, 0),
+        ERROR_GENERAL
+    );
+
+    with_connection(|c| c.resume_pending = false);
     set_session_generation_for_test(11);
     let _ = open_rehydration_window(11);
     assert!(
@@ -182,6 +183,20 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
 
     with_connection(|c| c.resume_pending = true);
     assert!(rehydration_load_is_current(11));
+    let previous_connected =
+        with_connection(|c| std::mem::replace(&mut c.session_connected, false));
+    // Empty targets fail before session admission, even with a valid owner and window.
+    for from_context in [false, true] {
+        assert_eq!(
+            load_at_position(String::new(), None, 10, from_context, 11),
+            ERROR_GENERAL
+        );
+    }
+    assert_eq!(
+        load_at_position("spotify:track:x".into(), None, 10, false, 11),
+        ERROR_NOT_CONNECTED
+    );
+    with_connection(|c| c.session_connected = previous_connected);
     assert!(
         !rehydration_load_is_current(10),
         "a load for an older session is stale"
@@ -201,6 +216,7 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
 
     with_connection(|c| c.resume_pending = previous_pending);
     set_session_generation_for_test(previous_generation);
+    REHYDRATION_WINDOW_GENERATION.store(previous_window, Ordering::SeqCst);
 }
 
 fn take_owned_c_string(ptr: *mut std::os::raw::c_char) -> Option<String> {
@@ -319,18 +335,6 @@ fn rehydration_window_reports_playing_reinit_or_timeout() {
 #[test]
 fn connection_state_starts_without_an_open_rehydration_window() {
     assert!(!ConnectionState::default().resume_pending);
-}
-
-#[test]
-fn playing_event_waits_observe_sequence_advances_and_timeouts() {
-    let _guard = lock_global_state();
-    let previous = playing_event_stamp().sequence;
-    publish_playing_event(0);
-    assert!(playing_event_advanced(previous));
-    assert!(wait_for_playing_event(previous, Duration::ZERO));
-    let current = playing_event_stamp().sequence;
-    assert!(!playing_event_advanced(current));
-    assert!(!wait_for_playing_event(current, Duration::ZERO));
 }
 
 #[test]
@@ -836,11 +840,6 @@ fn exported_c_function_signatures() -> Vec<ExportedCFunctionSignature> {
         "void (QueueCallback)"
     );
     signature!(
-        spotty_playback_resume,
-        extern "C" fn() -> i32,
-        "SpottyPlaybackResult (void)"
-    );
-    signature!(
         spotty_playback_resume_observed,
         extern "C" fn(*const c_char, SpottyNullableCString, u32, u64) -> i32,
         "SpottyPlaybackResult (const char *, const char *, uint32_t, uint64_t)"
@@ -921,16 +920,9 @@ fn parse_abi_signature_fixture(fixture: &str) -> Vec<ExportedCFunctionSignature>
     signatures
 }
 
-/// Compile-time ABI contract. The release archive is also checked with `nm`; the assignments
-/// make Rust signature drift fail in the fast test suite before reaching the linker check.
-#[test]
-fn exported_c_function_signatures_are_stable() {
-    let signatures = exported_c_function_signatures();
-    assert_eq!(signatures.len(), 38);
-}
-
 /// The checked-in C fixture is compared to the header by `Scripts/check.sh`; this Rust-side
-/// assertion keeps its C spellings paired with the type-checked `extern "C"` definitions above.
+/// assertion keeps its complete symbol set and C spellings paired with the type-checked
+/// `extern "C"` definitions above. The release archive is also checked with `nm`.
 #[test]
 fn exported_c_function_signatures_match_fixture() {
     let fixture = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/abi-signatures.txt"));

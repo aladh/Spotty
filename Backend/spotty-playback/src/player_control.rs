@@ -163,23 +163,13 @@ pub extern "C" fn spotty_playback_pause() -> SpottyPlaybackResult {
     ffi_command("spotty_playback_pause", pause_playback)
 }
 
-/// Resumes playback by activating the local device and issuing `play()`. If no Playing event
-/// arrives, Swift issues seek-capable load fallbacks through [`spotty_playback_load`]. Reconnect
-/// rehydration issues the same Swift targets while the connection snapshot reports
-/// `resume_pending`.
-#[no_mangle]
-pub extern "C" fn spotty_playback_resume() -> SpottyPlaybackResult {
-    ffi_command("spotty_playback_resume", resume_playback)
-}
-
-/// Loads a context or single track at `position_ms`.
+/// Rehydrates a context or single track at `position_ms` after a reconnect.
 ///
-/// `rehydrating_generation == 0` is a user-resume load: it waits briefly for a Playing event.
-/// A nonzero value names the engine session generation being rehydrated after a reconnect: the
-/// engine runs the load only if that generation is current and its `resume_pending` window is
-/// still open, and returns 0 as soon as the load is queued (the window is the only Playing wait).
-/// Otherwise it returns an ordinary failure without touching the session. Empty `track_hint` is
-/// a valid context hint; `uri` must be non-empty.
+/// `rehydrating_generation` must name a nonzero current engine session generation whose
+/// `resume_pending` window is still open. Returns 0 as soon as the load is queued; the reconnect
+/// window owns Playing confirmation. A missing, stale, or closed generation returns an ordinary
+/// failure without touching the session. Empty `track_hint` is a valid context hint; `uri` must
+/// be non-empty. User resume goes through `spotty_playback_resume_observed`.
 ///
 /// # Parameters
 /// - `uri`: Context or track URI.
@@ -338,24 +328,9 @@ pub(crate) async fn cleanup_player_globals() {
     // Belongs to the session being torn down. Surviving a logout would let a resume seek to
     // an offset from the previous lifecycle, or another account's playback.
     RESUME_POSITION_MS.store(0, Ordering::SeqCst);
-    // What that offset is an offset *into*, and the same argument applies with more at stake.
-    // Resume loads use `CURRENT_CONTEXT_URI` with `CURRENT_TRACK_URI` as the track hint,
-    // and nothing after a login rewrites them until playback establishes something new:
-    // `update_current_context_uri` ignores empty values, and `set_current_track_uri` only runs
-    // from player events. So pressing play as a freshly logged-in account reaches an activated
-    // Spirc with no queue, `play()` produces no `Playing` event, and the fallback loads the
-    // previous account's context — with its position, if this line's neighbour above had not
-    // already been cleared. Reachable through the ordinary control path: with nobody active,
-    // `sendTransportCommand` takes the Web API 404 and falls back to local
-    // `spotty_playback_resume` plus Swift `ResumeLoadPlan` loads from these sticky URIs
-    // (read through `spotty_playback_get_resume_*`). Reconnect rehydration issues the same
-    // Swift targets while `build_player_async` publishes `resume_pending`.
-    //
-    // Only a full cleanup clears them. The wake and reconnect paths run
-    // `do_reconnect_cleanup`, which deliberately leaves playback state alone so the
-    // rehydrating load has something to reload; this function runs on logout and on an
-    // explicit rebuild, after which Rust has no track or context loaded — which is what Swift
-    // already assumes when `performInitialization` nils its own `currentTrackUri`.
+    // Rehydration reads these sticky identities with the saved position. Full cleanup must
+    // clear all three so a later account cannot reload this account's context or track.
+    // Reconnect uses `do_reconnect_cleanup`, which retains them for the same account.
     *CURRENT_TRACK_URI.lock().unwrap_or_else(|e| e.into_inner()) = None;
     *CURRENT_CONTEXT_URI
         .lock()

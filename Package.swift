@@ -8,8 +8,8 @@ private let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathCompon
 // BEGIN GENERATED PLAYBACK ARTIFACT PIN. Run Backend/spotty-playback/update-artifact-pin.sh
 // after publishing a new immutable XCFramework. This is the app dependency pin.
 private let generatedPlaybackArtifactURL =
-    "https://github.com/aladh/Spotty/releases/download/playback-v0.1.13/SpottyPlaybackCore.xcframework.zip"
-private let generatedPlaybackArtifactChecksum = "02d4f10cf9aaf8aada151233102e9e7cd13b02b89b6a59f40f443d6a2152f30f"
+    "https://github.com/aladh/Spotty/releases/download/playback-v0.1.14/SpottyPlaybackCore.xcframework.zip"
+private let generatedPlaybackArtifactChecksum = "131c9df24a5f28136fa1738143cec580dcb890b882330fd263cf4ed5dff70459"
 // END GENERATED PLAYBACK ARTIFACT PIN
 
 private func pathRelativeToPackageRoot(_ url: URL) -> String {

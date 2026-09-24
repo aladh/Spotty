@@ -168,7 +168,13 @@ def emit_diagnostic(message: str, log_file) -> None:
     line = (message + "\n").encode(errors="replace")
     for sink in (sys.stdout, log_file):
         try:
-            os.write(sink.fileno(), line)
+            descriptor = sink.fileno()
+            remaining = memoryview(line)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    break
+                remaining = remaining[written:]
         except (OSError, ValueError):
             pass
 

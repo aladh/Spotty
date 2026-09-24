@@ -158,6 +158,35 @@ class SwiftTestWatchdogTests(unittest.TestCase):
         self.assertEqual((diagnostics / "fixture-repeat-1.log").stat().st_size, 4096)
         self.assertNotIn("Traceback", result.stdout)
 
+    def test_diagnostic_short_writes_preserve_each_available_sink(self):
+        message = "sampler detail é\n" * 1024
+        expected = (message + "\n").encode()
+        for stdout_chunk in (7, 0):
+            with self.subTest(stdout_chunk=stdout_chunk):
+                log_path = self.diagnostics() / "short-writes.log"
+                program = (
+                    "import sys\n"
+                    f"sys.path.insert(0, {str(SCRIPT.parent)!r})\n"
+                    "import swift_test_watchdog as watchdog\n"
+                    "real_write = watchdog.os.write\n"
+                    "def short_write(fd, data):\n"
+                    f"    limit = {stdout_chunk} if fd == sys.stdout.fileno() else 11\n"
+                    "    return real_write(fd, data[:limit])\n"
+                    "watchdog.os.write = short_write\n"
+                    f"with open({str(log_path)!r}, 'wb') as log:\n"
+                    f"    watchdog.emit_diagnostic({message!r}, log)\n"
+                )
+                result = subprocess.run(
+                    [sys.executable, "-B", "-c", program], capture_output=True, timeout=5,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                stdout_expected = expected if stdout_chunk else b""
+                self.assertEqual(len(result.stdout), len(stdout_expected))
+                self.assertEqual(result.stdout, stdout_expected)
+                logged = log_path.read_bytes()
+                self.assertEqual(len(logged), len(expected))
+                self.assertEqual(logged, expected)
+
     def test_second_interrupt_during_cleanup_cannot_strand_command(self):
         for interrupt in (signal.SIGINT, signal.SIGTERM):
             with self.subTest(interrupt=interrupt):

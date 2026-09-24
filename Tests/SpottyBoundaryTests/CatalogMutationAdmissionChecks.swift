@@ -103,6 +103,30 @@ struct CatalogMutationAdmissionTests {
         #expect(await transport.mutations.count == 1)
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func anUnacknowledgedWriteRemainsUncertainWithoutReplay(removal: Bool, unrelatedSuccess: Bool) async {
+        let field = removal ? "addItemsToPlaylist" : "removeItemsFromPlaylist"
+        let type = removal ? "AddItemsToPlaylistPayload" : "RemoveItemsFromPlaylistPayload"
+        let body = unrelatedSuccess ? "{\"data\":{\"\(field)\":{\"__typename\":\"\(type)\"}}}" : "{}"
+        let transport = PlaylistAdmissionTransport(mutationResponse: Data(body.utf8))
+        let gateway = SpotifyCatalogGateway(api: mutationAdmissionAPI(transport: transport.send))
+
+        do {
+            if removal {
+                try await gateway.removeFromPlaylist(
+                    playlistId: "owned", uids: ["known"], authorization: try mutationAuthorization())
+            } else {
+                try await gateway.addToPlaylist(
+                    playlistId: "owned", trackUris: ["spotify:track:added"], authorization: try mutationAuthorization())
+            }
+            Issue.record("An unacknowledged write must not report success")
+        } catch {
+            #expect(error as? PlaylistMutationFailure == .failed)
+        }
+
+        #expect(await transport.mutations.count == 1)
+    }
+
     @Test(arguments: [false, true])
     func aForeignOwnerCannotDispatchAPlaylistWrite(removal: Bool) async {
         let transport = PlaylistAdmissionTransport(ownerURI: "spotify:user:someone-else")
@@ -272,6 +296,7 @@ private actor PlaylistAdmissionTransport {
     private let uids: [String]
     private let pageSize: Int
     private let rejectMutations: Bool
+    private let mutationResponse: Data?
     private(set) var operations: [String] = []
     private(set) var mutations: [String] = []
     private(set) var playlistOffsets: [Int] = []
@@ -279,12 +304,13 @@ private actor PlaylistAdmissionTransport {
 
     init(
         ownerURI: String = "spotify:user:listener", uids: [String] = ["known"], pageSize: Int = .max,
-        rejectMutations: Bool = false
+        rejectMutations: Bool = false, mutationResponse: Data? = nil
     ) {
         self.ownerURI = ownerURI
         self.uids = uids
         self.pageSize = pageSize
         self.rejectMutations = rejectMutations
+        self.mutationResponse = mutationResponse
     }
 
     func setProfileURI(_ uri: String) { profileURI = uri }
@@ -296,6 +322,7 @@ private actor PlaylistAdmissionTransport {
     private func response(for request: URLRequest) throws -> (Data, URLResponse) {
         let probe = try JSONDecoder().decode(Request.self, from: request.httpBody ?? Data())
         operations.append(probe.operationName)
+        let isMutation = probe.operationName == "addToPlaylist" || probe.operationName == "removeFromPlaylist"
         let payload: [String: Any]
         switch probe.operationName {
         case "profileAttributes":
@@ -337,7 +364,7 @@ private actor PlaylistAdmissionTransport {
             throw HarnessFailure.unavailable
         }
         return (
-            try JSONSerialization.data(withJSONObject: payload),
+            try (isMutation ? mutationResponse : nil) ?? JSONSerialization.data(withJSONObject: payload),
             HTTPURLResponse(
                 url: request.url ?? URL(string: "https://example.invalid/")!,
                 statusCode: 200,

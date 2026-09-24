@@ -140,32 +140,28 @@ nonisolated struct PathfinderPlaylistTrack: Decodable, Sendable {
 // MARK: - Mutations
 
 /// Playlist writes report success through `__typename`, not the HTTP status alone.
-///
-/// The three operations answer under three different fields, and only one is ever filled in.
 nonisolated struct PathfinderMutationResponse: Decodable, Sendable {
-    struct Payload: Decodable, Sendable {
-        let addItemsToPlaylist: PathfinderMutationResult?
-        let removeItemsFromPlaylist: PathfinderMutationResult?
-        let moveItemsInPlaylist: PathfinderMutationResult?
+    enum Success: String, Sendable {
+        case added = "AddItemsToPlaylistPayload"
+        case removed = "RemoveItemsFromPlaylistPayload"
+        // Recognize an unrelated move acknowledgement without treating it as a rejection.
+        case moved = "MoveItemsInPlaylistPayload"
+    }
 
-        var result: PathfinderMutationResult? {
-            addItemsToPlaylist ?? removeItemsFromPlaylist ?? moveItemsInPlaylist
+    struct Result: Decodable, Sendable {
+        let typename: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case typename = "__typename"
         }
     }
 
-    let data: Payload?
-
-    /// The names Spotify returns when the write actually happened, measured on 2026-08-13.
-    private static let successTypes: Set<String> = [
-        "AddItemsToPlaylistPayload",
-        "RemoveItemsFromPlaylistPayload",
-        "MoveItemsInPlaylistPayload",
-    ]
-
-    /// Nil when the mutation succeeded, otherwise what went wrong.
-    var failure: String? {
-        PathfinderMutationResult.failure(data?.result, unless: Self.successTypes)
+    struct Payload: Decodable, Sendable {
+        let addItemsToPlaylist: Result?
+        let removeItemsFromPlaylist: Result?
     }
+
+    let data: Payload?
 }
 
 /// Where an added or moved item lands.

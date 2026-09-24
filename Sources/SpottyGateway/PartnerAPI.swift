@@ -72,36 +72,6 @@ private nonisolated struct PathfinderErrorEnvelope: Decodable {
     let errors: [Failure]?
 }
 
-/// What a playlist write answers with.
-///
-/// **A rejected mutation arrives as HTTP 200**, naming the failure in a `__typename` rather than
-/// in a status code — `{"addItemsToPlaylist":{"__typename":"NotFound"}}` for a playlist that does
-/// not exist. A client checking only the status would record the write as having happened and
-/// never roll back its optimistic update. So success is recognised by name, and anything else is
-/// a failure.
-nonisolated struct PathfinderMutationResult: Decodable, Sendable {
-    let typename: String?
-    let message: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case typename = "__typename"
-        case message
-    }
-
-    /// Nil when the mutation succeeded, otherwise what went wrong.
-    ///
-    /// Takes an optional because a response that named no result at all is itself a failure —
-    /// an absent payload is not a write that happened.
-    static func failure(_ result: Self?, unless successTypes: Set<String>) -> String? {
-        guard let result, let typename = result.typename else {
-            return "the response named no result"
-        }
-        guard !successTypes.contains(typename) else { return nil }
-
-        return result.message.map { "\(typename): \($0)" } ?? typename
-    }
-}
-
 /// Sends persisted queries to `api-partner.spotify.com`.
 ///
 /// Authorized by the keymaster token *and* a client token: the bearer alone is a 401 here.
@@ -273,7 +243,9 @@ nonisolated struct PartnerAPI: Sendable {
                 playlistUri: "spotify:playlist:\(playlistId)",
                 playlistItemUris: trackUris,
                 newPosition: position,
-            ))
+            ),
+            result: \.addItemsToPlaylist,
+            expected: .added)
     }
 
     /// Removes the named **occurrences**, not every copy of a track.
@@ -283,7 +255,9 @@ nonisolated struct PartnerAPI: Sendable {
             variables: PathfinderRemoveVariables(
                 playlistUri: "spotify:playlist:\(playlistId)",
                 uids: uids,
-            ))
+            ),
+            result: \.removeItemsFromPlaylist,
+            expected: .removed)
     }
 
     // MARK: - Library
@@ -452,14 +426,13 @@ nonisolated struct PartnerAPI: Sendable {
         return profile
     }
 
-    /// Runs a mutation and throws unless the response says it happened.
-    ///
-    /// A rejected mutation arrives as HTTP 200 with a `__typename` naming the failure, so the
-    /// transport's status check cannot see it — without this, a failed write would look like a
-    /// successful one and the optimistic update would stand.
+    /// Only the requested operation can acknowledge a write. Missing or mismatched success
+    /// payloads leave the outcome uncertain; a named failure is a definite rejection.
     private func mutate(
         _ operation: PathfinderOperation,
         variables: some Encodable & Sendable,
+        result: KeyPath<PathfinderMutationResponse.Payload, PathfinderMutationResponse.Result?>,
+        expected: PathfinderMutationResponse.Success,
     ) async throws {
         let response: PathfinderMutationResponse = try await transact(
             operation,
@@ -467,9 +440,13 @@ nonisolated struct PartnerAPI: Sendable {
             replay: .unsafe,
         )
 
-        if response.failure != nil {
+        guard let typename = response.data?[keyPath: result]?.typename, !typename.isEmpty else {
+            throw PartnerAPIError.emptyPayload
+        }
+        guard let success = PathfinderMutationResponse.Success(rawValue: typename) else {
             throw PartnerAPIError.mutationRejected(operation.name)
         }
+        guard success == expected else { throw PartnerAPIError.emptyPayload }
     }
 
     // MARK: - Transport

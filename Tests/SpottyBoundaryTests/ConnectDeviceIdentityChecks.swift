@@ -77,3 +77,56 @@ struct ConnectInstallationIDTests {
         #expect(identifiers.count == 1)
     }
 }
+
+@Suite("Client token installation identity")
+@MainActor
+struct ClientTokenInstallationIDTests {
+    @Test(arguments: [String(repeating: "a", count: 40), String(repeating: "A", count: 40)])
+    func preservesValidIdentityExactly(_ identity: String) throws {
+        let suite = "dev.spotty.tests.client-token.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(identity, forKey: UserDefaultsDeviceIdStore.storageKey)
+        #expect(UserDefaultsDeviceIdStore(defaults: defaults).deviceId() == identity)
+        #expect(defaults.string(forKey: UserDefaultsDeviceIdStore.storageKey) == identity)
+    }
+
+    @Test(arguments: [
+        String(repeating: "Ｆ", count: 40),
+        String(repeating: "１", count: 40),
+        "Ａ" + String(repeating: "1", count: 39),
+        String(repeating: "a", count: 39),
+        String(repeating: "g", count: 40),
+    ])
+    func repairsInvalidIdentityWithoutChangingConnectIdentity(_ invalid: String) throws {
+        let suite = "dev.spotty.tests.client-token.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(invalid, forKey: UserDefaultsDeviceIdStore.storageKey)
+        defaults.set("connect-sentinel", forKey: ConnectInstallationIDStore.storageKey)
+        let identity = UserDefaultsDeviceIdStore(defaults: defaults).deviceId()
+        #expect(identity != invalid)
+        #expect(identity.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil)
+        let reopened = try #require(UserDefaults(suiteName: suite))
+        #expect(UserDefaultsDeviceIdStore(defaults: reopened).deviceId() == identity)
+        #expect(defaults.string(forKey: ConnectInstallationIDStore.storageKey) == "connect-sentinel")
+    }
+
+    @Test
+    func concurrentStoresShareOnePersistedIdentity() async throws {
+        let suite = "dev.spotty.tests.client-token.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let stores = try (0..<20).map { _ in
+            UserDefaultsDeviceIdStore(defaults: try #require(UserDefaults(suiteName: suite)))
+        }
+        let identifiers = await withTaskGroup(of: String.self) { group in
+            for store in stores { group.addTask { store.deviceId() } }
+            var result: Set<String> = []
+            for await identifier in group { result.insert(identifier) }
+            return result
+        }
+        #expect(identifiers.count == 1)
+        #expect(identifiers.first == defaults.string(forKey: UserDefaultsDeviceIdStore.storageKey))
+    }
+}

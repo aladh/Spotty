@@ -58,12 +58,10 @@ final class AccountStore {
         self.coordinator = coordinator
     }
 
-    var canStartConnection: Bool { !isTearingDown && phase != .ready && connectionTask == nil }
-
-    var connectionSettlement: Task<Void, Never>? { connectionTask }
+    private var canStartConnection: Bool { !isTearingDown && phase != .ready && connectionTask == nil }
 
     func restore() async {
-        guard !isTearingDown, phase != .ready, connectionTask == nil else { return }
+        guard canStartConnection else { return }
         let interval = SpottyLog.accountSignposter.beginInterval("Restore")
         defer { SpottyLog.accountSignposter.endInterval("Restore", interval) }
         guard let task = startConnection(interactive: false) else { return }
@@ -71,14 +69,14 @@ final class AccountStore {
     }
 
     func connect() {
-        guard !isTearingDown, phase != .ready, connectionTask == nil else { return }
+        guard canStartConnection else { return }
         _ = startConnection(interactive: true)
     }
 
     /// Starts a browser authorization explicitly. The existing grant stays in place until the
     /// new exchange and its persistence have completed successfully.
     func reauthorize() {
-        guard !isTearingDown, phase != .ready, connectionTask == nil else { return }
+        guard canStartConnection else { return }
         setRequiresReauthentication(true)
         _ = startConnection(interactive: true)
     }

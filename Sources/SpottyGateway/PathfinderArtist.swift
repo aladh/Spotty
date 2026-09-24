@@ -125,10 +125,6 @@ nonisolated struct PathfinderArtistUnion: Decodable, Sendable {
         case typename = "__typename"
     }
 
-    var artistId: String? {
-        id ?? uri.flatMap(SpotifyURI.id(from:))
-    }
-
     func withDiscographyItems(_ items: [PathfinderReleaseGroup.Item]) -> Self {
         Self(
             uri: uri, id: id, profile: profile, visuals: visuals,

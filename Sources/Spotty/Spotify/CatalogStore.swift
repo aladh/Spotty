@@ -2,7 +2,7 @@
 //  CatalogStore.swift
 //  Spotty
 //
-//  Compatibility composition for independently scoped catalog feature stores.
+//  Composition for independently scoped catalog feature stores.
 //
 
 import SpottyDomain
@@ -22,8 +22,6 @@ final class CatalogStore {
     let metadata: CatalogMetadataRepository
     let playlistMutations: PlaylistMutationController
 
-    @ObservationIgnored private let session: CatalogSessionAvailability
-
     init(
         provider: any CatalogProviding,
         playlistMutations: any PlaylistMutating,
@@ -31,7 +29,6 @@ final class CatalogStore {
         clock: any PlaybackClock,
         feedback: TransientFeedbackPresenter
     ) {
-        self.session = session
         let metadata = CatalogMetadataRepository(session: session)
         self.metadata = metadata
         homeLibrary = HomeLibraryStore(provider: provider, metadata: metadata, session: session)

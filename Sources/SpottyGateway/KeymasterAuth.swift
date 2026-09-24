@@ -8,15 +8,12 @@ import SpottyDiagnostics
 
 import CryptoKit
 import Foundation
+import Security
 import SpottyRuntimeContracts
 import SpottyDomain
 
-/// The result of a keymaster grant.
-///
-/// Unlike the Web API half, `refreshToken` is not optional: Spotify always issues one here,
-/// and — measured, not assumed — **rotates it on every refresh**. Storing the replacement is
-/// mandatory. Keeping the original makes the *second* refresh fail, roughly an hour in, which
-/// presents as a spontaneous logout rather than as an auth bug.
+/// An OAuth grant shared by playback and Spotify API clients. Persist the complete returned
+/// grant before publication so rotated refresh tokens are never lost.
 package nonisolated struct KeymasterTokens: Sendable, Equatable, Codable {
     package var accessToken: String
     var refreshToken: String
@@ -80,12 +77,7 @@ package nonisolated struct KeymasterTokens: Sendable, Equatable, Codable {
         try container.encode(requiresReauthentication, forKey: .requiresReauthentication)
     }
 
-    /// Refresh once the access token has this many seconds or less of validity left.
-    ///
-    /// One grant now, so one policy: the launch path, the API clients and the accesspoint
-    /// session all refresh on this. It used to live on the Web API's `SpotifyAuthResult` and be
-    /// borrowed from here, which was the shared constant keeping two halves from drifting
-    /// apart; there is only one half left.
+    /// Shared refresh threshold for launch restoration, API requests, and engine startup.
     static let refreshBuffer: TimeInterval = 300
 
     /// Whether the token needs refreshing before use.
@@ -95,6 +87,7 @@ package nonisolated struct KeymasterTokens: Sendable, Equatable, Codable {
 }
 
 nonisolated enum KeymasterAuthError: Error, LocalizedError, Equatable {
+    case secureRandomFailed
     case authorizationURLFailed
     case browserOpenFailed
     case stateMismatch
@@ -109,6 +102,8 @@ nonisolated enum KeymasterAuthError: Error, LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
+        case .secureRandomFailed:
+            "Could not prepare secure Spotify authorization"
         case .authorizationURLFailed:
             "Could not build the Spotify authorization URL"
         case .browserOpenFailed:
@@ -129,12 +124,7 @@ nonisolated enum KeymasterAuthError: Error, LocalizedError, Equatable {
     }
 }
 
-/// The grant that authorizes everything: the accesspoint session, pathfinder GraphQL and
-/// spclient REST all run on the token this mints.
-///
-/// It is a plain PKCE flow — no DPoP proof, no client token on the exchange. Both were tested
-/// against the live service and neither is required; see
-/// `plans/single-grant-partner-api.md` for the probe this rests on.
+/// Obtains the shared OAuth grant using PKCE and a loopback callback.
 nonisolated enum KeymasterAuth {
     /// Spotify's desktop client id, the same one librespot defaults to
     /// (`SessionConfig::default().client_id`). It is the only id that can obtain the client
@@ -182,18 +172,16 @@ nonisolated enum KeymasterAuth {
     ///
     /// Blocks on a human, so callers should not run it at a user-initiated QoS.
     static func authorize(openInBrowser: @Sendable (URL) async -> Bool) async throws -> KeymasterTokens {
-        let state = PKCE.randomState()
-        let server = LoopbackCallbackServer(expectedState: state)
+        let proof = try PKCE()
+        let server = LoopbackCallbackServer(expectedState: proof.state)
         let port = try await server.start()
 
         do {
-            let verifier = PKCE.codeVerifier()
-
             guard
                 let url = authorizationURL(
                     port: port,
-                    challenge: PKCE.codeChallenge(for: verifier),
-                    state: state,
+                    challenge: PKCE.codeChallenge(for: proof.verifier),
+                    state: proof.state,
                 )
             else {
                 throw KeymasterAuthError.authorizationURLFailed
@@ -206,14 +194,14 @@ nonisolated enum KeymasterAuth {
 
             try Task.checkCancellation()
             let callback = try await server.waitForCallback()
-            let code = try authorizationCode(from: callback, expectedState: state)
+            let code = try authorizationCode(from: callback, expectedState: proof.state)
 
             let body = formURLEncoded([
                 "grant_type": "authorization_code",
                 "code": code,
                 "redirect_uri": redirectURI(port: port),
                 "client_id": clientId,
-                "code_verifier": verifier,
+                "code_verifier": proof.verifier,
             ])
 
             return try await postToken(body: body, fallbackRefreshToken: nil)
@@ -392,25 +380,33 @@ nonisolated enum KeymasterAuth {
 
 }
 
-/// PKCE bits. They were deliberately not shared with the dashboard OAuth's own copy, which was
-/// on its way out; it has since gone, and this is the only copy left.
-nonisolated enum PKCE {
-    static func codeVerifier() -> String {
-        randomBase64URL(byteCount: 64)
+/// Both random values must be ready before opening the loopback listener or browser.
+nonisolated struct PKCE {
+    let state: String
+    let verifier: String
+
+    init(
+        randomBytes: (UnsafeMutableRawBufferPointer) -> OSStatus = { bytes in
+            guard let address = bytes.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, bytes.count, address)
+        }
+    ) throws {
+        state = try Self.randomBase64URL(byteCount: 16, randomBytes: randomBytes)
+        verifier = try Self.randomBase64URL(byteCount: 64, randomBytes: randomBytes)
     }
 
     static func codeChallenge(for verifier: String) -> String {
         base64URLEncode(Data(SHA256.hash(data: Data(verifier.utf8))))
     }
 
-    static func randomState() -> String {
-        randomBase64URL(byteCount: 16)
-    }
-
-    private static func randomBase64URL(byteCount: Int) -> String {
-        var bytes = [UInt8](repeating: 0, count: byteCount)
-        _ = SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes)
-        return base64URLEncode(Data(bytes))
+    private static func randomBase64URL(
+        byteCount: Int, randomBytes: (UnsafeMutableRawBufferPointer) -> OSStatus
+    ) throws -> String {
+        var bytes = Data(count: byteCount)
+        guard bytes.withUnsafeMutableBytes(randomBytes) == errSecSuccess else {
+            throw KeymasterAuthError.secureRandomFailed
+        }
+        return base64URLEncode(bytes)
     }
 
     private static func base64URLEncode(_ data: Data) -> String {

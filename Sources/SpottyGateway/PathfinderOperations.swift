@@ -169,12 +169,8 @@ nonisolated struct PathfinderArtistVariables: Encodable, Sendable {
     var limit: Int = 100
 }
 
-/// The variables `getAlbum` takes.
-///
-/// `limit` is what the web client sets to 300 for an album track list, and no album approaches
-/// that. Paging is deliberately not implemented: the response reports `totalCount`, so a short
-/// read is detectable rather than silent, and whether `offset` is honoured by this document was
-/// not measured — building a paging loop on an unverified offset risks repeating a page forever.
+/// Album pages use the web client's 300-item request size. `CompleteAlbum` validates the
+/// reported total and advances the offset before publishing the complete collection.
 nonisolated struct PathfinderAlbumVariables: Encodable, Sendable {
     var uri: String
     var locale: String = ""

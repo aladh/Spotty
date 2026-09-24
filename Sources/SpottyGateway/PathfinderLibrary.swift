@@ -1,13 +1,9 @@
-import SpottyDomain
 //
 //  PathfinderLibrary.swift
 //  Spotty
 //
 //  What the library operations send back.
 //
-
-import Foundation
-import SpottyRuntimeContracts
 
 // MARK: - libraryV3
 
@@ -129,55 +125,6 @@ nonisolated struct PathfinderLibraryTrackItem: Decodable, Sendable {
     let track: Wrapper?
 }
 
-// MARK: - areEntitiesInLibrary
-
-/// `{ "data": { "lookup": [ { "data": { "saved": true } }, … ] } }`
-///
-/// **The answer is positional**, exactly as `/me/tracks/contains` was: `lookup[i]` answers
-/// `uris[i]` and nothing in the response names which uri it is about. So the request order is
-/// the only thing tying answers to questions, and `statuses(for:)` is the only place that
-/// knowledge lives.
-///
-/// Two ways an entry can fail to say "saved", both measured on 2026-08-13:
-///
-/// - a uri that resolves to nothing comes back as `data.__typename == "NotFound"` with no
-///   `saved` field;
-/// - a **playlist** uri comes back as a bare `PlaylistResponseWrapper` with no `data` at all,
-///   because this document's selection does not cover playlists.
-///
-/// Both read as "not saved", which matches what `/v1/me/tracks/contains` answered for an id it
-/// did not know. Only tracks are asked about in practice.
-nonisolated struct PathfinderLibraryMembershipResponse: Decodable, Sendable {
-    struct Entry: Decodable, Sendable {
-        struct Entity: Decodable, Sendable {
-            let saved: Bool?
-        }
-
-        let data: Entity?
-    }
-
-    struct Payload: Decodable, Sendable {
-        let lookup: [Entry]?
-    }
-
-    let data: Payload?
-
-    /// Matches each answer back to the uri that asked it, keyed by the **id** the store uses.
-    ///
-    /// A short `lookup` — fewer answers than questions — leaves the unanswered uris out of the
-    /// result rather than defaulting them, so an unanswered track stays unresolved and is asked
-    /// about again, instead of being cached as "not a favorite" on the strength of a truncated
-    /// response.
-    func statuses(for uris: [String]) -> [String: Bool] {
-        let lookup = data?.lookup ?? []
-
-        return zip(uris, lookup).reduce(into: [:]) { result, pair in
-            guard let id = SpotifyURI.id(from: pair.0) else { return }
-            result[id] = pair.1.data?.saved ?? false
-        }
-    }
-}
-
 // MARK: - Variables
 
 /// The variables `libraryV3` takes.
@@ -226,54 +173,4 @@ nonisolated enum LibraryFilter {
 nonisolated struct PathfinderLibraryTracksVariables: Encodable, Sendable {
     var offset: Int = 0
     var limit: Int = 50
-}
-
-/// The variables `areEntitiesInLibrary` takes — declared `[ID!]!`, so it is the one library
-/// operation that requires anything at all.
-nonisolated struct PathfinderLibraryLookupVariables: Encodable, Sendable {
-    var uris: [String]
-}
-
-/// The variables both library mutations take.
-///
-/// One list of uris, of any kind: a track, an album and an artist are saved by the same call
-/// with different prefixes, which is why six Web API endpoints collapse into two operations here.
-nonisolated struct PathfinderLibraryWriteVariables: Encodable, Sendable {
-    var libraryItemUris: [String]
-}
-
-// MARK: - Mutation results
-
-/// What `addToLibrary` and `removeFromLibrary` answer with. Same trap as the playlist mutations,
-/// and the same reading of it — see `PathfinderMutationResult`.
-///
-/// **The response field is not the operation name**, and neither is the payload type — the
-/// operation `addToLibrary` answers under `addLibraryItems` with `AddLibraryItemsResponse`, and
-/// `removeFromLibrary` under `removeLibraryItems` with `RemoveLibraryItemsResponse`. All four
-/// names were measured on 2026-08-13 rather than derived from the operation: the obvious
-/// symmetry with the playlist mutations (`addToPlaylist` → `AddItemsToPlaylistPayload`) predicts
-/// `AddToLibraryPayload`, which is wrong, and a client that assumed it would treat every
-/// successful write as a rejection.
-nonisolated struct PathfinderLibraryMutationResponse: Decodable, Sendable {
-    struct Payload: Decodable, Sendable {
-        let addLibraryItems: PathfinderMutationResult?
-        let removeLibraryItems: PathfinderMutationResult?
-
-        var result: PathfinderMutationResult? {
-            addLibraryItems ?? removeLibraryItems
-        }
-    }
-
-    let data: Payload?
-
-    /// The names Spotify returns when the write actually happened.
-    private static let successTypes: Set<String> = [
-        "AddLibraryItemsResponse",
-        "RemoveLibraryItemsResponse",
-    ]
-
-    /// Nil when the mutation succeeded, otherwise what went wrong.
-    var failure: String? {
-        PathfinderMutationResult.failure(data?.result, unless: Self.successTypes)
-    }
 }

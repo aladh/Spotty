@@ -167,11 +167,13 @@ struct KeymasterPersistenceTests {
         let clear = worker.submitClear()
         let replacement = persistenceGrant(access: "replacement", refresh: "replacement-refresh")
         let second = worker.submitSave(replacement)
-        // All three operations are submitted before the blocked first save can complete.
+        let read = worker.submitLoad()
+        // All operations are submitted before the blocked first save can complete.
         store.releaseFirstSave()
         try await first.value().get()
         try await clear.value().get()
         try await second.value().get()
+        #expect(await read.value() == .found(replacement))
         #expect(store.stored == replacement)
     }
 

@@ -10,6 +10,7 @@ import SpottyDomain
 import Foundation
 import SpottyRuntimeContracts
 import Dispatch
+import Synchronization
 
 /// The four outcomes that matter to account restoration. A filesystem denial or service failure is
 /// deliberately distinct from a genuine missing item so restore cannot silently replace a stored
@@ -73,24 +74,22 @@ enum KeymasterStoredGrantCodec {
 /// A completion receipt is created before the operation is submitted. This lets the session
 /// submit work synchronously on its actor, preserving save/clear order even when the actor later
 /// suspends while awaiting the result.
-final class KeymasterPersistenceReceipt<Value: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var resolvedValue: Value?
-    private var isResolved = false
-    private var waiters: [CheckedContinuation<Value, Never>] = []
+final class KeymasterPersistenceReceipt<Value: Sendable>: Sendable {
+    private struct State: Sendable {
+        var resolvedValue: Value?
+        var waiters: [CheckedContinuation<Value, Never>] = []
+    }
+
+    private let state = Mutex(State())
 
     func resolve(_ value: Value) {
-        let continuations: [CheckedContinuation<Value, Never>]
-        lock.lock()
-        guard !isResolved else {
-            lock.unlock()
-            return
+        let continuations = state.withLock { state -> [CheckedContinuation<Value, Never>] in
+            guard state.resolvedValue == nil else { return [] }
+            state.resolvedValue = value
+            let waiting = state.waiters
+            state.waiters.removeAll(keepingCapacity: false)
+            return waiting
         }
-        isResolved = true
-        resolvedValue = value
-        continuations = waiters
-        waiters.removeAll(keepingCapacity: false)
-        lock.unlock()
         for continuation in continuations {
             continuation.resume(returning: value)
         }
@@ -98,13 +97,13 @@ final class KeymasterPersistenceReceipt<Value: Sendable>: @unchecked Sendable {
 
     func value() async -> Value {
         await withCheckedContinuation { continuation in
-            lock.lock()
-            if isResolved, let resolvedValue {
-                lock.unlock()
+            let resolvedValue = state.withLock { state -> Value? in
+                if let value = state.resolvedValue { return value }
+                state.waiters.append(continuation)
+                return nil
+            }
+            if let resolvedValue {
                 continuation.resume(returning: resolvedValue)
-            } else {
-                waiters.append(continuation)
-                lock.unlock()
             }
         }
     }
@@ -113,7 +112,7 @@ final class KeymasterPersistenceReceipt<Value: Sendable>: @unchecked Sendable {
 /// Owns the blocking persistence calls away from `KeymasterSession`'s token actor. The serial
 /// queue is an explicitly owned bounded lane; synchronous submit methods establish operation
 /// order before the token actor suspends waiting for each receipt.
-final class KeymasterPersistenceWorker: @unchecked Sendable {
+final class KeymasterPersistenceWorker: Sendable {
     private let queue: DispatchQueue
     private let store: any KeymasterTokenStoring
 
@@ -131,35 +130,23 @@ final class KeymasterPersistenceWorker: @unchecked Sendable {
     /// Submission is synchronous so the caller's actor establishes the queue order before its
     /// next suspension. Waiting is separate and happens through the returned receipt.
     func submitLoad() -> KeymasterPersistenceReceipt<KeymasterGrantLoadResult> {
-        let receipt = KeymasterPersistenceReceipt<KeymasterGrantLoadResult>()
-        queue.async { [store] in
-            receipt.resolve(store.loadResult())
-        }
-        return receipt
+        submit { $0.loadResult() }
     }
 
     func submitSave(_ tokens: KeymasterTokens) -> KeymasterPersistenceReceipt<Result<Void, any Error>> {
-        let receipt = KeymasterPersistenceReceipt<Result<Void, any Error>>()
-        queue.async { [store] in
-            do {
-                try store.save(tokens)
-                receipt.resolve(.success(()))
-            } catch {
-                receipt.resolve(.failure(error))
-            }
-        }
-        return receipt
+        submit { store in Result { try store.save(tokens) } }
     }
 
     func submitClear() -> KeymasterPersistenceReceipt<Result<Void, any Error>> {
-        let receipt = KeymasterPersistenceReceipt<Result<Void, any Error>>()
+        submit { store in Result { try store.clear() } }
+    }
+
+    private func submit<Value: Sendable>(
+        _ operation: @escaping @Sendable (any KeymasterTokenStoring) -> Value
+    ) -> KeymasterPersistenceReceipt<Value> {
+        let receipt = KeymasterPersistenceReceipt<Value>()
         queue.async { [store] in
-            do {
-                try store.clear()
-                receipt.resolve(.success(()))
-            } catch {
-                receipt.resolve(.failure(error))
-            }
+            receipt.resolve(operation(store))
         }
         return receipt
     }

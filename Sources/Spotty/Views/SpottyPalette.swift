@@ -20,7 +20,6 @@ enum SpottyPalette {
         Color(red: 0.12, green: 0.15, blue: 0.18),
         catalogCanvas,
     ]
-    static let mediaSurface = Color(red: 0.094, green: 0.094, blue: 0.094)
     static let mediaSurfaceHover = Color(red: 0.141, green: 0.141, blue: 0.141)
     static let quickAccessSurface = Color(red: 0.16, green: 0.16, blue: 0.16)
     static let quickAccessSurfaceHover = Color(red: 0.22, green: 0.22, blue: 0.22)

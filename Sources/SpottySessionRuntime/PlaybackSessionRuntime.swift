@@ -377,7 +377,7 @@ package final class PlaybackSessionRuntime: Sendable {
                 let pendingIDs = Set(next.pendingCommands.values.map(\.id))
                 for entry in playbackDispatchPermits {
                     if let intentID = entry.intentID,
-                        next.intents.first(where: { $0.command.id == intentID })?.outcome.isTerminal == true
+                        next.intents.first(where: { $0.command.id == intentID })?.outcome.isTerminal != false
                     {
                         entry.permit.invalidate()
                     }

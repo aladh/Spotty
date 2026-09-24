@@ -1055,7 +1055,8 @@ struct PlaybackReducerModelChecks {
         } else {
             reduction = apply(.enginePlayback(playback), source: .enginePlayback)
         }
-        #expect(reduction.settledIntents == [SettledIntent(id: play.id, outcome: .observedConfirmed)])
+        #expect(
+            reduction.settledIntents == [SettledIntent(id: play.id, outcome: .observedConfirmed, dispatchedAt: now)])
         #expect(reduction.confirmedPlayTrackURIs == [track])
         #expect(state.intents.count == 128)
         #expect(!state.intents.contains(where: { $0.command.id == play.id }))

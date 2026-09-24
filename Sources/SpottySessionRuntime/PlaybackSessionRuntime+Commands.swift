@@ -377,10 +377,13 @@ extension PlaybackSessionRuntime {
             do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
             guard self.stillCurrent(lifetime) else { return }
             let wasSent = self.state.intents.first { $0.command.id == commandID }?.outcome == .sent
-            if self.send(.commandTimedOut(id: commandID), source: .command, playbackLifetime: lifetime) {
+            let expiry = self.reduce(
+                .commandTimedOut(id: commandID), source: .command,
+                engineEpoch: lifetime.engineGeneration, accountEpoch: lifetime.accountEpoch)
+            if expiry.accepted {
                 self.effects.cancel(.command(commandID))
                 if !wasSent { completion(false) }
-                let dispatched = self.state.intents.first { $0.command.id == commandID }?.dispatchedAt != nil
+                let dispatched = expiry.settledIntents.first { $0.id == commandID }?.dispatchedAt != nil
                 self.showTransientCommandError(
                     dispatched
                         ? "Spotify has not confirmed this request. Its result is unknown."

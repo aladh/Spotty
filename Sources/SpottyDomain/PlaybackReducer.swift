@@ -4,10 +4,13 @@ import Foundation
 public struct SettledIntent: Equatable, Sendable {
     public let id: UUID
     public let outcome: PlaybackIntentOutcome
+    /// Preserves expiry classification even when settlement retires the history record.
+    public let dispatchedAt: Date?
 
-    public init(id: UUID, outcome: PlaybackIntentOutcome) {
+    public init(id: UUID, outcome: PlaybackIntentOutcome, dispatchedAt: Date? = nil) {
         self.id = id
         self.outcome = outcome
+        self.dispatchedAt = dispatchedAt
     }
 }
 
@@ -395,10 +398,14 @@ public enum PlaybackReducer {
             guard !candidate.intents.contains(where: { $0.command.id == intent.command.id }) else { return .rejected }
             candidate.intents.append(intent)
         case let .queueIntentFinished(id, accepted):
-            guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
+            if let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 !candidate.intents[index].outcome.isTerminal
-            else { return .rejected }
-            candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
+            {
+                candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
+            } else if candidate.transportCommandResolutions[id] == nil {
+                return .rejected
+            }
+            candidate.transportCommandResolutions[id] = nil
         case let .commandDispatched(id, at):
             guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 candidate.intents[index].outcome == .admitted
@@ -503,7 +510,7 @@ public enum PlaybackReducer {
                     candidate.pendingCommands[intent.command.kind] = nil
                     candidate.transportCommandResolutions[intent.command.id] = .superseded
                 }
-                if let resolution, intent.command.kind != .queue {
+                if let resolution {
                     if candidate.pendingCommands[intent.command.kind]?.id == intent.command.id {
                         candidate.pendingCommands[intent.command.kind] = nil
                     }
@@ -527,7 +534,7 @@ public enum PlaybackReducer {
             guard intent.outcome.isTerminal,
                 preState.intents.first(where: { $0.command.id == intent.command.id })?.outcome.isTerminal != true
             else { return nil }
-            return SettledIntent(id: intent.command.id, outcome: intent.outcome)
+            return SettledIntent(id: intent.command.id, outcome: intent.outcome, dispatchedAt: intent.dispatchedAt)
         }
         let confirmedPlayTrackURIs = candidate.intents.compactMap { intent -> String? in
             guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,

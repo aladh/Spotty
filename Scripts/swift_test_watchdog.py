@@ -139,7 +139,8 @@ def terminate_owned_group(process: subprocess.Popen[bytes]) -> None:
         return
     try:
         process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, KeyboardInterrupt, TerminationRequested):
+        # A second interrupt may shorten the grace period, but cannot skip the group KILL.
         pass
     # The group may still contain a descendant after the direct child exits. Always follow the
     # grace period with a group-scoped KILL; ESRCH means TERM already emptied the owned group.
@@ -149,7 +150,7 @@ def terminate_owned_group(process: subprocess.Popen[bytes]) -> None:
         pass
     try:
         process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, KeyboardInterrupt, TerminationRequested):
         pass
 
 
@@ -159,6 +160,17 @@ def emit(message: str, log_file) -> None:
     sys.stdout.flush()
     log_file.write(line.encode())
     log_file.flush()
+
+
+def emit_diagnostic(message: str, log_file) -> None:
+    # Each sink is optional after a timeout. Bypass buffering so failed writes cannot raise again
+    # while closing the log or flushing stdout at interpreter shutdown and replace status 124.
+    line = (message + "\n").encode(errors="replace")
+    for sink in (sys.stdout, log_file):
+        try:
+            os.write(sink.fileno(), line)
+        except (OSError, ValueError):
+            pass
 
 
 def run(args: argparse.Namespace) -> int:
@@ -249,14 +261,14 @@ def run_logged(
                 try:
                     tree, pids = process_tree(process.pid)
                     tree_path.write_text(tree)
-                    emit(
+                    emit_diagnostic(
                         f"swift-test-watchdog status=timeout elapsed={time.monotonic() - started:.2f}s; "
                         f"process tree: {tree_path}",
                         log_file,
                     )
-                    emit(sample_helper(process.pid, pids, sample_path), log_file)
+                    emit_diagnostic(sample_helper(process.pid, pids, sample_path), log_file)
                 except (OSError, UnicodeError) as error:
-                    emit(f"swift-test-watchdog status=timeout; diagnostics unavailable: {error}", log_file)
+                    emit_diagnostic(f"swift-test-watchdog status=timeout; diagnostics unavailable: {error}", log_file)
                 return TIMEOUT_EXIT
             status = process.wait()
             command_finished = True

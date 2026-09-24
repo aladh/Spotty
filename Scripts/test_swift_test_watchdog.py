@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import resource
 import signal
 import subprocess
 import sys
@@ -23,7 +24,7 @@ class SwiftTestWatchdogTests(unittest.TestCase):
             f"--timeout-seconds={timeout}", "--log-dir", str(diagnostics), "--", *command,
         ]
 
-    def run_watchdog(self, command, timeout=2, env=None, diagnostics=None):
+    def run_watchdog(self, command, timeout=2, env=None, diagnostics=None, preexec_fn=None):
         diagnostics = diagnostics or self.diagnostics()
         result = subprocess.run(
             self.arguments(command, diagnostics, timeout),
@@ -32,10 +33,11 @@ class SwiftTestWatchdogTests(unittest.TestCase):
             text=True,
             env=env,
             timeout=10,
+            preexec_fn=preexec_fn,
         )
         return result, diagnostics
 
-    def sleeping_command(self, diagnostics, *, output=False):
+    def sleeping_command(self, diagnostics, *, output=False, ignore_term=False):
         pid_path = diagnostics / "command.pid"
 
         def clean_fixture():
@@ -46,14 +48,41 @@ class SwiftTestWatchdogTests(unittest.TestCase):
                     pass
 
         self.addCleanup(clean_fixture)
+        handler = (
+            "signal.signal(signal.SIGTERM, lambda *_: "
+            f"pathlib.Path({str(diagnostics / 'cleanup-started')!r}).touch())\n"
+        ) if ignore_term else ""
         program = (
-            "import os,pathlib,time\n"
-            f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()))\n"
+            "import os,pathlib,signal,time\n"
+            + handler
+            + f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()))\n"
             "for _ in range(600):\n"
             "    time.sleep(0.1)\n"
             + ("    print('still running', flush=True)\n" if output else "")
         )
         return [sys.executable, "-c", program], pid_path
+
+    def start_watchdog(self, command, diagnostics, timeout=30):
+        process = subprocess.Popen(
+            self.arguments(command, diagnostics, timeout),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+
+        def stop():
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+
+        self.addCleanup(process.stderr.close)
+        self.addCleanup(process.stdout.close)
+        self.addCleanup(stop)
+        return process
+
+    def wait_for_file(self, path, process):
+        deadline = time.monotonic() + 5
+        while not path.is_file() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(path.is_file(), f"fixture did not create {path.name}")
 
     def assert_command_stopped(self, pid_path):
         self.assertTrue(pid_path.is_file(), "fixture never started")
@@ -93,21 +122,55 @@ class SwiftTestWatchdogTests(unittest.TestCase):
     def test_closed_output_pipe_cleans_command(self):
         diagnostics = self.diagnostics()
         command, pid_path = self.sleeping_command(diagnostics, output=True)
-        process = subprocess.Popen(
-            self.arguments(command, diagnostics, timeout=30),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
-        self.addCleanup(process.stderr.close)
-        self.addCleanup(process.stdout.close)
-        self.addCleanup(lambda: process.kill() if process.poll() is None else None)
-        deadline = time.monotonic() + 5
-        while not pid_path.is_file() and process.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertTrue(pid_path.is_file(), "fixture never started")
+        process = self.start_watchdog(command, diagnostics)
+        self.wait_for_file(pid_path, process)
         process.stdout.close()
         process.wait(timeout=10)
         self.assert_command_stopped(pid_path)
         self.assertNotEqual(process.returncode, 0)
+
+    def test_closed_output_during_timeout_preserves_status(self):
+        diagnostics = self.diagnostics()
+        command, pid_path = self.sleeping_command(diagnostics)
+        process = self.start_watchdog(command, diagnostics, timeout=0.5)
+        self.wait_for_file(pid_path, process)
+        process.stdout.close()
+        process.wait(timeout=10)
+        self.assert_command_stopped(pid_path)
+        self.assertEqual(process.returncode, 124, process.stderr.read())
+        self.assertIn("status=timeout", (diagnostics / "fixture-repeat-1.log").read_text())
+
+    def test_full_log_during_timeout_preserves_status(self):
+        diagnostics = self.diagnostics()
+        sampler = diagnostics / "sampler"
+        sampler.write_text(f"#!{sys.executable}\nprint('x' * 8192)\nraise SystemExit(9)\n")
+        sampler.chmod(0o755)
+        env = {**os.environ, "SPOTTY_SWIFT_TEST_SAMPLER": str(sampler)}
+        command, pid_path = self.sleeping_command(diagnostics)
+
+        def limit_log_size():
+            resource.setrlimit(resource.RLIMIT_FSIZE, (4096, 4096))
+            signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+
+        result, _ = self.run_watchdog(command, 0.5, env, diagnostics, limit_log_size)
+        self.assert_command_stopped(pid_path)
+        self.assertEqual(result.returncode, 124, result.stdout)
+        self.assertEqual((diagnostics / "fixture-repeat-1.log").stat().st_size, 4096)
+        self.assertNotIn("Traceback", result.stdout)
+
+    def test_second_interrupt_during_cleanup_cannot_strand_command(self):
+        for interrupt in (signal.SIGINT, signal.SIGTERM):
+            with self.subTest(interrupt=interrupt):
+                diagnostics = self.diagnostics()
+                command, pid_path = self.sleeping_command(diagnostics, ignore_term=True)
+                process = self.start_watchdog(command, diagnostics)
+                self.wait_for_file(pid_path, process)
+                process.send_signal(signal.SIGTERM)
+                self.wait_for_file(diagnostics / "cleanup-started", process)
+                process.send_signal(interrupt)
+                stdout, stderr = process.communicate(timeout=10)
+                self.assert_command_stopped(pid_path)
+                self.assertEqual(process.returncode, 143, stdout + stderr)
 
     def test_failed_diagnostic_tools_preserve_timeout_with_non_utf8_output(self):
         diagnostics = self.diagnostics()

@@ -154,13 +154,6 @@ struct PlaybackPositionSlider: NSViewRepresentable {
             super.mouseDown(with: event)
         }
 
-        /// Convenience for callers (and existing tests) that only have an interpolated position,
-        /// not a store anchor date: anchors immediately at `now()`.
-        func updatePosition(_ position: Double, duration: Double, isPlaying: Bool = false) {
-            updatePosition(
-                position, anchoredAt: now(), duration: duration, isPlaying: isPlaying)
-        }
-
         /// Authoritative updates carry the store's own anchor. When nothing about the anchor,
         /// duration, or playback state actually changed and Core Animation is carrying the thumb,
         /// only chrome (enabled/engaged colors) is refreshed so the running animation is left

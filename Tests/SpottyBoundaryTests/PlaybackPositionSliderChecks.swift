@@ -9,7 +9,7 @@ struct PlaybackPositionSliderChecks {
         let slider = PlaybackPositionSlider.PositionSlider(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
         slider.appearance = NSAppearance(named: .darkAqua)
         slider.isEnabled = true
-        slider.updatePosition(50, duration: 100)
+        slider.updatePosition(50, anchoredAt: slider.now(), duration: 100)
         let cell = try #require(slider.cell as? PlaybackPositionSlider.PositionSliderCell)
 
         func render() throws -> NSBitmapImageRep {
@@ -58,7 +58,7 @@ struct PlaybackPositionSliderChecks {
         let slider = PlaybackPositionSlider.PositionSlider(frame: NSRect(x: 0, y: 0, width: 200, height: 20))
         var time = Date(timeIntervalSince1970: 1_000)
         slider.now = { time }
-        slider.updatePosition(60, duration: 180, isPlaying: true)
+        slider.updatePosition(60, anchoredAt: slider.now(), duration: 180, isPlaying: true)
         time = time.addingTimeInterval(0.75)
         slider.isHovering = true
         #expect(slider.doubleValue == 60.75)
@@ -74,7 +74,7 @@ struct PlaybackPositionSliderChecks {
         _ = slider.accessibilityPerformDecrement()
         #expect(slider.doubleValue < incremented)
         #expect(slider.doubleValue >= 61.75)
-        slider.updatePosition(10, duration: 180, isPlaying: false)
+        slider.updatePosition(10, anchoredAt: slider.now(), duration: 180, isPlaying: false)
         time = time.addingTimeInterval(2)
         slider.isHovering = false
         #expect(slider.doubleValue == 10)
@@ -85,7 +85,7 @@ struct PlaybackPositionSliderChecks {
         var time = Date(timeIntervalSince1970: 1_000)
         slider.now = { time }
         slider.accessibleDuration = 180
-        slider.updatePosition(60, duration: 180, isPlaying: true)
+        slider.updatePosition(60, anchoredAt: slider.now(), duration: 180, isPlaying: true)
         let original = slider.accessibilityValueDescription()
         time = time.addingTimeInterval(5)
         #expect(slider.accessibilityValueDescription() != original)
@@ -101,10 +101,10 @@ struct PlaybackPositionSliderChecks {
 
     @Test func shortTrackRangeAndUnknownDuration() {
         let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
-        slider.updatePosition(0.25, duration: 0.5)
+        slider.updatePosition(0.25, anchoredAt: slider.now(), duration: 0.5)
         #expect(slider.maxValue == 0.5)
         #expect(slider.doubleValue == 0.25)
-        slider.updatePosition(0, duration: 0)
+        slider.updatePosition(0, anchoredAt: slider.now(), duration: 0)
         #expect(slider.maxValue == 1)
         #expect(slider.accessibilityValueDescription() == "Duration unavailable")
     }
@@ -112,7 +112,7 @@ struct PlaybackPositionSliderChecks {
     @Test func spokenLongDuration() {
         let slider = PlaybackPositionSlider.PositionSlider(frame: .zero)
         slider.accessibleDuration = 5_400
-        slider.updatePosition(3_600, duration: 5_400)
+        slider.updatePosition(3_600, anchoredAt: slider.now(), duration: 5_400)
         let position = DateComponentsFormatter.localizedString(
             from: DateComponents(hour: 1), unitsStyle: .full)
         let duration = DateComponentsFormatter.localizedString(
@@ -188,7 +188,7 @@ struct PlaybackPositionSliderChecks {
         slider.minValue = 0
         slider.maxValue = 180
         slider.accessibleDuration = 180
-        slider.updatePosition(60, duration: 180)
+        slider.updatePosition(60, anchoredAt: slider.now(), duration: 180)
         slider.isContinuous = false
         slider.target = slider
         slider.action = #selector(PlaybackPositionSlider.PositionSlider.commitPosition)

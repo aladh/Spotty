@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
 Examples:
   python3 Scripts/verify.py list
   python3 Scripts/verify.py test --filter ProtobufTests/testProtobuf
-  python3 Scripts/verify.py test --skip-build --filter AuthFlowTests/testAuthFlow
+  python3 Scripts/verify.py test --skip-build --filter AuthFlowTests
   python3 Scripts/verify.py rust
 
 list/test forward remaining arguments to SwiftPM. Focused checks optimize local

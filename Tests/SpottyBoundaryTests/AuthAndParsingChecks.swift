@@ -5,196 +5,129 @@ import Testing
 //
 
 import Foundation
+import Security
 @testable import SpottyCore
 @testable import SpottyGateway
 import SpottyRuntimeContracts
 
 @Suite("Auth Flow")
+@MainActor
 struct AuthFlowTests {
     @Test
-    @MainActor
-    func testAuthFlow() {
-        do {
-            let body = Data(
-                """
-                {"access_token":"at","refresh_token":"rt","expires_in":3600,"username":"listener"}
-                """.utf8)
-            let now = Date(timeIntervalSince1970: 1_000_000)
+    func parsesTokenResponseAndRetainsOmittedRefreshToken() throws {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let tokens = try KeymasterAuth.parseTokenResponse(
+            Data(#"{"access_token":"at","refresh_token":"rt","expires_in":3600,"username":"listener"}"#.utf8),
+            fallbackRefreshToken: nil, now: now
+        )
+        #expect(tokens.accessToken == "at")
+        #expect(tokens.refreshToken == "rt")
+        #expect(tokens.username == "listener")
+        #expect(tokens.expiresAt == now.addingTimeInterval(3_600))
 
-            let tokens = try? KeymasterAuth.parseTokenResponse(body, fallbackRefreshToken: nil, now: now)
-            #expect((tokens) != nil, "well-formed response parses")
-            if let tokens {
-                #expect((tokens.accessToken) == ("at"), "access token")
-                #expect((tokens.refreshToken) == ("rt"), "refresh token")
-                #expect((tokens.username) == ("listener"), "username")
-                #expect(
-                    (tokens.expiresAt) == (now.addingTimeInterval(3_600)), "expiry resolves against the injected clock")
-            }
+        let rotated = try KeymasterAuth.parseTokenResponse(
+            Data(#"{"access_token":"at2","expires_in":1800}"#.utf8),
+            fallbackRefreshToken: "previous-rt", now: now
+        )
+        #expect(rotated.refreshToken == "previous-rt")
+    }
 
-            // A refresh that omits its token must keep the previous one alive.
-            let rotated = try? KeymasterAuth.parseTokenResponse(
-                Data(#"{"access_token":"at2","expires_in":1800}"#.utf8),
-                fallbackRefreshToken: "previous-rt",
-                now: now
-            )
-            #expect((rotated?.refreshToken) == ("previous-rt"), "rotation without a new token keeps the old one")
-
-            for malformed in [Data("{}".utf8), Data(#"{"refresh_token":"rt"}"#.utf8)] {
-                var threw = false
-                do {
-                    _ = try KeymasterAuth.parseTokenResponse(malformed, fallbackRefreshToken: nil, now: now)
-                } catch {
-                    threw = (error as? KeymasterAuthError) == .malformedTokenResponse
-                }
-                #expect((threw) == true, "response without an access token is malformed")
-            }
-
-            // A wrongly-typed access token must fail closed rather than mint an empty credential.
-            var wrongType = false
-            do {
-                _ = try KeymasterAuth.parseTokenResponse(
-                    Data(#"{"access_token":123,"expires_in":3600}"#.utf8),
-                    fallbackRefreshToken: nil,
-                    now: now
-                )
-            } catch {
-                wrongType = (error as? KeymasterAuthError) == .malformedTokenResponse
-            }
-            #expect((wrongType) == true, "numeric access token is malformed")
-
-            // An unreadable expiry must not silently invent a token lifetime.
-            let stringExpiry = try? KeymasterAuth.parseTokenResponse(
-                Data(#"{"access_token":"at","refresh_token":"rt","expires_in":"3600"}"#.utf8),
-                fallbackRefreshToken: nil,
-                now: now
-            )
-            #expect(
-                stringExpiry == nil,
-                "string expires_in is rejected rather than inventing a lifetime")
-
-            // An omitted expiry behaves the same way.
-            let missingExpiry = try? KeymasterAuth.parseTokenResponse(
-                Data(#"{"access_token":"at","refresh_token":"rt"}"#.utf8),
-                fallbackRefreshToken: nil,
-                now: now
-            )
-            #expect(
-                missingExpiry == nil, "missing expires_in is rejected"
+    @Test(arguments: [
+        "{}",
+        #"{"refresh_token":"rt"}"#,
+        #"{"access_token":123,"expires_in":3600}"#,
+        #"{"access_token":"at","refresh_token":"rt","expires_in":"3600"}"#,
+        #"{"access_token":"at","refresh_token":"rt"}"#,
+    ])
+    func rejectsMalformedTokenResponse(_ body: String) {
+        #expect(throws: KeymasterAuthError.malformedTokenResponse) {
+            try KeymasterAuth.parseTokenResponse(
+                Data(body.utf8), fallbackRefreshToken: nil, now: HarnessDates.fixed
             )
         }
+    }
 
-        do {
-            let revoked = KeymasterAuth.tokenFailure(status: 400, body: Data(#"{"error":"invalid_grant"}"#.utf8))
-            #expect((revoked == .grantRevoked) == (true), "only invalid_grant revokes the grant")
+    @Test
+    func onlyInvalidGrantRevokesAndFailureDescriptionsOmitResponseText() {
+        #expect(
+            KeymasterAuth.tokenFailure(status: 400, body: Data(#"{"error":"invalid_grant"}"#.utf8))
+                == .grantRevoked)
+        #expect(
+            KeymasterAuth.tokenFailure(status: 400, body: Data(#"{"error":"invalid_request"}"#.utf8))
+                == .tokenExchangeFailed(400))
+        #expect(KeymasterAuth.tokenFailure(status: 500, body: Data()) == .tokenExchangeFailed(500))
+        let refused = KeymasterAuth.tokenFailure(
+            status: 400,
+            body: Data(
+                #"{"error":"invalid_request","error_description":"SPOTTY_PRIVACY_SENTINEL_token-body_7f3c"}"#.utf8)
+        )
+        #expect(refused == .tokenExchangeFailed(400))
+        #expect(refused.errorDescription == "Token exchange failed (HTTP 400)")
+    }
 
-            var classifiedAsFailure = false
-            if case .tokenExchangeFailed = KeymasterAuth.tokenFailure(
-                status: 400,
-                body: Data(#"{"error":"invalid_request"}"#.utf8)
-            ) {
-                classifiedAsFailure = true
-            }
-            #expect((classifiedAsFailure) == true, "a non-revocation refusal keeps the grant")
+    @Test
+    func callbackExtractsCodeOnlyAfterMatchingState() throws {
+        #expect(try Self.code(from: "code=abc&state=expected") == "abc")
+    }
 
-            var serverErrorKeepsGrant = false
-            if case .tokenExchangeFailed = KeymasterAuth.tokenFailure(status: 500, body: Data()) {
-                serverErrorKeepsGrant = true
-            }
-            #expect((serverErrorKeepsGrant) == true, "server errors are transient")
+    @Test(arguments: [
+        ("error=access_denied&state=wrong", KeymasterAuthError.stateMismatch),
+        ("error=access_denied&state=expected", KeymasterAuthError.authorizationDenied),
+        ("state=expected", KeymasterAuthError.noAuthorizationCode),
+        ("error=SPOTTY_PRIVACY_SENTINEL_oauth-error_4c1a&state=expected", KeymasterAuthError.authorizationDenied),
+    ])
+    func callbackRejectsInvalidResponses(_ query: String, error: KeymasterAuthError) {
+        #expect(throws: error) { try Self.code(from: query) }
+        #expect(KeymasterAuthError.authorizationDenied.errorDescription == "Spotify declined the authorization")
+    }
 
-            let sentinel = "SPOTTY_PRIVACY_SENTINEL_token-body_7f3c"
-            let refused = KeymasterAuth.tokenFailure(
-                status: 400,
-                body: Data(#"{"error":"invalid_request","error_description":"\#(sentinel)"}"#.utf8)
-            )
-            #expect((refused) == (.tokenExchangeFailed(400)), "non-revocation token failures keep HTTP status")
-            #expect(
-                (refused.errorDescription ?? "") == ("Token exchange failed (HTTP 400)"),
-                "token failures surface a stable HTTP category")
-            #expect(
-                (refused.errorDescription?.contains(sentinel) == false) == true,
-                "token failure descriptions omit the response body")
+    @Test
+    func authorizationURLUsesListeningPortAndPKCE() throws {
+        let url = try #require(KeymasterAuth.authorizationURL(port: 49_152, challenge: "challenge", state: "state"))
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(items.first(where: { $0.name == "code_challenge_method" })?.value == "S256")
+        #expect(items.first(where: { $0.name == "redirect_uri" })?.value == "http://127.0.0.1:49152/login")
+        #expect(items.first(where: { $0.name == "scope" })?.value?.contains("streaming") == true)
+        #expect(items.first(where: { $0.name == "state" })?.value == "state")
+        #expect(items.first(where: { $0.name == "code_challenge" })?.value == "challenge")
+    }
+
+    @Test
+    func pkceChallengeMatchesRFC7636ReferenceVector() {
+        #expect(
+            PKCE.codeChallenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+                == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    }
+
+    @Test
+    func pkceEncodesIndependentStateAndVerifierWithoutPadding() throws {
+        var requests: [Int] = []
+        let proof = try PKCE { bytes in
+            requests.append(bytes.count)
+            for index in bytes.indices { bytes[index] = index % 3 == 0 ? 0xFB : 0xFF }
+            return errSecSuccess
         }
+        #expect(requests == [16, 64])
+        #expect(proof.state == String(repeating: "-___", count: 5) + "-w")
+        #expect(proof.verifier == String(repeating: "-___", count: 21) + "-w")
+    }
 
-        do {
-            func code(from query: String, state: String) throws -> String {
-                let callback = URLComponents(string: "http://127.0.0.1/login?\(query)")!
-                return try KeymasterAuth.authorizationCode(from: callback, expectedState: state)
+    @Test(arguments: [1, 2])
+    func pkceRejectsFailureOfEitherRandomValue(_ failingRequest: Int) {
+        var requests = 0
+        #expect(throws: KeymasterAuthError.secureRandomFailed) {
+            try PKCE { bytes in
+                requests += 1
+                bytes.copyBytes(from: [UInt8](repeating: 0xFF, count: bytes.count))
+                return requests == failingRequest ? errSecNotAvailable : errSecSuccess
             }
-
-            do {
-                do {
-                    let value = try code(from: "code=abc&state=expected", state: "expected")
-                    #expect((value) == ("abc"), "authorization code extracted")
-
-                } catch {
-                    Issue.record("\("matching state yields the code"): unexpected error \(error)")
-                }
-            }
-
-            // A forged or stale redirect must fail on state even when it carries an error
-            // that would otherwise read as a user cancellation.
-            var mismatched = false
-            do {
-                _ = try code(from: "error=access_denied&state=wrong", state: "expected")
-            } catch {
-                mismatched = (error as? KeymasterAuthError) == .stateMismatch
-            }
-            #expect((mismatched) == true, "state is checked before error and code")
-
-            var denied = false
-            do {
-                _ = try code(from: "error=access_denied&state=expected", state: "expected")
-            } catch {
-                denied = (error as? KeymasterAuthError) == .authorizationDenied
-            }
-            #expect((denied) == true, "user denial is reported as such")
-
-            let deniedSentinel = "SPOTTY_PRIVACY_SENTINEL_oauth-error_4c1a"
-            var deniedDescription: String?
-            do {
-                _ = try code(from: "error=\(deniedSentinel)&state=expected", state: "expected")
-                #expect((false) == true, "authorization denial with sentinel text throws")
-            } catch let error as LocalizedError {
-                deniedDescription = error.errorDescription
-            } catch {
-                #expect((false) == true, "authorization denial with sentinel text is LocalizedError, got \(error)")
-            }
-            #expect(
-                (deniedDescription ?? "") == ("Spotify declined the authorization"),
-                "authorization denial uses a stable category")
-            #expect(
-                (deniedDescription?.contains(deniedSentinel) == false) == true,
-                "authorization denial omits redirect error text")
-
-            var missingCode = false
-            do {
-                _ = try code(from: "state=expected", state: "expected")
-            } catch {
-                missingCode = (error as? KeymasterAuthError) == .noAuthorizationCode
-            }
-            #expect((missingCode) == true, "missing code is reported as such")
-
-            let url = KeymasterAuth.authorizationURL(port: 49_152, challenge: "challenge", state: "state")
-            #expect((url) != nil, "authorization URL builds")
-            if let url,
-                let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
-            {
-                #expect((items.first(where: { $0.name == "code_challenge_method" })?.value) == ("S256"), "PKCE method")
-                #expect(
-                    (items.first(where: { $0.name == "redirect_uri" })?.value) == ("http://127.0.0.1:49152/login"),
-                    "loopback redirect names the listening port")
-                #expect(
-                    (items.first(where: { $0.name == "scope" })?.value?.contains("streaming") == true) == true,
-                    "streaming scope requested")
-            }
-
-            // RFC 7636 Appendix B.
-            #expect(
-                (PKCE.codeChallenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
-                    == ("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
-                "PKCE challenge matches the RFC reference vector")
         }
+        #expect(requests == failingRequest)
+    }
+
+    private static func code(from query: String) throws -> String {
+        let callback = try #require(URLComponents(string: "http://127.0.0.1/login?\(query)"))
+        return try KeymasterAuth.authorizationCode(from: callback, expectedState: "expected")
     }
 }
 

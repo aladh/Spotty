@@ -72,7 +72,7 @@ private nonisolated struct PathfinderErrorEnvelope: Decodable {
     let errors: [Failure]?
 }
 
-/// What a pathfinder *write* answers with, on both the playlist and the library operations.
+/// What a playlist write answers with.
 ///
 /// **A rejected mutation arrives as HTTP 200**, naming the failure in a `__typename` rather than
 /// in a status code — `{"addItemsToPlaylist":{"__typename":"NotFound"}}` for a playlist that does

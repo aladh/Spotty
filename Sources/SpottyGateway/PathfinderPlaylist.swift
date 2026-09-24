@@ -135,15 +135,11 @@ nonisolated struct PathfinderPlaylistTrack: Decodable, Sendable {
         artists?.firstId
     }
 
-    var albumId: String? {
-        albumOfTrack?.uri.flatMap(SpotifyURI.id(from:))
-    }
 }
 
 // MARK: - Mutations
 
-/// What a playlist mutation answers with. `PathfinderMutationResult` has the trap it shares with
-/// the library writes: the status code does not report success, so the `__typename` decides.
+/// Playlist writes report success through `__typename`, not the HTTP status alone.
 ///
 /// The three operations answer under three different fields, and only one is ever filled in.
 nonisolated struct PathfinderMutationResponse: Decodable, Sendable {

@@ -25,6 +25,9 @@
 
 Generated headers do not replace signature/layout probes or memory-ownership review. Published
 consumers validate their selected artifact; the Rust lane validates the evolving producer ABI.
+The selected header and archive must export the same symbols, and every Swift call must exist in
+that artifact. Exports shared with the current producer must be consumed; retired exports may remain
+in an older pin, and new producer exports require no call until their artifact is adopted.
 
 `SpottyEngineAdapter` is the sole production consumer of `SpottyPlaybackCore`; boundary tests depend
 on it for ABI checks. Its implementation is internal. The [desktop import policy](source-checks.md)

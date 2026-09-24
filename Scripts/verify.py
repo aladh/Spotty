@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
 
 Examples:
   python3 Scripts/verify.py list
-  python3 Scripts/verify.py test --filter ProtobufTests/testProtobuf
+  python3 Scripts/verify.py test --filter ProtobufTests
   python3 Scripts/verify.py test --skip-build --filter AuthFlowTests
   python3 Scripts/verify.py rust
 

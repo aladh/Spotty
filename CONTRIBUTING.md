@@ -13,7 +13,7 @@ for prerequisites, diagnostics, and choosing a normal or clean rebuild.
 | --- | --- |
 | `python3 Scripts/verify.py preflight` | Read-only tool discovery; gates validate versions and dependencies |
 | `python3 Scripts/verify.py list` | Discover Swift Testing tests, including the synthetic harness |
-| `python3 Scripts/verify.py test --filter ProtobufTests/testProtobuf` | Run focused tests with the existing timeout watchdog and native result artifacts |
+| `python3 Scripts/verify.py test --filter ProtobufTests` | Run focused tests with the existing timeout watchdog and native result artifacts |
 | `python3 Scripts/verify.py swift` | Swift gate against the selected engine artifact, including synthetic helper checks |
 | `python3 Scripts/verify.py rust` | Python playback/harness checks and compiled Rust/header checks |
 | `python3 Scripts/verify.py harness` | Synthetic browsing, measurement, and trace helper checks |

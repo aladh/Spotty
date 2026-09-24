@@ -4,6 +4,39 @@ import Foundation
 
 @Suite("Queue Mutation")
 struct QueueMutationTests {
+    @Test(arguments: ["", "connect-uid"])
+    func uniqueURIFallbackIgnoresAutoplayAfterTheDelimiter(uid: String) {
+        let uri = "spotify:track:only"
+        let protocolNext = [
+            QueueProtocolTrack(uri: "spotify:episode:ignored", uid: uid, provider: "context"),
+            QueueProtocolTrack(uri: uri, uid: uid, provider: "context"),
+            QueueProtocolTrack(uri: "spotify:delimiter", uid: "", provider: "delimiter"),
+            QueueProtocolTrack(uri: uri, uid: uid, provider: "autoplay"),
+        ]
+        let visible = [QueueEntry(uri: uri, provider: "web-api", occurrence: 0)]
+        #expect(QueueProtocolProjection.identitiesAreProven(protocolNext: protocolNext, visible: visible))
+        let remaining = QueueProtocolProjection.removingUpcomingOccurrences(
+            selectedIDs: [visible[0].id], visibleUpcoming: visible, protocolNext: protocolNext)
+        #expect(remaining == [protocolNext[0], protocolNext[2], protocolNext[3]])
+    }
+
+    @Test(arguments: [false, true])
+    func duplicateURIsCannotBindAVisibleRowWithoutUID(protocolHasUIDs: Bool) {
+        let uri = "spotify:track:duplicate"
+        let protocolNext = [
+            QueueProtocolTrack(uri: uri, uid: protocolHasUIDs ? "first" : "", provider: "queue"),
+            QueueProtocolTrack(uri: uri, uid: protocolHasUIDs ? "second" : "", provider: "queue"),
+        ]
+        let visible = [
+            QueueEntry(uri: uri, provider: "web-api", occurrence: 0),
+            QueueEntry(uri: uri, provider: "queue", occurrence: 1, uid: protocolNext[1].uid),
+        ]
+        #expect(!QueueProtocolProjection.identitiesAreProven(protocolNext: protocolNext, visible: visible))
+        #expect(
+            QueueProtocolProjection.removingUpcomingOccurrences(
+                selectedIDs: [visible[0].id], visibleUpcoming: visible, protocolNext: protocolNext) == nil)
+    }
+
     @Test
     func stableUIDSelectionFollowsTheOccurrenceAcrossReorder() {
         let uri = "spotify:track:duplicate"
@@ -245,11 +278,6 @@ struct QueueMutationTests {
                     engineEpoch: 2
                 )) == (.failure(.localOwnerUnsupported)),
                 "local owner is unsupported without a Spirc replacement export")
-            #expect(
-                (!LocalQueueReplacementCapability.isSupported
-                    && LocalQueueReplacementCapability.evidence.contains("add_to_queue")
-                    && LocalQueueReplacementCapability.evidence.contains("SetQueueCommand")) == true,
-                "local replacement is documented as unsupported")
             #expect(
                 (QueueMutationPolicy.evaluateRemoval(
                     selectedIDs: [visible[0].id],

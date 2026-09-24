@@ -29,6 +29,20 @@ struct SidebarView: View {
                         .help(libraryStatus)
                         .accessibilityLabel(libraryStatus)
                 }
+                if !library.isEmpty, error != nil, let retry {
+                    Button("Retry") {
+                        Task {
+                            guard playback.isConnected else { return }
+                            await retry()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(SpottyPalette.textSecondary)
+                    .disabled(!playback.isConnected || isRefreshing)
+                    .help("Retry playlists")
+                    .accessibilityLabel("Retry playlists")
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

@@ -43,6 +43,7 @@ struct AlbumDetailView: View {
             CatalogContentState(
                 isLoading: store.isLoadingInitialContent, isEmpty: store.tracks.isEmpty, error: store.error,
                 loadingLabel: "Loading album", errorTitle: "Couldn't load album",
+                connection: playback,
                 retry: { await store.load(item) }
             ) {
                 EmptyState(icon: "square.stack", title: "No tracks", message: "Spotify returned an empty album.")

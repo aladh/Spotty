@@ -158,11 +158,14 @@ struct PlaylistDetailView: View {
                 .foregroundStyle(SpottyPalette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button("Retry") {
-                Task { await store.load(item, force: true) }
+                Task {
+                    guard playback.isConnected else { return }
+                    await store.load(item, force: true)
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(store.isLoading)
+            .disabled(store.isLoading || !playback.isConnected)
             .accessibilityHint("Reload the playlist without repeating the last change.")
         }
         .padding(.horizontal, CatalogLayout.contentPadding)

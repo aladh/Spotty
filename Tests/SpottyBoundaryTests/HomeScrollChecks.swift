@@ -8,7 +8,7 @@ import Testing
 @Suite("Home scroll lifetime")
 @MainActor
 struct HomeScrollChecks {
-    @Test func shorterReturnedContentClampsWithoutRetryingTheOldOffsetOnLaterGrowth() async throws {
+    @Test func refreshesPreserveTheClampedScrollPositionThroughFailureAndRecovery() async throws {
         func snapshot(sectionCount: Int) throws -> PathfinderHome {
             let sections = (0..<sectionCount).map { index in
                 """
@@ -39,6 +39,8 @@ struct HomeScrollChecks {
             rootView: HomeView(
                 store: player.catalog.homeLibrary, playback: CatalogPlaybackAccess(player: player),
                 interaction: interaction, onSelect: { _ in }))
+        // The app's viewport is window-owned; a status notice must not resize the test window.
+        host.sizingOptions = []
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
             backing: .buffered, defer: false)
@@ -71,6 +73,24 @@ struct HomeScrollChecks {
         }
         #expect(abs(scroll.contentView.bounds.minY - clampedOffset) < 1)
         #expect(interaction.scrollOffset == clampedOffset)
+        let contentHeight = scroll.bounds.height
+        provider.onHome = { throw HarnessFailure.unavailable }
+        await player.catalog.homeLibrary.loadHome(force: true)
+        try await requireEventually {
+            host.layoutSubtreeIfNeeded()
+            return scroll.bounds.height < contentHeight
+        }
+        #expect(page(in: host) === scroll, "the refresh notice must not replace the retained scrolling surface")
+        #expect(abs(scroll.contentView.bounds.minY - clampedOffset) < 1)
+        #expect(player.catalog.homeLibrary.homeSections.count == 12)
+        provider.onHome = { longer }
+        await player.catalog.homeLibrary.loadHome(force: true)
+        try await requireEventually {
+            host.layoutSubtreeIfNeeded()
+            return scroll.bounds.height == contentHeight
+        }
+        #expect(page(in: host) === scroll)
+        #expect(abs(scroll.contentView.bounds.minY - clampedOffset) < 1)
         await player.shutdownForTermination()
     }
 

@@ -97,6 +97,7 @@ struct ArtistDetailView: View {
                 isLoading: store.isLoading,
                 isEmpty: !hasContent,
                 error: store.error, loadingLabel: "Loading artist", errorTitle: "Couldn't load artist",
+                connection: playback,
                 retry: { await store.load(item) }
             ) {
                 EmptyState(

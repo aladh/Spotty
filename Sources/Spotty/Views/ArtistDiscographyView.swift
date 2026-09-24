@@ -37,6 +37,7 @@ struct ArtistDiscographyView: View {
                 isLoading: artist.isLoading || albums.artistURI != item.uri,
                 isEmpty: releases.isEmpty, error: artist.error,
                 loadingLabel: "Loading discography", errorTitle: "Couldn't load discography",
+                connection: playback,
                 retry: { await artist.load(item, force: true) }
             ) {
                 EmptyState(icon: "square.stack", title: "No releases", message: "No releases match this filter.")
@@ -249,7 +250,17 @@ private struct DiscographyReleaseHeader: View {
                                 .foregroundStyle(.black).frame(width: 32, height: 32).background(.white, in: Circle())
                         }
                         if let album, let error = album.error {
-                            Button("Try again") { Task { await retry() } }.help(error)
+                            Button("Try again") {
+                                Task {
+                                    guard playback.isConnected else { return }
+                                    await retry()
+                                }
+                            }
+                            .help(error)
+                            .disabled(album.isLoading || !playback.isConnected)
+                        } else if !playback.isConnected, album?.hasLoadedContent != true {
+                            Text("Reconnect to load tracks")
+                                .font(.system(size: 14)).foregroundStyle(SpottyPalette.textSecondary)
                         } else if album == nil || album?.isLoading == true {
                             ProgressView().controlSize(.small).accessibilityLabel("Loading \(item.title)")
                         } else if album?.hasLoadedContent == true, album?.tracks.isEmpty == true {

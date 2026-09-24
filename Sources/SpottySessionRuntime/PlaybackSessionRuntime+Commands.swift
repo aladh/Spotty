@@ -436,7 +436,6 @@ extension PlaybackSessionRuntime {
                 guard self.stillCurrent(lifetime, scope: .account) else { return }
                 self.applyCommandOutcome(
                     commandID: commandID,
-                    kind: kind,
                     capturedLifetime: lifetime,
                     outcome: outcome,
                     action: action,
@@ -517,11 +516,10 @@ extension PlaybackSessionRuntime {
     /// when the coordinator later fails. The finished command's resolution is captured before
     /// `commandFinished` so follow-up can treat consume-only reducer acceptance as confirmed
     /// success or superseded inertness.
-    /// Epoch, teardown, unknown ids, and options finishes without a captured confirmation stay
-    /// inert.
+    /// Epoch invalidation, teardown, supersession, and rejected finishes without a captured
+    /// confirmation stay inert.
     private func applyCommandOutcome(
         commandID: UUID,
-        kind: PlaybackCommandKind,
         capturedLifetime: PlaybackLifetime,
         outcome: Result<Void, PlaybackCommandFailure>,
         action: String,
@@ -557,8 +555,6 @@ extension PlaybackSessionRuntime {
             finishAccepted: finished,
             operationSucceeded: succeeded,
             requiresReconnect: requiresReconnect,
-            commandKind: kind,
-            pendingCommandID: state.pendingCommands[kind]?.id,
             finishedCommandResolution: capturedResolution,
             capturedLifetime: capturedLifetime,
             currentLifetime: playbackLifetime,

@@ -347,13 +347,8 @@ extension PlaybackSessionRuntime {
         }
     }
 
-    /// Fills the now-playing fields for an adopted uri from what the catalog already holds.
-    ///
-    /// The backend ships playback-state and queue updates **without names on purpose** —
-    /// resolving them was the old Web API's job. Until a resolver exists again, the loaded
-    /// catalog is the source: without this, any start that bypasses a track row (grid cards,
-    /// remote starts, cold context plays) plays audio into a bar that still reads
-    /// "Nothing playing" and never flips its transport.
+    /// Enriches the current URI with cached catalog labels or a Connect metadata lookup.
+    /// Playback and queue observations retain authority over track and transport state.
     private func adoptTrackMetadata(
         for uri: String,
         force: Bool = false,

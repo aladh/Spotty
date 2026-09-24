@@ -349,6 +349,69 @@ struct QueueRefreshConvergenceTests {
 
     @Test
     @MainActor
+    func cancellingDuringPublicationDoesNotSkipOtherSubscribers() async throws {
+        let web = HarnessWebQueue(.park)
+        let remote = HarnessRemote(metadata: .park)
+        let clock = CooperativeParkedClock()
+        let service = QueueService(
+            webQueue: web, metadata: TrackMetadataService(remote: remote), clock: clock)
+        await service.reset(accountEpoch: 1)
+        let uri = "spotify:track:shared-hydration"
+        let initialOrder = RuntimeCallbackRecorder<Int>()
+        let metadataUpdates = RuntimeCallbackRecorder<Int>()
+        let publication = SettlementPark()
+        let refreshes = (0..<3).map { subscriber in
+            Task {
+                await service.refresh(
+                    fallbackEntries: [QueueEntry(uri: uri, provider: "connect")],
+                    currentTrackURI: "spotify:track:current", accountEpoch: 1,
+                    onUpdate: { snapshot in
+                        if snapshot.tracks.isEmpty {
+                            initialOrder.append(subscriber)
+                        } else {
+                            metadataUpdates.append(subscriber)
+                            if subscriber == initialOrder.snapshot.first {
+                                await publication.park()
+                            }
+                        }
+                    })
+            }
+        }
+        defer {
+            refreshes.forEach { $0.cancel() }
+            publication.release()
+            web.fail()
+            _ = remote.failMetadata(for: uri)
+            clock.releaseAll()
+        }
+        try await requireEventually { await service.refreshSubscriberCount == 3 }
+        try await requireEventually { web.isParked }
+        web.fail()
+        try await requireEventually { remote.parkedMetadataURIs.contains(uri) }
+        let order = initialOrder.snapshot
+        #expect(order.count == 3, "every subscriber sees initial ordering before hydration")
+        let removed = try #require(order.dropFirst().first)
+        #expect(remote.completeMetadata(for: uri))
+        try await requireEventually { clock.waiterCount == 1 }
+        clock.releaseAll()
+        try await requireEventually { publication.isParked }
+
+        // The dictionary has not changed between publications. Remove the next subscriber
+        // while the first callback is suspended, leaving a later subscriber still waiting.
+        refreshes[removed].cancel()
+        try await requireEventually { await service.refreshSubscriberCount == 2 }
+        publication.release()
+
+        for (subscriber, refresh) in refreshes.enumerated() {
+            let result = await refresh.value
+            #expect((result != nil) == (subscriber != removed))
+        }
+        #expect(Set(metadataUpdates.snapshot) == Set(order).subtracting([removed]))
+        #expect(web.requestCount == 1, "subscriber cancellation preserves the shared request")
+    }
+
+    @Test
+    @MainActor
     func connectOrderingDuringHydrationAddsOnlyNewURIsAndKeepsOrder() async throws {
         let remote = HarnessRemote(metadata: .park)
         let service = QueueService(

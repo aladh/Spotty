@@ -1231,6 +1231,36 @@ struct PlaybackEventOutcomeTests {
 
     @Test(arguments: [false, true])
     @MainActor
+    func testPositionRefreshCannotCrossPlaybackOwnerChange(hasRemoteOwner: Bool) async throws {
+        let engine = HarnessEngine()
+        let gate = HarnessEngineGate()
+        engine.onPositionMilliseconds = { [gate] in
+            gate.wait(); return 42_000
+        }
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: engine, remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
+        defer { gate.release() }
+        seedReadyLocalPlayback(player, uri: "spotify:track:transferred")
+        player.refreshPosition()
+        try await requireEventually { gate.hasStarted }
+        let positionRefresh = player.effects.settlement(of: .positionRefresh)
+        let owner: PlaybackOwner =
+            hasRemoteOwner
+            ? .remote(PlaybackDevice(id: "speaker", name: "Speaker", type: "speaker", isActive: true))
+            : .none
+        #expect(player.send(.owner(owner), source: .engineDevices))
+        #expect(player.setTiming(position: 75))
+
+        gate.release()
+        await awaitCapturedEffect(positionRefresh, registered: "local position refresh is suspended")
+        #expect(player.state.currentTrack?.uri == "spotify:track:transferred")
+        #expect(player.state.timing.position == 75, "a local sample cannot overwrite another owner's timing")
+        await player.shutdownForTermination()
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
     func testPlaybackUnavailableIntakeSurfacesOnlyAcceptedLocalFailures(audioKeyRefused: Bool) async {
         let receivedAt = Date(timeIntervalSince1970: 1_800_000_100)
         let localURI = "spotify:track:boundary-unavailable"

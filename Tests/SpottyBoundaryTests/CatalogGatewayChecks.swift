@@ -2,11 +2,62 @@ import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
 import Testing
+@testable import SpottyCore
 @testable import SpottyGateway
 
 @Suite("Catalog Gateway")
 @MainActor
 struct CatalogGatewayTests {
+    @Test(
+        arguments: [
+            (nil, false), ("null", false), ("{}", false),
+            (#"{"sections":null}"#, false), (#"{"sections":{}}"#, false),
+            (#"{"sections":{"items":null}}"#, false), (#"{"sections":{"items":[]}}"#, true),
+        ] as [(String?, Bool)])
+    func homeRefreshDistinguishesMissingListsFromEmptyShelves(container: String?, validEmpty: Bool) async throws {
+        let loaded = try boundaryFixture(named: "home")
+        let field = container.map { ",\"sectionContainer\":\($0)" } ?? ""
+        let refreshed = Data("{\"data\":{\"home\":{\"__typename\":\"HomeResponsePayload\"\(field)}}}".utf8)
+        let requests = HarnessCounters()
+        let catalog = catalogGateway { request in
+            requests.record("home")
+            return (requests.count("home") == 1 ? loaded : refreshed, catalogResponse(for: request, status: 200))
+        }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let metadata = CatalogMetadataRepository(session: session)
+        let store = HomeLibraryStore(provider: catalog, metadata: metadata, session: session)
+        await store.loadHome()
+        let original = store.homeSections
+        let item = try #require(original.first?.items.first)
+        #expect(store.error(for: .home) == nil)
+
+        await store.loadHome(force: true)
+
+        #expect(store.homeSections == (validEmpty ? [] : original))
+        #expect((store.error(for: .home) == nil) == validEmpty)
+        #expect(metadata.knownItem(for: item.uri) == (validEmpty ? nil : item))
+        if !validEmpty {
+            await #expect(throws: CatalogReadFailure.compatibility) { _ = try await catalog.home() }
+        }
+    }
+
+    @Test(arguments: [nil, "spotify:artist:fixture", "spotify:artist:other", "spotify:album:fixture"] as [String?])
+    func artistOverviewRejectsMismatchedIdentityWhenPresent(uri: String?) async throws {
+        let encodedURI = String(decoding: try JSONEncoder().encode(uri), as: UTF8.self)
+        let source = Data(
+            """
+            {"data":{"artistUnion":{"__typename":"Artist","uri":\(encodedURI),"profile":{"name":"Fixture"}}}}
+            """.utf8)
+        let catalog = catalogGateway { request in (source, catalogResponse(for: request, status: 200)) }
+        if uri == nil || uri == "spotify:artist:fixture" {
+            let artist = try await catalog.artist(id: "fixture")
+            #expect(artist.name == "Fixture")
+            #expect(artist.releases.isEmpty, "optional discography remains optional for overview reads")
+        } else {
+            await #expect(throws: CatalogReadFailure.compatibility) { _ = try await catalog.artist(id: "fixture") }
+        }
+    }
+
     @Test(arguments: ["tracksV2", "albumsV2", "artists", "playlists"], [false, true])
     func searchRequiresAnExplicitListEvenForEmptyResults(field: String, present: Bool) async throws {
         let list: [String: Any] = present ? ["items": []] : [:]

@@ -144,11 +144,11 @@ public struct ConnectQueueCallbackWatermark: Equatable, Sendable {
     }
 }
 
-/// Pre-reducer store admission for a playback command.
+/// Runtime admission before a playback command reaches the reducer.
 ///
 /// Route selection, route refusal, and waiting for local Connect identity never consult this,
-/// so those paths cannot create pending commands. Duplicate-kind refusal here is the store
-/// gate; the reducer also rejects a second `commandStarted` for the same kind.
+/// so those paths cannot create pending commands. This gate refuses a duplicate kind in
+/// production; the reducer can supersede an existing intent when given a new `commandStarted`.
 public func playbackCommandShouldAdmit(
     isTearingDown: Bool,
     allowsCommands: Bool,
@@ -157,40 +157,17 @@ public func playbackCommandShouldAdmit(
     !isTearingDown && allowsCommands && !hasPendingCommandForKind
 }
 
-/// Dependent work after `PlaybackStore.send(.commandFinished)`.
+/// Runtime follow-up after reducing `commandFinished`.
 ///
-/// Same-lifetime is the first gate: epoch invalidation and teardown stay inert even when a
-/// confirmation was captured. `applyCommandOutcome` snapshots the finished command's
-/// resolution before `commandFinished`; the reducer consumes that map entry.
-/// Follow-up then evaluates the captured resolution before `finishAccepted`: confirmed
-/// reports success, superseded stays inert, so consume-only acceptance cannot turn a
-/// coordinator failure into `reportFailure`. Shuffle and repeat options confirmation use
-/// the same per-command-id map. A matching engine shuffle sample records `.confirmed` so a
-/// late rejection cannot restore the prior Boolean or rewrite preference. Matching
-/// authoritative repeat flags confirm the same way; unrelated authoritative flags
-/// supersede; lagging prior flags and non-engine option events do not confirm.
-/// Every reconciled transport success carries an explicit command-ID resolution. A missing
-/// pending slot is not evidence of success: it can also mean expiration or an unknown ID.
-/// Reconnect-required outranks a confirmed success: a confirming snapshot settles
-/// what the UI shows, not whether the engine's command channel is alive. A `.confirmed`
-/// resolution whose operation failed with reconnect-required reports `.reconnectAfterReconciledSuccess`, which keeps the
-/// presentation and rebuilds the connection. Without that, a stale Playing sample after
-/// sleep/wake could confirm a resume whose engine call returned a closed channel, and the
-/// app would show Playing with no audio and never reconnect.
-/// A known play target is confirmed only by that target's identity, not by a lagging prior
-/// track that happens to already be `.playing`. An unrelated or empty track supersedes the
-/// optimistic target: rollback is cleared and a later finish stays inert.
-/// Remote transfer confirmation uses the same per-command-id map. A lagging snapshot of the
-/// exact prior owner cannot undo the target. An authoritative connection or devices snapshot
-/// whose stable device identity matches the remote target records `.confirmed` so a late
-/// rejection cannot restore the prior owner. An unrelated owner, including local/none when that
-/// emptiness is not the captured prior owner, records `.superseded` and stays inert.
-/// Seek confirmation and track-switch supersession both clear pending `.seek`, so a later
-/// finish stays inert: `pendingCommandID == nil` cannot tell those cases apart, and seek
-/// completions have no success side effect.
-/// Options commands without a captured resolution keep the non-transport inert path when
-/// the pending command is already gone. A newer pending id stays inert unless a captured
-/// confirmation for the finished id reports success.
+/// Epoch invalidation and teardown stay inert even with a captured confirmation. The runtime
+/// captures the command's resolution before the reducer consumes it: confirmed work reports
+/// success, superseded work stays inert, and unresolved work requires an accepted finish before
+/// reporting the coordinator's outcome. Command-kind and pending-slot reconciliation belong to
+/// the reducer; an absent pending slot alone cannot establish success.
+///
+/// A confirmed command whose operation failed with reconnect-required keeps its reconciled
+/// presentation and rebuilds the connection. Observed playback settles what the UI shows, not
+/// whether the engine's command channel remains alive.
 public enum PlaybackCommandFollowUp: Equatable, Sendable {
     case reportSuccess
     case reportFailure(reconnect: Bool)
@@ -205,8 +182,6 @@ public func playbackCommandFollowUp(
     finishAccepted: Bool,
     operationSucceeded: Bool,
     requiresReconnect: Bool,
-    commandKind: PlaybackCommandKind,
-    pendingCommandID: UUID?,
     finishedCommandResolution: PlaybackTransportCommandResolution? = nil,
     capturedLifetime: PlaybackLifetime,
     currentLifetime: PlaybackLifetime,

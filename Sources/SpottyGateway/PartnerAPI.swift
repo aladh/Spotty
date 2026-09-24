@@ -198,12 +198,15 @@ nonisolated struct PartnerAPI: Sendable {
         id: String,
         offset: Int = 0
     ) async throws -> PathfinderArtistUnion {
+        let uri = "spotify:artist:\(id)"
         let response: PathfinderArtistResponse = try await query(
             operation,
-            variables: PathfinderArtistVariables(uri: "spotify:artist:\(id)", offset: offset),
+            variables: PathfinderArtistVariables(uri: uri, offset: offset),
         )
 
-        guard let artist = response.data?.artistUnion, artist.typename == "Artist" else {
+        guard let artist = response.data?.artistUnion, artist.typename == "Artist",
+            artist.uri == nil || artist.uri == uri
+        else {
             throw PartnerAPIError.emptyPayload
         }
 
@@ -403,7 +406,9 @@ nonisolated struct PartnerAPI: Sendable {
             variables: PathfinderHomeVariables(),
         )
 
-        guard let home = response.home, !home.isError else {
+        guard let home = response.home, !home.isError,
+            home.sectionContainer?.sections?.items != nil
+        else {
             throw PartnerAPIError.emptyPayload
         }
 

@@ -84,7 +84,7 @@ struct PlaybackIntentChecks {
         #expect(
             playbackCommandFollowUp(
                 finishAccepted: false, operationSucceeded: true,
-                requiresReconnect: false, commandKind: .transport, pendingCommandID: nil,
+                requiresReconnect: false,
                 capturedLifetime: lifetime, currentLifetime: lifetime, isTearingDown: false) == .inert)
     }
     @Test func transferConfirmsStableIdentityAndIgnoresUncertainTarget() {

@@ -23,8 +23,19 @@ struct HomeView: View {
     var body: some View {
         Group {
             if playback.isConnected && !sections.isEmpty {
-                HomeRecommendationsView(
-                    store: store, playback: playback, interaction: interaction, onSelect: onSelect)
+                VStack(spacing: 0) {
+                    if store.isLoading(.home) || store.error(for: .home) != nil {
+                        CachedCatalogNotice(
+                            isRefreshing: store.isLoading(.home), error: store.error(for: .home),
+                            canRetry: playback.isConnected
+                        ) {
+                            guard playback.isConnected else { return }
+                            await store.loadHome(force: true)
+                        }
+                    }
+                    HomeRecommendationsView(
+                        store: store, playback: playback, interaction: interaction, onSelect: onSelect)
+                }
             } else {
                 // Placeholder geometry must not overwrite the retained recommendation position.
                 ScrollView {

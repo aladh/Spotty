@@ -185,6 +185,10 @@ private final class SplitQueueDeadlineClock: PlaybackClock, @unchecked Sendable 
 
 @Suite("Queue Management")
 struct QueueManagementTests {
+    enum HistoryRetirement: CaseIterable {
+        case none, beforeObservation, afterObservation
+    }
+
     @Test @MainActor
     func observationTimeoutDoesNotCancelRemainingBatchDispatch() async throws {
         let clock = SplitQueueDeadlineClock()
@@ -250,8 +254,8 @@ struct QueueManagementTests {
         await player.shutdownForTermination()
     }
 
-    @Test @MainActor
-    func confirmedRemovalCannotHoldAdmissionAfterItsDeadline() async throws {
+    @Test(arguments: [false, true]) @MainActor
+    func confirmedRemovalCannotHoldAdmissionAfterItsDeadline(retireHistory: Bool) async throws {
         let clock = CooperativeParkedClock()
         let remote = HarnessRemote(send: .park)
         let player = PlaybackStore(
@@ -266,22 +270,28 @@ struct QueueManagementTests {
         await seedAuthoritativeQueue(player)
         player.removeUpcomingQueueOccurrences(selectedIDs: [player.queueNextEntries[0].id])
         try await requireEventually { remote.sendCount == 1 && remote.parkedSendCount == 1 }
+        let id = try #require(player.state.intents.last?.command.id)
+        let deadline = try #require(player.effects.settlement(of: .commandDeadline(id)))
         var observed = player.state.queue
         observed.entries.removeFirst()
         observed.revision += 1
         observed.receivedAt = clock.now()
         #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
         #expect(player.state.intents.last?.outcome == .observedConfirmed)
-        #expect(await waitUntil { clock.requestedSleeps.contains(8) })
+        if retireHistory { player.withRuntime { fillPlaybackIntentHistory($0) } }
+        #expect(await waitUntil { clock.waiterCount > 0 })
         clock.releaseAll()
-        #expect(await waitUntil { player.queueReplacementToken == nil })
-        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        await deadline.wait()
+        #expect(player.queueReplacementToken == nil)
+        #expect(
+            player.state.intents.first { $0.command.id == id }?.outcome == (retireHistory ? nil : .observedConfirmed))
+        #expect(player.state.transportCommandResolutions[id] == nil)
         #expect(player.feedback.message == nil)
         await player.shutdownForTermination()
     }
 
-    @Test(arguments: [false, true]) @MainActor
-    func observedQueueChangeSurvivesLateTransportFailure(removal: Bool) async throws {
+    @Test(arguments: [false, true], HistoryRetirement.allCases) @MainActor
+    func observedQueueChangeSurvivesLateTransportFailure(removal: Bool, retirement: HistoryRetirement) async throws {
         let clock = CooperativeParkedClock()
         let remote = HarnessRemote(send: .park)
         let feedback = TransientFeedbackPresenter(clock: clock)
@@ -305,13 +315,26 @@ struct QueueManagementTests {
             observed.entries.append(PlaybackQueueItem(uri: addedURI, provider: "queue", uid: "added"))
         }
         try await requireEventually { remote.sendCount == 1 && remote.parkedSendCount == 1 }
+        let id = try #require(player.state.intents.last?.command.id)
+        let worker = try #require(
+            player.effects.settlements().first {
+                if removal { return $0.key == .queueReplacement }
+                if case .queueCommand = $0.key { return true }
+                return false
+            }?.value)
+        if retirement == .beforeObservation { player.withRuntime { fillPlaybackIntentHistory($0) } }
         observed.revision += 1
         observed.receivedAt = clock.now()
         #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
-        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        if retirement == .afterObservation { player.withRuntime { fillPlaybackIntentHistory($0) } }
+        let expectedHistoryOutcome: PlaybackIntentOutcome? = retirement == .none ? .observedConfirmed : nil
+        #expect(player.state.intents.first { $0.command.id == id }?.outcome == expectedHistoryOutcome)
+        #expect(player.state.transportCommandResolutions[id] == .confirmed)
         remote.completePark(success: false)
-        #expect(await waitUntil { feedback.message?.kind == .success })
-        #expect(player.state.intents.last?.outcome == .observedConfirmed)
+        await worker.wait()
+        #expect(feedback.message?.kind == .success)
+        #expect(player.state.intents.first { $0.command.id == id }?.outcome == expectedHistoryOutcome)
+        #expect(player.state.transportCommandResolutions[id] == nil)
         #expect(player.state.queue.entries == observed.entries)
         await player.shutdownForTermination()
     }

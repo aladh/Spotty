@@ -377,10 +377,13 @@ extension PlaybackSessionRuntime {
             do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
             guard self.stillCurrent(lifetime) else { return }
             let wasSent = self.state.intents.first { $0.command.id == commandID }?.outcome == .sent
-            if self.send(.commandTimedOut(id: commandID), source: .command, playbackLifetime: lifetime) {
+            let expiry = self.reduce(
+                .commandTimedOut(id: commandID), source: .command,
+                engineEpoch: lifetime.engineGeneration, accountEpoch: lifetime.accountEpoch)
+            if expiry.accepted {
                 self.effects.cancel(.command(commandID))
                 if !wasSent { completion(false) }
-                let dispatched = self.state.intents.first { $0.command.id == commandID }?.dispatchedAt != nil
+                let dispatched = expiry.settledIntents.first { $0.id == commandID }?.dispatchedAt != nil
                 self.showTransientCommandError(
                     dispatched
                         ? "Spotify has not confirmed this request. Its result is unknown."
@@ -436,7 +439,6 @@ extension PlaybackSessionRuntime {
                 guard self.stillCurrent(lifetime, scope: .account) else { return }
                 self.applyCommandOutcome(
                     commandID: commandID,
-                    kind: kind,
                     capturedLifetime: lifetime,
                     outcome: outcome,
                     action: action,
@@ -517,11 +519,10 @@ extension PlaybackSessionRuntime {
     /// when the coordinator later fails. The finished command's resolution is captured before
     /// `commandFinished` so follow-up can treat consume-only reducer acceptance as confirmed
     /// success or superseded inertness.
-    /// Epoch, teardown, unknown ids, and options finishes without a captured confirmation stay
-    /// inert.
+    /// Epoch invalidation, teardown, supersession, and rejected finishes without a captured
+    /// confirmation stay inert.
     private func applyCommandOutcome(
         commandID: UUID,
-        kind: PlaybackCommandKind,
         capturedLifetime: PlaybackLifetime,
         outcome: Result<Void, PlaybackCommandFailure>,
         action: String,
@@ -557,8 +558,6 @@ extension PlaybackSessionRuntime {
             finishAccepted: finished,
             operationSucceeded: succeeded,
             requiresReconnect: requiresReconnect,
-            commandKind: kind,
-            pendingCommandID: state.pendingCommands[kind]?.id,
             finishedCommandResolution: capturedResolution,
             capturedLifetime: capturedLifetime,
             currentLifetime: playbackLifetime,

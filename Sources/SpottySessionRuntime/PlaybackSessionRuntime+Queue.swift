@@ -51,6 +51,7 @@ extension PlaybackSessionRuntime {
                         adding: uri, timeoutEffect: effectID, lifetime: lifetime,
                         remainingRequests: ordered.count - completed - 1)
                 else { return }
+                defer { self.discardQueueIntentResolution(intentID, lifetime: lifetime) }
                 guard
                     let permit = self.makePlaybackDispatchPermit(
                         intentID: intentID,
@@ -123,17 +124,21 @@ extension PlaybackSessionRuntime {
             guard let self else { return }
             do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
             guard self.stillCurrent(lifetime) else { return }
-            if self.state.intents.first(where: { $0.command.id == id })?.outcome.isTerminal == true {
+            if self.state.intents.first(where: { $0.command.id == id })?.outcome.isTerminal != false {
                 // Observation already settled the request, but an unreturned transport must
                 // not hold the replacement admission slot forever.
                 if timeoutEffect == .queueReplacement, self.queueReplacementToken == id {
+                    self.discardQueueIntentResolution(id, lifetime: lifetime)
                     self.effects.cancel(.queueReplacement)
                     self.queueReplacementToken = nil
                 }
                 return
             }
             let wasSent = self.state.intents.first(where: { $0.command.id == id })?.outcome == .sent
-            if self.send(.commandTimedOut(id: id), source: .command, playbackLifetime: lifetime) {
+            let expiry = self.reduce(
+                .commandTimedOut(id: id), source: .command,
+                engineEpoch: lifetime.engineGeneration, accountEpoch: lifetime.accountEpoch)
+            if expiry.accepted {
                 // A sent replacement may already have returned and released its slot.
                 // Its observation deadline cannot cancel a newer replacement registration.
                 let cancelExecution =
@@ -142,7 +147,7 @@ extension PlaybackSessionRuntime {
                     self.effects.cancel(timeoutEffect)
                     if timeoutEffect == .queueReplacement { self.queueReplacementToken = nil }
                 }
-                let dispatched = self.state.intents.first { $0.command.id == id }?.dispatchedAt != nil
+                let dispatched = expiry.settledIntents.first { $0.id == id }?.dispatchedAt != nil
                 var message =
                     dispatched
                     ? "Spotify has not confirmed the queue request. Its result is unknown."
@@ -166,14 +171,19 @@ extension PlaybackSessionRuntime {
         guard stillCurrent(lifetime) else { return nil }
         let accepted: Bool
         if case .success = outcome { accepted = true } else { accepted = false }
-        send(.queueIntentFinished(id: id, accepted: accepted), source: .command, playbackLifetime: lifetime)
-        guard let intent = state.intents.first(where: { $0.command.id == id }) else { return nil }
-        switch intent.outcome {
-        case .superseded, .timedOut: return nil
-        default: break
-        }
+        let resolution = state.transportCommandResolutions[id]
+        guard send(.queueIntentFinished(id: id, accepted: accepted), source: .command, playbackLifetime: lifetime),
+            resolution != .superseded
+        else { return nil }
         if case .failure(.reconnectRequired) = outcome { recoverEngineAfterCommandFailure() }
-        return intent.outcome == .observedConfirmed || accepted
+        return resolution == .confirmed || accepted
+    }
+
+    /// Follow-up receipts outlive the history window only while their transport call is owned.
+    /// Cancellation cleanup still consumes its own receipt, using the original lifetime stamp.
+    private func discardQueueIntentResolution(_ id: UUID, lifetime: PlaybackLifetime) {
+        guard state.transportCommandResolutions[id] != nil else { return }
+        send(.queueIntentFinished(id: id, accepted: false), source: .command, playbackLifetime: lifetime)
     }
 
     package func removeUpcomingQueueOccurrences(selectedIDs: Set<String>) {
@@ -207,7 +217,10 @@ extension PlaybackSessionRuntime {
                 let token = intentID
                 queueReplacementToken = token
                 effects.run(.queueReplacement) { [weak self] in
-                    defer { self?.finishQueueReplacementIfCurrent(token) }
+                    defer {
+                        self?.discardQueueIntentResolution(intentID, lifetime: lifetime)
+                        self?.finishQueueReplacementIfCurrent(token)
+                    }
                     do {
                         guard let self else { return }
                         guard

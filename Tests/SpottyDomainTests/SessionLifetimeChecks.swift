@@ -185,200 +185,71 @@ struct SessionLifetimeTests {
 
     @Test
     func commandFollowUpFollowsAcceptanceAndOutcome() {
-        let other = UUID(uuidString: "00000000-0000-0000-0000-000000000032")!
-        func followUp(
-            finishAccepted: Bool,
-            succeeded: Bool,
-            reconnect: Bool = false,
-            kind: PlaybackCommandKind = .transport,
-            pending: UUID? = nil,
-            resolution: PlaybackTransportCommandResolution? = nil,
-            account: UInt64 = 1,
-            engine: UInt64 = 1,
-            currentAccount: UInt64 = 1,
-            currentEngine: UInt64 = 1,
-            tearingDown: Bool = false
-        ) -> PlaybackCommandFollowUp {
-            playbackCommandFollowUp(
-                finishAccepted: finishAccepted,
-                operationSucceeded: succeeded,
-                requiresReconnect: reconnect,
-                commandKind: kind,
-                pendingCommandID: pending,
-                finishedCommandResolution: resolution,
-                capturedLifetime: PlaybackLifetime(
-                    accountEpoch: account,
-                    engineGeneration: engine
-                ),
-                currentLifetime: PlaybackLifetime(
-                    accountEpoch: currentAccount,
-                    engineGeneration: currentEngine
-                ),
-                isTearingDown: tearingDown
+        let lifetime = PlaybackLifetime(accountEpoch: 1, engineGeneration: 1)
+        let cases:
+            [(
+                accepted: Bool,
+                succeeded: Bool,
+                reconnect: Bool,
+                resolution: PlaybackTransportCommandResolution?,
+                expected: PlaybackCommandFollowUp
+            )] = [
+                (true, true, false, nil, .reportSuccess),
+                (true, false, false, nil, .reportFailure(reconnect: false)),
+                (true, false, true, nil, .reportFailure(reconnect: true)),
+                (false, true, false, nil, .inert),
+                (false, false, true, nil, .inert),
+                (false, true, true, .confirmed, .reportSuccess),
+                (false, false, false, .confirmed, .reportSuccess),
+                (false, false, true, .confirmed, .reconnectAfterReconciledSuccess),
+                (true, false, false, .confirmed, .reportSuccess),
+                (true, false, true, .confirmed, .reconnectAfterReconciledSuccess),
+                (true, false, true, .superseded, .inert),
+                (true, true, true, .superseded, .inert),
+            ]
+
+        for test in cases {
+            #expect(
+                playbackCommandFollowUp(
+                    finishAccepted: test.accepted,
+                    operationSucceeded: test.succeeded,
+                    requiresReconnect: test.reconnect,
+                    finishedCommandResolution: test.resolution,
+                    capturedLifetime: lifetime,
+                    currentLifetime: lifetime,
+                    isTearingDown: false
+                ) == test.expected
             )
         }
+    }
 
-        #expect(
-            (followUp(finishAccepted: true, succeeded: true)) == (.reportSuccess),
-            "an accepted success reports success"
-        )
-        #expect(
-            (followUp(finishAccepted: true, succeeded: false, reconnect: true))
-                == (.reportFailure(reconnect: true)),
-            "an accepted reconnect-required failure reports reconnect")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: true, reconnect: true, resolution: .confirmed))
-                == (.reportSuccess),
-            "a matching snapshot then successful finish still reports success")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: false, reconnect: false, resolution: .confirmed))
-                == (.reportSuccess),
-            "already-reconciled transport success with an ordinary failure reports success")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: false, reconnect: true, resolution: .confirmed))
-                == (.reconnectAfterReconciledSuccess),
-            "already-reconciled transport success with a reconnect-required failure keeps presentation and reconnects"
-        )
-        #expect(
-            (followUp(finishAccepted: false, succeeded: false, reconnect: true, kind: .options)) == (.inert),
-            "a non-transport kind with no pending command stays inert")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: false, reconnect: true, kind: .seek)) == (.inert),
-            "a late seek finish after pending was cleared stays inert")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: true, reconnect: true, currentEngine: 2)) == (.inert),
-            "engine-epoch invalidation stays inert")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: true, reconnect: true, currentAccount: 2)) == (.inert),
-            "account-epoch invalidation stays inert")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: true, pending: other)) == (.inert),
-            "a superseded id stays inert")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: true, tearingDown: true)) == (.inert),
-            "teardown stays inert")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: false,
-                resolution: .confirmed
-            )) == (.reportSuccess), "a confirmed play target still reports success after an ordinary late failure")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: true,
-                resolution: .confirmed
-            )) == (.reconnectAfterReconciledSuccess),
-            "a confirmed play target keeps presentation but reconnects after a reconnect-required failure")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: true, reconnect: true, resolution: .confirmed))
-                == (.reportSuccess), "a confirmed command that succeeded never reconnects")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: true,
-                resolution: .superseded
-            )) == (.inert), "a superseded play target stays inert after a late failure")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: true,
-                pending: other,
-                resolution: .superseded
-            )) == (.inert), "a superseded play stays inert after a later pause is pending")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: true,
-                resolution: .superseded
-            )) == (.inert), "a superseded play stays inert after a later pause cleared pending")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: false,
-                kind: .transfer,
-                resolution: .confirmed
-            )) == (.reportSuccess), "a confirmed transfer still reports success after an ordinary late failure")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: true,
-                reconnect: true,
-                kind: .transfer,
-                resolution: .superseded
-            )) == (.inert), "a superseded transfer stays inert after an accepted coordinator result")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: false,
-                pending: other,
-                resolution: .confirmed
-            )) == (.reportSuccess),
-            "a confirmed play still reports success (ordinary failure) while a later pause is pending")
-        #expect(
-            (followUp(finishAccepted: true, succeeded: false, reconnect: true))
-                == (.reportFailure(reconnect: true)),
-            "consume-only acceptance without a captured resolution still reports failure")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: true,
-                resolution: .confirmed,
-                currentEngine: 2
-            )) == (.inert), "a confirmed play is inert after an engine-epoch invalidation")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                resolution: .confirmed,
-                tearingDown: true
-            )) == (.inert), "a confirmed play is inert during teardown")
-        #expect(
-            (followUp(finishAccepted: true, succeeded: false, reconnect: true, kind: .options))
-                == (.reportFailure(reconnect: true)),
-            "options reconnect-required after an accepted finish reports reconnect")
-        #expect(
-            (followUp(finishAccepted: true, succeeded: false, reconnect: true, kind: .transfer))
-                == (.reportFailure(reconnect: true)),
-            "transfer reconnect-required after an accepted finish reports reconnect")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: false,
-                kind: .options,
-                resolution: .confirmed
-            )) == (.reportSuccess), "a confirmed shuffle still reports success after an ordinary late failure")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: false,
-                kind: .options,
-                pending: other,
-                resolution: .confirmed
-            )) == (.reportSuccess),
-            "a confirmed shuffle still reports success (ordinary failure) while a later options command is pending")
-        #expect(
-            (followUp(
-                finishAccepted: true,
-                succeeded: false,
-                reconnect: true,
-                kind: .options,
-                resolution: .confirmed,
-                currentEngine: 2
-            )) == (.inert), "a confirmed shuffle is inert after an engine-epoch invalidation")
-        #expect(
-            (followUp(finishAccepted: false, succeeded: false, reconnect: true, kind: .options)) == (.inert),
-            "an options finish without a captured resolution stays inert when pending is gone")
+    @Test
+    func invalidatedCommandFollowUpsStayInertRegardlessOfResolution() {
+        let captured = PlaybackLifetime(accountEpoch: 1, engineGeneration: 1)
+        let invalidations: [(current: PlaybackLifetime, tearingDown: Bool)] = [
+            (PlaybackLifetime(accountEpoch: 2, engineGeneration: 1), false),
+            (PlaybackLifetime(accountEpoch: 1, engineGeneration: 2), false),
+            (captured, true),
+        ]
+        let resolutions: [PlaybackTransportCommandResolution?] = [nil, .confirmed, .superseded]
+
+        for invalidation in invalidations {
+            for resolution in resolutions {
+                for succeeded in [true, false] {
+                    #expect(
+                        playbackCommandFollowUp(
+                            finishAccepted: true,
+                            operationSucceeded: succeeded,
+                            requiresReconnect: true,
+                            finishedCommandResolution: resolution,
+                            capturedLifetime: captured,
+                            currentLifetime: invalidation.current,
+                            isTearingDown: invalidation.tearingDown
+                        ) == .inert
+                    )
+                }
+            }
+        }
     }
 
     @Test

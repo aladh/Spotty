@@ -304,8 +304,6 @@ struct PlaybackSeekReconciliationTests {
                 finishAccepted: false,
                 operationSucceeded: false,
                 requiresReconnect: true,
-                commandKind: .seek,
-                pendingCommandID: state.pendingCommands[.seek]?.id,
                 capturedLifetime: PlaybackLifetime(accountEpoch: 1, engineGeneration: 1),
                 currentLifetime: PlaybackLifetime(accountEpoch: 1, engineGeneration: 1),
                 isTearingDown: false

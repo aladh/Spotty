@@ -38,11 +38,16 @@ struct AlbumDetailView: View {
             if store.isShowingCachedContent {
                 CachedCatalogNotice(
                     isRefreshing: store.isLoading, error: store.tracks.isEmpty ? nil : store.error,
-                    canRetry: playback.isConnected, retry: { await store.load(item, force: true) })
+                    canRetry: playback.isConnected
+                ) {
+                    guard playback.isConnected else { return }
+                    await store.load(item, force: true)
+                }
             }
             CatalogContentState(
                 isLoading: store.isLoadingInitialContent, isEmpty: store.tracks.isEmpty, error: store.error,
                 loadingLabel: "Loading album", errorTitle: "Couldn't load album",
+                connection: playback,
                 retry: { await store.load(item) }
             ) {
                 EmptyState(icon: "square.stack", title: "No tracks", message: "Spotify returned an empty album.")

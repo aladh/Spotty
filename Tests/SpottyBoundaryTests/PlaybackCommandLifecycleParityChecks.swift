@@ -42,14 +42,9 @@ private final class GatedRemoteClient: RemotePlaybackClient, @unchecked Sendable
     private var continuation: CheckedContinuation<Void, any Error>?
     private var pendingResult: Result<Void, any Error>?
     private var storedSendCount = 0
-    private var storedCompletedCount = 0
 
     var sendCount: Int {
         lock.withLock { storedSendCount }
-    }
-
-    var completedCount: Int {
-        lock.withLock { storedCompletedCount }
     }
 
     func finish(success: Bool) {
@@ -63,12 +58,7 @@ private final class GatedRemoteClient: RemotePlaybackClient, @unchecked Sendable
         waiting?.resume(with: result)
     }
 
-    private func markCompleted() {
-        lock.withLock { storedCompletedCount += 1 }
-    }
-
     func send(_: SpotifyConnectCommand, from _: String, to _: String) async throws {
-        defer { markCompleted() }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             let pending: Result<Void, any Error>? = lock.withLock {
                 storedSendCount += 1
@@ -629,30 +619,30 @@ struct PlaybackCommandLifecycleParityTests {
                         HarnessEnvironment.make(engine: supersedeLocal, remote: supersedeRemote)
                     )
                     seedRoute(superseded, route)
-                    var supersededCompletions: [Bool] = []
-                    startLifecycleCommand(superseded, kind: kind) { supersededCompletions.append($0) }
+                    let supersededCompletions = RuntimeCallbackRecorder<Bool>()
+                    superseded.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { supersededCompletions.append($0) }
+                    }
                     let supersedePending = await waitUntil { superseded.state.pendingCommands[kind.commandKind] != nil }
                     #expect((supersedePending) == true, "\(label) command is pending before supersession")
                     let supersedeReached = await waitForLifecycleDispatch(
                         route: route, local: supersedeGate, remote: supersedeRemote)
                     #expect((supersedeReached) == true, "\(label) command reaches the fixture before supersession")
+                    let supersededID = superseded.state.pendingCommands[kind.commandKind]?.id
+                    let supersedeSettlement = supersededID.flatMap { superseded.effects.settlement(of: .command($0)) }
+                    #expect(supersedeSettlement != nil, "\(label) captures the superseded command task")
                     supersede(superseded, kind: kind, revision: 1)
                     #expect(
                         (superseded.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) unrelated snapshot clears the pending command")
                     if route == .local {
                         supersedeGate.finish(with: .error)
-                        let supersedeFinished = await waitUntil { supersedeLocal.executeCount == 1 }
-                        #expect(
-                            (supersedeFinished) == true, "\(label) superseded command finishes at the local fixture")
                     } else {
                         supersedeRemote.finish(success: false)
-                        let supersedeFinished = await waitUntil { supersedeRemote.completedCount == 1 }
-                        #expect(
-                            (supersedeFinished) == true, "\(label) superseded command finishes at the remote fixture")
                     }
+                    await supersedeSettlement?.wait()
                     #expect(
-                        (supersededCompletions.isEmpty) == true,
+                        (supersededCompletions.snapshot.isEmpty) == true,
                         "\(label) superseded then coordinator failure reports no completion")
                     #expect(
                         (superseded.transientCommandError) == nil,
@@ -667,14 +657,11 @@ struct PlaybackCommandLifecycleParityTests {
                         HarnessEnvironment.make(engine: staleLocal, remote: staleRemote)
                     )
                     seedRoute(stale, route)
-                    var staleCompletions: [Bool] = []
-                    let staleCompletion: @MainActor (Bool) -> Void = { staleCompletions.append($0) }
+                    let staleCompletions = RuntimeCallbackRecorder<Bool>()
                     // Admission, settlement capture and invalidation share one runtime turn,
                     // before the effect can create its dispatch permit.
                     let (stalePending, staleSettlement) = stale.withRuntime { runtime in
-                        startLifecycleCommand(runtime, kind: kind) { accepted in
-                            Task { @MainActor in staleCompletion(accepted) }
-                        }
+                        startLifecycleCommand(runtime, kind: kind) { staleCompletions.append($0) }
                         let pending = runtime.state.pendingCommands[kind.commandKind]
                         let settlement = pending.flatMap { runtime.effects.settlement(of: .command($0.id)) }
                         _ = runtime.send(
@@ -687,6 +674,7 @@ struct PlaybackCommandLifecycleParityTests {
                         return (pending != nil, settlement)
                     }
                     #expect((stalePending) == true, "\(label) command is pending before an engine-epoch bump")
+                    #expect(staleSettlement != nil, "\(label) captures the stale command task")
                     #expect(
                         (stale.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) engine-epoch bump drops the pending command")
@@ -705,7 +693,7 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect(
                         staleGate.enteredCount == 0 && staleRemote.sendCount == 0,
                         "\(label) the stale command remains undispatched through settlement")
-                    #expect((staleCompletions.isEmpty) == true, "\(label) stale finish reports no completion")
+                    #expect((staleCompletions.snapshot.isEmpty) == true, "\(label) stale finish reports no completion")
                     await stale.shutdownForTermination()
 
                     let lateGate = HarnessEngineGate(result: .ok)
@@ -716,8 +704,10 @@ struct PlaybackCommandLifecycleParityTests {
                         HarnessEnvironment.make(engine: lateLocal, remote: lateRemote)
                     )
                     seedRoute(lateStale, route)
-                    var lateCompletions: [Bool] = []
-                    startLifecycleCommand(lateStale, kind: kind) { lateCompletions.append($0) }
+                    let lateCompletions = RuntimeCallbackRecorder<Bool>()
+                    lateStale.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { lateCompletions.append($0) }
+                    }
                     let latePending = await waitUntil {
                         lateStale.state.pendingCommands[kind.commandKind] != nil
                     }
@@ -727,6 +717,7 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect((lateReached) == true, "\(label) late stale command reaches the fixture")
                     let lateID = lateStale.state.pendingCommands[kind.commandKind]?.id
                     let lateSettlement = lateID.flatMap { lateStale.effects.settlement(of: .command($0)) }
+                    #expect(lateSettlement != nil, "\(label) captures the late command task")
                     _ = lateStale.send(
                         .engineConnection(
                             EngineConnectionSnapshot(session: .recovering, owner: .none, localDeviceID: nil)),
@@ -739,15 +730,12 @@ struct PlaybackCommandLifecycleParityTests {
                         "\(label) late stale epoch bump drops the pending command")
                     if route == .local {
                         lateGate.finish(with: .ok)
-                        let lateFinished = await waitUntil { lateLocal.executeCount == 1 }
-                        #expect((lateFinished) == true, "\(label) late stale local fixture finishes")
                     } else {
                         lateRemote.finish(success: true)
-                        let lateFinished = await waitUntil { lateRemote.completedCount == 1 }
-                        #expect((lateFinished) == true, "\(label) late stale remote fixture finishes")
                     }
                     await lateSettlement?.wait()
-                    #expect((lateCompletions.isEmpty) == true, "\(label) late stale finish reports no completion")
+                    #expect(
+                        (lateCompletions.snapshot.isEmpty) == true, "\(label) late stale finish reports no completion")
                     await lateStale.shutdownForTermination()
 
                     let cancelGate = HarnessEngineGate(result: .ok)
@@ -759,8 +747,10 @@ struct PlaybackCommandLifecycleParityTests {
                     )
                     seedRoute(cancelled, route)
                     let prior = cancelled.state
-                    var cancelCompletions: [Bool] = []
-                    startLifecycleCommand(cancelled, kind: kind) { cancelCompletions.append($0) }
+                    let cancelCompletions = RuntimeCallbackRecorder<Bool>()
+                    cancelled.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { cancelCompletions.append($0) }
+                    }
                     let cancelPending = await waitUntil { cancelled.state.pendingCommands[kind.commandKind] != nil }
                     #expect((cancelPending) == true, "\(label) command is pending before cancellation")
                     let cancelReached = await waitUntil {
@@ -770,14 +760,15 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect((cancelReached) == true, "\(label) cancelled command still reaches the fixture")
                     let cancelledID = cancelled.state.pendingCommands[kind.commandKind]?.id
                     #expect((cancelledID) != nil, "\(label) cancelled command has an id")
-                    if let commandID = cancelledID {
-                        cancelled.effects.cancel(.command(commandID))
-                    }
+                    let cancelSettlement = cancelledID.flatMap { cancelled.effects.cancel(.command($0)) }
+                    #expect(cancelSettlement != nil, "\(label) captures the cancelled command task")
                     let cancelSettled = await waitUntil {
-                        cancelled.state.pendingCommands[kind.commandKind] == nil && !cancelCompletions.isEmpty
+                        cancelled.state.pendingCommands[kind.commandKind] == nil && !cancelCompletions.snapshot.isEmpty
                     }
                     #expect((cancelSettled) == true, "\(label) ordinary cancellation settles")
-                    #expect((cancelCompletions) == ([false]), "\(label) ordinary cancellation reports failure once")
+                    #expect(
+                        (cancelCompletions.snapshot) == ([false]), "\(label) ordinary cancellation reports failure once"
+                    )
                     #expect(
                         (cancelled.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) ordinary cancellation clears the pending command")
@@ -804,11 +795,10 @@ struct PlaybackCommandLifecycleParityTests {
                     } else {
                         cancelRemote.finish(success: true)
                     }
-                    let cancelledFixtureReleased = await waitUntil {
-                        if route == .local { return cancelLocal.executeCount == 1 }
-                        return cancelRemote.completedCount == 1
-                    }
-                    #expect((cancelledFixtureReleased) == true, "\(label) cancelled fixture releases before reuse")
+                    await cancelSettlement?.wait()
+                    #expect(
+                        cancelCompletions.snapshot == [false], "\(label) late return cannot complete cancellation again"
+                    )
 
                     var nextCompletions: [Bool] = []
                     startLifecycleCommand(cancelled, kind: kind) { nextCompletions.append($0) }
@@ -840,8 +830,10 @@ struct PlaybackCommandLifecycleParityTests {
                         HarnessEnvironment.make(engine: confirmCancelLocal, remote: confirmCancelRemote)
                     )
                     seedRoute(confirmCancelled, route)
-                    var confirmCancelCompletions: [Bool] = []
-                    startLifecycleCommand(confirmCancelled, kind: kind) { confirmCancelCompletions.append($0) }
+                    let confirmCancelCompletions = RuntimeCallbackRecorder<Bool>()
+                    confirmCancelled.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { confirmCancelCompletions.append($0) }
+                    }
                     let confirmCancelPending = await waitUntil {
                         confirmCancelled.state.pendingCommands[kind.commandKind] != nil
                     }
@@ -856,11 +848,18 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect(
                         (confirmCancelled.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) confirmation clears the pending command before cancel")
-                    if let commandID = confirmCancelID {
-                        confirmCancelled.effects.cancel(.command(commandID))
+                    let confirmCancelSettlement = confirmCancelID.flatMap {
+                        confirmCancelled.effects.cancel(.command($0))
                     }
+                    #expect(confirmCancelSettlement != nil, "\(label) captures the cancelled command task")
+                    if route == .local {
+                        confirmCancelGate.finish(with: .ok)
+                    } else {
+                        confirmCancelRemote.finish(success: true)
+                    }
+                    await confirmCancelSettlement?.wait()
                     #expect(
-                        (confirmCancelCompletions.isEmpty) == true,
+                        (confirmCancelCompletions.snapshot.isEmpty) == true,
                         "\(label) confirmed cancellation reports no completion")
                     #expect(
                         (confirmCancelled.transientCommandError) == nil, "\(label) confirmed cancellation has no notice"
@@ -880,11 +879,6 @@ struct PlaybackCommandLifecycleParityTests {
                             (confirmCancelled.state.owner) == (lifecycleRemoteB),
                             "\(label) confirmed cancellation keeps the target owner")
                     }
-                    if route == .local {
-                        confirmCancelGate.finish(with: .ok)
-                    } else {
-                        confirmCancelRemote.finish(success: true)
-                    }
                     await confirmCancelled.shutdownForTermination()
 
                     let supersedeCancelGate = HarnessEngineGate(result: .ok)
@@ -895,8 +889,10 @@ struct PlaybackCommandLifecycleParityTests {
                         HarnessEnvironment.make(engine: supersedeCancelLocal, remote: supersedeCancelRemote)
                     )
                     seedRoute(supersedeCancelled, route)
-                    var supersedeCancelCompletions: [Bool] = []
-                    startLifecycleCommand(supersedeCancelled, kind: kind) { supersedeCancelCompletions.append($0) }
+                    let supersedeCancelCompletions = RuntimeCallbackRecorder<Bool>()
+                    supersedeCancelled.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { supersedeCancelCompletions.append($0) }
+                    }
                     let supersedeCancelPending = await waitUntil {
                         supersedeCancelled.state.pendingCommands[kind.commandKind] != nil
                     }
@@ -912,11 +908,18 @@ struct PlaybackCommandLifecycleParityTests {
                     #expect(
                         (supersedeCancelled.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) supersession clears the pending command before cancel")
-                    if let commandID = supersedeCancelID {
-                        supersedeCancelled.effects.cancel(.command(commandID))
+                    let supersedeCancelSettlement = supersedeCancelID.flatMap {
+                        supersedeCancelled.effects.cancel(.command($0))
                     }
+                    #expect(supersedeCancelSettlement != nil, "\(label) captures the cancelled command task")
+                    if route == .local {
+                        supersedeCancelGate.finish(with: .ok)
+                    } else {
+                        supersedeCancelRemote.finish(success: true)
+                    }
+                    await supersedeCancelSettlement?.wait()
                     #expect(
-                        (supersedeCancelCompletions.isEmpty) == true,
+                        (supersedeCancelCompletions.snapshot.isEmpty) == true,
                         "\(label) superseded cancellation reports no completion")
                     #expect(
                         (supersedeCancelled.transientCommandError) == nil,
@@ -936,11 +939,6 @@ struct PlaybackCommandLifecycleParityTests {
                             (supersedeCancelled.state.owner) == (lifecycleOwnerC),
                             "\(label) superseded cancellation keeps the unrelated owner")
                     }
-                    if route == .local {
-                        supersedeCancelGate.finish(with: .ok)
-                    } else {
-                        supersedeCancelRemote.finish(success: true)
-                    }
                     await supersedeCancelled.shutdownForTermination()
 
                     let staleCancelGate = HarnessEngineGate(result: .ok)
@@ -951,12 +949,9 @@ struct PlaybackCommandLifecycleParityTests {
                         HarnessEnvironment.make(engine: staleCancelLocal, remote: staleCancelRemote)
                     )
                     seedRoute(staleCancelled, route)
-                    var staleCancelCompletions: [Bool] = []
-                    let staleCancelCompletion: @MainActor (Bool) -> Void = { staleCancelCompletions.append($0) }
+                    let staleCancelCompletions = RuntimeCallbackRecorder<Bool>()
                     let (staleCancelPending, staleCancelSettlement) = staleCancelled.withRuntime { runtime in
-                        startLifecycleCommand(runtime, kind: kind) { accepted in
-                            Task { @MainActor in staleCancelCompletion(accepted) }
-                        }
+                        startLifecycleCommand(runtime, kind: kind) { staleCancelCompletions.append($0) }
                         let pending = runtime.state.pendingCommands[kind.commandKind]
                         let settlement = pending.flatMap { runtime.effects.settlement(of: .command($0.id)) }
                         _ = runtime.send(
@@ -970,6 +965,7 @@ struct PlaybackCommandLifecycleParityTests {
                         return (pending != nil, settlement)
                     }
                     #expect((staleCancelPending) == true, "\(label) command is pending before stale cancellation")
+                    #expect(staleCancelSettlement != nil, "\(label) captures the stale cancelled command task")
                     #expect(
                         (staleCancelled.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) engine-epoch bump drops the pending command before cancel")
@@ -982,11 +978,12 @@ struct PlaybackCommandLifecycleParityTests {
                             (staleCancelRemote.sendCount) == 0,
                             "\(label) stale cancellation never reaches the remote fixture")
                     }
-                    #expect(
-                        (staleCancelCompletions.isEmpty) == true, "\(label) stale cancellation reports no completion")
                     staleCancelGate.finish(with: .ok)
                     staleCancelRemote.finish(success: true)
                     await staleCancelSettlement?.wait()
+                    #expect(
+                        (staleCancelCompletions.snapshot.isEmpty) == true,
+                        "\(label) stale cancellation reports no completion")
                     #expect(
                         staleCancelGate.enteredCount == 0 && staleCancelRemote.sendCount == 0,
                         "\(label) the stale cancelled command remains undispatched through settlement")
@@ -1000,8 +997,10 @@ struct PlaybackCommandLifecycleParityTests {
                         HarnessEnvironment.make(engine: teardownLocal, remote: teardownRemote)
                     )
                     seedRoute(teardown, route)
-                    var teardownCompletions: [Bool] = []
-                    startLifecycleCommand(teardown, kind: kind) { teardownCompletions.append($0) }
+                    let teardownCompletions = RuntimeCallbackRecorder<Bool>()
+                    teardown.withRuntime { runtime in
+                        startLifecycleCommand(runtime, kind: kind) { teardownCompletions.append($0) }
+                    }
                     let teardownPending = await waitUntil { teardown.state.pendingCommands[kind.commandKind] != nil }
                     #expect((teardownPending) == true, "\(label) command is pending before teardown")
                     let teardownReached = await waitUntil {
@@ -1009,6 +1008,9 @@ struct PlaybackCommandLifecycleParityTests {
                         return teardownRemote.sendCount >= 1
                     }
                     #expect((teardownReached) == true, "\(label) teardown command still reaches the fixture")
+                    let teardownID = teardown.state.pendingCommands[kind.commandKind]?.id
+                    let teardownSettlement = teardownID.flatMap { teardown.effects.settlement(of: .command($0)) }
+                    #expect(teardownSettlement != nil, "\(label) captures the retiring command task")
                     // Admit retirement before releasing the worker. The runtime must invalidate
                     // completion while the command is still in flight, independent of UI scheduling.
                     let shutdown = Task { await teardown.shutdownForTermination() }
@@ -1020,8 +1022,8 @@ struct PlaybackCommandLifecycleParityTests {
                         teardownRemote.finish(success: true)
                     }
                     await shutdown.value
-                    for _ in 0..<50 { await Task.yield() }
-                    #expect((teardownCompletions.isEmpty) == true, "\(label) teardown reports no completion")
+                    await teardownSettlement?.wait()
+                    #expect((teardownCompletions.snapshot.isEmpty) == true, "\(label) teardown reports no completion")
                     #expect(
                         (teardown.state.pendingCommands[kind.commandKind]) == nil,
                         "\(label) teardown leaves no pending command")

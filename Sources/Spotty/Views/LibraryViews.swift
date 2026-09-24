@@ -11,31 +11,39 @@ struct LibraryView: View {
     let onSelect: (CatalogItem) -> Void
 
     var body: some View {
-        ScrollView {
-            CatalogContentState(
-                isLoading: isLoading, isEmpty: items.isEmpty, error: error,
-                loadingLabel: "Loading \(title.lowercased())", errorTitle: "Couldn't load \(title.lowercased())",
-                placeholderPadding: CatalogLayout.contentPadding, connection: playback, retry: reload
-            ) {
-                EmptyState(
-                    icon: "tray", title: "No \(title.lowercased()) found",
-                    message: "This part of your Spotify library is empty.")
-            } content: {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text(title)
-                        .font(.system(size: 32, weight: .bold))
+        VStack(spacing: 0) {
+            if !items.isEmpty, isLoading || error != nil {
+                CachedCatalogNotice(isRefreshing: isLoading, error: error, canRetry: playback.isConnected) {
+                    guard playback.isConnected else { return }
+                    await reload()
+                }
+            }
+            ScrollView {
+                CatalogContentState(
+                    isLoading: isLoading, isEmpty: items.isEmpty, error: error,
+                    loadingLabel: "Loading \(title.lowercased())", errorTitle: "Couldn't load \(title.lowercased())",
+                    placeholderPadding: CatalogLayout.contentPadding, connection: playback, retry: reload
+                ) {
+                    EmptyState(
+                        icon: "tray", title: "No \(title.lowercased()) found",
+                        message: "This part of your Spotify library is empty.")
+                } content: {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text(title)
+                            .font(.system(size: 32, weight: .bold))
 
-                    LazyVGrid(
-                        columns: MediaGridLayout.columns,
-                        alignment: .leading,
-                        spacing: CatalogLayout.gridSpacing
-                    ) {
-                        ForEach(CatalogDisplayOccurrence.identifying(items)) { occurrence in
-                            MediaCard(item: occurrence.element, playback: playback) { onSelect(occurrence.element) }
+                        LazyVGrid(
+                            columns: MediaGridLayout.columns,
+                            alignment: .leading,
+                            spacing: CatalogLayout.gridSpacing
+                        ) {
+                            ForEach(CatalogDisplayOccurrence.identifying(items)) { occurrence in
+                                MediaCard(item: occurrence.element, playback: playback) { onSelect(occurrence.element) }
+                            }
                         }
                     }
+                    .padding(CatalogLayout.contentPadding)
                 }
-                .padding(CatalogLayout.contentPadding)
             }
         }
         .navigationTitle(title)
@@ -73,6 +81,13 @@ struct TrackCollectionView: View {
             .padding(CatalogLayout.contentPadding)
 
             CatalogTableDivider()
+
+            if !tracks.tracks.isEmpty, isLoading || reloadError != nil {
+                CachedCatalogNotice(isRefreshing: isLoading, error: reloadError, canRetry: playback.isConnected) {
+                    guard playback.isConnected else { return }
+                    await reload()
+                }
+            }
 
             CatalogContentState(
                 isLoading: isLoading, isEmpty: tracks.tracks.isEmpty, error: reloadError,

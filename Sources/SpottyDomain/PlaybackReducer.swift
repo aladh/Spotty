@@ -4,10 +4,13 @@ import Foundation
 public struct SettledIntent: Equatable, Sendable {
     public let id: UUID
     public let outcome: PlaybackIntentOutcome
+    /// Preserves expiry classification even when settlement retires the history record.
+    public let dispatchedAt: Date?
 
-    public init(id: UUID, outcome: PlaybackIntentOutcome) {
+    public init(id: UUID, outcome: PlaybackIntentOutcome, dispatchedAt: Date? = nil) {
         self.id = id
         self.outcome = outcome
+        self.dispatchedAt = dispatchedAt
     }
 }
 
@@ -88,6 +91,22 @@ public enum PlaybackReducer {
     /// have to rediscover by diffing published state.
     @discardableResult
     public static func apply(
+        _ state: inout PlaybackState,
+        envelope: PlaybackEventEnvelope
+    ) -> PlaybackReduction {
+        let reduction = applyEvent(&state, envelope: envelope)
+        if reduction.accepted, state.intents.count > 128 {
+            // Keep the recent admission window plus older active requests. Prune only after
+            // all cluster components and settlement receipts have been collected.
+            let recentStart = state.intents.count - 128
+            state.intents = state.intents.enumerated().compactMap { index, intent in
+                index >= recentStart || !intent.outcome.isTerminal ? intent : nil
+            }
+        }
+        return reduction
+    }
+
+    private static func applyEvent(
         _ state: inout PlaybackState,
         envelope: PlaybackEventEnvelope
     ) -> PlaybackReduction {
@@ -201,7 +220,7 @@ public enum PlaybackReducer {
             // Preserve component source ordering while committing one externally observable
             // state. A newer local playback sample may already have overtaken this cluster.
             absorb(
-                apply(
+                applyEvent(
                     &candidate,
                     envelope: PlaybackEventEnvelope(
                         accountEpoch: envelope.accountEpoch,
@@ -215,7 +234,7 @@ public enum PlaybackReducer {
             )
             if let playback = snapshot.playback, let revision = snapshot.playbackRevision {
                 absorb(
-                    apply(
+                    applyEvent(
                         &candidate,
                         envelope: PlaybackEventEnvelope(
                             accountEpoch: envelope.accountEpoch,
@@ -230,7 +249,7 @@ public enum PlaybackReducer {
             }
             if let connection = snapshot.connection, let revision = snapshot.connectionRevision {
                 absorb(
-                    apply(
+                    applyEvent(
                         &candidate,
                         envelope: PlaybackEventEnvelope(
                             accountEpoch: envelope.accountEpoch,
@@ -353,11 +372,6 @@ public enum PlaybackReducer {
                     engineGeneration: candidate.engineEpoch)
             }
             candidate.intents.append(intent)
-            while candidate.intents.count > 128,
-                let oldest = candidate.intents.firstIndex(where: { $0.outcome.isTerminal })
-            {
-                candidate.intents.remove(at: oldest)
-            }
             candidate.pendingCommands[command.kind] = prepared
             if let expectedTrack = command.expectedTrack {
                 if playbackTrackURI(candidate.currentTrack?.uri) != playbackTrackURI(expectedTrack.uri) {
@@ -383,16 +397,15 @@ public enum PlaybackReducer {
         case let .queueIntentStarted(intent):
             guard !candidate.intents.contains(where: { $0.command.id == intent.command.id }) else { return .rejected }
             candidate.intents.append(intent)
-            while candidate.intents.count > 128,
-                let oldest = candidate.intents.firstIndex(where: { $0.outcome.isTerminal })
-            {
-                candidate.intents.remove(at: oldest)
-            }
         case let .queueIntentFinished(id, accepted):
-            guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
+            if let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 !candidate.intents[index].outcome.isTerminal
-            else { return .rejected }
-            candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
+            {
+                candidate.intents[index].settle(accepted ? .sent : .rejected, at: envelope.receivedAt)
+            } else if candidate.transportCommandResolutions[id] == nil {
+                return .rejected
+            }
+            candidate.transportCommandResolutions[id] = nil
         case let .commandDispatched(id, at):
             guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 candidate.intents[index].outcome == .admitted
@@ -497,7 +510,7 @@ public enum PlaybackReducer {
                     candidate.pendingCommands[intent.command.kind] = nil
                     candidate.transportCommandResolutions[intent.command.id] = .superseded
                 }
-                if let resolution, intent.command.kind != .queue {
+                if let resolution {
                     if candidate.pendingCommands[intent.command.kind]?.id == intent.command.id {
                         candidate.pendingCommands[intent.command.kind] = nil
                     }
@@ -521,7 +534,7 @@ public enum PlaybackReducer {
             guard intent.outcome.isTerminal,
                 preState.intents.first(where: { $0.command.id == intent.command.id })?.outcome.isTerminal != true
             else { return nil }
-            return SettledIntent(id: intent.command.id, outcome: intent.outcome)
+            return SettledIntent(id: intent.command.id, outcome: intent.outcome, dispatchedAt: intent.dispatchedAt)
         }
         let confirmedPlayTrackURIs = candidate.intents.compactMap { intent -> String? in
             guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,

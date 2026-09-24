@@ -57,7 +57,11 @@ struct ArtistDetailView: View {
                     if store.isShowingCachedContent {
                         CachedCatalogNotice(
                             isRefreshing: store.isLoading, error: hasContent ? store.error : nil,
-                            canRetry: playback.isConnected, retry: { await store.load(item, force: true) })
+                            canRetry: playback.isConnected
+                        ) {
+                            guard playback.isConnected else { return }
+                            await store.load(item, force: true)
+                        }
                     }
                     if !store.popularTracks.tracks.isEmpty {
                         Text("Popular")
@@ -97,6 +101,7 @@ struct ArtistDetailView: View {
                 isLoading: store.isLoading,
                 isEmpty: !hasContent,
                 error: store.error, loadingLabel: "Loading artist", errorTitle: "Couldn't load artist",
+                connection: playback,
                 retry: { await store.load(item) }
             ) {
                 EmptyState(

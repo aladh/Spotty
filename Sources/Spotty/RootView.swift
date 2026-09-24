@@ -160,10 +160,9 @@ struct RootView: View {
             } else if catalog.homeLibrary.isLoading(.playlists) {
                 LoadingState(label: "Loading playlist")
             } else if let error = catalog.homeLibrary.error(for: .playlists) {
-                CatalogFailureState(title: "Couldn't restore this playlist", message: error) {
-                    await catalog.homeLibrary.loadPlaylists()
-                }
-                .padding(30)
+                CatalogFailureState(title: "Couldn't restore this playlist", message: error, retry: retryPlaylists)
+                    .disabled(!catalogPlayback.isConnected)
+                    .padding(30)
             } else {
                 unavailableMedia("Playlist", destination: .home)
             }

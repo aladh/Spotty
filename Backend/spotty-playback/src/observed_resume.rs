@@ -110,15 +110,13 @@ pub(crate) fn load_observation_confirmed(
                 position_ms: *position_ms,
             },
         };
-        let playing = engine.playing_event();
-        engine.is_playing()
-            && playing.generation == generation
-            && playing.sequence > load.after_playing
-            && state.confirms_playing(
-                &expected,
-                load.after_revision,
-                load.started.elapsed().as_millis().min(u32::MAX as u128) as u32,
-            )
+        engine.confirms_playing(
+            generation,
+            load.after_playing,
+            &expected,
+            load.after_revision,
+            load.started.elapsed().as_millis().min(u32::MAX as u128) as u32,
+        )
     })
     .unwrap_or(false)
 }
@@ -195,6 +193,27 @@ enum ResumeAction {
     Play,
     Wait,
     Reject,
+}
+
+impl EngineGeneration {
+    /// A Playing edge is no longer confirmation after a later local pause or stop. Keep the
+    /// live flag, event ownership, and protocol evidence together for both resume and recovery.
+    fn confirms_playing(
+        &self,
+        generation: u64,
+        after_playing: u64,
+        expected: &ObservedResumeTarget,
+        after_revision: u64,
+        elapsed_ms: u32,
+    ) -> bool {
+        let playing = self.playing_event();
+        self.is_playing()
+            && playing.generation == generation
+            && playing.sequence > after_playing
+            && self
+                .observed_resume
+                .confirms_playing(expected, after_revision, elapsed_ms)
+    }
 }
 
 impl ObservedResumeState {
@@ -467,21 +486,14 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
                 let playing_deadline = std::time::Instant::now() + Duration::from_secs(2);
                 while std::time::Instant::now() < playing_deadline {
                     let observed = with_engine_owned(generation, |engine| {
-                        let stamp = engine.playing_event();
-                        stamp.generation == generation
-                            && stamp.sequence > before.sequence
-                            && engine.connection.is_active_device
-                            && engine.observed_resume.confirms_playing(
+                        engine.connection.is_active_device
+                            && engine.confirms_playing(
+                                generation,
+                                before.sequence,
                                 &expected,
                                 protocol_revision,
                                 play_started.elapsed().as_millis() as u32,
                             )
-                            && !engine.observed_resume.remote_owner
-                            && engine.observed_resume.local_context_known
-                            && engine.observed_resume.local.as_ref().is_some_and(|target| {
-                                target.track_uri == expected.track_uri
-                                    && target.context_uri == expected.context_uri
-                            })
                     });
                     match observed {
                         Ok(true) => {
@@ -515,6 +527,44 @@ mod tests {
             context_uri: Some("spotify:playlist:fixture".into()),
             position_ms,
         }
+    }
+
+    #[test]
+    fn paused_local_playback_cannot_confirm_an_earlier_playing_event() {
+        let generation = 4;
+        let expected = target("current", 152_000);
+        let mut engine = EngineGeneration::default();
+        engine.observed_resume = ObservedResumeState {
+            revision: 11,
+            observed: Some(expected.clone()),
+            local: Some(expected.clone()),
+            local_context_known: true,
+            protocol_active: true,
+            protocol_playing: true,
+            ..Default::default()
+        };
+        let before = engine.playing_event().sequence;
+        assert!(!engine.confirms_playing(generation, before, &expected, 10, 500));
+
+        engine.note_playing_event(generation);
+        assert!(engine.confirms_playing(generation, before, &expected, 10, 500));
+        assert!(!engine.confirms_playing(generation + 1, before, &expected, 10, 500));
+        assert!(!engine.confirms_playing(
+            generation,
+            engine.playing_event().sequence,
+            &expected,
+            10,
+            500,
+        ));
+
+        // Paused keeps the loaded target and last Playing edge. The protocol consumer can
+        // still be catching up, so those facts must not override the newer local state.
+        engine.clear_playing();
+        assert!(engine.observed_resume.confirms_playing(&expected, 10, 500));
+        assert!(!engine.confirms_playing(generation, before, &expected, 10, 500));
+
+        engine.note_playing_event(generation);
+        assert!(engine.confirms_playing(generation, before, &expected, 10, 500));
     }
 
     #[test]

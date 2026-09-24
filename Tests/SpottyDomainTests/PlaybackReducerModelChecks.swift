@@ -672,10 +672,22 @@ private func pendingCoherence(_ state: PlaybackState) -> String? {
 }
 
 /// The retained history keeps the latest 128 records plus any still-active request.
-private func intentRetentionBound(_ state: PlaybackState) -> String? {
-    let active = state.intents.filter { !$0.outcome.isTerminal }.count
-    if state.intents.count > 128 + active {
-        return "intents grew to \(state.intents.count) with \(active) active"
+private func intentHistoryWindow(
+    pre: PlaybackState, post: PlaybackState, envelope: PlaybackEventEnvelope, accepted: Bool
+) -> String? {
+    guard accepted, pre.accountEpoch == post.accountEpoch, pre.engineEpoch == post.engineEpoch else { return nil }
+    if case .reset = envelope.event { return nil }
+    var admissions = pre.intents.map(\.command.id)
+    switch envelope.event {
+    case let .commandStarted(command): admissions.append(command.id)
+    case let .queueIntentStarted(intent): admissions.append(intent.command.id)
+    default: break
+    }
+    let recent = Set(admissions.suffix(128))
+    let retained = Set(post.intents.map(\.command.id))
+    if !recent.isSubset(of: retained) { return "retired an intent inside the latest 128 admissions" }
+    if post.intents.contains(where: { !recent.contains($0.command.id) && $0.outcome.isTerminal }) {
+        return "retained a settled intent outside the latest 128 admissions"
     }
     return nil
 }
@@ -885,7 +897,9 @@ private func firstViolation(
         return violation
     }
     if let violation = pendingCoherence(post) { return violation }
-    if let violation = intentRetentionBound(post) { return violation }
+    if let violation = intentHistoryWindow(pre: pre, post: post, envelope: envelope, accepted: accepted) {
+        return violation
+    }
     if let violation = timingIsNonNegative(post) { return violation }
     if let violation = gateAgreement(gateAllows: gateAllows, accepted: accepted) {
         return violation
@@ -965,6 +979,88 @@ private func runModelTrace(seed: UInt64, steps: Int, commandHeavy: Bool) -> Stri
 
 @Suite("Playback Reducer Model")
 struct PlaybackReducerModelChecks {
+    @Test(arguments: [false, true])
+    func historyKeepsRecentAdmissionsAlongsideOlderActiveRequests(queueCommands: Bool) {
+        var state = PlaybackState(accountEpoch: 1, engineEpoch: 1, session: .ready)
+        var rng = SplitMix64(seed: 128)
+        let now = Date(timeIntervalSince1970: 100)
+        var revision: UInt64 = 0
+        func apply(_ event: PlaybackEvent) -> PlaybackReduction {
+            revision += 1
+            let envelope = PlaybackEventEnvelope(
+                accountEpoch: 1, engineEpoch: 1, source: .command, revision: revision,
+                receivedAt: now, event: event)
+            let pre = state
+            let reduction = PlaybackReducer.apply(&state, envelope: envelope)
+            #expect(reduction.accepted)
+            #expect(intentHistoryWindow(pre: pre, post: state, envelope: envelope, accepted: reduction.accepted) == nil)
+            return reduction
+        }
+        let older = PendingPlaybackCommand(id: makeUUID(&rng), kind: .queue, expectedTransport: nil, startedAt: now)
+        _ = apply(.queueIntentStarted(PlaybackIntent(command: older, baselineTrackURI: nil)))
+        var recent: [UUID] = []
+        for _ in 0..<128 {
+            let command = PendingPlaybackCommand(
+                id: makeUUID(&rng), kind: queueCommands ? .queue : .options, expectedTransport: nil, startedAt: now)
+            recent.append(command.id)
+            if queueCommands {
+                _ = apply(.queueIntentStarted(PlaybackIntent(command: command, baselineTrackURI: nil)))
+                _ = apply(.queueIntentFinished(id: command.id, accepted: false))
+            } else {
+                _ = apply(.commandStarted(command))
+                _ = apply(.commandFinished(id: command.id, accepted: false, notice: nil))
+            }
+        }
+        #expect(state.intents.map(\.command.id) == [older.id] + recent)
+        #expect(state.intents.first?.outcome == .admitted)
+        let reduction = apply(.queueIntentFinished(id: older.id, accepted: false))
+        #expect(reduction.settledIntents == [SettledIntent(id: older.id, outcome: .rejected)])
+        #expect(state.intents.map(\.command.id) == recent)
+    }
+
+    @Test(arguments: [false, true])
+    func retiringObservedPlayKeepsSettlementAndHistoryReceipts(clustered: Bool) {
+        var state = PlaybackState(accountEpoch: 1, engineEpoch: 1, session: .ready)
+        var rng = SplitMix64(seed: 129)
+        let now = Date(timeIntervalSince1970: 100)
+        let track = "spotify:track:retained-play"
+        func apply(_ event: PlaybackEvent, source: PlaybackEventSource = .command) -> PlaybackReduction {
+            PlaybackReducer.apply(
+                &state,
+                envelope: PlaybackEventEnvelope(
+                    accountEpoch: 1, engineEpoch: 1, source: source, receivedAt: now, event: event))
+        }
+        let play = PendingPlaybackCommand(
+            id: makeUUID(&rng), kind: .transport, expectedTransport: .playing,
+            expectedTrackURI: track, startedAt: now)
+        #expect(apply(.commandStarted(play)).accepted)
+        #expect(apply(.commandDispatched(id: play.id, at: now)).accepted)
+        #expect(apply(.commandFinished(id: play.id, accepted: true, notice: nil)).accepted)
+        for _ in 0..<128 {
+            let command = PendingPlaybackCommand(
+                id: makeUUID(&rng), kind: .queue, expectedTransport: nil, startedAt: now)
+            #expect(apply(.queueIntentStarted(PlaybackIntent(command: command, baselineTrackURI: nil))).accepted)
+            #expect(apply(.queueIntentFinished(id: command.id, accepted: false)).accepted)
+        }
+        let playback = EnginePlaybackSnapshot(
+            transport: .playing, trackURI: track, timing: PlaybackTiming(anchoredAt: now))
+        let reduction: PlaybackReduction
+        if clustered {
+            reduction = apply(
+                .engineCluster(
+                    EngineConnectSnapshot(
+                        devices: state.devices, connection: nil, connectionRevision: nil,
+                        playback: playback, playbackRevision: 1)),
+                source: .engineCluster)
+        } else {
+            reduction = apply(.enginePlayback(playback), source: .enginePlayback)
+        }
+        #expect(reduction.settledIntents == [SettledIntent(id: play.id, outcome: .observedConfirmed)])
+        #expect(reduction.confirmedPlayTrackURIs == [track])
+        #expect(state.intents.count == 128)
+        #expect(!state.intents.contains(where: { $0.command.id == play.id }))
+    }
+
     @Test(arguments: [false, true], [false, true])
     func recoveryTraceReachesObservedSuccess(local: Bool, contextSelection: Bool) {
         let now = Date(timeIntervalSince1970: 100)

@@ -91,6 +91,22 @@ public enum PlaybackReducer {
         _ state: inout PlaybackState,
         envelope: PlaybackEventEnvelope
     ) -> PlaybackReduction {
+        let reduction = applyEvent(&state, envelope: envelope)
+        if reduction.accepted, state.intents.count > 128 {
+            // Keep the recent admission window plus older active requests. Prune only after
+            // all cluster components and settlement receipts have been collected.
+            let recentStart = state.intents.count - 128
+            state.intents = state.intents.enumerated().compactMap { index, intent in
+                index >= recentStart || !intent.outcome.isTerminal ? intent : nil
+            }
+        }
+        return reduction
+    }
+
+    private static func applyEvent(
+        _ state: inout PlaybackState,
+        envelope: PlaybackEventEnvelope
+    ) -> PlaybackReduction {
         let preState = state
         var componentSources: Set<PlaybackEventSource> = []
         var componentEngineEpochAdvanced = false
@@ -201,7 +217,7 @@ public enum PlaybackReducer {
             // Preserve component source ordering while committing one externally observable
             // state. A newer local playback sample may already have overtaken this cluster.
             absorb(
-                apply(
+                applyEvent(
                     &candidate,
                     envelope: PlaybackEventEnvelope(
                         accountEpoch: envelope.accountEpoch,
@@ -215,7 +231,7 @@ public enum PlaybackReducer {
             )
             if let playback = snapshot.playback, let revision = snapshot.playbackRevision {
                 absorb(
-                    apply(
+                    applyEvent(
                         &candidate,
                         envelope: PlaybackEventEnvelope(
                             accountEpoch: envelope.accountEpoch,
@@ -230,7 +246,7 @@ public enum PlaybackReducer {
             }
             if let connection = snapshot.connection, let revision = snapshot.connectionRevision {
                 absorb(
-                    apply(
+                    applyEvent(
                         &candidate,
                         envelope: PlaybackEventEnvelope(
                             accountEpoch: envelope.accountEpoch,
@@ -353,11 +369,6 @@ public enum PlaybackReducer {
                     engineGeneration: candidate.engineEpoch)
             }
             candidate.intents.append(intent)
-            while candidate.intents.count > 128,
-                let oldest = candidate.intents.firstIndex(where: { $0.outcome.isTerminal })
-            {
-                candidate.intents.remove(at: oldest)
-            }
             candidate.pendingCommands[command.kind] = prepared
             if let expectedTrack = command.expectedTrack {
                 if playbackTrackURI(candidate.currentTrack?.uri) != playbackTrackURI(expectedTrack.uri) {
@@ -383,11 +394,6 @@ public enum PlaybackReducer {
         case let .queueIntentStarted(intent):
             guard !candidate.intents.contains(where: { $0.command.id == intent.command.id }) else { return .rejected }
             candidate.intents.append(intent)
-            while candidate.intents.count > 128,
-                let oldest = candidate.intents.firstIndex(where: { $0.outcome.isTerminal })
-            {
-                candidate.intents.remove(at: oldest)
-            }
         case let .queueIntentFinished(id, accepted):
             guard let index = candidate.intents.firstIndex(where: { $0.command.id == id }),
                 !candidate.intents[index].outcome.isTerminal

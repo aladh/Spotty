@@ -36,8 +36,10 @@ pub(crate) fn url_to_uri(input: &str) -> Option<String> {
     };
     let id = parts.next()?;
     if parts.next().is_some()
-        || content_type.is_empty()
-        || !content_type.bytes().all(|byte| byte.is_ascii_lowercase())
+        || !matches!(
+            content_type,
+            "track" | "album" | "artist" | "playlist" | "episode" | "show"
+        )
         || id.is_empty()
         || !id.bytes().all(|byte| byte.is_ascii_alphanumeric())
     {

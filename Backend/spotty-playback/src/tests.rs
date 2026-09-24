@@ -67,6 +67,8 @@ const INVALID_PLAYBACK_URLS: &[&str] = &[
     "https://open.spotify.com/track/short",
     "https://open.spotify.com/track/0000000000000000000001%2Fextra",
     "https://open.spotify.com/track/0000000000000000000001:extra",
+    "https://open.spotify.com/foobar/0000000000000000000001",
+    "https://open.spotify.com/genre/pop",
 ];
 
 #[test]

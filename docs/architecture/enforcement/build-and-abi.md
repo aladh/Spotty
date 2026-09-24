@@ -36,9 +36,11 @@ owns runtime ports and desktop presentation boundaries.
 
 [CI](../../../.github/workflows/ci.yml) and [workflow assertions](../../../Scripts/check-ci-workflow.rb)
 own tool selection, cache integrity, and complete verification. Three unconditional Linux jobs run
-source policies, domain build/tests, and playback/harness script tests. The single macOS job waits
-for all three, then runs compiled Rust/header checks, selected engine candidate builds, Swift checks,
-acceptance scenarios, and Release compilation serially.
+source policies, domain build/tests, and playback/harness/watchdog/formatter-wrapper tests. The
+single macOS job waits for all three, then runs compiled Rust/header checks, selected engine
+candidate builds, Swift checks, acceptance scenarios, and Release compilation serially. CI's
+compiled scopes omit only portable checks owned by Linux; normal local scopes retain them.
+Acceptance uses the Debug gate's SDK and compiler settings so SwiftPM can reuse fresh products.
 
 The [trusted base classifier](../../../Scripts/ci_rust_policy.py) skips macOS only for documentation-only
 PRs and can skip compiled Rust for app-only PRs. Main runs both toolchains. Unknown paths or

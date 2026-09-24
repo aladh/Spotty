@@ -15,9 +15,9 @@ case "$build_configuration" in
         ;;
 esac
 case "$check_scope" in
-    full|rust|rust-compiled|swift) ;;
+    full|rust|rust-compiled|swift|swift-compiled) ;;
     *)
-        print -u2 "SPOTTY_CHECK_SCOPE must be full, rust, rust-compiled, or swift"
+        print -u2 "SPOTTY_CHECK_SCOPE must be full, rust, rust-compiled, swift, or swift-compiled"
         exit 2
         ;;
 esac
@@ -26,17 +26,18 @@ if [[ "$check_scope" == full ]]; then
     "$project_root/Scripts/check-source-policy.sh"
 fi
 
-# Synthetic helpers belong to the app harness even when Rust is unnecessary. Keep the
-# normal Rust command's former helper coverage; CI's compiled-only lane runs them on Linux.
-if [[ "$check_scope" != rust-compiled ]]; then
+# Normal local scopes retain portable checks; CI's compiled scopes run them on Linux.
+if [[ "$check_scope" != rust-compiled && "$check_scope" != swift-compiled ]]; then
     python3 -B "$project_root/Scripts/script_tests.py" harness
 fi
 
 # Fail fast on Swift format drift before Rust or Swift compilation.
 # The sibling self-test covers wrapper discovery/failure contracts without a Swift toolchain.
 if [[ "$check_scope" != rust && "$check_scope" != rust-compiled ]]; then
-    python3 -B "$project_root/Scripts/script_tests.py" watchdog
-    "$project_root/Scripts/format-swift-self-test.sh"
+    if [[ "$check_scope" != swift-compiled ]]; then
+        python3 -B "$project_root/Scripts/script_tests.py" watchdog
+        "$project_root/Scripts/format-swift-self-test.sh"
+    fi
     "$project_root/Scripts/format-swift.sh" --check
 fi
 
@@ -44,7 +45,7 @@ fi
 # source-header reproducibility, and compile-time C signature checks. Prefer the
 # developer's normal toolchain; the fallback is the project-local toolchain
 # provisioned by the development bootstrap on this workspace.
-if [[ "$check_scope" != swift ]]; then
+if [[ "$check_scope" != swift && "$check_scope" != swift-compiled ]]; then
     # CI runs these portable source-level checks in parallel on Linux. Full and normal Rust
     # verification retain them so local aggregate behavior remains unchanged.
     if [[ "$check_scope" != rust-compiled ]]; then
@@ -297,7 +298,7 @@ if [[ "$bundle_display_name" != "Spotty" \
     exit 1
 fi
 
-if [[ "$check_scope" == swift ]]; then
+if [[ "$check_scope" == swift || "$check_scope" == swift-compiled ]]; then
     print "Spotty Swift checks passed ($build_configuration): format, ABI, native app, domain, concrete boundary, architecture, and packaging checks are green"
 else
     print "Spotty checks passed ($build_configuration): format, Rust, ABI, native app, domain, concrete boundary, architecture, and packaging checks are green"

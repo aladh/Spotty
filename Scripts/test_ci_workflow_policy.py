@@ -211,6 +211,7 @@ class WorkflowInvariantTests(unittest.TestCase):
             ('playback_python', 'python3 -B Scripts/script_tests.py watchdog'),
             ('playback_python', 'python3 -B Scripts/script_tests.py playback'),
             ('playback_python', 'python3 -B Scripts/script_tests.py harness'),
+            ('playback_python', './Scripts/format-swift-self-test.sh'),
         ):
             for mutation in ('remove', 'conditional', 'optional', 'move', 'duplicate', 'mask_failure'):
                 with self.subTest(command=command, mutation=mutation):

@@ -1,4 +1,4 @@
-/// Ordered resume-load fallbacks from sticky session context/track identity and position.
+/// Ordered reconnect rehydration targets from sticky session context/track identity and position.
 ///
 /// Empty strings are missing: that is how session globals and engine wire URIs read after
 /// cleanup, not a URI Spirc can load. Capture these from resume-load FFI identity rather than

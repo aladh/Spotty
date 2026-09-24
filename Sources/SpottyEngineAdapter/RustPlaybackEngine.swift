@@ -95,10 +95,9 @@ public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine {
         case let .playURI(uri): engineResult(PlaybackCore.play(uri: uri))
         case let .playTracks(tracks): engineResult(PlaybackCore.play(tracks: tracks))
         case .pause: engineResult(PlaybackCore.pause())
-        case let .resume(plan): resume(plan)
         case let .resumeObserved(target): engineResult(PlaybackCore.resumeObserved(target))
         case let .rehydrate(plan, sessionGeneration):
-            ResumeLoadSequence.completing(play: nil, targets: plan.targets()) {
+            RehydrationLoadSequence.run(targets: plan.targets()) {
                 engineResult(PlaybackCore.load($0, rehydratingSessionGeneration: sessionGeneration))
             }
         case .next: engineResult(PlaybackCore.next())
@@ -126,15 +125,6 @@ public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine {
         engineResult(PlaybackCore.disconnect())
     }
     public func forceReconnect() -> Int32 { PlaybackCore.forceReconnect() }
-
-    /// Activate/`play()` first. On a non-reconnect failure, iterate load targets.
-    /// The session runtime owns resume admission.
-    private func resume(_ plan: ResumeLoadPlan) -> PlaybackEngineResult {
-        ResumeLoadSequence.completing(
-            play: engineResult(PlaybackCore.resume()),
-            targets: plan.targets()
-        ) { engineResult(PlaybackCore.load($0)) }
-    }
 
     /// Copies a non-optional FFI result into the Swift engine wrapper. Do not reconstruct
     /// `PlaybackCore.Result` from `PlaybackEngineResult.rawValue`: the imported open C enum

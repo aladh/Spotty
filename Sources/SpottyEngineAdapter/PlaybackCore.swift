@@ -199,7 +199,6 @@ nonisolated enum PlaybackCore {
     }
 
     static func pause() -> Result { spotty_playback_pause() }
-    static func resume() -> Result { spotty_playback_resume() }
     static func resumeObserved(_ target: PlaybackResumeTarget) -> Result {
         target.trackURI.withCString { track in
             withOptionalCString(target.contextURI) { context in
@@ -219,12 +218,10 @@ nonisolated enum PlaybackCore {
         takeOwnedString(spotty_playback_get_resume_track_uri())
     }
 
-    /// `rehydratingSessionGeneration == 0` is a user-resume load. A nonzero value names the
-    /// engine session a reconnect rehydration belongs to; the engine declines the load if that
-    /// session is no longer current or its window has closed.
+    /// Rehydrates the named engine session while its recovery window is open.
     static func load(
         _ target: ResumeLoadPlan.Target,
-        rehydratingSessionGeneration: UInt64 = 0
+        rehydratingSessionGeneration: UInt64
     ) -> Result {
         switch target {
         case let .context(uri, trackHint, positionMS):
@@ -384,9 +381,4 @@ nonisolated enum PlaybackCore {
         spotty_playback_force_reconnect()
     }
 
-    /// A declined command is ordinary (for example Resume with no current context). Only
-    /// backend lifecycle failures invalidate the connection and require reinitialization.
-    static func requiresReconnect(after result: Result) -> Bool {
-        result.rawValue == -2 || result.rawValue == -3
-    }
 }

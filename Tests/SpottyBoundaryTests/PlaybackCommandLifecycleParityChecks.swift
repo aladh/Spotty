@@ -367,10 +367,6 @@ struct PlaybackCommandLifecycleParityTests {
     @MainActor
     func idleStartupPlayUsesLocalEngineWithoutSelection(resume: Bool, hasResumeContext: Bool) async {
         let local = HarnessEngine(resumeContextURI: hasResumeContext ? "spotify:playlist:retained" : nil)
-        local.onExecute = { operation in
-            if case let .resume(plan) = operation, plan.targets().isEmpty { return .error }
-            return .ok
-        }
         let remote = HarnessRemote()
         let player = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(engine: local, remote: remote))

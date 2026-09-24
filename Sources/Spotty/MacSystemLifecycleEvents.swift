@@ -4,7 +4,7 @@ import SpottySessionRuntime
 
 /// Adapts AppKit notifications once at the infrastructure edge. Product stores consume a typed
 /// AsyncSequence and do not own NotificationCenter tokens.
-nonisolated final class MacSystemLifecycleEvents: SystemLifecycleEvents, @unchecked Sendable {
+nonisolated final class MacSystemLifecycleEvents: SystemLifecycleEvents {
     static let shared = MacSystemLifecycleEvents()
 
     private init() {}
@@ -47,6 +47,3 @@ nonisolated private final class LifecycleObserverTokens: @unchecked Sendable {
         }
     }
 }
-
-/// Production dependencies are visible in one composition value rather than constructed inside
-/// feature methods. Tests can substitute a complete coherent environment.

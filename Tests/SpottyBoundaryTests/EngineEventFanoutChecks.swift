@@ -1,4 +1,5 @@
 import Testing
+import Synchronization
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
@@ -10,42 +11,46 @@ import SpottyRuntimeContracts
 /// Timeouts are hang watchdogs only. Thread A/B ordering is forced with semaphores, not sleeps.
 @Suite("Engine Event Fanout")
 struct EngineEventFanoutTests {
+    @Test(arguments: [1, 2])
+    @MainActor
+    func concurrentEmissionPreservesAssignmentOrder(subscriberCount: Int) {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let received = collectInversionSchedule(fanout, subscriberCount: subscriberCount)
+        #expect(received == Array(repeating: [1, 2], count: subscriberCount))
+    }
+
     @Test
     @MainActor
-    func testEngineEventFanout() {
-        do {
-            let serialized = EngineEventFanout(clock: SystemPlaybackClock())
-            #expect(
-                (collectInversionSchedule(serialized)) == ([1, 2]),
-                "serialized assignment and delivery keeps A before B under the same schedule")
-
-            let multi = EngineEventFanout(clock: SystemPlaybackClock())
-            let both = collectInversionSchedule(multi, subscriberCount: 2)
-            #expect((both[0]) == ([1, 2]), "first subscriber sees increasing sequences under inversion schedule")
-            #expect((both[1]) == ([1, 2]), "second subscriber sees the same increasing sequences")
-
-            let kinds = EngineEventFanout(clock: SystemPlaybackClock())
-            #expect(
-                (collectSequential(
-                    kinds,
-                    events: [
-                        playbackEvent(),
-                        queueEvent(),
-                        connectionEvent(),
-                        devicesEvent(),
-                    ]
-                ).map(\.sequence)) == ([1, 2, 3, 4]),
-                "mixed playback/queue/connection/devices kinds stay in assigned order"
-            )
-
-            runTerminationAroundDelivery()
-            runTerminationDuringDelivery()
-            runEmitAfterLastSubscriber()
-            runFixedClockReceiptTimestamps()
-            runPressureRecovery()
-            runCoalescingBarriers()
-        }
+    func mixedEventKindsPreserveAssignmentOrder() {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let received = collectSequential(
+            fanout, events: [playbackEvent(), queueEvent(), connectionEvent(), devicesEvent()])
+        #expect(received.map(\.sequence) == [1, 2, 3, 4])
     }
+
+    @Test @MainActor func terminationBeforeDeliveryPreservesSurvivors() { runTerminationAroundDelivery() }
+    @Test @MainActor func terminationDuringDeliveryPreservesSurvivors() { runTerminationDuringDelivery() }
+    @Test @MainActor func emittingAfterTheLastSubscriberIsSafe() { runEmitAfterLastSubscriber() }
+    @Test @MainActor func receiptTimestampsUseTheInjectedClock() { runFixedClockReceiptTimestamps() }
+    @Test @MainActor func pressureRequiresExplicitRecovery() { runPressureRecovery() }
+    @Test @MainActor func semanticChangesPreventTimingCoalescing() { runCoalescingBarriers() }
+
+    @Test
+    @MainActor
+    func droppingAnUnconsumedStreamReleasesItsRegistration() {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let terminations = Mutex(0)
+        var stream: AsyncStream<RustPlaybackEventEnvelope>? = fanout.events(onTermination: {
+            #expect(fanout.diagnostics().subscriberCount == 0)
+            fanout.emit(playbackEvent())
+            terminations.withLock { $0 += 1 }
+        })
+        withExtendedLifetime(stream) { #expect(fanout.diagnostics().subscriberCount == 1) }
+        stream = nil
+        #expect(fanout.diagnostics().subscriberCount == 0)
+        #expect(terminations.withLock { $0 } == 1)
+    }
+
     @Test
     @MainActor
     func staleAdjacentSamplesKeepTheNewestRevision() async {
@@ -144,22 +149,8 @@ struct EngineEventFanoutTests {
 
 }
 
-private protocol TestableEventFanout: AnyObject, Sendable {
-    func events(
-        onStart: (@Sendable () -> Void)?,
-        onTermination: (@Sendable () -> Void)?
-    ) -> AsyncStream<RustPlaybackEventEnvelope>
-    func emit(_ event: RustPlaybackEvent, afterPrepare: (@Sendable () -> Void)?)
-}
-
-extension EngineEventFanout: TestableEventFanout {}
-
-private func collectInversionSchedule(_ fanout: some TestableEventFanout) -> [UInt64] {
-    collectInversionSchedule(fanout, subscriberCount: 1)[0]
-}
-
 private func collectInversionSchedule(
-    _ fanout: some TestableEventFanout,
+    _ fanout: EngineEventFanout,
     subscriberCount: Int
 ) -> [[UInt64]] {
     let expectedCount = 2
@@ -547,21 +538,11 @@ private func wait(_ semaphore: DispatchSemaphore) -> Bool {
     semaphore.wait(timeout: .now() + .seconds(5)) == .success
 }
 
-private final class FanoutRecorder<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [Value] = []
+private final class FanoutRecorder<Value: Sendable>: Sendable {
+    private let values = Mutex<[Value]>([])
 
-    func store(_ values: [Value]) {
-        lock.lock()
-        self.values = values
-        lock.unlock()
-    }
-
-    func load() -> [Value] {
-        lock.lock()
-        defer { lock.unlock() }
-        return values
-    }
+    func store(_ values: [Value]) { self.values.withLock { $0 = values } }
+    func load() -> [Value] { values.withLock { $0 } }
 }
 
 private func playbackEvent(

@@ -1,73 +1,68 @@
 import Testing
 import Foundation
-@testable import SpottyCore
+import Synchronization
 @testable import SpottyEngineAdapter
 
 @Suite("PCM Write Space")
+@MainActor
 struct PCMWriteSpaceTests {
     @Test
-    @MainActor
-    func testPCMWriteSpace() {
-        do {
-            let stale = PCMWriteSpace()
-            stale.signalIfArmed()
-            stale.arm()
-            #expect(
-                (!stale.wait(timeoutMilliseconds: 0)) == true,
-                "a control signal with no armed writer is not consumed by a later wait")
+    func idleSignalsCannotWakeALaterWait() {
+        let space = PCMWriteSpace()
+        space.signalIfArmed()
+        space.arm()
+        #expect(!space.wait(timeoutMilliseconds: 0))
+    }
 
-            let idle = PCMWriteSpace()
-            idle.arm()
-            #expect((!idle.wait(timeoutMilliseconds: 0)) == true, "a wait with no signal times out without spinning")
+    @Test
+    func anUnsignaledWaitTimesOut() {
+        let space = PCMWriteSpace()
+        space.arm()
+        #expect(!space.wait(timeoutMilliseconds: 0))
+    }
 
-            let bypass = PCMWriteSpace()
-            bypass.arm()
-            bypass.signalIfArmed()
-            #expect(
-                (bypass.wait(timeoutMilliseconds: 0)) == true,
-                "stop or flush in the unlock-to-wait window wakes the writer"
-            )
+    @Test
+    func aSignalBeforeParkingWakesTheWriter() {
+        let space = PCMWriteSpace()
+        space.arm()
+        space.signalIfArmed()
+        #expect(space.wait(timeoutMilliseconds: 0))
+    }
 
-            let space = PCMWriteSpace()
-            let parked = DispatchSemaphore(value: 0)
-            let finished = DispatchSemaphore(value: 0)
-            let woke = PCMWriterWakeFlag()
-            Thread.detachNewThread {
-                space.arm()
-                woke.store(
-                    space.wait(
-                        timeoutMilliseconds: 5_000,
-                        onWillBlock: {
-                            parked.signal()
-                        })
-                )
-                finished.signal()
-            }
-            #expect(
-                (parked.wait(timeout: .now() + .seconds(5)) == .success) == true,
-                "the writer handshake arrives before the park")
-            space.signalIfArmed()
-            #expect(
-                (finished.wait(timeout: .now() + .seconds(5)) == .success) == true,
-                "stop or flush wakes a genuinely parked writer")
-            #expect((woke.load()) == true, "the parked writer observes the control signal")
+    @Test
+    func rearmingDiscardsTheSupersededWake() {
+        let space = PCMWriteSpace()
+        space.arm()
+        space.signalIfArmed()
+        space.arm()
+        #expect(!space.wait(timeoutMilliseconds: 0))
+    }
+
+    @Test(arguments: [1, 10])
+    func repeatedSignalsOnlyWakeOneArmedWait(signals: Int) {
+        let space = PCMWriteSpace()
+        space.arm()
+        for _ in 0..<signals { space.signalIfArmed() }
+        #expect(space.wait(timeoutMilliseconds: 0))
+        space.arm()
+        #expect(!space.wait(timeoutMilliseconds: 0))
+    }
+
+    @Test
+    func aSignalWakesAParkedWriter() {
+        let space = PCMWriteSpace()
+        let parked = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let woke = Mutex(false)
+        Thread.detachNewThread {
+            space.arm()
+            let result = space.wait(timeoutMilliseconds: 5_000, onWillBlock: { parked.signal() })
+            woke.withLock { $0 = result }
+            finished.signal()
         }
-    }
-}
-
-private final class PCMWriterWakeFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    func store(_ value: Bool) {
-        lock.lock()
-        self.value = value
-        lock.unlock()
-    }
-
-    func load() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
+        #expect(parked.wait(timeout: .now() + .seconds(5)) == .success, "Writer reached the park handshake")
+        space.signalIfArmed()
+        #expect(finished.wait(timeout: .now() + .seconds(5)) == .success, "Control signal releases the writer")
+        #expect(woke.withLock { $0 })
     }
 }

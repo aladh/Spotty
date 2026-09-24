@@ -1,5 +1,6 @@
 import SpottyDomain
 import Foundation
+import Synchronization
 
 /// A typed control event emitted by the embedded engine. PCM deliberately bypasses this stream
 /// and continues directly to `AudioRenderer` on the decoder callback thread.
@@ -69,12 +70,11 @@ public nonisolated struct RustPlaybackEventEnvelope: Sendable {
 /// The C ABI exposes process-global callbacks, so an instance-per-view abstraction would be
 /// dishonest. This adapter makes the process lifetime explicit, registers once, and fans typed
 /// events into AsyncStreams without retaining a controller or using unsafe mutable globals.
-public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @unchecked Sendable {
+public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine {
     public static let shared = RustPlaybackEngine()
 
-    private let lock = NSLock()
     private let fanout = EngineEventFanout(clock: SystemPlaybackClock())
-    private var callbacksRegistered = false
+    private let callbacksRegistered = Mutex(false)
 
     private init() {}
 
@@ -128,7 +128,7 @@ public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @uncheck
     public func forceReconnect() -> Int32 { PlaybackCore.forceReconnect() }
 
     /// Activate/`play()` first. On a non-reconnect failure, iterate load targets.
-    /// `PlaybackCoordinator` serializes this whole operation.
+    /// The session runtime owns resume admission.
     private func resume(_ plan: ResumeLoadPlan) -> PlaybackEngineResult {
         ResumeLoadSequence.completing(
             play: engineResult(PlaybackCore.resume()),
@@ -161,7 +161,7 @@ public nonisolated final class RustPlaybackEngine: LocalPlaybackEngine, @uncheck
     }
 
     private func registerCallbacksIfNeeded() {
-        let shouldRegister = lock.withLock { () -> Bool in
+        let shouldRegister = callbacksRegistered.withLock { callbacksRegistered in
             guard !callbacksRegistered else { return false }
             callbacksRegistered = true
             return true

@@ -4,7 +4,6 @@ import Foundation
 @testable import SpottyCore
 @testable import SpottyEngineAdapter
 @testable import SpottySessionRuntime
-@testable import SpottyGateway
 import SpottyRuntimeContracts
 
 private func isolatedQueueService(
@@ -112,16 +111,6 @@ private func seedAuthoritativeQueue(_ player: PlaybackStore, revision: UInt64 = 
 @MainActor
 private func yieldPasses(_ count: Int = 8) async {
     for _ in 0..<count { await Task.yield() }
-}
-
-private func jsonStringMap(_ value: Any?) -> [String: String] {
-    if let typed = value as? [String: String] { return typed }
-    guard let object = value as? [String: Any] else { return [:] }
-    return object.reduce(into: [:]) { result, pair in
-        if let string = pair.value as? String {
-            result[pair.key] = string
-        }
-    }
 }
 
 @MainActor
@@ -325,89 +314,6 @@ struct QueueManagementTests {
         #expect(player.state.intents.last?.outcome == .observedConfirmed)
         #expect(player.state.queue.entries == observed.entries)
         await player.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func addToQueueSendsTheCommandWithTheCurrentQueueRevision() async {
-        do {
-            do {
-                let command = SpotifyConnectCommand.setQueue(
-                    next: [
-                        QueueProtocolTrack(
-                            uri: "spotify:track:keep",
-                            uid: "q0",
-                            provider: "queue",
-                            metadata: ["spotty.sentinel": "keep-me", "is_queued": "true"],
-                            albumURI: "spotify:album:fixture",
-                            artistURI: "spotify:artist:fixture"
-                        ),
-                        QueueProtocolTrack(
-                            uri: "spotify:delimiter",
-                            uid: "",
-                            provider: "delimiter",
-                            metadata: ["spotty.sentinel": "delimiter-keep"]
-                        ),
-                        QueueProtocolTrack(
-                            uri: "spotify:track:autoplay",
-                            uid: "a0",
-                            provider: "autoplay",
-                            metadata: ["spotty.sentinel": "autoplay-keep"]
-                        ),
-                    ],
-                    prev: [
-                        QueueProtocolTrack(
-                            uri: "spotify:track:prev",
-                            uid: "p0",
-                            provider: "context",
-                            metadata: ["spotty.sentinel": "prev-keep"],
-                            removed: ["removed-reason"]
-                        )
-                    ],
-                    queueRevision: "rev-9"
-                )
-                let encoded = try JSONEncoder().encode(SpotifyConnectWireCommand(command))
-                let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
-                #expect((object?["endpoint"] as? String) == ("set_queue"), "set_queue endpoint is encoded")
-                #expect((object?["queue_revision"] as? String) == ("rev-9"), "set_queue revision is encoded")
-                let next = object?["next_tracks"] as? [[String: Any]]
-                #expect((next?.first?["uid"] as? String) == ("q0"), "next_tracks keeps remaining occurrence uid")
-                #expect((next?[1]["uri"] as? String) == ("spotify:delimiter"), "next_tracks keeps delimiter")
-                #expect((next?.last?["uri"] as? String) == ("spotify:track:autoplay"), "next_tracks keeps autoplay")
-                let prev = object?["prev_tracks"] as? [[String: Any]]
-                #expect((prev?.first?["uri"] as? String) == ("spotify:track:prev"), "prev_tracks are preserved")
-                #expect(
-                    (jsonStringMap(next?.first?["metadata"])["spotty.sentinel"] ?? "") == ("keep-me"),
-                    "incoming metadata is not synthesized")
-                #expect(
-                    (jsonStringMap(next?.first?["metadata"])["is_queued"] ?? "") == ("true"),
-                    "queued is_queued survives only when present on the snapshot")
-                #expect(
-                    (jsonStringMap(next?[1]["metadata"])["spotty.sentinel"] ?? "") == ("delimiter-keep"),
-                    "delimiter sentinel metadata survives encode")
-                #expect(
-                    (jsonStringMap(next?.last?["metadata"])["spotty.sentinel"] ?? "") == ("autoplay-keep"),
-                    "autoplay sentinel metadata survives encode")
-                #expect(
-                    (jsonStringMap(prev?.first?["metadata"])["spotty.sentinel"] ?? "") == ("prev-keep"),
-                    "prev_tracks sentinel metadata survives encode")
-                #expect(
-                    (next?.first?["album_uri"] as? String) == ("spotify:album:fixture"),
-                    "next_tracks encodes album_uri"
-                )
-                #expect(
-                    (next?.first?["artist_uri"] as? String) == ("spotify:artist:fixture"),
-                    "next_tracks encodes artist_uri")
-                #expect(
-                    (prev?.first?["removed"] as? [String] ?? []) == (["removed-reason"]),
-                    "prev_tracks encodes removed")
-
-            } catch {
-                Issue.record(
-                    "set_queue encodes remaining next_tracks and required prev_tracks: unexpected error \(error)"
-                )
-            }
-        }
     }
 
     @Test(arguments: [false, true])

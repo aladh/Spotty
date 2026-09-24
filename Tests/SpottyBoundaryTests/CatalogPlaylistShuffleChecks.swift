@@ -1,5 +1,6 @@
 import Foundation
 import SpottyDomain
+import SpottyRuntimeContracts
 import Testing
 @testable import SpottyCore
 @testable import SpottySessionRuntime
@@ -11,7 +12,9 @@ struct CatalogPlaylistShuffleChecks {
     func shuffleUsesLoadedTracksOnlyForTheSelectedPlaylist(local: Bool, matchesLoaded: Bool) async throws {
         let engine = HarnessEngine()
         let remote = HarnessRemote(send: .park)
-        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine, remote: remote))
+        let catalog = HarnessCatalog()
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: engine, remote: remote, catalog: catalog))
         let current = HarnessFixtures.track(uri: "spotify:track:current")
         let selected = CatalogItem(
             id: "selected", uri: "spotify:playlist:selected", title: "Selected", subtitle: "", artworkURL: nil,
@@ -23,6 +26,7 @@ struct CatalogPlaylistShuffleChecks {
         ]
         let device = PlaybackDevice(id: "mac", name: "Mac", type: "computer", isActive: local)
         player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
             _ = $0.send(.session(.ready), source: .account)
             _ = $0.send(
                 .devices(PlaybackDeviceSnapshot(devices: [device], localDeviceID: "mac", revision: 1)),
@@ -43,8 +47,18 @@ struct CatalogPlaylistShuffleChecks {
                 source: .engineConnection)
             $0.setShuffleEnabled(true)
         }
-        player.catalog.playlistStore.replaceLoadedPlaylist(
-            uri: matchesLoaded ? selected.uri : "spotify:playlist:previous", tracks: loadedTracks)
+        let loaded =
+            matchesLoaded
+            ? selected
+            : CatalogItem(
+                id: "previous", uri: "spotify:playlist:previous", title: "Previous", subtitle: "", artworkURL: nil,
+                kind: .playlist)
+        catalog.onPlaylistSnapshot = { _ in
+            CatalogPlaylistSnapshot(description: "", ownerURI: nil, tracks: loadedTracks)
+        }
+        await player.catalog.playlistStore.load(loaded)
+        #expect(player.catalog.playlistStore.tracks.map(\.uri) == loadedTracks.map(\.uri))
+        #expect(player.catalog.playlistStore.loadedURI == loaded.uri)
         CatalogPlaybackAccess(player: player).action(for: selected, behavior: .activateSelection).perform()
         try await requireEventually { local ? engine.executeCount == 1 : remote.sendCount == 1 }
         if local {

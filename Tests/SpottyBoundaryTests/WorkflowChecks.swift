@@ -90,34 +90,21 @@ struct WorkflowTests {
 
     @Test
     @MainActor
-    func theCoordinatorReportsTypedOutcomesForLocalAndRemoteCommands() async {
+    func theCoordinatorReportsTypedOutcomesForLocalAndRemoteCommands() async throws {
         let local = HarnessEngine()
         let remote = HarnessRemote()
         let coordinator = PlaybackCoordinator(local: local, remote: remote)
 
-        let localResult: Result<Void, PlaybackCommandFailure>
-        do {
-            localResult = try await coordinator.performLocalCommand(.pause)
-        } catch {
-            #expect((false) == true, "fake local command succeeds")
+        try await coordinator.performLocalCommand(.pause).get()
+        try await coordinator.performRemoteCommand {
+            try await $0.send(.shuffle(true), from: "source", to: "target")
+        }.get()
+        #expect(local.operations.count == 1, "one local command recorded")
+        guard case .pause? = local.operations.first else {
+            Issue.record("Pause command must reach the injected engine")
             return
         }
-        try? await coordinator.performRemote(.shuffle(true), from: "source", to: "target")
-
-        if case .success = localResult {
-            #expect((true) == true, "fake local command succeeds")
-        } else {
-            #expect((false) == true, "fake local command succeeds")
-        }
-        #expect((local.operations.count) == (1), "one local command recorded")
-        if case .pause? = local.operations.first {
-            #expect((true) == true, "pause command reaches injected engine")
-        } else {
-            #expect((false) == true, "pause command reaches injected engine")
-        }
-        let endpoints = remote.endpoints
-        #expect((endpoints.count) == (1), "one remote command recorded")
-        #expect((endpoints.first) == (.shuffle), "shuffle reaches injected remote")
+        #expect(remote.endpoints == [.shuffle], "one shuffle command reaches the injected remote")
     }
 
     @Test
@@ -728,7 +715,7 @@ struct WorkflowTests {
 
     @Test
     @MainActor
-    func aRehydrationWhoseWindowClosedWhileQueuedIssuesNoLoad() async {
+    func aRehydrationWhoseWindowClosedWhileQueuedIssuesNoLoad() async throws {
         let engine = HarnessEngine(
             events: .live, resumePosition: 10, resumeContextURI: "spotify:playlist:ctx",
             resumeTrackURI: "spotify:track:one"
@@ -752,7 +739,7 @@ struct WorkflowTests {
 
         // Same generation: the window closes (ready snapshot) while the coordinator is busy.
         engine.onExecute = { [gate] _ in gate.enter() }
-        let busy = Task { await coordinator.performLocal(.pause) }
+        let busy = Task { try await coordinator.performLocalCommand(.pause) }
         #expect(
             (await waitUntil { gate.hasStarted && !busy.isCancelled }) == true,
             "the coordinator is occupied by an earlier local command")
@@ -763,14 +750,14 @@ struct WorkflowTests {
             workflowConnectionEnvelope(sequence: 2, sessionGeneration: 1, spircReady: true, resumePending: false))
         engine.onExecute = nil
         gate.finish(with: .ok)
-        _ = await busy.value
+        try await busy.value.get()
         await player.effects.settlement(of: .reconnectRehydration)?.wait()
         #expect((engine.rehydrations.count) == (0), "a rehydration whose window closed while queued issues no load")
         #expect((engine.operations.count) == (1), "the earlier command still executed")
 
         // New generation: the engine session changes while the coordinator is busy.
         engine.onExecute = { [gate] _ in gate.enter() }
-        let busyAgain = Task { await coordinator.performLocal(.pause) }
+        let busyAgain = Task { try await coordinator.performLocalCommand(.pause) }
         #expect(
             (await waitUntil { gate.enteredCount == 2 }) == true,
             "the coordinator is occupied before the replacement generation arrives")
@@ -783,7 +770,7 @@ struct WorkflowTests {
             workflowConnectionEnvelope(sequence: 4, sessionGeneration: 3, spircReady: false, resumePending: true))
         engine.onExecute = nil
         gate.finish(with: .ok)
-        _ = await busyAgain.value
+        try await busyAgain.value.get()
         #expect(
             (await waitUntil { engine.rehydrations.count == 1 }) == true,
             "the newer generation's own rehydration runs")

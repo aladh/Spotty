@@ -758,31 +758,38 @@ struct PlaylistMutationTests {
             feedback.dismiss()
         }
 
-        do {
-            let services = ScriptedPlaylistServices()
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked))
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            let first = fixtureTrack(id: "uid-a", uri: "spotify:track:a", duration: 1.49)
-            let second = fixtureTrack(id: "uid-b", uri: "spotify:track:b", duration: 2.5)
-            catalog.playlistStore.replaceLoadedPlaylist(uri: "spotify:playlist:owned", tracks: [first, second])
-            #expect((catalog.playlistStore.totalDuration) == (4), "playlist store caches rounded track durations")
-            let loadedVersion = catalog.playlistStore.trackCollection.version
-            catalog.playlistStore.replaceLoadedPlaylist(
-                uri: "spotify:playlist:owned",
-                tracks: [first, fixtureTrack(id: "uid-mid", uri: "spotify:track:mid", duration: 3.6)]
-            )
-            #expect((catalog.playlistStore.tracks.count) == (2), "replacement keeps the same row count")
-            #expect(
-                (catalog.playlistStore.trackCollection.version != loadedVersion) == true,
-                "same-count middle replacement mints a new version")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (["uid-a", "uid-mid"]),
-                "authoritative rows follow the replacement identity")
-            #expect((catalog.playlistStore.totalDuration) == (5), "replacing rows refreshes the cached duration")
-            catalog.playlistStore.reset()
-            #expect((catalog.playlistStore.totalDuration) == (0), "reset clears the cached duration")
-        }
+    }
 
+    @Test
+    @MainActor
+    func refreshedPlaylistReplacesOccurrencesAndDurationEvenWhenRowCountMatches() async {
+        let provider = HarnessCatalog()
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let store = PlaylistStore(
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+        let item = CatalogItem(
+            id: "owned", uri: "spotify:playlist:owned", title: "Owned", subtitle: "", artworkURL: nil,
+            kind: .playlist)
+        let first = fixtureTrack(id: "uid-a", uri: "spotify:track:a", duration: 1.49)
+        let second = fixtureTrack(id: "uid-b", uri: "spotify:track:b", duration: 2.5)
+        provider.onPlaylistSnapshot = { _ in
+            CatalogPlaylistSnapshot(description: "", ownerURI: nil, tracks: [first, second])
+        }
+        await store.load(item)
+        #expect(store.totalDuration == 4, "playlist store caches rounded track durations")
+        let loadedVersion = store.trackCollection.version
+        provider.onPlaylistSnapshot = { _ in
+            CatalogPlaylistSnapshot(
+                description: "", ownerURI: nil,
+                tracks: [first, fixtureTrack(id: "uid-mid", uri: "spotify:track:mid", duration: 3.6)])
+        }
+        await store.load(item, force: true)
+        #expect(provider.playlistRequestCount == 2)
+        #expect(store.tracks.count == 2, "replacement keeps the same row count")
+        #expect(store.trackCollection.version != loadedVersion, "same-count replacement mints a new version")
+        #expect(store.tracks.map(\.id) == ["uid-a", "uid-mid"], "rows follow the replacement identity")
+        #expect(store.totalDuration == 5, "replacing rows refreshes the cached duration")
+        store.reset()
+        #expect(store.totalDuration == 0, "reset clears the cached duration")
     }
 }

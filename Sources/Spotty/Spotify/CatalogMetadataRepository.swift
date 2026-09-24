@@ -73,19 +73,6 @@ final class CatalogMetadataRepository {
         publishTracks(updated, affectedURIs: affectedURIs)
     }
 
-    func cacheTracks(_ tracks: [CatalogTrack], from source: TrackSource) {
-        guard !tracks.isEmpty, acceptCurrentSessionWrite() else { return }
-        var updated = tracksBySource
-        for track in tracks where !track.uri.isEmpty {
-            updated[source, default: [:]][track.uri] = track.fillingMissingLinks(from: updated[source]?[track.uri])
-        }
-        if source != .nowPlaying {
-            let learned = tracks.compactMap { updated[source]?[$0.uri] }
-            promoteRetainedTracks(learned, excluding: source, in: &updated)
-        }
-        publishTracks(updated, affectedURIs: Set(tracks.map(\.uri)))
-    }
-
     func retainTracks(from source: TrackSource, for uris: Set<String>) {
         guard acceptCurrentSessionWrite() else { return }
         retainedTrackURIsBySource[source] = uris
@@ -108,15 +95,6 @@ final class CatalogMetadataRepository {
         )
         let affectedURIs = Set(itemsBySource[source]?.keys.map { $0 } ?? []).union(items.map(\.uri))
         publishItems(updated, affectedURIs: affectedURIs)
-    }
-
-    func cacheItems(_ items: [CatalogItem], from source: ItemSource) {
-        guard !items.isEmpty, acceptCurrentSessionWrite() else { return }
-        var updated = itemsBySource
-        for item in items where !item.uri.isEmpty {
-            updated[source, default: [:]][item.uri] = item
-        }
-        publishItems(updated, affectedURIs: Set(items.map(\.uri)))
     }
 
     /// Genuine browsing input only. Runtime-owned queue and Now Playing publications are never

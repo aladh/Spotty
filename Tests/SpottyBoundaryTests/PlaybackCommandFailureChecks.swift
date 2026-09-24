@@ -1529,11 +1529,16 @@ struct PlaybackCommandFailureTests {
         let playlistEngine = HarnessEngine()
         let playlistGate = HarnessEngineGate()
         playlistEngine.onExecute = { [playlistGate] _ in playlistGate.enter() }
+        let playlistCatalog = HarnessCatalog()
+        playlistCatalog.onPlaylistSnapshot = { _ in
+            CatalogPlaylistSnapshot(description: "", ownerURI: nil, tracks: [trackB])
+        }
         let playlistStore = HarnessEnvironment.makePlaybackStore(
             HarnessEnvironment.make(
-                engine: playlistEngine, remote: HarnessRemote(send: .succeed)
+                engine: playlistEngine, remote: HarnessRemote(send: .succeed), catalog: playlistCatalog
             )
         )
+        playlistStore.withRuntime { $0.accountStore.publishPhase(.ready) }
         seedPlayingA(playlistStore, local: true)
         let playlist = CatalogItem(
             id: "pl",
@@ -1543,7 +1548,8 @@ struct PlaybackCommandFailureTests {
             artworkURL: nil,
             kind: .playlist
         )
-        playlistStore.catalog.playlistStore.replaceLoadedPlaylist(uri: playlist.uri, tracks: [trackB])
+        await playlistStore.catalog.playlistStore.load(playlist)
+        #expect(playlistStore.catalog.playlistStore.tracks == [trackB])
         playlistStore.playPlaylist(playlist)
         #expect(
             (playlistStore.state.currentTrack?.uri) == (trackB.uri),

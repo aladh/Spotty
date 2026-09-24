@@ -1,11 +1,12 @@
 import Testing
 import SpottyDomain
+import SpottyRuntimeContracts
 @testable import SpottyCore
 
 @MainActor
 struct CatalogRequestOwnershipTests {
     @Test(arguments: [false, true])
-    func invalidPlaylistAddressSettlesLoading(cached: Bool) async {
+    func invalidPlaylistAddressSettlesLoading(previouslyLoaded: Bool) async {
         let provider = HarnessCatalog()
         let session = CatalogSessionAvailability(isAvailable: true)
         let store = PlaylistStore(
@@ -13,15 +14,30 @@ struct CatalogRequestOwnershipTests {
         let item = CatalogItem(
             id: "invalid", uri: "spotify:playlist:", title: "Invalid address",
             subtitle: "", artworkURL: nil, kind: .playlist)
-        if cached { store.replaceLoadedPlaylist(uri: item.uri, tracks: []) }
+        if previouslyLoaded {
+            let previous = CatalogItem(
+                id: "previous", uri: "spotify:playlist:previous", title: "Previous",
+                subtitle: "", artworkURL: nil, kind: .playlist)
+            provider.onPlaylistSnapshot = { _ in
+                CatalogPlaylistSnapshot(
+                    description: "", ownerURI: nil,
+                    tracks: [HarnessFixtures.track(uri: "spotify:track:previous")],
+                    freshness: .cached(fetchedAt: HarnessDates.fixed))
+            }
+            await store.load(previous)
+            #expect(store.isShowingCachedContent)
+            #expect(store.tracks.count == 1)
+        }
 
         await store.load(item)
 
         #expect(!store.isLoading)
         #expect(store.error != nil)
-        #expect(store.isShowingCachedContent == cached)
+        #expect(!store.isShowingCachedContent)
+        #expect(store.tracks.isEmpty)
+        #expect(store.loadedURI == item.uri)
         #expect(!store.canEditLoadedContent)
-        #expect(provider.playlistRequestCount == 0)
+        #expect(provider.playlistRequestCount == (previouslyLoaded ? 1 : 0))
     }
 
     @Test func precancelledFeatureLoadsSettleTheirIndicatorsAndAllowRetry() async {

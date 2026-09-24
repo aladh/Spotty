@@ -84,12 +84,6 @@ nonisolated struct PathfinderAlbumUnion: Decodable, Sendable {
         artists?.items?.first
     }
 
-    func withItems(_ items: [TrackList.Item]) -> Self {
-        Self(
-            uri: uri, name: name, type: type, date: date, coverArt: coverArt, artists: artists,
-            tracksV2: TrackList(items: items, totalCount: tracksV2?.totalCount), typename: typename)
-    }
-
     var tracks: [PathfinderAlbumTrack] {
         (tracksV2?.items ?? []).compactMap(\.track)
     }

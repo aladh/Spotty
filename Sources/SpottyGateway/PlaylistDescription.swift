@@ -25,14 +25,15 @@ enum PlaylistDescription {
                 options: .regularExpression
             )
 
+        // Decode ampersands last so escaped entity text is never decoded a second time.
         let entities = [
-            "&nbsp;": " ",
-            "&amp;": "&",
-            "&quot;": "\"",
-            "&#39;": "'",
-            "&apos;": "'",
-            "&lt;": "<",
-            "&gt;": ">",
+            ("&nbsp;", " "),
+            ("&quot;", "\""),
+            ("&#39;", "'"),
+            ("&apos;", "'"),
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+            ("&amp;", "&"),
         ]
         for (entity, replacement) in entities {
             result = result.replacingOccurrences(of: entity, with: replacement)

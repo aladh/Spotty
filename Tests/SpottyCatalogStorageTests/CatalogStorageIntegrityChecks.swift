@@ -44,7 +44,7 @@ struct CatalogStorageIntegrityChecks {
             track("one", title: String(repeating: "x", count: 700_000)),
             track("two", title: String(repeating: "y", count: 700_000)),
         ]
-        _ = try await initial.upsertTracks(tracks, scope: initial.scope)
+        _ = try await initial.replaceCollection(write("a", tracks: tracks), scope: initial.scope)
         try await initial.close(scope: initial.scope)
         let database = try databaseFile(directory)
         let before = try Data(contentsOf: database)
@@ -83,7 +83,8 @@ struct CatalogStorageIntegrityChecks {
                 try await catalog.tracks(for: [track("one").uri], scope: catalog.scope)
             }
             await #expect(throws: CatalogStorageError.invalidStoredData) {
-                try await catalog.upsertTracks([track("one", title: "Replacement")], scope: catalog.scope)
+                try await catalog.replaceCollection(
+                    write("a", tracks: [track("one", title: "Replacement")]), scope: catalog.scope)
             }
         } else {
             await #expect(throws: CatalogStorageError.invalidStoredData) {

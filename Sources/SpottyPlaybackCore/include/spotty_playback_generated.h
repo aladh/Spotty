@@ -295,14 +295,13 @@ SpottyNullableMutCString spotty_playback_get_resume_track_uri(void);
 //   only the first init after a grant carries a token.
 SpottyPlaybackResult spotty_playback_init_player(SpottyNullableCString access_token);
 
-// Loads a context or single track at `position_ms`.
+// Rehydrates a context or single track at `position_ms` after a reconnect.
 //
-// `rehydrating_generation == 0` is a user-resume load: it waits briefly for a Playing event.
-// A nonzero value names the engine session generation being rehydrated after a reconnect: the
-// engine runs the load only if that generation is current and its `resume_pending` window is
-// still open, and returns 0 as soon as the load is queued (the window is the only Playing wait).
-// Otherwise it returns an ordinary failure without touching the session. Empty `track_hint` is
-// a valid context hint; `uri` must be non-empty.
+// `rehydrating_generation` must name a nonzero current engine session generation whose
+// `resume_pending` window is still open. Returns 0 as soon as the load is queued; the reconnect
+// window owns Playing confirmation. A missing, stale, or closed generation returns an ordinary
+// failure without touching the session. Empty `track_hint` is a valid context hint; `uri` must
+// be non-empty. User resume goes through `spotty_playback_resume_observed`.
 //
 // # Parameters
 // - `uri`: Context or track URI.
@@ -369,12 +368,6 @@ void spotty_playback_register_playback_state_callback(PlaybackStateCallback call
 // Registers a callback to receive queue updates as a C snapshot.
 // String and nested pointers are valid only for the call.
 void spotty_playback_register_queue_callback(QueueCallback callback);
-
-// Resumes playback by activating the local device and issuing `play()`. If no Playing event
-// arrives, Swift issues seek-capable load fallbacks through [`spotty_playback_load`]. Reconnect
-// rehydration issues the same Swift targets while the connection snapshot reports
-// `resume_pending`.
-SpottyPlaybackResult spotty_playback_resume(void);
 
 // Resume exactly the displayed protocol track at its paused position in this generation.
 //

@@ -151,8 +151,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
 
     /// Sets the output gain (0...1) applied to playback. Takes effect immediately
     /// — it scales audio as it is played out, not the already-buffered PCM — so
-    /// volume changes are not delayed by the render buffer. The caller is expected
-    /// to have applied any perceptual curve already (see SpotifyPlayer).
+    /// volume changes are not delayed by the render buffer.
     public func setVolume(_ volume: Float) {
         let clamped = max(0, min(1, volume))
         renderQueue.async { [weak self] in

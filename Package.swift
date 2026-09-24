@@ -210,8 +210,8 @@ private func playbackTarget() -> Target {
             .target(
                 name: "SpottyBrowsingSupport",
                 dependencies: [
-                    "SpottyCore", "SpottySessionRuntime", "SpottyEngineAdapter", "SpottyRuntimeContracts",
-                    "SpottyGateway",
+                    "SpottyCore", "SpottyDomain", "SpottySessionRuntime", "SpottyEngineAdapter",
+                    "SpottyRuntimeContracts", "SpottyGateway",
                 ],
                 path: "Tests/BrowsingHarness/Support",
                 resources: [.copy("Artwork")]
@@ -226,7 +226,10 @@ private func playbackTarget() -> Target {
             ),
             .testTarget(
                 name: "SpottyBrowsingHarnessTests",
-                dependencies: ["SpottyBrowsingSupport", "SpottyCore", "SpottyGateway"],
+                dependencies: [
+                    "SpottyBrowsingSupport", "SpottyCore", "SpottyDomain", "SpottyGateway",
+                    "SpottyEngineAdapter", "SpottyRuntimeContracts", "SpottySessionRuntime",
+                ],
                 path: "Tests/BrowsingHarness/Checks"
             ),
         ]

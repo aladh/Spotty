@@ -551,15 +551,7 @@ fn apply_player_event_locked(
             {
                 RESUME_POSITION_MS.store(stopped_at_ms, Ordering::SeqCst);
             }
-            if store_active_device(false) {
-                if let Some(notification) =
-                    capture_connection_state_notification(event_listener_generation)
-                {
-                    applied
-                        .notifications
-                        .push(PlayerEventNotification::Connection(notification));
-                }
-            }
+            store_active_device(false);
 
             // Only recover if the transport is genuinely broken. A dead
             // Session here means the Spirc task went down with it (librespot
@@ -578,22 +570,14 @@ fn apply_player_event_locked(
                     c.session_connected = false;
                     c.last_error = Some("Session invalid".to_string());
                 });
-                if let Some(notification) =
-                    capture_connection_state_notification(event_listener_generation)
-                {
-                    applied
-                        .notifications
-                        .push(PlayerEventNotification::Connection(notification));
-                }
                 applied.recovery = Some(intent);
-            } else {
-                if let Some(notification) =
-                    capture_connection_state_notification(event_listener_generation)
-                {
-                    applied
-                        .notifications
-                        .push(PlayerEventNotification::Connection(notification));
-                }
+            }
+            if let Some(notification) =
+                capture_connection_state_notification(event_listener_generation)
+            {
+                applied
+                    .notifications
+                    .push(PlayerEventNotification::Connection(notification));
             }
         }
         // Emitted when the local Connect device becomes ACTIVE. Carries the
@@ -608,17 +592,7 @@ fn apply_player_event_locked(
                 elapsed_since_wake_ms(),
                 connection_id
             );
-            if store_active_device(true) {
-                if let Some(notification) =
-                    capture_connection_state_notification(event_listener_generation)
-                {
-                    applied
-                        .notifications
-                        .push(PlayerEventNotification::Connection(notification));
-                }
-            }
-
-            // Notify connection state change
+            store_active_device(true);
             if let Some(notification) =
                 capture_connection_state_notification(event_listener_generation)
             {
@@ -1097,6 +1071,55 @@ mod player_event_pump_policy {
         }
     }
 
+    static CONNECTION_OBSERVATIONS: Mutex<Vec<(u64, bool, bool)>> = Mutex::new(Vec::new());
+
+    struct CaptureConnectionEvents {
+        callback: Option<ConnectionSnapshotCallback>,
+        connection: ConnectionState,
+        session: Option<Session>,
+        shutting_down: bool,
+        sleeping: bool,
+    }
+
+    impl CaptureConnectionEvents {
+        fn new() -> Self {
+            extern "C" fn capture(snapshot: *const SpottyConnectionSnapshot) {
+                let snapshot = unsafe { &*snapshot };
+                CONNECTION_OBSERVATIONS.lock().unwrap().push((
+                    snapshot.session_generation,
+                    snapshot.session_connected != 0,
+                    snapshot.is_active_device != 0,
+                ));
+            }
+            CONNECTION_OBSERVATIONS.lock().unwrap().clear();
+            Self {
+                callback: CONTROL_CALLBACKS
+                    .connection_state
+                    .lock()
+                    .unwrap()
+                    .replace(capture),
+                connection: with_connection(std::mem::take),
+                session: with_engine(|engine| engine.session.take()),
+                shutting_down: SHUTTING_DOWN.swap(false, Ordering::SeqCst),
+                sleeping: SLEEPING.swap(false, Ordering::SeqCst),
+            }
+        }
+
+        fn take(&self) -> Vec<(u64, bool, bool)> {
+            std::mem::take(&mut *CONNECTION_OBSERVATIONS.lock().unwrap())
+        }
+    }
+
+    impl Drop for CaptureConnectionEvents {
+        fn drop(&mut self) {
+            *CONTROL_CALLBACKS.connection_state.lock().unwrap() = self.callback;
+            with_connection(|connection| *connection = self.connection.clone());
+            with_engine(|engine| engine.session = self.session.take());
+            SHUTTING_DOWN.store(self.shutting_down, Ordering::SeqCst);
+            SLEEPING.store(self.sleeping, Ordering::SeqCst);
+        }
+    }
+
     #[test]
     fn transport_trace_replacement_before_old_position_events() {
         let _guard = lock_lifecycle_test_globals();
@@ -1303,29 +1326,74 @@ mod player_event_pump_policy {
     }
 
     #[test]
-    fn session_connected_and_disconnected_still_update_active_state() {
+    fn session_role_changes_publish_one_connection_snapshot() {
         let _guard = lock_lifecycle_test_globals();
         let _restore = RestorePlaybackGlobals(capture_playback_globals());
-        set_active_device(false);
-        apply_current_generation_event(
+        let capture = CaptureConnectionEvents::new();
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let mut state = PlayerRequestState::default();
+        with_connection(|connection| connection.session_connected = true);
+        apply_player_event(
             PlayerEvent::SessionConnected {
                 connection_id: "conn".to_string(),
                 user_name: String::new(),
             },
-            1,
+            generation,
+            &mut state,
         );
         assert!(is_active_device());
+        assert_eq!(capture.take(), vec![(generation, true, true)]);
 
         POSITION_MS.store(1_200, Ordering::SeqCst);
-        apply_current_generation_event(
+        apply_player_event(
             PlayerEvent::SessionDisconnected {
                 connection_id: "conn".to_string(),
                 user_name: String::new(),
             },
-            1,
+            generation,
+            &mut state,
         );
         assert!(!is_active_device());
         assert_eq!(RESUME_POSITION_MS.load(Ordering::SeqCst), 1_200);
+        assert_eq!(capture.take(), vec![(generation, true, false)]);
+    }
+
+    #[test]
+    fn invalid_session_deactivation_publishes_only_the_settled_failure() {
+        let _guard = lock_lifecycle_test_globals();
+        let _restore = RestorePlaybackGlobals(capture_playback_globals());
+        let capture = CaptureConnectionEvents::new();
+        let generation = SESSION_GENERATION.load(Ordering::SeqCst);
+        let session = block_on_export(async { Session::new(SessionConfig::default(), None) })
+            .expect("offline session fixture");
+        session.shutdown();
+        with_engine(|engine| {
+            engine.session = Some(session);
+            engine.connection.session_connected = true;
+            engine.connection.is_active_device = true;
+        });
+        let mut applied = AppliedPlayerEvent {
+            notifications: Vec::new(),
+            recovery: None,
+        };
+        // Inspect the event transition without launching its recovery task: this test has no
+        // credentials or network session, and the intent is the boundary being checked.
+        with_current_generation_mutation(generation, || {
+            apply_player_event_locked(
+                PlayerEvent::SessionDisconnected {
+                    connection_id: "synthetic-connection".into(),
+                    user_name: String::new(),
+                },
+                generation,
+                &mut PlayerRequestState::default(),
+                &mut applied,
+            );
+        });
+        assert!(applied.recovery.is_some_and(|intent| intent.was_active));
+        for notification in applied.notifications {
+            notification.deliver();
+        }
+        assert_eq!(capture.take(), vec![(generation, false, false)]);
     }
 
     #[test]

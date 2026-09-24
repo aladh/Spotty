@@ -108,9 +108,8 @@ playback_header="$playback_headers/spotty_playback.h"
 header_symbols="$(mktemp /tmp/spotty-header-symbols.XXXXXX)"
 header_symbol_declarations="$(mktemp /tmp/spotty-header-symbol-declarations.XXXXXX)"
 library_symbols="$(mktemp /tmp/spotty-library-symbols.XXXXXX)"
-consumed_symbols="$(mktemp /tmp/spotty-consumed-symbols.XXXXXX)"
 header_ast="$(mktemp /tmp/spotty-header-ast.XXXXXX)"
-trap 'rm -f "$header_symbols" "$header_symbol_declarations" "$library_symbols" "$consumed_symbols" "$header_ast"' EXIT
+trap 'rm -f "$header_symbols" "$header_symbol_declarations" "$library_symbols" "$header_ast"' EXIT
 
 # Parse the artifact's umbrella header once. Clang follows its quoted includes, so declarations in the
 # bundled cbindgen fragment remains part of the symbol and dead-export contracts.
@@ -140,22 +139,12 @@ if ! diff -u "$header_symbols" "$library_symbols"; then
     exit 1
 fi
 
-# Dead C exports cannot regrow silently: every remaining header symbol must be
-# called from the sole SpottyPlaybackCore adapter. The SpottyEngineAdapter target is
-# the only one that depends on the binary, and PlaybackCore.swift is its only C
-# importer, so this file is still the complete consumption surface. Reuses the header
-# extractor's call-site token pattern rather than a second parser or generated binding.
-# Line comments and quoted strings are dropped first so a mention is not a call.
-playback_core="$project_root/Sources/SpottyEngineAdapter/PlaybackCore.swift"
-sed -e 's://.*::' -e 's/"[^"]*"//g' "$playback_core" \
-    | rg -o --pcre2 'spotty_playback_[a-z0-9_]+(?=\s*\()' \
-    | sort -u > "$consumed_symbols"
-unused_header_exports="$(comm -23 "$header_symbols" "$consumed_symbols")"
-if [[ -n "$unused_header_exports" ]]; then
-    print -u2 "Header exports not called from PlaybackCore.swift:"
-    print -u2 "$unused_header_exports"
-    exit 1
-fi
+# Retired exports may remain in an older pin. Shared producer/selected exports still require
+# a call, and every call must exist in the selected artifact, independently of new producer APIs.
+source "$project_root/Scripts/abi-signature-fixture.sh"
+spotty_abi_check_consumption "$header_symbols" \
+    "$project_root/Sources/SpottyEngineAdapter/PlaybackCore.swift" \
+    "$project_root/Backend/spotty-playback/abi-signatures.txt"
 
 swift_arguments=(
     --disable-sandbox

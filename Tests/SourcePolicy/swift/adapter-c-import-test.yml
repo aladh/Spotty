@@ -4,8 +4,8 @@ valid:
 - import SpottyDomain
 - 'let snapshot: RustQueueState'
 - "// import SpottyPlaybackCore"
-- let text = "spotty_playback_resume()"
+- let text = "spotty_playback_pause()"
 invalid:
 - import SpottyPlaybackCore
-- spotty_playback_resume()
-- let resume = spotty_playback_resume
+- spotty_playback_pause()
+- let pause = spotty_playback_pause

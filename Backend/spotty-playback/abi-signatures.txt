@@ -25,7 +25,6 @@ spotty_playback_register_connection_state_callback|void (ConnectionStateCallback
 spotty_playback_register_devices_callback|void (DevicesCallback)
 spotty_playback_register_playback_state_callback|void (PlaybackStateCallback)
 spotty_playback_register_queue_callback|void (QueueCallback)
-spotty_playback_resume|SpottyPlaybackResult (void)
 spotty_playback_resume_observed|SpottyPlaybackResult (const char *, const char *, uint32_t, uint64_t)
 spotty_playback_seek|SpottyPlaybackResult (uint32_t)
 spotty_playback_set_device_id|int32_t (const char *)

@@ -20,26 +20,20 @@ public nonisolated struct PlaybackEngineResult: Equatable, Sendable {
     public var requiresReconnect: Bool { rawValue == -2 || rawValue == -3 }
 }
 
-/// Legacy play-first resume and reconnect rehydration load sequence.
+/// Reconnect rehydration tries targets until one queues or the engine requires recovery.
 ///
-/// The legacy adapter plays first and, on a non-reconnect failure, tries each target until one
-/// lands. Reconnect rehydration passes no `play`: the engine has already activated and is
-/// holding readiness open, and inside that window a load returns as soon as it is queued, so
-/// the sequence stops at the first queued target exactly as the engine's own loop used to.
-/// A reconnect-required result ends the sequence either way. No targets is an ordinary
-/// failure; the engine's window then times out on its own.
-public nonisolated enum ResumeLoadSequence {
-    public static func completing(
-        play: PlaybackEngineResult?,
+/// The engine has already activated and holds readiness open while it confirms the queued
+/// target. Exhausted or missing targets are an ordinary failure; the window times out itself.
+nonisolated enum RehydrationLoadSequence {
+    static func run(
         targets: [ResumeLoadPlan.Target],
         load: (ResumeLoadPlan.Target) -> PlaybackEngineResult
     ) -> PlaybackEngineResult {
-        if let play, play.isOK || play.requiresReconnect { return play }
         for target in targets {
             let loaded = load(target)
             if loaded.isOK || loaded.requiresReconnect { return loaded }
         }
-        return play ?? .error
+        return .error
     }
 }
 
@@ -47,7 +41,6 @@ public nonisolated enum LocalPlaybackOperation: Sendable {
     case playURI(String)
     case playTracks([String])
     case pause
-    case resume(ResumeLoadPlan)
     case resumeObserved(PlaybackResumeTarget)
     /// Engine reconnect published `resume_pending` for `sessionGeneration`; issue the plan's
     /// loads without `play()`. The engine runs them only while that session and window last.

@@ -63,11 +63,8 @@ pub(crate) async fn teardown_engine_resources(context: &str) {
     // a new generation's publication.
     shutdown_spirc_and_tasks(spirc.as_ref(), session.as_ref(), resources.tasks, context).await;
 
-    // The shutdown helper has already invalidated Session and notified the native renderer before
-    // its first await. Drop the concrete objects only after all owned tasks have drained.
-    //
-    // Drop the Spirc, Mixer and Session only after their tasks have stopped; those tasks retain
-    // clones of all three objects.
+    // The helper has drained the owned tasks and invalidated Session. Only now drop their
+    // retained concrete objects; the renderer received Stop before awaiting shutdown.
     drop(spirc);
     clear_engine_objects();
     drop(session);
@@ -92,9 +89,9 @@ pub(crate) async fn shutdown_spirc_and_tasks(
     let mut owned_tasks = OwnedTaskHandles { handles: tasks };
     let spirc_task_present = spirc.is_some() && !owned_tasks.handles.is_empty();
 
-    // Both cleanup callbacks and Session invalidation happen before the first await. If this
-    // helper is cancelled while waiting for the dealer or a child task, no live renderer or AP
-    // session can survive merely because the caller's future was dropped.
+    // Stop native rendering and arm Session invalidation before the first await. Normal
+    // teardown keeps Session usable until Spirc and the dealer close, then the guard invalidates
+    // it. Cancellation also invalidates it when the guard drops, even during a pending await.
     proxy_sink::ProxySink::notify_player_gone();
     let _session_shutdown_guard = session.cloned().map(SessionShutdownGuard::new);
 

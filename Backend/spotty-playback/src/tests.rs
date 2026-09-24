@@ -1,6 +1,107 @@
 use super::*;
 
 #[test]
+fn playback_urls_preserve_spotify_resources_and_ignore_query_and_fragment() {
+    const ID: &str = "0000000000000000000001";
+    for kind in ["track", "album", "artist", "playlist", "episode", "show"] {
+        let expected = format!("spotify:{kind}:{ID}");
+        for url in [
+            format!("https://open.spotify.com/{kind}/{ID}"),
+            format!("http://open.spotify.com/{kind}/{ID}?si=shared"),
+            format!("https://OPEN.SPOTIFY.COM/intl-de/{kind}/{ID}#details"),
+            format!("https://open.spotify.com/intl-en/{kind}/{ID}?si=shared#details"),
+            format!("https://open.spotify.com/intl-pt-BR/{kind}/{ID}?next=/ignored/path#details"),
+            format!("https://open.spotify.com/{kind}/{ID}/"),
+            format!("https://open.spotify.com/intl-en/{kind}/{ID}/?si=shared#details"),
+        ] {
+            assert_eq!(
+                url_to_uri(&url).as_deref(),
+                Some(expected.as_str()),
+                "{url}"
+            );
+        }
+    }
+}
+
+#[test]
+fn playback_urls_leave_protocol_uri_forms_to_librespot() {
+    for uri in [
+        "spotify:track:0000000000000000000001",
+        "spotify:album:0000000000000000000001",
+        "spotify:user:alice:playlist:0000000000000000000001",
+        "spotify:user:alice:collection",
+        "spotify:user:alice:collection:artist:0000000000000000000001",
+        "spotify:search:never+gonna",
+        "spotify:local:artist:album:title:180",
+        "spotify:genre:pop",
+    ] {
+        assert_eq!(url_to_uri(uri).as_deref(), Some(uri));
+    }
+}
+
+const INVALID_PLAYBACK_URLS: &[&str] = &[
+    "",
+    "not a Spotify URI",
+    "https://notopen.spotify.com/track/0000000000000000000001",
+    "https://open.spotify.com.evil.example/track/0000000000000000000001",
+    "https://example.com/open.spotify.com/track/0000000000000000000001",
+    "https://example.com/?next=https://open.spotify.com/track/0000000000000000000001",
+    "https://example.com/#https://open.spotify.com/track/0000000000000000000001",
+    "https://user@open.spotify.com/track/0000000000000000000001",
+    "https://open.spotify.com:443/track/0000000000000000000001",
+    "file://open.spotify.com/track/0000000000000000000001",
+    "//open.spotify.com/track/0000000000000000000001",
+    "https://open.spotify.com/track/0000000000000000000001/extra",
+    "https://open.spotify.com/track/0000000000000000000001//",
+    "https://open.spotify.com/track/0000000000000000000001/extra/",
+    "https://open.spotify.com/track/intl-de/0000000000000000000001",
+    "https://open.spotify.com/intl-de/intl-fr/track/0000000000000000000001",
+    "https://open.spotify.com/intl-/track/0000000000000000000001",
+    "https://open.spotify.com/intl-de%2F/track/0000000000000000000001",
+    "https://open.spotify.com/intl-de--DE/track/0000000000000000000001",
+    "https://open.spotify.com//track/0000000000000000000001",
+    "https://open.spotify.com/track//0000000000000000000001",
+    "https://open.spotify.com/track",
+    "https://open.spotify.com/track/",
+    "https://open.spotify.com/track/invalid-id",
+    "https://open.spotify.com/track/short",
+    "https://open.spotify.com/track/0000000000000000000001%2Fextra",
+    "https://open.spotify.com/track/0000000000000000000001:extra",
+    "https://open.spotify.com/foobar/0000000000000000000001",
+    "https://open.spotify.com/genre/pop",
+];
+
+#[test]
+fn playback_urls_reject_spoofed_hosts_and_malformed_resource_paths() {
+    for input in INVALID_PLAYBACK_URLS {
+        assert_eq!(url_to_uri(input), None, "{input}");
+    }
+}
+
+#[test]
+fn playback_urls_are_rejected_before_session_admission() {
+    let _guard = lock_global_state();
+    let previous = with_connection(std::mem::take);
+    let results: Vec<_> = INVALID_PLAYBACK_URLS
+        .iter()
+        .map(|input| {
+            let input = CString::new(*input).unwrap();
+            spotty_playback_play_uri(input.as_ptr())
+        })
+        .collect();
+    let valid = CString::new("https://open.spotify.com/track/0000000000000000000001").unwrap();
+    let valid_result = spotty_playback_play_uri(valid.as_ptr());
+    let activated = is_active_device();
+    with_connection(|connection| *connection = previous);
+
+    assert_eq!(valid_result, ERROR_NOT_CONNECTED);
+    assert!(!activated);
+    for (input, result) in INVALID_PLAYBACK_URLS.iter().zip(results) {
+        assert_eq!(result, ERROR_GENERAL, "{input}");
+    }
+}
+
+#[test]
 fn connect_config_advertises_configured_device_name() {
     let name = "Studio Mac (Spotty)";
     assert_eq!(create_connect_config(name).name, name);
@@ -156,23 +257,24 @@ fn a_paused_local_player_is_not_resumed() {
 }
 
 #[test]
-fn load_at_position_rejects_an_empty_uri_before_session_checks() {
-    assert_eq!(
-        load_at_position(String::new(), None, 0, false, 0),
-        ERROR_GENERAL
-    );
-    assert_eq!(
-        load_at_position(String::new(), Some("spotify:track:x".into()), 10, true, 0),
-        ERROR_GENERAL
-    );
-}
-
-#[test]
 fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window() {
     let _guard = lock_global_state();
     let previous_generation = SESSION_GENERATION.load(Ordering::SeqCst);
-    let previous_pending = with_connection(|c| std::mem::replace(&mut c.resume_pending, false));
+    let previous_pending = with_connection(|c| std::mem::replace(&mut c.resume_pending, true));
+    let previous_window = REHYDRATION_WINDOW_GENERATION.load(Ordering::SeqCst);
 
+    set_session_generation_for_test(0);
+    let _ = open_rehydration_window(0);
+    assert!(
+        !rehydration_load_is_current(0),
+        "zero is not a session owner"
+    );
+    assert_eq!(
+        load_at_position("spotify:track:x".into(), None, 0, false, 0),
+        ERROR_GENERAL
+    );
+
+    with_connection(|c| c.resume_pending = false);
     set_session_generation_for_test(11);
     let _ = open_rehydration_window(11);
     assert!(
@@ -182,6 +284,20 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
 
     with_connection(|c| c.resume_pending = true);
     assert!(rehydration_load_is_current(11));
+    let previous_connected =
+        with_connection(|c| std::mem::replace(&mut c.session_connected, false));
+    // Empty targets fail before session admission, even with a valid owner and window.
+    for from_context in [false, true] {
+        assert_eq!(
+            load_at_position(String::new(), None, 10, from_context, 11),
+            ERROR_GENERAL
+        );
+    }
+    assert_eq!(
+        load_at_position("spotify:track:x".into(), None, 10, false, 11),
+        ERROR_NOT_CONNECTED
+    );
+    with_connection(|c| c.session_connected = previous_connected);
     assert!(
         !rehydration_load_is_current(10),
         "a load for an older session is stale"
@@ -201,6 +317,7 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
 
     with_connection(|c| c.resume_pending = previous_pending);
     set_session_generation_for_test(previous_generation);
+    REHYDRATION_WINDOW_GENERATION.store(previous_window, Ordering::SeqCst);
 }
 
 fn take_owned_c_string(ptr: *mut std::os::raw::c_char) -> Option<String> {
@@ -319,18 +436,6 @@ fn rehydration_window_reports_playing_reinit_or_timeout() {
 #[test]
 fn connection_state_starts_without_an_open_rehydration_window() {
     assert!(!ConnectionState::default().resume_pending);
-}
-
-#[test]
-fn playing_event_waits_observe_sequence_advances_and_timeouts() {
-    let _guard = lock_global_state();
-    let previous = playing_event_stamp().sequence;
-    publish_playing_event(0);
-    assert!(playing_event_advanced(previous));
-    assert!(wait_for_playing_event(previous, Duration::ZERO));
-    let current = playing_event_stamp().sequence;
-    assert!(!playing_event_advanced(current));
-    assert!(!wait_for_playing_event(current, Duration::ZERO));
 }
 
 #[test]
@@ -836,11 +941,6 @@ fn exported_c_function_signatures() -> Vec<ExportedCFunctionSignature> {
         "void (QueueCallback)"
     );
     signature!(
-        spotty_playback_resume,
-        extern "C" fn() -> i32,
-        "SpottyPlaybackResult (void)"
-    );
-    signature!(
         spotty_playback_resume_observed,
         extern "C" fn(*const c_char, SpottyNullableCString, u32, u64) -> i32,
         "SpottyPlaybackResult (const char *, const char *, uint32_t, uint64_t)"
@@ -921,16 +1021,9 @@ fn parse_abi_signature_fixture(fixture: &str) -> Vec<ExportedCFunctionSignature>
     signatures
 }
 
-/// Compile-time ABI contract. The release archive is also checked with `nm`; the assignments
-/// make Rust signature drift fail in the fast test suite before reaching the linker check.
-#[test]
-fn exported_c_function_signatures_are_stable() {
-    let signatures = exported_c_function_signatures();
-    assert_eq!(signatures.len(), 38);
-}
-
 /// The checked-in C fixture is compared to the header by `Scripts/check.sh`; this Rust-side
-/// assertion keeps its C spellings paired with the type-checked `extern "C"` definitions above.
+/// assertion keeps its complete symbol set and C spellings paired with the type-checked
+/// `extern "C"` definitions above. The release archive is also checked with `nm`.
 #[test]
 fn exported_c_function_signatures_match_fixture() {
     let fixture = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/abi-signatures.txt"));

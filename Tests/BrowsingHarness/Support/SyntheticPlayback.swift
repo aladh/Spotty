@@ -172,7 +172,7 @@ final class SyntheticPlayback: @unchecked Sendable {
             case let .playURI(uri): return selectLocked(uri: uri)
             case let .playTracks(uris): return selectTracksLocked(uris)
             case .pause: playing = false
-            case .resume, .resumeObserved, .rehydrate: playing = true
+            case .resumeObserved, .rehydrate: playing = true
             case .next: skipLocked()
             case .previous: positionMS = 0
             case let .seek(value): positionMS = Int64(value)

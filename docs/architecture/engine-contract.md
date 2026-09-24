@@ -85,20 +85,20 @@ Boundary distinctions:
   protocol observation naming this device and the expected playing track/context/position as well
   as a new local Playing event. A failed confirmation pauses the same local track if this generation
   still owns it. Neither local timing nor command acknowledgement confirms resume or advances
-  presentation. Legacy resume and sticky load targets remain available for reconnect
-  rehydration until consumers adopt the observed-resume entry point.
+  presentation. User resume uses this observed-resume entry point exclusively.
 - Reconnect/load confirmation also names its dispatched target. A new local Playing event alone
   cannot close the rehydration wait: current-generation local and fresh protocol evidence must
   agree on the requested track/context, position window and local ownership. A context without a
   track hint confirms its context/position and agreement on the resolved track, not a particular
   pre-dispatch track. Failed sends discard their receipt. The existing bounded
-  timeout still releases readiness without claiming playback succeeded. Recovery loads retain
-  pre-activation modes and explicitly choose context or supplied-track order.
+  timeout still releases readiness without claiming playback succeeded. Recovery loads require
+  a nonzero current engine generation and its open rehydration window, retain pre-activation
+  modes, and explicitly choose context or supplied-track order.
 
 ## Standing constraints
 
 Keep PCM, sessions, Spirc, streaming, decryption, and decoding under
-[ADR 005](adrs/ADR-005-retain-librespot.md). Swift owns resume target order; do not widen the legacy
-resume export. Check user expectations against engine observations. Reconnect backoff stays local;
+[ADR 005](adrs/ADR-005-retain-librespot.md). Swift owns reconnect rehydration target order.
+Check user expectations against engine observations. Reconnect backoff stays local;
 connection presentation must not duplicate device-name, retry-counter, timestamp, or session-identity
 state. New protocol or ownership boundaries require an architectural decision.

@@ -2,9 +2,9 @@
 id: adapter-core-caller
 valid:
 - 'let result: PlaybackEngineResult'
-- "// PlaybackCore.resume()"
+- "// PlaybackCore.pause()"
 - let text = "PlaybackCore"
 invalid:
-- PlaybackCore.resume()
+- PlaybackCore.pause()
 - 'let result: PlaybackCore.Result'
 - let resume = PlaybackCore.resume

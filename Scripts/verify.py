@@ -32,12 +32,18 @@ def preflight() -> int:
     overrides = {
         "cargo": "SPOTTY_CARGO", "cbindgen": "SPOTTY_CBINDGEN", "ast-grep": "SPOTTY_AST_GREP",
     }
+    # Delegated gates run at ROOT, including relative override paths and PATH entries.
+    search_path = os.pathsep.join(str(ROOT / entry) for entry in os.get_exec_path())
     missing = False
     for group, names in groups.items():
         print(f"{group}:")
         for name in names:
-            requested = os.environ.get(overrides.get(name, "")) or name
-            executable = shutil.which(requested)
+            override = os.environ.get(overrides.get(name, ""))
+            requested = override or name
+            # Cargo/cbindgen gates require executable paths, while ast-grep also accepts a PATH name.
+            if (override and name in ("cargo", "cbindgen")) or os.path.dirname(requested):
+                requested = str(ROOT / requested)
+            executable = shutil.which(requested, path=search_path)
             if name == "cargo" and not executable and requested == "cargo":
                 executable = shutil.which(
                     "/private/tmp/spotty-rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo"

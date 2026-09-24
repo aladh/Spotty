@@ -183,15 +183,6 @@ public enum QueueAddFeedbackPolicy: Sendable {
 /// until a tested Spirc replacement export exists.
 public enum LocalQueueReplacementCapability: Sendable {
     public static let isSupported = false
-    public static let evidence = """
-        librespot Spirc at 939dc5ee9d833e1980f9495241219d9d4868a061 exposes add_to_queue, \
-        clear_queue, load, play/pause, skip, shuffle, repeat, transfer, activate, and disconnect. \
-        SetQueueCommand is \
-        inbound-only (spirc.rs handle of dealer SetQueue). Device is_restricted in Spotty's cluster \
-        mapping is hardcoded false and is not a restriction signal. Follow-up: a panic-barrier FFI \
-        that performs the same connect_state.set_next_tracks/set_prev_tracks replacement Spirc \
-        already applies for remote SetQueue, or a proven same-device HTTP set_queue path.
-        """
 }
 
 /// Occurrence-safe upcoming-queue selection. History and now-playing are never part of the
@@ -269,9 +260,11 @@ public enum QueueProtocolProjection: Sendable {
     ) -> Bool {
         let upcoming = upcoming(from: protocolNext)
         guard upcoming.count == visible.count else { return false }
-        let nonEmptyUIDs = upcoming.map(\.uid).filter { !$0.isEmpty }
-        if Set(nonEmptyUIDs).count != nonEmptyUIDs.count {
-            return false
+        var uniqueUIDs: Set<String> = []
+        var uriCounts: [String: Int] = [:]
+        for track in upcoming {
+            if !track.uid.isEmpty, !uniqueUIDs.insert(track.uid).inserted { return false }
+            uriCounts[track.uri, default: 0] += 1
         }
         for (proto, row) in zip(upcoming, visible) {
             guard proto.uri == row.uri else { return false }
@@ -279,11 +272,7 @@ public enum QueueProtocolProjection: Sendable {
                 if proto.uid != row.uid { return false }
                 continue
             }
-            if proto.uid.isEmpty {
-                if upcoming.filter({ $0.uri == proto.uri }).count != 1 { return false }
-            } else if upcoming.filter({ $0.uri == proto.uri }).count != 1 {
-                return false
-            }
+            if uriCounts[proto.uri] != 1 { return false }
         }
         return true
     }

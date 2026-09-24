@@ -216,11 +216,10 @@ package extension PlaybackSessionRuntime {
             guard let self else { return }
             let position = await self.coordinator.positionMilliseconds()
             guard self.stillCurrent(lifetime, requiresConnection: true) else { return }
-            // The engine getter is awaited independently of its playback snapshot. A track
-            // transition can therefore land while it is suspended; never attribute the old
-            // track's position to the newly current track. Epochs alone only protect the
-            // account and engine lifetime, not the track identity.
-            guard self.state.currentTrack?.uri == capturedTrackURI else { return }
+            // The getter can finish after a track transition or Connect transfer, including
+            // one that keeps the same track. Its local sample belongs only to local playback
+            // of the captured track; account and engine epochs do not protect those facts.
+            guard self.isActiveDevice, self.state.currentTrack?.uri == capturedTrackURI else { return }
             _ = self.setTiming(
                 position: TimeInterval(position) / 1_000,
                 accountEpoch: lifetime.accountEpoch,

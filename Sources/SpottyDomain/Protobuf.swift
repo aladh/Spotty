@@ -170,17 +170,6 @@ public struct ProtobufReader {
         return nil
     }
 
-    /// The IEEE 754 double stored in the first occurrence of a fixed-64 field.
-    public static func firstDouble(field wanted: Int, in data: Data) -> Double? {
-        var reader = ProtobufReader(data)
-        while let (field, value) = reader.next() {
-            if field == wanted, case let .fixed64(bits) = value {
-                return Double(bitPattern: bits)
-            }
-        }
-        return nil
-    }
-
     /// The UTF-8 contents of the first occurrence of a string field, if present.
     public static func firstString(field wanted: Int, in data: Data) -> String? {
         guard let payload = firstBytes(field: wanted, in: data) else { return nil }

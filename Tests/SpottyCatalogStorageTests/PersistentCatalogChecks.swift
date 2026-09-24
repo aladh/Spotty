@@ -100,19 +100,26 @@ struct PersistentCatalogChecks {
         _ = try await catalog.replaceCollection(write("b", tracks: [track("two")]), scope: catalog.scope)
         #expect(try await catalog.replaceCollection(original, scope: catalog.scope).isEmpty)
         // Occurrence identity and added date do not change the shared entity's effective metadata.
-        #expect(
-            try await catalog.upsertTracks([track("one", id: "other-row", addedAt: epoch)], scope: catalog.scope)
-                .isEmpty)
-        let changes = try await catalog.upsertTracks([track("one", title: "New title")], scope: catalog.scope)
+        let newCollection = try await catalog.replaceCollection(
+            write("c", tracks: [track("one", id: "other-row", addedAt: epoch)]), scope: catalog.scope)
+        #expect(newCollection.trackURIs.isEmpty)
+        #expect(newCollection.collectionKeys == ["c"])
+        let changes = try await catalog.replaceCollection(
+            write("c", tracks: [track("one", title: "New title")]), scope: catalog.scope)
         #expect(changes.trackURIs == [track("one").uri])
-        #expect(changes.collectionKeys == ["a"])
+        #expect(changes.collectionKeys == ["a", "c"])
         let page = try #require(await catalog.collection(key: "a", scope: catalog.scope))
         #expect(page.occurrences.map(\.track.title) == ["New title", "New title"])
         #expect(page.occurrences.map(\.id) == original.occurrences.map(\.id))
+        let duplicateWrite = write(
+            "c", tracks: [track("one", title: "Intermediate"), track("one", title: "New title")])
+        let duplicateChanges = try await catalog.replaceCollection(duplicateWrite, scope: catalog.scope)
+        #expect(duplicateChanges.trackURIs.isEmpty)
+        #expect(duplicateChanges.collectionKeys == ["c"])
+        #expect(try await catalog.replaceCollection(duplicateWrite, scope: catalog.scope).isEmpty)
         #expect(
-            try await catalog.upsertTracks(
-                [track("one", title: "Intermediate"), track("one", title: "New title")], scope: catalog.scope
-            ).isEmpty)
+            try await catalog.collection(key: "c", scope: catalog.scope)?.occurrences.map(\.track.title)
+                == ["New title", "New title"])
         try await catalog.retire(scope: catalog.scope)
     }
 
@@ -127,7 +134,7 @@ struct PersistentCatalogChecks {
             try await first.collection(key: "a", scope: second.scope)
         }
         await #expect(throws: CatalogStorageError.staleScope) {
-            try await first.upsertTracks([track("two")], scope: second.scope)
+            try await first.replaceCollection(write("b", tracks: [track("two")]), scope: second.scope)
         }
         await #expect(throws: CatalogStorageError.staleScope) { try await first.retire(scope: second.scope) }
         #expect(try await first.collection(key: "a", scope: first.scope)?.totalCount == 1)
@@ -161,7 +168,7 @@ struct PersistentCatalogChecks {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let catalog = PersistentCatalog(rootDirectory: directory, accountID: "synthetic-account")
-        _ = try await catalog.upsertTracks([track("one")], scope: catalog.scope)
+        _ = try await catalog.replaceCollection(write("a", tracks: [track("one")]), scope: catalog.scope)
         let accountDirectory = try #require(
             FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first(where: {
                 $0.lastPathComponent.count == 64
@@ -201,9 +208,9 @@ struct PersistentCatalogChecks {
         let catalog = PersistentCatalog(
             rootDirectory: directory, accountID: "synthetic-account", limits: CatalogRetentionLimits(entities: 2))
         _ = try await catalog.replaceCollection(write("a", tracks: [track("one"), track("two")]), scope: catalog.scope)
-        let changes = try await catalog.upsertTracks([track("three")], scope: catalog.scope)
+        let changes = try await catalog.replaceCollection(write("b", tracks: [track("three")]), scope: catalog.scope)
         #expect(changes.trackURIs == [track("one").uri, track("three").uri])
-        #expect(changes.collectionKeys == ["a"])
+        #expect(changes.collectionKeys == ["a", "b"])
         #expect(try await catalog.collection(key: "a", scope: catalog.scope) == nil)
         let remaining = try await catalog.tracks(
             for: [track("one").uri, track("two").uri, track("three").uri], scope: catalog.scope)
@@ -240,7 +247,7 @@ struct PersistentCatalogChecks {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let initial = PersistentCatalog(rootDirectory: directory, accountID: "synthetic-account")
-        _ = try await initial.upsertTracks([track("one")], scope: initial.scope)
+        _ = try await initial.replaceCollection(write("a", tracks: [track("one")]), scope: initial.scope)
         try await initial.close(scope: initial.scope)
         let accountDirectory = try #require(
             FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first(where: {
@@ -300,7 +307,7 @@ struct PersistentCatalogChecks {
         #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
     }
 
-    @Test func boundedItemWritesDoNotPartiallyPublishInvalidBatches() async throws {
+    @Test func boundedCollectionWritesDoNotPartiallyPublishInvalidBatches() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let catalog = PersistentCatalog(
@@ -310,15 +317,22 @@ struct PersistentCatalogChecks {
             id: "album", uri: "spotify:album:fixture", title: "Synthetic album", subtitle: "Synthetic artist",
             artworkURL: nil, kind: .album
         )
-        let changes = try await catalog.upsertItems([item], scope: catalog.scope)
-        #expect(changes.itemURIs == [item.uri])
-        #expect(try await catalog.upsertItems([item], scope: catalog.scope).isEmpty)
-        #expect(try await catalog.items(for: [item.uri], scope: catalog.scope)[item.uri] == item)
+        let original = CatalogCollectionWrite(
+            key: "a", occurrences: [], completeness: .complete, fetchedAt: epoch,
+            metadata: CatalogCollectionMetadata(item: item))
+        let changes = try await catalog.replaceCollection(original, scope: catalog.scope)
+        #expect(changes.trackURIs.isEmpty)
+        #expect(changes.collectionKeys == ["a"])
+        #expect(try await catalog.replaceCollection(original, scope: catalog.scope).isEmpty)
+        #expect(try await catalog.collection(key: "a", scope: catalog.scope)?.metadata.item == item)
         await #expect(throws: CatalogStorageError.invalidInput) {
-            try await catalog.upsertTracks(
-                [track("valid"), track("oversized", title: String(repeating: "x", count: 1_024))], scope: catalog.scope)
+            try await catalog.replaceCollection(
+                write("b", tracks: [track("valid"), track("oversized", title: String(repeating: "x", count: 1_024))]),
+                scope: catalog.scope)
         }
         #expect(try await catalog.tracks(for: [track("valid").uri], scope: catalog.scope).isEmpty)
+        #expect(try await catalog.collection(key: "b", scope: catalog.scope) == nil)
+        #expect(try await catalog.collection(key: "a", scope: catalog.scope)?.metadata.item == item)
         try await catalog.retire(scope: catalog.scope)
     }
 
@@ -333,13 +347,15 @@ struct PersistentCatalogChecks {
         _ = try await catalog.replaceCollection(original, scope: catalog.scope)
         let largeTitle = String(repeating: "x", count: 800_000)
         await #expect(throws: CatalogStorageError.database(SQLITE_FULL)) {
-            try await catalog.upsertTracks(
-                [track("one", title: largeTitle), track("two", title: largeTitle)], scope: catalog.scope)
+            try await catalog.replaceCollection(
+                write("b", tracks: [track("one", title: largeTitle), track("two", title: largeTitle)]),
+                scope: catalog.scope)
         }
         #expect(try await catalog.collection(key: "a", scope: catalog.scope)?.occurrences == original.occurrences)
         #expect(try await catalog.tracks(for: [track("two").uri], scope: catalog.scope).isEmpty)
         let recovered = track("one", title: "Recovered")
-        _ = try await catalog.upsertTracks([recovered], scope: catalog.scope)
+        #expect(try await catalog.collection(key: "b", scope: catalog.scope) == nil)
+        _ = try await catalog.replaceCollection(write("b", tracks: [recovered]), scope: catalog.scope)
         #expect(try await catalog.tracks(for: [recovered.uri], scope: catalog.scope)[recovered.uri] == recovered)
         try await catalog.retire(scope: catalog.scope)
     }

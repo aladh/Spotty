@@ -1,121 +1,126 @@
-import Testing
-//
-//  ProtobufChecks.swift
-//  Spotty
-//
-
 import Foundation
 import SpottyDomain
+import Testing
 
 @Suite("Protobuf")
 struct ProtobufTests {
+    @Test(arguments: [0, 1, 127, 128, 16_383, 16_384, UInt64.max] as [UInt64])
+    func varintsRoundTrip(value: UInt64) {
+        var writer = ProtobufWriter()
+        writer.varint(field: 1, value)
+        #expect(ProtobufReader.firstVarint(field: 1, in: writer.data) == value)
+    }
+
     @Test
-    func testProtobuf() {
-        do {
-            for value: UInt64 in [0, 1, 127, 128, 16_383, 16_384, UInt64.max] {
-                var writer = ProtobufWriter()
-                writer.varint(field: 1, value)
-                #expect(
-                    (ProtobufReader.firstVarint(field: 1, in: writer.data)) == (value), "varint round trip \(value)")
-            }
-
-            var mixed = ProtobufWriter()
-            mixed.string(field: 1, "granted")
-            mixed.varint(field: 2, 3_600)
-            mixed.message(field: 3) { nested in
-                nested.bytes(field: 1, Data([0xAA, 0xBB]))
-            }
-            #expect((ProtobufReader.firstBytes(field: 1, in: mixed.data)) == (Data("granted".utf8)), "string field")
-            #expect((ProtobufReader.firstVarint(field: 2, in: mixed.data)) == (3_600), "varint field")
-            // Field 3 carries an encoded submessage, so its contents are decoded one level down.
-            let embedded = ProtobufReader.firstBytes(field: 3, in: mixed.data)
-            #expect((embedded) != nil, "embedded message present")
-            if let embedded {
-                #expect(
-                    (ProtobufReader.firstBytes(field: 1, in: embedded)) == (Data([0xAA, 0xBB])),
-                    "embedded message decodes")
-            }
-            #expect((ProtobufReader.firstVarint(field: 9, in: mixed.data)) == nil, "absent field")
-
-            var repeated = ProtobufWriter()
-            for uri in ["spotify:track:a", "spotify:track:b", "spotify:track:c"] {
-                repeated.string(field: 2, uri)
-            }
-            let uris = ProtobufReader.fields(in: repeated.data).compactMap(\.bytesPayload)
-            #expect(
-                (uris.map { String(decoding: $0, as: UTF8.self) })
-                    == (["spotify:track:a", "spotify:track:b", "spotify:track:c"]), "repeated fields stay in order")
-
-            var double = ProtobufWriter()
-            double.double(field: 1, 123.456)
-            #expect((ProtobufReader.firstDouble(field: 1, in: double.data)) != nil, "fixed-64 double")
-            if let decoded = ProtobufReader.firstDouble(field: 1, in: double.data) {
-                #expect((Int(decoded.rounded())) == (123), "double value")
-            }
-            // A fixed-64 payload is nine bytes; anything shorter parses as finished.
-            #expect(
-                (ProtobufReader.fields(in: double.data.prefix(5)).isEmpty) == true, "truncated fixed-64 is tolerated")
-
-            // A varint cut off mid-continuation is a finished read, not a crash.
-            var cutVarint = ProtobufWriter()
-            cutVarint.varint(field: 1, 300)
-            #expect(
-                (ProtobufReader.fields(in: cutVarint.data.prefix(2)).isEmpty) == true, "truncated varint stops the read"
-            )
-
-            // A length naming more bytes than remain must not read past the buffer.
-            #expect(
-                (ProtobufReader.fields(in: Data([0x12, 0x05, 0x61])).isEmpty) == true,
-                "declared length past the end stops the read")
-
-            // Groups died with proto2 and wire types 6 and 7 were never defined.
-            for hostileTag: UInt8 in [0x0B, 0x0F] {
-                #expect(
-                    (ProtobufReader.fields(in: Data([hostileTag])).isEmpty) == true,
-                    "unknown wire type \(hostileTag) stops the read")
-            }
-
-            // Ten bytes fill a UInt64. Shared decoder: field 1, wire type 0, then nine
-            // saturated chunks and a tenth byte. Payload 0 or 1 at shift 63 is valid;
-            // 2...127 and any tenth-byte continuation must fail closed.
-            let nineSaturatedChunks = Data(repeating: 0xFF, count: 9)
-            func field1Varint(_ trailing: [UInt8]) -> Data {
-                Data([0x08]) + nineSaturatedChunks + Data(trailing)
-            }
-
-            #expect(
-                (ProtobufReader.firstVarint(field: 1, in: field1Varint([0x01]))) == (UInt64.max),
-                "ten-byte varint decodes to UInt64.max")
-            #expect(
-                (ProtobufReader.firstVarint(field: 1, in: field1Varint([0x00]))) == (UInt64.max >> 1),
-                "ten-byte varint with a clear high bit stays in range")
-
-            for payload: UInt8 in 0x02...0x7F {
-                #expect(
-                    (ProtobufReader.firstVarint(field: 1, in: field1Varint([payload]))) == nil,
-                    "tenth-byte terminal payload 0x\(String(payload, radix: 16)) overflows")
-            }
-
-            for continuation: UInt8 in [0x80, 0x81, 0xFF] {
-                #expect(
-                    (ProtobufReader.fields(in: field1Varint([continuation])).isEmpty) == true,
-                    "tenth-byte continuation 0x\(String(continuation, radix: 16)) stops the read")
-                #expect(
-                    (ProtobufReader.fields(in: field1Varint([continuation, 0x00])).isEmpty) == true,
-                    "eleventh byte after 0x\(String(continuation, radix: 16)) stops the read")
-            }
-
-            let overflowing = nineSaturatedChunks + Data([0x02])
-            #expect((ProtobufReader.fields(in: overflowing).isEmpty) == true, "overflowing tag varint stops the read")
-            #expect(
-                (ProtobufReader.fields(in: Data([0x0A]) + overflowing).isEmpty) == true,
-                "overflowing length varint stops the read")
-
-            // An accessor of one shape must ignore fields of another shape.
-            var scalarOnly = ProtobufWriter()
-            scalarOnly.varint(field: 1, 5)
-            #expect(
-                (ProtobufReader.firstBytes(field: 1, in: scalarOnly.data)) == nil, "bytes accessor skips varint fields")
+    func mixedFieldsAndNestedMessages() throws {
+        var writer = ProtobufWriter()
+        writer.string(field: 1, "granted")
+        writer.varint(field: 2, 3_600)
+        writer.message(field: 3) { nested in
+            nested.bytes(field: 1, Data([0xAA, 0xBB]))
         }
+        #expect(ProtobufReader.firstString(field: 1, in: writer.data) == "granted")
+        #expect(ProtobufReader.firstBytes(field: 1, in: writer.data) == Data("granted".utf8))
+        #expect(ProtobufReader.firstVarint(field: 2, in: writer.data) == 3_600)
+        let embedded = try #require(ProtobufReader.firstBytes(field: 3, in: writer.data))
+        #expect(ProtobufReader.firstBytes(field: 1, in: embedded) == Data([0xAA, 0xBB]))
+        #expect(ProtobufReader.firstVarint(field: 9, in: writer.data) == nil)
+    }
+
+    @Test
+    func repeatedFieldsRetainWireOrder() {
+        let uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"]
+        var writer = ProtobufWriter()
+        for uri in uris {
+            writer.string(field: 2, uri)
+        }
+        let fields = ProtobufReader.fields(in: writer.data)
+        #expect(fields.map(\.number) == [2, 2, 2])
+        #expect(fields.compactMap(\.bytesPayload).map { String(decoding: $0, as: UTF8.self) } == uris)
+        #expect(ProtobufReader.firstString(field: 2, in: writer.data) == uris[0])
+    }
+
+    @Test(
+        arguments: [
+            0x0000_0000_0000_0000, 0x8000_0000_0000_0000, 0x405E_DD2F_1A9F_BE77,
+            0x7FF0_0000_0000_0000, 0xFFF0_0000_0000_0000, 0x7FF8_0000_0000_0042,
+        ] as [UInt64])
+    func fixed64PreservesExactBits(bitPattern: UInt64) throws {
+        var writer = ProtobufWriter()
+        writer.double(field: 1, Double(bitPattern: bitPattern))
+        let fields = ProtobufReader.fields(in: writer.data)
+        #expect(fields.count == 1)
+        let field = try #require(fields.first)
+        #expect(field.number == 1)
+        guard case let .fixed64(decoded) = field.value else {
+            Issue.record("Expected a fixed64 field")
+            return
+        }
+        #expect(decoded == bitPattern, "Includes signed zero, infinities, and a NaN payload")
+    }
+
+    @Test
+    func fixedWidthWireOrderIsLittleEndian() throws {
+        var writer = ProtobufWriter()
+        writer.double(field: 1, 123.456)
+        #expect(writer.data == Data([0x09, 0x77, 0xBE, 0x9F, 0x1A, 0x2F, 0xDD, 0x5E, 0x40]))
+        let field = try #require(ProtobufReader.fields(in: Data([0x0D, 0x78, 0x56, 0x34, 0x12])).first)
+        guard case let .fixed32(bits) = field.value else {
+            Issue.record("Expected a fixed32 field")
+            return
+        }
+        #expect(bits == 0x1234_5678)
+    }
+
+    @Test(arguments: [
+        Data([0x09, 0x00, 0x00, 0x00, 0x00]),  // Truncated fixed64.
+        Data([0x0D, 0x00, 0x00]),  // Truncated fixed32.
+        Data([0x08, 0xAC]),  // Varint cut off mid-continuation.
+        Data([0x12, 0x05, 0x61]),  // Declared length exceeds remaining bytes.
+        Data([0x00]),  // Field zero is invalid.
+        Data([0x0B]), Data([0x0C]), Data([0x0E]), Data([0x0F]),  // Unsupported wire types.
+    ])
+    func malformedFieldsStopTheRead(data: Data) {
+        #expect(ProtobufReader.fields(in: data).isEmpty)
+    }
+
+    @Test
+    func tenthVarintByteMayUseOnlyItsLowBit() {
+        #expect(ProtobufReader.firstVarint(field: 1, in: field1Varint([0x01])) == UInt64.max)
+        #expect(ProtobufReader.firstVarint(field: 1, in: field1Varint([0x00])) == UInt64.max >> 1)
+    }
+
+    @Test(arguments: UInt8(0x02)...UInt8(0x7F))
+    func overflowingTenthVarintByteIsRejected(payload: UInt8) {
+        #expect(ProtobufReader.firstVarint(field: 1, in: field1Varint([payload])) == nil)
+    }
+
+    @Test(arguments: [0x80, 0x81, 0xFF] as [UInt8])
+    func varintsCannotContinuePastTenBytes(continuation: UInt8) {
+        #expect(ProtobufReader.fields(in: field1Varint([continuation])).isEmpty)
+        #expect(ProtobufReader.fields(in: field1Varint([continuation, 0x00])).isEmpty)
+    }
+
+    @Test
+    func overflowingTagsAndLengthsStopTheRead() {
+        let overflowing = Data(repeating: 0xFF, count: 9) + Data([0x02])
+        #expect(ProtobufReader.fields(in: overflowing).isEmpty)
+        #expect(ProtobufReader.fields(in: Data([0x0A]) + overflowing).isEmpty)
+        let exceedsInt = Data(repeating: 0xFF, count: 9) + Data([0x01])
+        #expect(ProtobufReader.fields(in: Data([0x0A]) + exceedsInt).isEmpty)
+    }
+
+    @Test
+    func accessorsSkipFieldsWithDifferentWireTypes() {
+        var writer = ProtobufWriter()
+        writer.varint(field: 1, 5)
+        #expect(ProtobufReader.firstBytes(field: 1, in: writer.data) == nil)
+        writer.string(field: 1, "matching bytes")
+        #expect(ProtobufReader.firstString(field: 1, in: writer.data) == "matching bytes")
+        #expect(ProtobufReader.firstVarint(field: 1, in: writer.data) == 5)
+    }
+
+    private func field1Varint(_ trailing: [UInt8]) -> Data {
+        Data([0x08]) + Data(repeating: 0xFF, count: 9) + Data(trailing)
     }
 }

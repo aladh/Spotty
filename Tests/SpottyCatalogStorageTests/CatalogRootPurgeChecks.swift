@@ -10,7 +10,7 @@ struct CatalogRootPurgeChecks {
         defer { try? FileManager.default.removeItem(at: root) }
         for accountID in ["synthetic-first", "synthetic-second"] {
             let catalog = PersistentCatalog(rootDirectory: root, accountID: accountID)
-            _ = try await catalog.upsertTracks([track], scope: catalog.scope)
+            _ = try await catalog.replaceCollection(collection, scope: catalog.scope)
             try await catalog.close(scope: catalog.scope)
         }
         let unrelated = root.appendingPathComponent("unrelated.txt")
@@ -34,7 +34,7 @@ struct CatalogRootPurgeChecks {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let retained = PersistentCatalog(rootDirectory: root, accountID: "synthetic-retained")
-        _ = try await retained.upsertTracks([track], scope: retained.scope)
+        _ = try await retained.replaceCollection(collection, scope: retained.scope)
         try await retained.close(scope: retained.scope)
         let live = PersistentCatalog(rootDirectory: root, accountID: "synthetic-live")
         try await live.open(scope: live.scope)
@@ -80,5 +80,11 @@ struct CatalogRootPurgeChecks {
             id: "fixture", uri: "spotify:track:fixture", title: "Synthetic track", artist: "Synthetic artist",
             album: "Synthetic album", duration: 120, artworkURL: nil, addedAt: nil
         )
+    }
+
+    private var collection: CatalogCollectionWrite {
+        CatalogCollectionWrite(
+            key: "spotify:playlist:fixture", occurrences: CatalogOccurrence.browsingRows([track]),
+            completeness: .complete, fetchedAt: Date(timeIntervalSince1970: 1_700_000_000))
     }
 }

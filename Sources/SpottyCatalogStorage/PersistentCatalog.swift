@@ -103,56 +103,11 @@ public actor PersistentCatalog {
         var tracks: [String: CatalogTrack] = [:]
         for uri in Set(requestedURIs) {
             try validateKey(uri)
-            if let data = try entityData(kind: 0, uri: uri, db: db) {
+            if let data = try trackData(uri: uri, db: db) {
                 tracks[uri] = try decode(StoredTrack.self, data).value(id: uri)
             }
         }
         return tracks
-    }
-
-    public func items(for uris: [String], scope: CatalogStorageScope) throws -> [String: CatalogItem] {
-        let db = try connection(scope)
-        guard uris.count <= limits.pageSize else { throw CatalogStorageError.invalidInput }
-        var items: [String: CatalogItem] = [:]
-        for uri in Set(uris) {
-            try validateKey(uri)
-            if let data = try entityData(kind: 1, uri: uri, db: db) {
-                items[uri] = try decode(StoredItem.self, data).value
-            }
-        }
-        return items
-    }
-
-    public func upsertTracks(_ tracks: [CatalogTrack], scope: CatalogStorageScope) throws -> CatalogStorageChanges {
-        let db = try connection(scope)
-        guard tracks.count <= limits.entities else { throw CatalogStorageError.invalidInput }
-        var writes: [String: Data] = [:]
-        for track in tracks {
-            try validateKey(track.uri)
-            writes[track.uri] = try encode(StoredTrack(track))
-        }
-        return try db.transaction {
-            var changes = CatalogStorageChanges()
-            try upsert(writes, kind: 0, db: db, changes: &changes)
-            try trim(db, changes: &changes)
-            return changes
-        }
-    }
-
-    public func upsertItems(_ items: [CatalogItem], scope: CatalogStorageScope) throws -> CatalogStorageChanges {
-        let db = try connection(scope)
-        guard items.count <= limits.entities else { throw CatalogStorageError.invalidInput }
-        var writes: [String: Data] = [:]
-        for item in items {
-            try validateKey(item.uri)
-            writes[item.uri] = try encode(StoredItem(item))
-        }
-        return try db.transaction {
-            var changes = CatalogStorageChanges()
-            try upsert(writes, kind: 1, db: db, changes: &changes)
-            try trim(db, changes: &changes)
-            return changes
-        }
     }
 
     public func replaceCollection(
@@ -191,7 +146,7 @@ public actor PersistentCatalog {
                     return changes
                 }
             }
-            try upsert(tracks, kind: 0, db: db, changes: &changes)
+            try upsertTracks(tracks, db: db, changes: &changes)
             let oldRows = try db.rows(
                 "SELECT data FROM occurrences WHERE collection_key=? ORDER BY position", [.text(write.key)]
             ).map { try storedData($0) }
@@ -256,26 +211,22 @@ public actor PersistentCatalog {
         )
     }
 
-    private func upsert(
-        _ writes: [String: Data], kind: Int64, db: CatalogSQLiteDatabase, changes: inout CatalogStorageChanges
+    private func upsertTracks(
+        _ writes: [String: Data], db: CatalogSQLiteDatabase, changes: inout CatalogStorageChanges
     ) throws {
         let touched = try nextTouch(db)
         for uri in writes.keys.sorted() {
             guard let data = writes[uri] else { continue }
-            if try entityData(kind: kind, uri: uri, db: db) != data {
-                if kind == 0 {
-                    changes.trackURIs.insert(uri)
-                    let references = try db.rows(
-                        "SELECT DISTINCT collection_key FROM occurrences WHERE requested_uri=?", [.text(uri)]
-                    )
-                    changes.collectionKeys.formUnion(references.compactMap { $0.first?.text })
-                } else {
-                    changes.itemURIs.insert(uri)
-                }
+            if try trackData(uri: uri, db: db) != data {
+                changes.trackURIs.insert(uri)
+                let references = try db.rows(
+                    "SELECT DISTINCT collection_key FROM occurrences WHERE requested_uri=?", [.text(uri)]
+                )
+                changes.collectionKeys.formUnion(references.compactMap { $0.first?.text })
             }
             try db.execute(
-                "INSERT INTO entities(kind,uri,data,touched) VALUES(?,?,?,?) ON CONFLICT(kind,uri) DO UPDATE SET data=excluded.data,touched=excluded.touched",
-                [.integer(kind), .text(uri), .blob(data), .integer(touched)]
+                "INSERT INTO entities(kind,uri,data,touched) VALUES(0,?,?,?) ON CONFLICT(kind,uri) DO UPDATE SET data=excluded.data,touched=excluded.touched",
+                [.text(uri), .blob(data), .integer(touched)]
             )
         }
     }
@@ -316,10 +267,10 @@ public actor PersistentCatalog {
         changes.collectionKeys.insert(key)
     }
 
-    private func entityData(kind: Int64, uri: String, db: CatalogSQLiteDatabase) throws -> Data? {
+    private func trackData(uri: String, db: CatalogSQLiteDatabase) throws -> Data? {
         guard
             let row = try db.rows(
-                "SELECT data FROM entities WHERE kind=? AND uri=?", [.integer(kind), .text(uri)]
+                "SELECT data FROM entities WHERE kind=0 AND uri=?", [.text(uri)]
             ).first
         else { return nil }
         return try storedData(row)

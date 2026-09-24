@@ -344,10 +344,8 @@ actor QueueService {
             cancelRefreshFlight()
         }
 
-        let flightID: UUID
-        if let existingID = refreshFlightID {
+        if refreshFlightID != nil {
             refreshDiagnostics.joins += 1
-            flightID = existingID
         } else {
             refreshDiagnostics.starts += 1
             let createdID = UUID()
@@ -366,7 +364,6 @@ actor QueueService {
                 )
                 await self.finishRefreshFlight(flightID, result: result)
             }
-            flightID = createdID
         }
 
         let subscriberID = UUID()
@@ -374,14 +371,14 @@ actor QueueService {
         refreshSubscribers[subscriberID] = subscriber
         return await withTaskCancellationHandler {
             let result = await subscriber.wait()
-            removeRefreshSubscriber(subscriberID, flightID: flightID)
+            removeRefreshSubscriber(subscriberID)
             return Task.isCancelled ? nil : result
         } onCancel: {
             // Cancellation settles this caller immediately; it does not wait for the shared
             // request or a hop back to QueueService before releasing the caller's effect.
             subscriber.complete(nil)
             Task { [weak self] in
-                await self?.removeRefreshSubscriber(subscriberID, flightID: flightID)
+                await self?.removeRefreshSubscriber(subscriberID)
             }
         }
     }
@@ -595,17 +592,16 @@ actor QueueService {
     private func publishRefreshUpdate(_ snapshot: ProvenanceQueueSnapshot, flightID: UUID) async {
         guard refreshFlightID == flightID else { return }
         refreshDiagnostics.publications += 1
-        for subscriberID in Array(refreshSubscribers.keys) {
-            guard refreshFlightID == flightID,
-                let subscriber = refreshSubscribers[subscriberID]
-            else { return }
+        // A subscriber can cancel while another callback is suspended. Its handle skips
+        // invocation after cancellation without dropping the update for remaining callers.
+        for subscriber in Array(refreshSubscribers.values) {
+            guard refreshFlightID == flightID else { return }
             await subscriber.invoke(snapshot)
         }
     }
 
-    private func removeRefreshSubscriber(_ subscriberID: UUID, flightID: UUID) {
+    private func removeRefreshSubscriber(_ subscriberID: UUID) {
         refreshSubscribers.removeValue(forKey: subscriberID)?.complete(nil)
-        guard refreshFlightID == flightID else { return }
         // Keep a detached flight alive for replacement callers with identical inputs. A changed
         // context or fallback invalidates it through RefreshKey instead of silently reusing the
         // first caller's captured inputs.

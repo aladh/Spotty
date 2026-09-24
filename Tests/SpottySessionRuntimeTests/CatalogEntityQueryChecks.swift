@@ -36,7 +36,11 @@ struct CatalogEntityQueryChecks {
         defer { fixture.removeFiles() }
         let retained = queryTrack("retained")
         let blocker = PersistentCatalog(rootDirectory: fixture.directory, accountID: "spotify:user:query-account")
-        _ = try await blocker.upsertTracks([retained], scope: blocker.scope)
+        _ = try await blocker.replaceCollection(
+            CatalogCollectionWrite(
+                key: "spotify:playlist:retained", occurrences: CatalogOccurrence.browsingRows([retained]),
+                completeness: .complete, fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)),
+            scope: blocker.scope)
         // A real owner lock makes the first open fail without replacing the account owner or
         // treating the verified profile as an unavailable live gateway response.
         try await fixture.bind()
@@ -57,7 +61,11 @@ struct CatalogEntityQueryChecks {
         defer { fixture.removeFiles() }
         let retained = queryTrack("one", title: "Retained")
         let blocker = PersistentCatalog(rootDirectory: fixture.directory, accountID: "spotify:user:query-account")
-        _ = try await blocker.upsertTracks([retained], scope: blocker.scope)
+        _ = try await blocker.replaceCollection(
+            CatalogCollectionWrite(
+                key: "spotify:playlist:retained", occurrences: CatalogOccurrence.browsingRows([retained]),
+                completeness: .complete, fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)),
+            scope: blocker.scope)
         try await fixture.bind()
         let fresh = queryTrack("one", title: "Fresh but not retained")
         await fixture.source.setTracks([fresh])

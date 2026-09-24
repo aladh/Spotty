@@ -101,9 +101,7 @@ def package_key(package: dict[str, Any]) -> str:
     return f"{package['name']}@{package['version']}"
 
 
-def source_kind(source: str | None, *, is_root: bool = False) -> str:
-    if is_root:
-        return "workspace"
+def source_kind(source: str | None) -> str:
     if source is None:
         return "path"
     if source.startswith("registry+"):

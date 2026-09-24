@@ -1,6 +1,6 @@
---- a/Sources/Spotty/Spotify/QueueService.swift
-+++ b/Sources/Spotty/Spotify/QueueService.swift
-@@ -522,7 +522,14 @@
+--- a/Sources/SpottySessionRuntime/QueueService.swift
++++ b/Sources/SpottySessionRuntime/QueueService.swift
+@@ -545,7 +545,14 @@
                      if let value {
                          refreshDiagnostics.metadataResults += 1
                          hydrated[value.uri] = Self.catalogTrack(from: value)

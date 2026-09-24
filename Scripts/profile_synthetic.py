@@ -239,8 +239,6 @@ def profile(root):
             while True:
                 status = read_json(root / "run-status.json")
                 validate_status(manifest, process, status)
-                if status.get("state") == "failed":
-                    raise InvalidRun("workload-failed")
                 if status.get("state") == "workload-finished":
                     report = read_json(root / "report.json")
                     launch = report.get("launch")

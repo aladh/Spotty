@@ -190,16 +190,9 @@ final class PlaybackEffectRegistry {
         return settlements
     }
 
-    /// Cancels account-scoped work and waits for each captured task until the bounded grace period
-    /// expires. The registry entries are removed before awaiting, so late completion cannot clear
-    /// or replace a newer lifetime. Tasks that finish after the report remain inert and are named
-    /// in `timedOut` as evidence of a non-cancelable operation.
-    func cancelAccountScopedAndDrain(
-        timeoutNanoseconds: UInt64 = PlaybackEffectRegistry.accountDrainTimeoutNanoseconds
-    ) async -> PlaybackEffectDrainReport {
-        await drain(cancelAccountScoped(), timeoutNanoseconds: timeoutNanoseconds)
-    }
-
+    /// Waits for captured tasks until the bounded grace period expires. Cancellation removes
+    /// registry entries before awaiting, so late completion cannot clear a newer lifetime.
+    /// Tasks that finish after the report are named in `timedOut`.
     func drain(
         _ settlements: [PlaybackEffectID: PlaybackEffectSettlement],
         timeoutNanoseconds: UInt64 = PlaybackEffectRegistry.accountDrainTimeoutNanoseconds

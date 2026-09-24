@@ -81,16 +81,6 @@ final class PlaylistStore {
         metadata.replaceTracks([], from: .playlist)
     }
 
-    /// Keeps `loadedURI` and `tracks` paired. Production loading still goes through `load(_:)`.
-    func replaceLoadedPlaylist(uri: String, tracks: [CatalogTrack]) {
-        loadedURI = uri
-        loadState.receive(session: nil)
-        replaceTracks(tracks)
-        // Optimistic/test replacement is not a freshly validated server snapshot.
-        retained.remove(uri)
-        updateEntityObservation()
-    }
-
     func invalidateRetainedPlaylist(_ uri: String) {
         retained.remove(uri)
         updateEntityObservation()

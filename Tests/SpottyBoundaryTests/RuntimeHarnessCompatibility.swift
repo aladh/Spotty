@@ -100,7 +100,7 @@ extension PlaybackStore {
                 accountEpoch: accountEpoch, engineEpoch: engineEpoch)
         }
     }
-    func setRepeatMode(_ mode: RepeatMode) { withRuntime { $0.setRepeatMode(mode) } }
+    func setRepeatMode(_ mode: RepeatMode) { setRepeat(mode: mode, flags: mode.flags) }
     func setRepeat(mode: RepeatMode, flags: RepeatFlags) { withRuntime { $0.setRepeat(mode: mode, flags: flags) } }
     func recordPlayed(_ uri: String) { withRuntime { $0.recordPlayed(uri) } }
     func showTransientCommandError(_ message: String) { withRuntime { $0.showTransientCommandError(message) } }
@@ -267,7 +267,8 @@ final class PlaybackEffectRegistry {
     func cancelAccountScopedAndDrain(timeoutNanoseconds: UInt64 = accountDrainTimeoutNanoseconds) async
         -> PlaybackEffectDrainReport
     {
-        let result = await raw.cancelAccountScopedAndDrain(timeoutNanoseconds: timeoutNanoseconds)
+        let captured = cancelAccountScoped()
+        let result = await drain(captured, timeoutNanoseconds: timeoutNanoseconds)
         didMutate()
         return result
     }

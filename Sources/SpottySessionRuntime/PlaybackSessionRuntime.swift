@@ -537,10 +537,6 @@ package final class PlaybackSessionRuntime: Sendable {
         send(.options(options), source: .user)
     }
 
-    func setRepeatMode(_ mode: RepeatMode) {
-        setRepeat(mode: mode, flags: mode.flags)
-    }
-
     func setRepeat(mode: RepeatMode, flags: RepeatFlags) {
         var options = state.options
         options.repeatMode = mode

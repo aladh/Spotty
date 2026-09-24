@@ -33,8 +33,8 @@ struct CatalogRuntimeExportTests {
         let revision = metadata.runtimeTracksRevision
         metadata.replaceTracks([preferred], from: .library)
         metadata.replaceTracks([fallback], from: .search)
-        metadata.cacheTracks([fallback], from: .queue)
-        metadata.cacheTracks([fallback], from: .nowPlaying)
+        metadata.replaceTracks([fallback], from: .queue)
+        metadata.replaceTracks([fallback], from: .nowPlaying)
         #expect(metadata.runtimeTracksRevision == revision)
         #expect(metadata.runtimeTracks == [preferred.uri: preferred])
         metadata.replaceTracks([], from: .library)

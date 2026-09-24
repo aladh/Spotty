@@ -57,7 +57,7 @@ struct CatalogPlaybackActionChecks {
             local: local)
         player.withRuntime {
             $0.setShuffleEnabled(true)
-            $0.setRepeatMode(.track)
+            $0.setRepeat(mode: .track, flags: RepeatMode.track.flags)
         }
         CatalogPlaybackAccess(player: player).action(
             for: track,

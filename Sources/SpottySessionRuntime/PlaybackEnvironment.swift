@@ -246,10 +246,6 @@ actor PlaybackCoordinator {
         self.metadataService = metadataService ?? TrackMetadataService(remote: remote)
     }
 
-    func performLocal(_ operation: LocalPlaybackOperation) async -> PlaybackEngineResult {
-        local.execute(operation)
-    }
-
     /// Executes only if the operation is still wanted once this actor actually reaches it.
     ///
     /// A queued operation can wait behind another local command; by then the runtime may have
@@ -316,14 +312,6 @@ actor PlaybackCoordinator {
         // finally gets its turn on this actor.
         guard !Task.isCancelled else { return PlaybackEngineResult.error.rawValue }
         return local.forceReconnect()
-    }
-
-    func performRemote(
-        _ command: SpotifyConnectCommand,
-        from sourceID: String,
-        to targetID: String
-    ) async throws {
-        try await remote.send(command, from: sourceID, to: targetID)
     }
 
     func metadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {

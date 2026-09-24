@@ -12,21 +12,21 @@ SCRIPT = Path(__file__).with_name("swift_test_watchdog.py")
 
 
 class SwiftTestWatchdogTests(unittest.TestCase):
-    def run_watchdog(self, command, timeout=2, env=None):
+    def diagnostics(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        diagnostics = Path(temporary.name)
+        return Path(temporary.name)
+
+    def arguments(self, command, diagnostics, timeout=2):
+        return [
+            sys.executable, str(SCRIPT), "--lane", "fixture", "--repetition", "1",
+            f"--timeout-seconds={timeout}", "--log-dir", str(diagnostics), "--", *command,
+        ]
+
+    def run_watchdog(self, command, timeout=2, env=None, diagnostics=None):
+        diagnostics = diagnostics or self.diagnostics()
         result = subprocess.run(
-            [
-                sys.executable,
-                str(SCRIPT),
-                "--lane", "fixture",
-                "--repetition", "1",
-                "--timeout-seconds", str(timeout),
-                "--log-dir", str(diagnostics),
-                "--",
-                *command,
-            ],
+            self.arguments(command, diagnostics, timeout),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -34,6 +34,31 @@ class SwiftTestWatchdogTests(unittest.TestCase):
             timeout=10,
         )
         return result, diagnostics
+
+    def sleeping_command(self, diagnostics, *, output=False):
+        pid_path = diagnostics / "command.pid"
+
+        def clean_fixture():
+            if pid_path.exists():
+                try:
+                    os.killpg(int(pid_path.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+        self.addCleanup(clean_fixture)
+        program = (
+            "import os,pathlib,time\n"
+            f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()))\n"
+            "for _ in range(600):\n"
+            "    time.sleep(0.1)\n"
+            + ("    print('still running', flush=True)\n" if output else "")
+        )
+        return [sys.executable, "-c", program], pid_path
+
+    def assert_command_stopped(self, pid_path):
+        self.assertTrue(pid_path.is_file(), "fixture never started")
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int(pid_path.read_text()), 0)
 
     def test_success_is_propagated_and_logged(self):
         result, diagnostics = self.run_watchdog([sys.executable, "-c", "print('passed')"])
@@ -44,6 +69,65 @@ class SwiftTestWatchdogTests(unittest.TestCase):
     def test_nonzero_status_is_propagated(self):
         result, _ = self.run_watchdog([sys.executable, "-c", "raise SystemExit(17)"])
         self.assertEqual(result.returncode, 17)
+
+    def test_invalid_timeouts_fail_before_launch(self):
+        for timeout in ("nan", "inf", "-inf", "1e999", "0", "-1"):
+            with self.subTest(timeout=timeout):
+                diagnostics = self.diagnostics()
+                marker = diagnostics / "launched"
+                command = [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()"]
+                result, _ = self.run_watchdog(command, timeout, diagnostics=diagnostics)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("--timeout-seconds must be finite and positive", result.stdout)
+                self.assertFalse(marker.exists())
+
+    def test_diagnostic_write_failure_preserves_timeout_and_cleans_command(self):
+        diagnostics = self.diagnostics()
+        (diagnostics / "fixture-repeat-1-process-tree.txt").mkdir()
+        command, pid_path = self.sleeping_command(diagnostics)
+        result, _ = self.run_watchdog(command, 0.5, diagnostics=diagnostics)
+        self.assert_command_stopped(pid_path)
+        self.assertEqual(result.returncode, 124, result.stdout)
+        self.assertIn("diagnostics unavailable", result.stdout)
+
+    def test_closed_output_pipe_cleans_command(self):
+        diagnostics = self.diagnostics()
+        command, pid_path = self.sleeping_command(diagnostics, output=True)
+        process = subprocess.Popen(
+            self.arguments(command, diagnostics, timeout=30),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.addCleanup(process.stderr.close)
+        self.addCleanup(process.stdout.close)
+        self.addCleanup(lambda: process.kill() if process.poll() is None else None)
+        deadline = time.monotonic() + 5
+        while not pid_path.is_file() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(pid_path.is_file(), "fixture never started")
+        process.stdout.close()
+        process.wait(timeout=10)
+        self.assert_command_stopped(pid_path)
+        self.assertNotEqual(process.returncode, 0)
+
+    def test_failed_diagnostic_tools_preserve_timeout_with_non_utf8_output(self):
+        diagnostics = self.diagnostics()
+        tools = diagnostics / "tools"
+        tools.mkdir()
+        for name, status in (("ps", 1), ("sampler", 9)):
+            tool = tools / name
+            tool.write_text(
+                f"#!{sys.executable}\nimport sys\nsys.stdout.buffer.write(b'failure: \\xff')\n"
+                f"raise SystemExit({status})\n"
+            )
+            tool.chmod(0o755)
+        env = {**os.environ, "PATH": str(tools), "SPOTTY_SWIFT_TEST_SAMPLER": str(tools / "sampler")}
+        command, pid_path = self.sleeping_command(diagnostics)
+        result, _ = self.run_watchdog(command, 0.5, env, diagnostics)
+        self.assert_command_stopped(pid_path)
+        self.assertEqual(result.returncode, 124, result.stdout)
+        self.assertIn("sampler failed with status 9: failure:", result.stdout)
+        tree = (diagnostics / "fixture-repeat-1-process-tree.txt").read_text()
+        self.assertIn("process tree unavailable (status 1): failure:", tree)
 
     def test_timeout_captures_tree_and_cleans_silent_descendant(self):
         temporary = tempfile.TemporaryDirectory()

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from pathlib import Path
 import platform
@@ -37,8 +38,8 @@ def parse_args() -> argparse.Namespace:
         args.command = args.command[1:]
     if not args.command:
         parser.error("a command is required after --")
-    if args.timeout_seconds <= 0:
-        parser.error("--timeout-seconds must be positive")
+    if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
+        parser.error("--timeout-seconds must be finite and positive")
     return args
 
 
@@ -54,6 +55,7 @@ def swiftpm_supports_event_stream(command: list[str]) -> bool:
             timeout=15,
             check=False,
             text=True,
+            errors="replace",
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -77,9 +79,12 @@ def process_tree(process_group: int) -> tuple[str, list[int]]:
             timeout=10,
             check=False,
             text=True,
+            errors="replace",
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return f"process tree unavailable: {error}\n", []
+    if result.returncode != 0:
+        return f"process tree unavailable (status {result.returncode}): {result.stdout.strip()}\n", []
     selected: list[str] = []
     pids: list[int] = []
     for line in result.stdout.splitlines():
@@ -117,6 +122,7 @@ def sample_helper(root_pid: int, pids: list[int], output: Path) -> str:
             timeout=12,
             check=False,
             text=True,
+            errors="replace",
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return f"sampler unavailable or timed out: {error}"
@@ -213,14 +219,15 @@ def run_logged(
                 log_file,
             )
             return 127
-        emit(f"swift-test-watchdog pid={process.pid} started", log_file)
-
-        selector = selectors.DefaultSelector()
+        selector = None
+        command_finished = False
         assert process.stdout is not None
-        selector.register(process.stdout, selectors.EVENT_READ)
-        timed_out = False
-        stdout_eof = False
         try:
+            emit(f"swift-test-watchdog pid={process.pid} started", log_file)
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ)
+            timed_out = False
+            stdout_eof = False
             while True:
                 elapsed = time.monotonic() - started
                 if stdout_eof and process.poll() is not None:
@@ -239,17 +246,20 @@ def run_logged(
                         selector.unregister(key.fileobj)
                         stdout_eof = True
             if timed_out:
-                tree, pids = process_tree(process.pid)
-                tree_path.write_text(tree)
-                emit(
-                    f"swift-test-watchdog status=timeout elapsed={time.monotonic() - started:.2f}s; "
-                    f"process tree: {tree_path}",
-                    log_file,
-                )
-                emit(sample_helper(process.pid, pids, sample_path), log_file)
-                terminate_owned_group(process)
+                try:
+                    tree, pids = process_tree(process.pid)
+                    tree_path.write_text(tree)
+                    emit(
+                        f"swift-test-watchdog status=timeout elapsed={time.monotonic() - started:.2f}s; "
+                        f"process tree: {tree_path}",
+                        log_file,
+                    )
+                    emit(sample_helper(process.pid, pids, sample_path), log_file)
+                except (OSError, UnicodeError) as error:
+                    emit(f"swift-test-watchdog status=timeout; diagnostics unavailable: {error}", log_file)
                 return TIMEOUT_EXIT
             status = process.wait()
+            command_finished = True
             emit(
                 f"swift-test-watchdog lane={args.lane} repetition={args.repetition} "
                 f"pid={process.pid} elapsed={time.monotonic() - started:.2f}s status={status}",
@@ -258,7 +268,6 @@ def run_logged(
             return status
         except KeyboardInterrupt:
             emit("swift-test-watchdog interrupted; terminating owned process group", log_file)
-            terminate_owned_group(process)
             emit(
                 f"swift-test-watchdog lane={args.lane} repetition={args.repetition} "
                 f"pid={process.pid} elapsed={time.monotonic() - started:.2f}s status=130",
@@ -271,7 +280,6 @@ def run_logged(
                 "terminating owned process group",
                 log_file,
             )
-            terminate_owned_group(process)
             status = 128 + interruption.signal_number
             emit(
                 f"swift-test-watchdog lane={args.lane} repetition={args.repetition} "
@@ -280,7 +288,15 @@ def run_logged(
             )
             return status
         finally:
-            selector.close()
+            # Logging, pipe forwarding and diagnostics can fail too. They must never strand the
+            # invocation, even when no timeout or interrupt handler was reached.
+            try:
+                if not command_finished:
+                    terminate_owned_group(process)
+            finally:
+                if selector is not None:
+                    selector.close()
+                process.stdout.close()
 
 
 if __name__ == "__main__":

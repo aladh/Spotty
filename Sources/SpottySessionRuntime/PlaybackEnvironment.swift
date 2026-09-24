@@ -3,6 +3,7 @@ import SpottyEngineAdapter
 import SpottyGateway
 import SpottyRuntimeContracts
 import Foundation
+import Synchronization
 
 /// Account-scoped metadata requests are shared by Now Playing and queue hydration. The actor
 /// coalesces identical in-flight requests and retains only a bounded cache for the current account.
@@ -379,53 +380,50 @@ actor PlaybackCoordinator {
 /// `claim` succeeds, a lifecycle or route publication can invalidate queued work. Once `claim`
 /// succeeds, the operation has crossed the point where it may be sent to the engine or Spotify;
 /// later invalidation cannot revoke that already-started work.
-final class PlaybackDispatchPermit: @unchecked Sendable {
-    private enum State: Equatable {
+final class PlaybackDispatchPermit: Sendable {
+    private enum State: Equatable, Sendable {
         case pending
         case invalidated
-        case claimed
+        case claimed(Date?)
     }
 
-    private let lock = NSLock()
-    private var state: State = .pending
-    private var receipt: Date?
+    private let state = Mutex(State.pending)
     private let clock: any PlaybackClock
 
     init(clock: any PlaybackClock = SystemPlaybackClock()) { self.clock = clock }
 
     func takeDispatchReceipt() -> Date? {
-        lock.lock()
-        defer { lock.unlock() }
-        defer { receipt = nil }
-        return receipt
+        state.withLock { state in
+            guard case let .claimed(receipt) = state else { return nil }
+            state = .claimed(nil)
+            return receipt
+        }
     }
 
     func invalidate() {
-        lock.lock()
-        if state == .pending {
-            state = .invalidated
+        state.withLock { state in
+            if state == .pending { state = .invalidated }
         }
-        lock.unlock()
     }
 
     func claim() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard state == .pending else { return false }
-        state = .claimed
-        receipt = clock.now()
-        return true
+        state.withLock { state in
+            guard state == .pending else { return false }
+            state = .claimed(clock.now())
+            return true
+        }
     }
 
     var canDiscard: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return state != .pending && receipt == nil
+        state.withLock { state in
+            switch state {
+            case .pending, .claimed(.some): false
+            case .invalidated, .claimed(nil): true
+            }
+        }
     }
 
     var isResolved: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return state != .pending
+        state.withLock { $0 != .pending }
     }
 }

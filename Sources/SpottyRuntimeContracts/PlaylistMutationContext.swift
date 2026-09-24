@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// The account rendered when an action was created stays attached to the request. A runtime
 /// authorizes that identity before the gateway begins validation or dispatches a wire attempt.
@@ -27,25 +28,25 @@ package struct PlaylistMutationAuthorization: Sendable {
 
 /// Shared by account retirement and gateway workers; no UI publication is required to fence a
 /// pending request. The lock linearizes retirement against an attempt's dispatch authorization.
-package final class PlaylistMutationAdmission: @unchecked Sendable {
-    private let lock = NSLock()
-    private var accountEpoch: UInt64
-    private var isActive = false
+package final class PlaylistMutationAdmission: Sendable {
+    private struct State: Sendable {
+        let accountEpoch: UInt64
+        var isActive = false
+    }
 
-    package init(accountEpoch: UInt64 = 1) { self.accountEpoch = accountEpoch }
+    private let state: Mutex<State>
+
+    package init(accountEpoch: UInt64 = 1) { state = Mutex(State(accountEpoch: accountEpoch)) }
 
     package func activate(accountEpoch: UInt64) {
-        lock.withLock {
-            guard self.accountEpoch == accountEpoch else { return }
-            isActive = true
+        state.withLock { state in
+            guard state.accountEpoch == accountEpoch else { return }
+            state.isActive = true
         }
     }
 
     package func retire(nextAccountEpoch: UInt64) {
-        lock.withLock {
-            accountEpoch = nextAccountEpoch
-            isActive = false
-        }
+        state.withLock { $0 = State(accountEpoch: nextAccountEpoch) }
     }
 
     package func authorize(_ context: PlaylistMutationContext) throws -> PlaylistMutationAuthorization {
@@ -55,6 +56,6 @@ package final class PlaylistMutationAdmission: @unchecked Sendable {
     }
 
     fileprivate func allows(accountEpoch: UInt64) -> Bool {
-        lock.withLock { isActive && self.accountEpoch == accountEpoch }
+        state.withLock { $0.isActive && $0.accountEpoch == accountEpoch }
     }
 }

@@ -4,6 +4,7 @@ import SpottyRuntimeContracts
 import SpottyEngineAdapter
 import Foundation
 import OSLog
+import Synchronization
 
 nonisolated struct ProvenanceQueueSnapshot: Sendable {
     let accountEpoch: UInt64
@@ -136,51 +137,48 @@ actor QueueService {
         let cachedTracks: [CatalogTrack]
     }
 
-    private final class RefreshSubscriber: @unchecked Sendable {
+    private final class RefreshSubscriber: Sendable {
+        private enum State: Sendable {
+            case waiting(CheckedContinuation<ProvenanceQueueSnapshot?, Never>?)
+            case completed(ProvenanceQueueSnapshot?)
+        }
+
         let callback: @SessionRuntimeActor @Sendable (ProvenanceQueueSnapshot) async -> Void
-        private let lock = NSLock()
-        private var active = true
-        private var completed = false
-        private var result: ProvenanceQueueSnapshot?
-        private var continuation: CheckedContinuation<ProvenanceQueueSnapshot?, Never>?
+        private let state = Mutex(State.waiting(nil))
 
         init(callback: @escaping @SessionRuntimeActor @Sendable (ProvenanceQueueSnapshot) async -> Void) {
             self.callback = callback
         }
 
         func complete(_ result: ProvenanceQueueSnapshot?) {
-            lock.lock()
-            guard !completed else {
-                lock.unlock()
-                return
+            let waiting = state.withLock { state -> CheckedContinuation<ProvenanceQueueSnapshot?, Never>? in
+                guard case let .waiting(continuation) = state else { return nil }
+                state = .completed(result)
+                return continuation
             }
-            completed = true
-            active = false
-            self.result = result
-            let waiting = continuation
-            continuation = nil
-            lock.unlock()
             waiting?.resume(returning: result)
         }
 
         func wait() async -> ProvenanceQueueSnapshot? {
             await withCheckedContinuation { waiting in
-                lock.lock()
-                if completed {
-                    let result = result
-                    lock.unlock()
-                    waiting.resume(returning: result)
-                } else {
-                    continuation = waiting
-                    lock.unlock()
+                let result = state.withLock { state -> Result<ProvenanceQueueSnapshot?, Never>? in
+                    switch state {
+                    case .waiting:
+                        state = .waiting(waiting)
+                        return nil
+                    case let .completed(result):
+                        return .success(result)
+                    }
                 }
+                if let result { waiting.resume(with: result) }
             }
         }
 
         private var isActive: Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return active
+            state.withLock { state in
+                if case .waiting = state { return true }
+                return false
+            }
         }
 
         func invoke(_ snapshot: ProvenanceQueueSnapshot) async {

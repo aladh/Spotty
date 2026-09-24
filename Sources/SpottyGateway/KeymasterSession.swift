@@ -11,8 +11,6 @@ import Foundation
 import SpottyRuntimeContracts
 import Synchronization
 
-private typealias DefaultKeymasterTokenStore = KeymasterFileStore
-
 /// The live keymaster grant: one access token, kept valid, shared by everything that needs it.
 ///
 /// An actor because the token is read from several places at once — the accesspoint session,
@@ -104,7 +102,7 @@ actor KeymasterSession {
     }
 
     init(
-        store: KeymasterTokenStoring = DefaultKeymasterTokenStore(),
+        store: KeymasterTokenStoring = KeymasterFileStore(),
         refresher: @escaping Refresher = { try await KeymasterAuth.refresh(refreshToken: $0) },
         cookieCleanup: @escaping @Sendable () -> Void = {
             AuthCookieCleanup.removeSpotifyAuthenticationCookies()

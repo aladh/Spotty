@@ -32,6 +32,11 @@ headers and provenance. Apply it to each local build or check that should consum
 keep it command-scoped as above, or unset an exported override to return to the published pin.
 The [resolver and validator](../../Scripts/playback-xcframework.sh) own artifact checks.
 
+After switching artifacts, run the normal Swift gate before focused tests or direct SwiftPM
+commands. The normal gate and `compile-release-spotty.sh` compare selected headers with Xcode's
+staged copies and discard only stale `SpottyPlaybackCore` compiled C modules. Other entry points
+do not perform this check; a full build-directory reset is unnecessary.
+
 The Rust scope verifies Python playback checks, header regeneration, and producer ABI compatibility.
 [Verification](verification.md#normal-verification) owns local gate selection;
 [CI enforcement](../architecture/enforcement/build-and-abi.md#ci-and-release-workflow) owns job

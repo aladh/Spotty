@@ -96,6 +96,8 @@ fi
 playback_slice="$(spotty_playback_slice_path "$selected_xcframework")"
 playback_archive="$(spotty_playback_archive_path "$playback_slice")"
 playback_headers="$(spotty_playback_headers_path "$playback_slice")"
+python3 "$project_root/Scripts/playback_module_cache.py" "$project_root/.build" "$playback_headers" \
+    --configuration "$build_configuration"
 "$project_root/Scripts/check-c-header-imports.sh" "$playback_headers"
 playback_header="$playback_headers/spotty_playback.h"
 
@@ -161,9 +163,8 @@ swift_arguments=(
     --configuration "$build_configuration"
     --product Spotty
 )
-# SwiftPM owns relinking. Published artifacts and source-built local overrides use a
-# content-addressed XCFramework/library path so changing the selected engine is a dependency
-# identity change, rather than a replacement hidden behind the same archive path.
+# SwiftPM owns relinking. The selected artifact's content-addressed library filename changes
+# with the engine, including when a source-built local override reuses its XCFramework directory.
 if [[ -n "${SPOTTY_SIGNING_IDENTITY:-}" ]]; then
     swift_arguments+=(-Xswiftc -DSPOTTY_DISTRIBUTION)
 fi

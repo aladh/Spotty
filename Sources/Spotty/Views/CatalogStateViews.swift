@@ -77,8 +77,10 @@ struct CatalogContentState<Empty: View, Content: View>: View {
             .padding(placeholderPadding)
         } else if isEmpty {
             if let error {
-                CatalogFailureState(title: errorTitle, message: error, icon: errorIcon, retry: retry)
-                    .padding(placeholderPadding)
+                CatalogFailureState(
+                    title: errorTitle, message: error, icon: errorIcon, connection: connection, retry: retry
+                )
+                .padding(placeholderPadding)
             } else {
                 empty().padding(placeholderPadding)
             }
@@ -91,8 +93,22 @@ struct CatalogContentState<Empty: View, Content: View>: View {
 struct CatalogFailureState: View {
     let title: String
     let message: String
-    var icon = "exclamationmark.triangle"
+    let icon: String
     let retry: () async -> Void
+
+    init(
+        title: String, message: String, icon: String = "exclamationmark.triangle",
+        connection: CatalogPlaybackAccess? = nil, retry: @escaping () async -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.icon = icon
+        self.retry = {
+            // The callback can outlive its rendered control and original account.
+            if let connection, !connection.isConnected { return }
+            await retry()
+        }
+    }
 
     var body: some View {
         EmptyState(

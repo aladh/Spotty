@@ -2,12 +2,70 @@ import AppKit
 import SwiftUI
 import Testing
 import SpottyDomain
+import SpottyRuntimeContracts
 @testable import SpottyCore
 @testable import SpottySessionRuntime
 
 @Suite("Catalog view loading", .serialized)
 @MainActor
 struct CatalogViewLoadingTests {
+    @Test(arguments: [false, true])
+    func retainedRetryCannotLoadIntoAReplacementAccountOrDisconnectedSelection(replaceAccount: Bool) async throws {
+        let provider = HarnessCatalog()
+        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
+        player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+        }
+        let store = player.catalog.albumStore
+        let original = CatalogItem(
+            id: "original", uri: "spotify:album:original", title: "Original", subtitle: "Artist",
+            artworkURL: nil, kind: .album)
+        let current = CatalogItem(
+            id: "current", uri: "spotify:album:current", title: "Current", subtitle: "Artist",
+            artworkURL: nil, kind: .album)
+        let access = CatalogPlaybackAccess(player: player)
+        let retainedRetry = CatalogFailureState(
+            title: "Couldn't load album", message: "Unavailable", connection: access
+        ) {
+            await store.load(original, force: true)
+        }.retry
+        await retainedRetry()
+        #expect(provider.albumRequestCount == 1)
+        #expect(store.item?.uri == original.uri)
+
+        player.withRuntime {
+            if replaceAccount {
+                $0.accountStore.advanceEpoch()
+                _ = $0.send(.reset(session: .ready), source: .account)
+            } else {
+                $0.accountStore.publishPhase(.failed("offline"))
+                _ = $0.send(.session(.failed("offline")), source: .account)
+            }
+        }
+        try #require(!access.isConnected)
+        try #require(player.isConnected == replaceAccount && player.catalogSession.isAvailable == replaceAccount)
+        store.prepare(current)
+        await retainedRetry()
+        #expect(provider.albumRequestCount == 1)
+        #expect(store.item?.uri == current.uri, "a refused retry must not even prepare the previous selection")
+
+        player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+        }
+        let currentRetry = CatalogFailureState(
+            title: "Couldn't load album", message: "Unavailable", connection: CatalogPlaybackAccess(player: player)
+        ) {
+            await store.load(current, force: true)
+        }.retry
+        await currentRetry()
+        #expect(provider.albumRequestCount == 2)
+        #expect(store.item?.uri == current.uri)
+        await player.shutdownForTermination()
+    }
+
     @Test(arguments: ["", "first"])
     func changingVisibleSearchCancelsOldDebounceAndLoadsTheNewQuery(initialQuery: String) async throws {
         let provider = HarnessCatalog()

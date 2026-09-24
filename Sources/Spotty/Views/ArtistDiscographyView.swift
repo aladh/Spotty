@@ -30,8 +30,11 @@ struct ArtistDiscographyView: View {
             controls
             if artist.isShowingCachedContent, !releases.isEmpty {
                 CachedCatalogNotice(
-                    isRefreshing: artist.isLoading, error: artist.error, canRetry: playback.isConnected,
-                    retry: { await artist.load(item, force: true) })
+                    isRefreshing: artist.isLoading, error: artist.error, canRetry: playback.isConnected
+                ) {
+                    guard playback.isConnected else { return }
+                    await artist.load(item, force: true)
+                }
             }
             CatalogContentState(
                 isLoading: artist.isLoading || albums.artistURI != item.uri,

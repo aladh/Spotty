@@ -24,8 +24,7 @@ serde = { version = "1.0", features = ["derive"] }
 futures-util = "0.3"
 env_logger = "0.11"
 log = "0.4"
-# Only for the header map and method of the one connect-state request this crate builds
-# itself; librespot's spclient takes them by these types.
+# HTTP request fields required by SpClient, and parsing at the playback URL boundary.
 http = "1"
 
 [profile.release]

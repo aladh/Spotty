@@ -1,6 +1,105 @@
 use super::*;
 
 #[test]
+fn playback_urls_preserve_spotify_resources_and_ignore_query_and_fragment() {
+    const ID: &str = "0000000000000000000001";
+    for kind in ["track", "album", "artist", "playlist", "episode", "show"] {
+        let expected = format!("spotify:{kind}:{ID}");
+        for url in [
+            format!("https://open.spotify.com/{kind}/{ID}"),
+            format!("http://open.spotify.com/{kind}/{ID}?si=shared"),
+            format!("https://OPEN.SPOTIFY.COM/intl-de/{kind}/{ID}#details"),
+            format!("https://open.spotify.com/intl-en/{kind}/{ID}?si=shared#details"),
+            format!("https://open.spotify.com/intl-pt-BR/{kind}/{ID}?next=/ignored/path#details"),
+            format!("https://open.spotify.com/{kind}/{ID}/"),
+            format!("https://open.spotify.com/intl-en/{kind}/{ID}/?si=shared#details"),
+        ] {
+            assert_eq!(
+                url_to_uri(&url).as_deref(),
+                Some(expected.as_str()),
+                "{url}"
+            );
+        }
+    }
+}
+
+#[test]
+fn playback_urls_leave_protocol_uri_forms_to_librespot() {
+    for uri in [
+        "spotify:track:0000000000000000000001",
+        "spotify:album:0000000000000000000001",
+        "spotify:user:alice:playlist:0000000000000000000001",
+        "spotify:user:alice:collection",
+        "spotify:user:alice:collection:artist:0000000000000000000001",
+        "spotify:search:never+gonna",
+        "spotify:local:artist:album:title:180",
+        "spotify:genre:pop",
+    ] {
+        assert_eq!(url_to_uri(uri).as_deref(), Some(uri));
+    }
+}
+
+const INVALID_PLAYBACK_URLS: &[&str] = &[
+    "",
+    "not a Spotify URI",
+    "https://notopen.spotify.com/track/0000000000000000000001",
+    "https://open.spotify.com.evil.example/track/0000000000000000000001",
+    "https://example.com/open.spotify.com/track/0000000000000000000001",
+    "https://example.com/?next=https://open.spotify.com/track/0000000000000000000001",
+    "https://example.com/#https://open.spotify.com/track/0000000000000000000001",
+    "https://user@open.spotify.com/track/0000000000000000000001",
+    "https://open.spotify.com:443/track/0000000000000000000001",
+    "file://open.spotify.com/track/0000000000000000000001",
+    "//open.spotify.com/track/0000000000000000000001",
+    "https://open.spotify.com/track/0000000000000000000001/extra",
+    "https://open.spotify.com/track/0000000000000000000001//",
+    "https://open.spotify.com/track/0000000000000000000001/extra/",
+    "https://open.spotify.com/track/intl-de/0000000000000000000001",
+    "https://open.spotify.com/intl-de/intl-fr/track/0000000000000000000001",
+    "https://open.spotify.com/intl-/track/0000000000000000000001",
+    "https://open.spotify.com/intl-de%2F/track/0000000000000000000001",
+    "https://open.spotify.com/intl-de--DE/track/0000000000000000000001",
+    "https://open.spotify.com//track/0000000000000000000001",
+    "https://open.spotify.com/track//0000000000000000000001",
+    "https://open.spotify.com/track",
+    "https://open.spotify.com/track/",
+    "https://open.spotify.com/track/invalid-id",
+    "https://open.spotify.com/track/short",
+    "https://open.spotify.com/track/0000000000000000000001%2Fextra",
+    "https://open.spotify.com/track/0000000000000000000001:extra",
+];
+
+#[test]
+fn playback_urls_reject_spoofed_hosts_and_malformed_resource_paths() {
+    for input in INVALID_PLAYBACK_URLS {
+        assert_eq!(url_to_uri(input), None, "{input}");
+    }
+}
+
+#[test]
+fn playback_urls_are_rejected_before_session_admission() {
+    let _guard = lock_global_state();
+    let previous = with_connection(std::mem::take);
+    let results: Vec<_> = INVALID_PLAYBACK_URLS
+        .iter()
+        .map(|input| {
+            let input = CString::new(*input).unwrap();
+            spotty_playback_play_uri(input.as_ptr())
+        })
+        .collect();
+    let valid = CString::new("https://open.spotify.com/track/0000000000000000000001").unwrap();
+    let valid_result = spotty_playback_play_uri(valid.as_ptr());
+    let activated = is_active_device();
+    with_connection(|connection| *connection = previous);
+
+    assert_eq!(valid_result, ERROR_NOT_CONNECTED);
+    assert!(!activated);
+    for (input, result) in INVALID_PLAYBACK_URLS.iter().zip(results) {
+        assert_eq!(result, ERROR_GENERAL, "{input}");
+    }
+}
+
+#[test]
 fn connect_config_advertises_configured_device_name() {
     let name = "Studio Mac (Spotty)";
     assert_eq!(create_connect_config(name).name, name);

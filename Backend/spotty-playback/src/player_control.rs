@@ -110,8 +110,11 @@ pub extern "C" fn spotty_playback_play_uri(uri_or_url: *const c_char) -> SpottyP
             return -1;
         };
 
-        // Convert URL to URI if needed
-        let uri_str = url_to_uri(&input_str);
+        // Reject malformed URLs before session checks or device activation.
+        let Some(uri_str) = url_to_uri(&input_str) else {
+            debug!("Play error: uri_or_url is not a Spotify URI or resource URL");
+            return ERROR_GENERAL;
+        };
         debug!("spotty_playback_play_uri called: uri={}", uri_str);
 
         if let Err(e) = require_session_connected() {

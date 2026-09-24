@@ -1,41 +1,52 @@
 use crate::*;
 
-// Helper function to convert URL to URI
-pub(crate) fn url_to_uri(input: &str) -> String {
-    // If already a URI, return as-is
+/// Preserve protocol URI forms; normalize only resource URLs belonging to Spotify.
+pub(crate) fn url_to_uri(input: &str) -> Option<String> {
+    // Librespot also supports named, collection, search, and local URI forms.
     if input.starts_with("spotify:") {
-        return input.to_string();
+        return Some(input.to_string());
     }
 
-    // If it's a URL, parse it
-    if input.starts_with("http://") || input.starts_with("https://") {
-        if let Some(marker_pos) = input.find("open.spotify.com/") {
-            let after_marker = &input[marker_pos + "open.spotify.com/".len()..];
-            let parts: Vec<&str> = after_marker.split('/').collect();
+    // HTTP URI parsing separates authority, path, and query. Browser fragments are
+    // not sent to a server and do not identify a different Spotify resource.
+    let without_fragment = input.split_once('#').map_or(input, |(url, _)| url);
+    let url: http::Uri = without_fragment.parse().ok()?;
+    if !matches!(url.scheme_str(), Some("http" | "https"))
+        || !url
+            .authority()?
+            .as_str()
+            .eq_ignore_ascii_case("open.spotify.com")
+    {
+        return None;
+    }
 
-            // Filter out locale prefixes like "intl-de"
-            let filtered: Vec<&str> = parts
-                .iter()
-                .filter(|p| !p.starts_with("intl-"))
-                .copied()
-                .collect();
-
-            if filtered.len() >= 2 {
-                let content_type = filtered[0];
-                let mut id = filtered[1];
-
-                // Remove query parameters
-                if let Some(query_pos) = id.find('?') {
-                    id = &id[..query_pos];
-                }
-
-                return format!("spotify:{}:{}", content_type, id);
-            }
+    let path = url.path().strip_prefix('/')?;
+    let mut parts = path.strip_suffix('/').unwrap_or(path).split('/');
+    let first = parts.next()?;
+    let content_type = if let Some(locale) = first.strip_prefix("intl-") {
+        if !locale
+            .split('-')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+        {
+            return None;
         }
+        parts.next()?
+    } else {
+        first
+    };
+    let id = parts.next()?;
+    if parts.next().is_some()
+        || content_type.is_empty()
+        || !content_type.bytes().all(|byte| byte.is_ascii_lowercase())
+        || id.is_empty()
+        || !id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
+        return None;
     }
 
-    // Return original if can't parse
-    input.to_string()
+    let uri = format!("spotify:{content_type}:{id}");
+    SpotifyUri::from_uri(&uri).ok()?;
+    Some(uri)
 }
 
 // Helper function to parse Spotify URI from string

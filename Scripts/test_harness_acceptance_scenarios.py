@@ -225,6 +225,47 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                 self.assertEqual(item["failedCheckpoint"]["code"], "test-host-failed")
                 self.assertTrue((root / item["evidence"]).exists())
 
+    @unittest.skipUnless(shutil.which("zsh"), "Acceptance launcher requires zsh")
+    def test_test_host_uses_shared_debug_settings_and_preserves_watchdog_arguments(self):
+        with tempfile.TemporaryDirectory(prefix="spotty acceptance ") as directory:
+            root = Path(directory).resolve()
+            output = root / "evidence with spaces"
+            args = mock.Mock(output=output, corpus="all", scenario=None, timeout_seconds=123)
+            with mock.patch.object(acceptance, "source_record", return_value=self.source), \
+                    mock.patch.object(acceptance.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)) as launch, \
+                    mock.patch("builtins.print"):
+                self.assertEqual(acceptance.run_corpus(args), 1)
+            command = launch.call_args.args[0]
+            environment = launch.call_args.kwargs["env"]
+            scripts = root / "Scripts"
+            scripts.mkdir()
+            shutil.copy(acceptance.ROOT / "Scripts/swiftpm-env.sh", scripts)
+            binary = root / "bin"
+            binary.mkdir()
+            xcrun = binary / "xcrun"
+            xcrun.write_text('#!/bin/sh\nprintf "%s\\n" "/synthetic SDK"\n')
+            xcrun.chmod(0o755)
+            python = binary / "python3"
+            python.write_text(f"#!{sys.executable}\n" +
+                              "import json, os, sys\nfrom pathlib import Path\n" +
+                              "Path(os.environ['SPOTTY_ACCEPTANCE_OUTPUT'], 'command.json').write_text(json.dumps({\n" +
+                              "'arguments': sys.argv[1:], 'harness': os.environ['SPOTTY_BUILD_BROWSING_HARNESS'],\n" +
+                              "'sdk': os.environ['SDKROOT'], 'cache': os.environ['SWIFTPM_MODULECACHE_OVERRIDE']}))\n")
+            python.chmod(0o755)
+            result = subprocess.run(command, cwd=root, capture_output=True, text=True,
+                                    env={**environment, "PATH": str(binary) + os.pathsep + os.environ["PATH"]})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            recorded = acceptance.read_json(output / "command.json")
+            self.assertEqual(recorded["arguments"], [
+                "Scripts/swift_test_watchdog.py", "--lane", "acceptance", "--repetition", "1",
+                "--timeout-seconds", "123", "--log-dir", str(output / "diagnostics"), "--",
+                "swift", "test", "--disable-sandbox", "--no-parallel", "--package-path", str(root),
+                "--configuration", "debug", "--filter", "AcceptanceCorpusTests", "-Xswiftc", "-warnings-as-errors",
+            ])
+            self.assertEqual(recorded["harness"], "1")
+            self.assertTrue(recorded["sdk"])
+            self.assertEqual(recorded["cache"], str(root / ".build/module-cache"))
+
     def demo_report(self):
         return {"passed": True, "networkSandboxVerified": True, "world": {"mutationAttempts": 0},
                 "launch": launch_manifest(),

@@ -248,11 +248,14 @@ def run_corpus(args):
     write_json(input_path, [scenario_input(item) for item in items])
     environment = dict(os.environ, SPOTTY_BUILD_BROWSING_HARNESS="1", SPOTTY_ACCEPTANCE_INPUT=str(input_path),
                        SPOTTY_ACCEPTANCE_OUTPUT=str(output))
-    # Reuse the normal test watchdog, SDK setup and Swift Testing discovery. No retry loop.
-    command = ["zsh", "-c", 'project_root="$PWD"; source Scripts/swiftpm-env.sh; '
+    # Match the Debug gate's build settings so SwiftPM can reuse its fresh harness products.
+    # Standalone runs still build normally; the watchdog owns the single attempt.
+    command = ["zsh", "-eu", "-c", 'project_root="$PWD"; source Scripts/swiftpm-env.sh; '
                'exec python3 Scripts/swift_test_watchdog.py --lane acceptance --repetition 1 '
-               '--timeout-seconds "$1" --log-dir "$2" -- swift test --sdk "$SDKROOT" --disable-sandbox --no-parallel '
-               '--filter AcceptanceCorpusTests', "acceptance", str(args.timeout_seconds), str(output / "diagnostics")]
+               '--timeout-seconds "$1" --log-dir "$2" -- swift test --disable-sandbox --no-parallel '
+               '--package-path "$project_root" --configuration debug --filter AcceptanceCorpusTests '
+               '"${spotty_swiftc_warnings_as_errors[@]}"',
+               "acceptance", str(args.timeout_seconds), str(output / "diagnostics")]
     host_failure = None
     try:
         result = subprocess.run(command, cwd=ROOT, env=environment, check=False)

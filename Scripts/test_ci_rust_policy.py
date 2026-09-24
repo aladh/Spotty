@@ -339,40 +339,61 @@ class ConsolidatedWorkflowTests(unittest.TestCase):
 
 
 class CheckScopeOwnershipTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        scripts = self.root / "Scripts"
+        scripts.mkdir()
+        script = (ROOT / "Scripts/check.sh").read_text()
+        # Scope routing is Bash-compatible; the policy job needs no zsh or compiler.
+        root_assignment = 'project_root="${0:A:h:h}"'
+        self.assertEqual(script.count(root_assignment), 1)
+        (scripts / "check.sh").write_text(script.replace(root_assignment, 'project_root="$PWD"'))
+        for name in ("swiftpm-env.sh", "playback-xcframework.sh"):
+            (scripts / name).write_text("# Toolchain-free scope fixture\n")
+        (scripts / "script_tests.py").write_text(
+            'import os, sys\nprint(sys.argv[1])\n'
+            'sys.exit(73 if sys.argv[1] == os.environ.get("SPOTTY_FAIL_HELPER") else 0)\n')
+        for name, status in (("check-source-policy.sh", 0), ("generate-c-header.sh", 74),
+                             ("format-swift-self-test.sh", 0), ("format-swift.sh", 75)):
+            path = scripts / name
+            path.write_text(f'#!/bin/sh\necho "{name}"\nexit {status}\n')
+            path.chmod(0o755)
+
+    def run_scope(self, scope, failing_helper=""):
+        return subprocess.run(["bash", str(self.root / "Scripts/check.sh")], cwd=self.root,
+                              capture_output=True, text=True,
+                              env={**os.environ, "SPOTTY_CHECK_SCOPE": scope, "SPOTTY_FAIL_HELPER": failing_helper,
+                                   "SPOTTY_BUILD_CONFIGURATION": "debug"})
+
     def test_harness_failure_stops_normal_scopes_before_compilation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            scripts = root / "Scripts"
-            scripts.mkdir()
-            script = (ROOT / "Scripts/check.sh").read_text()
-            # The tested scope branches are Bash-compatible. Normalize only zsh's path
-            # modifier; the Linux policy job must exercise them without installing zsh.
-            root_assignment = 'project_root="${0:A:h:h}"'
-            self.assertEqual(script.count(root_assignment), 1)
-            (scripts / "check.sh").write_text(script.replace(root_assignment, 'project_root="$PWD"'))
-            for name in ("swiftpm-env.sh", "playback-xcframework.sh"):
-                (scripts / name).write_text("# Toolchain-free scope fixture\n")
-            (scripts / "script_tests.py").write_text(
-                'import sys\nprint(sys.argv[1])\nsys.exit(73 if sys.argv[1] == "harness" else 0)\n')
-            for name, status in (("check-source-policy.sh", 0), ("generate-c-header.sh", 74)):
-                path = scripts / name
-                path.write_text(f"#!/bin/sh\nexit {status}\n")
-                path.chmod(0o755)
-            for scope in ("full", "swift", "rust", "rust-compiled"):
-                with self.subTest(scope=scope):
-                    result = subprocess.run(["bash", str(scripts / "check.sh")], cwd=root,
-                                            capture_output=True, text=True,
-                                            env={**os.environ, "SPOTTY_CHECK_SCOPE": scope,
-                                                 "SPOTTY_BUILD_CONFIGURATION": "debug"})
-                    compiled_only = scope == "rust-compiled"
-                    self.assertEqual(result.returncode, 74 if compiled_only else 73, result.stderr)
-                    self.assertEqual("harness" in result.stdout, not compiled_only)
+        for scope in ("full", "swift", "rust", "rust-compiled", "swift-compiled"):
+            with self.subTest(scope=scope):
+                result = self.run_scope(scope, failing_helper="harness")
+                status = {"rust-compiled": 74, "swift-compiled": 75}.get(scope, 73)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual("harness" in result.stdout, status == 73)
+
+    def test_only_ci_scopes_omit_portable_checks_and_swift_still_checks_format(self):
+        expected = {
+            "full": ["check-source-policy.sh", "harness", "watchdog", "format-swift-self-test.sh", "format-swift.sh"],
+            "swift": ["harness", "watchdog", "format-swift-self-test.sh", "format-swift.sh"],
+            "swift-compiled": ["format-swift.sh"],
+            "rust": ["harness", "playback", "generate-c-header.sh"],
+            "rust-compiled": ["generate-c-header.sh"],
+        }
+        for scope, commands in expected.items():
+            with self.subTest(scope=scope):
+                result = self.run_scope(scope)
+                self.assertEqual(result.returncode, 74 if scope.startswith("rust") else 75, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), commands)
 
     def test_playback_source_checks_run_once_and_only_ci_compiled_scope_skips_them(self):
         script = (ROOT / "Scripts/check.sh").read_text()
         python_check = 'python3 -B "$project_root/Scripts/script_tests.py" playback'
         header_check = '"$project_root/Scripts/generate-c-header.sh" --check'
-        scope_start = script.index('if [[ "$check_scope" != swift ]]; then')
+        scope_start = script.index('if [[ "$check_scope" != swift && "$check_scope" != swift-compiled ]]; then')
         python_guard = script.index('if [[ "$check_scope" != rust-compiled ]]; then', scope_start)
         rust_exit = script.index('if [[ "$check_scope" == rust || "$check_scope" == rust-compiled ]]; then', scope_start)
 

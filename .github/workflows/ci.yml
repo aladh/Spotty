@@ -139,6 +139,9 @@ jobs:
       - name: Run harness script checks
         run: python3 -B Scripts/script_tests.py harness
 
+      - name: Run Swift formatter wrapper checks
+        run: ./Scripts/format-swift-self-test.sh
+
   macos:
     name: macOS checks
     needs: [policy, domain_linux, playback_python]
@@ -323,7 +326,7 @@ jobs:
         timeout-minutes: 15
         env:
           SPOTTY_CHECK_REPEATS: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
-        run: SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh
+        run: SPOTTY_CHECK_SCOPE=swift-compiled ./Scripts/check.sh
 
       # This credential-free state-boundary corpus does not launch a GUI or attest a sandbox.
       - name: Run acceptance scenarios

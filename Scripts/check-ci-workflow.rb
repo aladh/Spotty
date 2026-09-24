@@ -41,6 +41,7 @@ required_test_steps = {
     'python3 -B Scripts/script_tests.py watchdog',
     'python3 -B Scripts/script_tests.py playback',
     'python3 -B Scripts/script_tests.py harness',
+    './Scripts/format-swift-self-test.sh',
   ],
 }
 required_test_steps.each do |job_id, commands|
@@ -75,7 +76,7 @@ check.call(mac['if'] == "always() && needs.policy.outputs.macos_needed == 'true'
 check.call(mac_steps.none? { |step| step.key?('continue-on-error') }, 'macOS verification steps must fail without continue-on-error')
 mac_step_ids = mac_steps.map { |step| step['id'] }.compact
 check.call(mac_step_ids.uniq.length == mac_step_ids.length, 'macOS step IDs must be unique')
-{'rust' => 'SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh', 'debug' => 'SPOTTY_CHECK_SCOPE=swift ./Scripts/check.sh', 'release' => './Scripts/compile-release-spotty.sh'}.each do |id, command|
+{'rust' => 'SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh', 'debug' => 'SPOTTY_CHECK_SCOPE=swift-compiled ./Scripts/check.sh', 'release' => './Scripts/compile-release-spotty.sh'}.each do |id, command|
   matches = mac_steps.select { |s| s['id'] == id }
   check.call(matches.length == 1 && matches[0]['run'] == command, "#{id} verification command must run once in the macOS job")
 end

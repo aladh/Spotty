@@ -36,13 +36,14 @@ fi
 module_cache="$(mktemp -d /tmp/spotty-c-header-imports.XXXXXX)"
 trap 'rm -rf "$module_cache"' EXIT
 
+minimum_macos="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$project_root/Packaging/Info.plist")"
 swift_arguments=(
     -typecheck
     -swift-version 6
     -warnings-as-errors
     -import-objc-header "$header_path"
     -I "$header_dir"
-    -target arm64-apple-macos15.0
+    -target "arm64-apple-macos$minimum_macos"
     -sdk "$sdk_path"
     -module-cache-path "$module_cache"
 )

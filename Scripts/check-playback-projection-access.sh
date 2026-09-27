@@ -109,12 +109,13 @@ fi
 module_cache="$(mktemp -d /tmp/spotty-playback-projection-access.XXXXXX)"
 trap 'rm -rf "$module_cache"' EXIT
 
+minimum_macos="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$project_root/Packaging/Info.plist")"
 swift_arguments=(
     -typecheck
     -parse-as-library
     -swift-version 6
     -warnings-as-errors
-    -target arm64-apple-macos15.0
+    -target "arm64-apple-macos$minimum_macos"
     -sdk "$sdk_path"
     -module-cache-path "$module_cache"
     "${swift_module_paths[@]}"

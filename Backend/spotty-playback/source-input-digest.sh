@@ -17,6 +17,7 @@ input_paths=(
     "$backend_root/Cargo.lock"
     "$backend_root/cbindgen.toml"
     "$backend_root/abi-signatures.txt"
+    "$backend_root/macos-deployment-target"
     "$backend_root/build.sh"
     "$backend_root/build-xcframework.sh"
     "$backend_root/source-input-digest.sh"

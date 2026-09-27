@@ -68,7 +68,8 @@ require_equal() {
 }
 
 require_equal "package type" XFWK "$(plist_value CFBundlePackageType "$info_plist")"
-require_equal "minimum OS version" 15.0 "$(plist_value MinimumOSVersion "$info_plist")"
+minimum_macos="$(cat "$backend_root/macos-deployment-target")"
+artifact_minimum_macos="$(plist_value MinimumOSVersion "$info_plist")"
 require_equal "library type" static "$(plist_value LibraryType "$info_plist")"
 require_equal "module name" SpottyPlaybackCore "$(plist_value ModuleName "$info_plist")"
 
@@ -128,25 +129,9 @@ if ! command -v otool >/dev/null 2>&1; then
 fi
 otool_dump="$(otool -l "$library_path")" || fail "could not inspect static archive load commands"
 [[ "$otool_dump" == *"Load command"* ]] || fail "static archive contains no Mach-O object load commands"
-versions="$(awk '
-    $1 == "cmd" && $2 == "LC_BUILD_VERSION" { mode = "build"; next }
-    $1 == "cmd" && $2 == "LC_VERSION_MIN_MACOSX" { mode = "legacy"; next }
-    $1 == "cmd" && $2 ~ /^LC_/ { mode = "" }
-    mode == "build" && $1 == "minos" { print $2; mode = "" }
-    mode == "legacy" && $1 == "version" { print $2; mode = "" }
-' <<< "$otool_dump")"
-[[ -n "$versions" ]] || fail "static archive has no macOS deployment load command"
-while IFS= read -r minimum_version; do
-    if ! awk -v version="$minimum_version" '
-        BEGIN {
-            if (version !~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/) exit 1
-            split(version, parts, ".")
-            if (parts[1] > 15 || (parts[1] == 15 && parts[2] > 0)) exit 1
-        }
-    ' </dev/null; then
-        fail "static archive requires macOS newer than 15.0: $minimum_version"
-    fi
-done <<< "$versions"
+python3 "$project_root/Scripts/playback_deployment.py" \
+    --minimum "$minimum_macos" --declared "$artifact_minimum_macos" --check-source "$check_source" \
+    <<< "$otool_dump" || fail "static archive deployment target is invalid"
 
 provenance_path="$xcframework_path/spotty_playback_provenance.json"
 [[ -f "$provenance_path" ]] || fail "embedded playback provenance is missing"
@@ -168,7 +153,7 @@ require_equal "library filename input digest" "$source_digest" "$library_engine_
 require_equal "provenance module" SpottyPlaybackCore "$(provenance_value module)"
 require_equal "provenance library name" "$library_relative_path" "$(provenance_value libraryName)"
 require_equal "provenance platform" macOS "$(provenance_value platform)"
-require_equal "provenance minimum OS version" 15.0 "$(provenance_value minimumOSVersion)"
+require_equal "provenance minimum OS version" "$artifact_minimum_macos" "$(provenance_value minimumOSVersion)"
 require_equal "provenance library type" static "$(provenance_value libraryType)"
 
 header_digest="$({

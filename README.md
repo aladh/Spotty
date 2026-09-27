@@ -12,7 +12,7 @@ you expect on macOS.
 
 **[Download Spotty](https://github.com/aladh/Spotty/releases/latest)**
 
-Requires **macOS 15 or newer**, an **Apple Silicon Mac**, and **Spotify Premium**.
+Requires **macOS 26 or newer**, an **Apple Silicon Mac**, and **Spotify Premium**.
 
 ![Spotty showing a playlist details page with synthetic demo data](Assets/PlaylistScreenshot.jpg)
 

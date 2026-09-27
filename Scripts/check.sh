@@ -39,6 +39,20 @@ if [[ "$check_scope" != rust && "$check_scope" != rust-compiled ]]; then
         "$project_root/Scripts/format-swift-self-test.sh"
     fi
     "$project_root/Scripts/format-swift.sh" --check
+
+    # Keep Launch Services, update eligibility, icons, and compiler probes aligned with SwiftPM.
+    minimum_macos="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$project_root/Packaging/Info.plist")"
+    package_minimum_macos="$(swift package --disable-sandbox --package-path "$project_root" dump-package \
+        | python3 -c 'import json, sys; print(next(p["version"] for p in json.load(sys.stdin)["platforms"] if p["platformName"] == "macos"))')"
+    engine_minimum_macos="$(cat "$project_root/Backend/spotty-playback/macos-deployment-target")"
+    if [[ "$minimum_macos" != "$engine_minimum_macos" ]]; then
+        print -u2 "App minimum macOS ($minimum_macos) must match the engine producer ($engine_minimum_macos)"
+        exit 1
+    fi
+    if [[ "$minimum_macos" != "$package_minimum_macos" ]]; then
+        print -u2 "Packaging minimum macOS ($minimum_macos) must match SwiftPM ($package_minimum_macos)"
+        exit 1
+    fi
 fi
 
 # The Rust suite owns lifecycle, generation, queue conversion, typed C snapshots,

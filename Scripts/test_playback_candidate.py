@@ -72,7 +72,9 @@ class CandidateSelectionTests(unittest.TestCase):
     def test_engine_addition_deletion_and_infrastructure_trigger_candidate(self):
         for path, delete in (("Backend/spotty-playback/src/extra.rs", False),
                              ("Backend/spotty-playback/src/tests.rs", True),
-                             ("Backend/spotty-playback/validate-xcframework.sh", False)):
+                             ("Backend/spotty-playback/validate-xcframework.sh", False),
+                             ("Scripts/playback_deployment.py", False),
+                             ("Backend/spotty-playback/macos-deployment-target", False)):
             with self.subTest(path=path):
                 target = self.root / path
                 if delete:

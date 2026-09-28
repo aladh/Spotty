@@ -9,7 +9,7 @@ Rust tools or cbindgen. Engine development uses the included Rust source.
 
 Development requires:
 
-- An Apple Silicon Mac running macOS 26.2 or newer; the app's runtime target is macOS 15+.
+- An Apple Silicon Mac running macOS 26.2 or newer; the app's runtime target is macOS 26+.
 - Xcode 26.6 with Swift 6.3.3.
 - [ripgrep](https://github.com/BurntSushi/ripgrep) for repository verification.
 - Python 3.10 or newer for verification and helper scripts; engine artifact production needs

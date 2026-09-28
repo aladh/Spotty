@@ -23,6 +23,7 @@ icon_build_dir="$project_root/.build/spotty-icon/$build_configuration"
 compiled_assets="$icon_build_dir/Assets.car"
 info_template="$project_root/Packaging/Info.plist"
 third_party_notices="$project_root/THIRD_PARTY_NOTICES.md"
+minimum_macos="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$info_template")"
 # Version bump procedure: edit CFBundleShortVersionString and CFBundleVersion in
 # Packaging/Info.plist (the source of truth); SPOTTY_VERSION/SPOTTY_BUILD_NUMBER are
 # one-off overrides only and must not be relied on for releases.
@@ -61,7 +62,7 @@ actool_output=""
 if ! actool_output="$("$actool" \
     --compile "$icon_build_dir" \
     --platform macosx \
-    --minimum-deployment-target 15.0 \
+    --minimum-deployment-target "$minimum_macos" \
     --app-icon Spotty \
     --output-partial-info-plist "$icon_build_dir/asset-info.plist" \
     "$icon_source" 2>&1)"; then

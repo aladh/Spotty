@@ -33,11 +33,12 @@ if [[ "$(uname -m)" != "arm64" ]]; then
     print -u2 "SpottyPlaybackCore only supports Apple Silicon arm64 builds"
     exit 1
 fi
-if [[ "${MACOSX_DEPLOYMENT_TARGET:-15.0}" != "15.0" ]]; then
-    print -u2 "MACOSX_DEPLOYMENT_TARGET must be 15.0 for SpottyPlaybackCore"
+minimum_macos="$(cat "$backend_root/macos-deployment-target")"
+if [[ "${MACOSX_DEPLOYMENT_TARGET:-$minimum_macos}" != "$minimum_macos" ]]; then
+    print -u2 "MACOSX_DEPLOYMENT_TARGET must be $minimum_macos for SpottyPlaybackCore"
     exit 1
 fi
-export MACOSX_DEPLOYMENT_TARGET=15.0
+export MACOSX_DEPLOYMENT_TARGET="$minimum_macos"
 
 if ! command -v xcodebuild >/dev/null 2>&1; then
     print -u2 "xcodebuild is required to package SpottyPlaybackCore"
@@ -99,7 +100,7 @@ xcodebuild -create-xcframework \
 
 # xcodebuild records the platform and architecture in Info.plist. Keep the minimum OS and
 # static/module identity beside that metadata so the validator can reject a misbuilt artifact.
-plutil -insert MinimumOSVersion -string 15.0 "$staged_framework/Info.plist"
+plutil -insert MinimumOSVersion -string "$minimum_macos" "$staged_framework/Info.plist"
 plutil -insert LibraryType -string static "$staged_framework/Info.plist"
 plutil -insert ModuleName -string SpottyPlaybackCore "$staged_framework/Info.plist"
 
@@ -148,7 +149,7 @@ provenance_path="$staged_framework/spotty_playback_provenance.json"
     print '  "module": "SpottyPlaybackCore",'
     print '  "target": "aarch64-apple-darwin",'
     print '  "platform": "macOS",'
-    print '  "minimumOSVersion": "15.0",'
+    print "  \"minimumOSVersion\": \"$minimum_macos\","
     print '  "libraryType": "static",'
     print "  \"libraryName\": \"$library_name\","
     print "  \"librarySHA256\": \"$library_digest\","

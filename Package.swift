@@ -98,7 +98,7 @@ private func playbackTarget() -> Target {
 
     let package = Package(
         name: "Spotty",
-        platforms: [.macOS(.v15)],
+        platforms: [.macOS(.v26)],
         products: [
             .executable(name: "Spotty", targets: ["SpottyApp"]),
             .library(name: "SpottyCore", targets: ["SpottyCore"]),

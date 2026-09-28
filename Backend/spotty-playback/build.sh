@@ -37,16 +37,17 @@ if [[ -n "$(printenv RUSTC_WRAPPER 2>/dev/null || true)" ||
     print -u2 "Rust compiler wrappers are not allowed for reproducible playback builds"
     exit 1
 fi
+minimum_macos="$(cat "$backend_root/macos-deployment-target")"
 requested_deployment_target="$(printenv MACOSX_DEPLOYMENT_TARGET 2>/dev/null || true)"
-if [[ -n "$requested_deployment_target" && "$requested_deployment_target" != "15.0" ]]; then
-    print -u2 "MACOSX_DEPLOYMENT_TARGET must be 15.0 for SpottyPlaybackCore"
+if [[ -n "$requested_deployment_target" && "$requested_deployment_target" != "$minimum_macos" ]]; then
+    print -u2 "MACOSX_DEPLOYMENT_TARGET must be $minimum_macos for SpottyPlaybackCore"
     exit 1
 fi
 
 mkdir -p "$output_root"
 output_parent="${output_path:h}"
 mkdir -p "$output_parent"
-export MACOSX_DEPLOYMENT_TARGET=15.0
+export MACOSX_DEPLOYMENT_TARGET="$minimum_macos"
 export RUSTFLAGS="-C target-cpu=apple-m1 --cfg aes_armv8"
 
 cd "$backend_root"

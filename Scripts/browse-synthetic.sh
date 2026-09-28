@@ -99,15 +99,16 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary_dir/SpottyBrowsingHarness" "$app/Contents/MacOS/SpottyDemo"
 cp -R "$binary_dir/Spotty_SpottyBrowsingSupport.bundle" "$app/Contents/Resources/"
 icon_root="$project_root/Tests/BrowsingHarness/Icon"
+minimum_macos="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$project_root/Packaging/Info.plist")"
 xcrun actool --compile "$app/Contents/Resources" --platform macosx \
-    --minimum-deployment-target 15.0 --app-icon SpottyDemo \
+    --minimum-deployment-target "$minimum_macos" --app-icon SpottyDemo \
     --output-partial-info-plist "$run_root/icon-info.plist" "$icon_root/SpottyDemo.icon"
 cp "$icon_root/SpottyDemo.icns" "$app/Contents/Resources/"
 cp "$scenario" "$app/Contents/Resources/scenario.json"
 
 # A stable developer identity preserves macOS permissions; demo state is separate from live Spotty.
 # Only this run's artifacts are writable outside its sandbox container; sockets remain denied.
-python3 - "$run_root" "$app" <<'PY'
+python3 - "$run_root" "$app" "$minimum_macos" <<'PY'
 from pathlib import Path
 import plistlib
 import sys
@@ -118,7 +119,7 @@ plist = {
     "CFBundleIdentifier": identifier, "CFBundleExecutable": "SpottyDemo",
     "CFBundleName": "Spotty Demo", "CFBundleDisplayName": "Spotty Demo", "CFBundlePackageType": "APPL",
     "CFBundleIconName": "SpottyDemo", "CFBundleIconFile": "SpottyDemo",
-    "LSMinimumSystemVersion": "15.0", "NSPrincipalClass": "NSApplication",
+    "LSMinimumSystemVersion": sys.argv[3], "NSPrincipalClass": "NSApplication",
 }
 (app / "Contents/Info.plist").write_bytes(plistlib.dumps(plist))
 (root / "entitlements.plist").write_bytes(plistlib.dumps({

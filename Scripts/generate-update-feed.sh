@@ -45,6 +45,7 @@ enclosure = item.find("enclosure")
 require(enclosure is not None, "Missing release enclosure")
 require(item.findtext(namespace + "version") == info["CFBundleVersion"], "Incorrect build")
 require(item.findtext(namespace + "shortVersionString") == info["CFBundleShortVersionString"], "Incorrect version")
+require(item.findtext(namespace + "minimumSystemVersion") == info["LSMinimumSystemVersion"], "Incorrect minimum macOS version")
 require(len(base64.b64decode(enclosure.attrib.get(namespace + "edSignature", ""), validate=True)) == 64, "Missing archive signature: check that the signing key matches the app public key")
 require(int(enclosure.attrib["length"]) == archive.stat().st_size, "Incorrect archive length")
 expected = f'https://github.com/aladh/Spotty/releases/download/v{info["CFBundleShortVersionString"]}/{archive.name}'

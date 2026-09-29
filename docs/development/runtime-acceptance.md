@@ -66,7 +66,7 @@ Opt-in probes:
 | `SPOTTY_TRACK_ENRICHMENT_REPORT` | `measureTrackCollectionEnrichment` | Collection enrichment CPU |
 | `SPOTTY_NATIVE_TRACK_UPDATE_REPORT` | `NativeTrackUpdateMeasurementTests` | Offscreen table-update CPU |
 | `SPOTTY_ENTITY_OBSERVATION_REPORT` | `measureUnchangedEntitySubscriptions` | Subscription admission CPU |
-| `SPOTTY_ENTITY_PAGING_REPORT` | `CatalogEntityPagingMeasurementTests` | Bounded storage paging CPU |
+| `SPOTTY_ENTITY_PAGING_REPORT` | `CatalogEntityQueryMeasurementTests` | Bounded storage paging CPU |
 | `SPOTTY_ARTWORK_DECODE_REPORT` | `ArtworkDecoderMeasurementTests` | Decoder CPU and asset bytes |
 | `SPOTTY_ARTWORK_MEASUREMENT_REPORT` | `ArtworkSourceLoaderMeasurementTests` | Idle loader process footprint |
 

@@ -38,8 +38,8 @@ shipping builds retain the complete graph.
 `domain` forwards test options, including `--configuration release`, to the portable graph.
 Full Debug covers every target, including the browsing harness. The Release gate adds optimized
 domain checks; concrete boundaries use Debug `@testable` modules. Shipping builds exclude harness targets.
-Queue scheduler suspension hooks and their checks are Debug-only; ordinary queue mutation and
-admission checks also run optimized without those hooks.
+Queue scheduler suspension hooks and SessionRuntime admission/mutation checks are Debug-only.
+Pure Domain queue-mutation policy also runs optimized.
 
 The wrapper delegates complete gates to [check.sh](../../Scripts/check.sh),
 [source policies](../../Scripts/check-source-policy.sh), and [check-clean.sh](../../Scripts/check-clean.sh).

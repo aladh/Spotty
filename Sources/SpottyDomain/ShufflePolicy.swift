@@ -39,7 +39,7 @@ public enum ShufflePolicy {
 
         // History is constant across candidates. Resolve it once per occurrence, including
         // duplicate URIs, instead of repeating dictionary lookups for every random order.
-        let freshness = (0..<count).map { freshness(for: uri($0), history: history, now: now) }
+        let freshness = (0..<count).map { Self.freshness(for: uri($0), history: history, now: now) }
         // Equal weights make every order score identically; retain the first random order
         // without generating another 23 candidates or consuming their randomness.
         guard !freshness.allSatisfy({ $0 == freshness[0] }) else { return best }

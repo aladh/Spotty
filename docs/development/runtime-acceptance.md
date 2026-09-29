@@ -7,7 +7,6 @@ Apply [product contracts](../product/README.md) and
 
 ## Evidence for the implemented scope
 
-Follow the relevant [ADR](../architecture/adrs/README.md) and [verification gate](verification.md#normal-verification).
 Independently verify admission, account/engine replacement, cancellation, retirement during I/O,
 late publications, and corrupt retained data. Stored identities never authorize fresh mutations.
 For catalog changes, include route restoration, write invalidation, shared enrichment, and artwork
@@ -54,7 +53,7 @@ Queue-rendering uses `forceSynchronousLayout: false` for normal AppKit schedulin
 synchronous stress. Compare identical modes. A verified sandbox, zero unexpected mutations, and
 completed workload establish functional acceptance, not speed.
 
-Opt-in probes (`--test-product` requires [Swift 6.4](verification.md#normal-verification)):
+Opt-in probes:
 
 | Output variable | Filter | Measurement |
 | --- | --- | --- |
@@ -70,15 +69,18 @@ Opt-in probes (`--test-product` requires [Swift 6.4](verification.md#normal-veri
 | `SPOTTY_ARTWORK_DECODE_REPORT` | `ArtworkDecoderMeasurementTests` | Decoder CPU and asset bytes |
 | `SPOTTY_ARTWORK_MEASUREMENT_REPORT` | `ArtworkSourceLoaderMeasurementTests` | Idle loader process footprint |
 
+**Swift 6.4 only; explicit scratch path, full-graph dependencies:**
+
 ```bash
 SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --test-product SpottyBoundaryTests \
   -c release --scratch-path .build/browsing-optimized -Xswiftc -O -Xswiftc -enable-testing \
   -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED --filter CatalogMetadataMeasurementTests
 ```
 
-Track probes use `verify.py domain -c release --filter FILTER`. Gateway probes use
+Track probes (both toolchains): `verify.py domain -c release --filter FILTER`.
+Gateway probes (**Swift 6.4 only; isolated cache**):
 `verify.py test --test-product SpottyGatewayTests -c release -Xswiftc -O -Xswiftc -enable-testing --filter FILTER`.
-Repeat matched runs with `--skip-build`. Results are samples, not thresholds or whole-app claims.
+Repeat with `--skip-build`; samples establish neither thresholds nor whole-app gains.
 
 ### Visible Instruments captures
 
@@ -156,6 +158,6 @@ SPOTTY_SWIFT_LIFECYCLE_REPORT=/tmp/spotty-swift-drain.json \
   python3 Scripts/verify.py test --filter SpottySessionRuntimeTests.PlaybackEffectDrainTests
 ```
 
-These credential-free probes measure synthetic recovery and task drains without Spotify or audio.
+These probes measure synthetic recovery and task drains without Spotify or audio.
 Paused-time checks and injected construction do not measure network readiness; parked shutdown
 constructs no Spirc/Dealer. Swift probes retain production grace periods and release/join fenced work.

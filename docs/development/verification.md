@@ -11,11 +11,11 @@ Documentation-only edits need no app build.
 | --- | --- |
 | `preflight` | Discover tools without running or installing them |
 | `list` | Discover Swift tests, including the synthetic harness |
-| `test --filter SpottyBoundaryTests.PlaybackPositionSliderChecks` | Native control checks with timeout diagnostics |
-| `test --filter SpottyGatewayTests.KeymasterPersistence` | Gateway grant persistence checks |
-| `test --filter SpottyTestSupportTests` | Shared clocks, response gates, and polling |
-| `test --filter SpottyEngineAdapterTests` | C snapshot decoding, event delivery, and reconnect loads |
-| `test --filter SpottySessionRuntimeTests` | Headless runtime checks |
+| `test --filter SpottyBoundaryTests.PlaybackPositionSliderChecks` | Native controls (full graph) |
+| `test --filter SpottyGatewayTests.KeymasterPersistence` | Grant persistence (full graph) |
+| `test --filter SpottyTestSupportTests` | Clocks, response gates, polling (full graph) |
+| `test --filter SpottyEngineAdapterTests` | Snapshot decoding, event delivery, reconnect (full graph) |
+| `test --filter SpottySessionRuntimeTests` | Headless runtime (full graph) |
 | `domain --filter PlaybackReducer` | Domain-only tests, without app or engine dependencies |
 | `swift` | Swift, ABI, compiler boundaries, packaging, and synthetic helpers; no Rust needed |
 | `rust` | Compiled Rust, headers, and playback/harness helpers |
@@ -25,7 +25,7 @@ Documentation-only edits need no app build.
 | `clean` | Rebuild the engine and run complete Debug/Release verification |
 
 `list` and `test` forward SwiftPM arguments using the gate's SDK, caches, and warning policy.
-`--filter` limits execution while building the full graph. Swift 6.3.3 combines test targets into
+`--filter` limits execution. Swift 6.3.3 combines test targets into
 one product; target-named `--test-product` requires Swift 6.4. Omit `--skip-build` after edits.
 Empty or entirely skipped selections fail. Count executed tests from completion events;
 Swift's summary includes skipped probes.
@@ -36,6 +36,7 @@ without playback or Sparkle; CatalogStorage and TestSupport products do likewise
 without changing the app lockfile. Explicit `--package-path` or `--scratch-path` disables automatic
 isolation; `--package-path .` selects the app graph. Discovery, unknown products, full gates, and
 shipping builds retain the complete graph.
+Portable isolation is tracked in [#589](https://github.com/aladh/Spotty/issues/589).
 
 `domain` forwards test options, including `--configuration release`, to the portable graph.
 Full Debug covers every target, including the browsing harness. The Release gate adds optimized

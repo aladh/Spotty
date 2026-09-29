@@ -119,20 +119,15 @@ pub(crate) fn resume_position_to_save_on_deactivation(live_position_ms: u32) -> 
     (live_position_ms > 0).then_some(live_position_ms)
 }
 
-/// Starts the player-event listener for `generation` and returns its stop sender and task.
-///
-/// The caller stores the sender on the engine generation and owns the returned task with the rest
-/// of the generation's handles. Teardown takes the sender and signals stop before awaiting the
-/// task and dropping the Player. This listener belongs to `generation` for its whole life: a
-/// rebuild replaces the listener along with the session, so the captured value never has to
-/// change underneath it. A Player clone is held until the task exits so the event channel
-/// does not close while the pump is still running. The caller subscribes before constructing
-/// Spirc, then starts this consumer after publication so early initialization events are buffered.
+/// Starts a generation-owned player-event listener. The returned owner keeps its stop sender
+/// and abort-on-drop task together, including when registration is refused. The caller subscribes
+/// before constructing Spirc, then starts this consumer after publication so early events buffer.
+/// Its observer retains the Player until the task exits; teardown signals it before draining.
 pub(crate) fn start_player_event_pump(
     player: PlayerObserver,
     mut event_channel: mpsc::UnboundedReceiver<PlayerEvent>,
     generation: u64,
-) -> (mpsc::UnboundedSender<()>, JoinHandle<()>) {
+) -> PlayerEventTask {
     let (tx, mut rx) = mpsc::unbounded_channel::<()>();
     let player_keepalive = player;
     let task = RUNTIME.spawn(async move {
@@ -172,7 +167,7 @@ pub(crate) fn start_player_event_pump(
         }
         drop(player_keepalive);
     });
-    (tx, task)
+    PlayerEventTask::from_owned(tx, OwnedTask::new(task))
 }
 
 enum PlayerEventNotification {
@@ -1076,7 +1071,7 @@ mod player_event_pump_policy {
     struct CaptureConnectionEvents {
         callback: Option<ConnectionSnapshotCallback>,
         connection: ConnectionState,
-        session: Option<Session>,
+        resources: Option<GenerationResources>,
         shutting_down: bool,
         sleeping: bool,
     }
@@ -1099,7 +1094,7 @@ mod player_event_pump_policy {
                     .unwrap()
                     .replace(capture),
                 connection: with_connection(std::mem::take),
-                session: with_engine(|engine| engine.session.take()),
+                resources: take_engine_resources(),
                 shutting_down: SHUTTING_DOWN.swap(false, Ordering::SeqCst),
                 sleeping: SLEEPING.swap(false, Ordering::SeqCst),
             }
@@ -1114,7 +1109,7 @@ mod player_event_pump_policy {
         fn drop(&mut self) {
             *CONTROL_CALLBACKS.connection_state.lock().unwrap() = self.callback;
             with_connection(|connection| *connection = self.connection.clone());
-            with_engine(|engine| engine.session = self.session.take());
+            drop(replace_engine_resources_for_test(self.resources.take()));
             SHUTTING_DOWN.store(self.shutting_down, Ordering::SeqCst);
             SLEEPING.store(self.sleeping, Ordering::SeqCst);
         }
@@ -1367,8 +1362,10 @@ mod player_event_pump_policy {
         let session = block_on_export(async { Session::new(SessionConfig::default(), None) })
             .expect("offline session fixture");
         session.shutdown();
+        drop(replace_engine_resources_for_test(Some(
+            GenerationResources::for_test(Some(session), vec![]),
+        )));
         with_engine(|engine| {
-            engine.session = Some(session);
             engine.connection.session_connected = true;
             engine.connection.is_active_device = true;
         });

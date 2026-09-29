@@ -71,12 +71,11 @@ pub extern "C" fn spotty_playback_authorize_streaming(access_token: *const c_cha
                     Ok(value) => value,
                     Err(_) => return Err(-1),
                 };
-                let mut session_guard = SessionShutdownGuard::new(session.clone());
+                let session_guard = SessionShutdownGuard::new(session.clone());
                 let connect_result = session.connect(credentials, true).await;
                 // A failed or cancelled connect still owns AP/channel state until it is
                 // explicitly invalidated. Do this before the local Session is dropped.
-                session.shutdown();
-                session_guard.disarm();
+                drop(session_guard);
                 if let Err(error) = connect_result {
                     let failure = classify_initialization_error(&error);
                     debug!("Streaming authorization connect failed ({:?})", failure);
@@ -159,8 +158,8 @@ pub(crate) const SESSION_HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(6
 /// Cost is one sleeping task per generation, waking once a minute to read a few flags
 /// (`Session::is_invalid` is a lock read of a `bool`). It exits when its generation is
 /// superseded, so it dies with the session it belongs to rather than accumulating.
-pub(crate) fn spawn_session_health_check(generation: u64) -> JoinHandle<()> {
-    RUNTIME.spawn(run_session_health_check(move || {
+pub(crate) fn spawn_session_health_check(generation: u64) -> OwnedTask {
+    OwnedTask::new(RUNTIME.spawn(run_session_health_check(move || {
         // Keep the current-generation decision, the facts it reads, and the disconnected write
         // on the same side of invalidation. Otherwise this sleeping task can pass an early atomic
         // check, wake after a rebuild, and mark the replacement session unhealthy.
@@ -209,7 +208,7 @@ pub(crate) fn spawn_session_health_check(generation: u64) -> JoinHandle<()> {
                 true
             }
         }
-    }))
+    })))
 }
 
 /// Shared cadence used by the real generation watcher and paused-clock fault measurements.

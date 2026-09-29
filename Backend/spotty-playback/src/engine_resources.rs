@@ -1,106 +1,212 @@
 use crate::*;
 
-/// Gives the retained Spirc task enough time to process `Shutdown` and close its dealer before
-/// the lifecycle owner falls back to aborting it. The pinned librespot dealer uses a three-second
-/// websocket-close deadline, so this leaves a small scheduling margin while keeping teardown
-/// bounded when a network operation is stuck.
+/// Spirc and the compensating Dealer close each get this independent deadline. The pinned
+/// Dealer allows three seconds for websocket close; this leaves a scheduling margin.
 pub(crate) const SPIRC_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// Handles removed from [`EngineGeneration`] by the lifecycle owner.
-///
-/// Taking the four slots through one helper keeps normal teardown and cancellation rollback on
-/// the same ownership path. Callers must signal `stop_tx` and drain `tasks` before dropping the
-/// objects they retain.
-pub(crate) struct EngineResources {
-    pub(crate) stop_tx: Option<mpsc::UnboundedSender<()>>,
-    pub(crate) spirc: Option<Arc<Spirc>>,
-    pub(crate) session: Option<Session>,
-    pub(crate) tasks: Vec<JoinHandle<()>>,
-}
+/// A spawned generation task can never detach merely because its next owner is discarded.
+/// Keep this protection from spawn through registration, retirement, and every pending join.
+pub(crate) struct OwnedTask(JoinHandle<()>);
 
-/// Takes every owned handle in one lock acquisition, so a concurrent publisher cannot be
-/// observed half-taken. Nothing is awaited while the lock is held: the guard is released before
-/// this returns.
-pub(crate) fn take_engine_resources() -> EngineResources {
-    with_engine(|engine| EngineResources {
-        stop_tx: engine.player_event_tx.take(),
-        spirc: engine.spirc.take(),
-        session: engine.session.take(),
-        tasks: engine.tasks.take().unwrap_or_default(),
-    })
-}
-
-/// Drops the concrete Player and Mixer once their tasks have stopped.
-pub(crate) fn clear_engine_objects() {
-    with_engine(|engine| {
-        engine.player = None;
-        engine.mixer = None;
-    });
-}
-
-/// Tears down the current generation's owned resources.
-///
-/// The caller must hold the lifecycle lock and the store section. Every task handle is taken
-/// before cancellation and awaited without any global mutex guard held. This helper is called by
-/// the lifecycle owner only; generation child tasks request recovery, but never tear themselves
-/// down, so it cannot await or abort its own handle.
-pub(crate) async fn teardown_engine_resources(context: &str) {
-    let resources = take_engine_resources();
-    if let Some(tx) = resources.stop_tx {
-        let _ = tx.send(());
+impl OwnedTask {
+    pub(crate) fn new(task: JoinHandle<()>) -> Self {
+        Self(task)
     }
 
-    // The Session is taken before awaiting so the task registry and object slots have one owner.
-    // It is explicitly invalidated after the child tasks stop, before the last local clone is
-    // dropped; dropping Session alone does not close librespot's channels.
-    let spirc = resources.spirc;
-    let session = resources.session;
-
-    // The Spirc task is the first handle published for every generation. Let it process the
-    // shutdown command before touching the abort path so its run loop reaches dealer.close().
-    // Remaining listeners are still force-stopped below after the Spirc owner has released the
-    // dealer. The task list is taken before the first await so a late task completion cannot race
-    // a new generation's publication.
-    shutdown_spirc_and_tasks(spirc.as_ref(), session.as_ref(), resources.tasks, context).await;
-
-    // The helper has drained the owned tasks and invalidated Session. Only now drop their
-    // retained concrete objects; the renderer received Stop before awaiting shutdown.
-    drop(spirc);
-    clear_engine_objects();
-    drop(session);
+    pub(crate) async fn cancel_and_join(mut self) {
+        self.0.abort();
+        let _ = (&mut self.0).await;
+    }
 }
 
-/// Gracefully stops a generation's Spirc task, then drains all remaining child tasks.
-///
-/// The generation's task list deliberately stores the Spirc handle first, immediately followed by the player
-/// event pump, cluster listener, bootstrap fetch, and health check handles. The first handle is
-/// therefore the only one allowed to perform the upstream dealer close; all other tasks are
-/// aborted and joined once that owner has finished. A timeout is required because `SpircTask`
-/// can be waiting on an upstream request while processing `Shutdown`.
-pub(crate) async fn shutdown_spirc_and_tasks(
-    spirc: Option<&Arc<Spirc>>,
-    session: Option<&Session>,
-    tasks: Vec<JoinHandle<()>>,
-    context: &str,
-) {
-    // Keep the handles in an owner while any await below is pending. A cancelled rollback must
-    // abort tasks that have not yet been joined; moving them into a future and dropping that
-    // future would otherwise detach Tokio tasks into the next generation.
-    let mut owned_tasks = OwnedTaskHandles { handles: tasks };
-    let spirc_task_present = spirc.is_some() && !owned_tasks.handles.is_empty();
+impl Drop for OwnedTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
-    // Stop native rendering and arm Session invalidation before the first await. Normal
-    // teardown keeps Session usable until Spirc and the dealer close, then the guard invalidates
-    // it. Cancellation also invalidates it when the guard drops, even during a pending await.
-    proxy_sink::ProxySink::notify_player_gone();
-    let _session_shutdown_guard = session.cloned().map(SessionShutdownGuard::new);
+/// The stop channel and listener have one registration and retirement lifetime.
+pub(crate) struct PlayerEventTask {
+    stop: mpsc::UnboundedSender<()>,
+    task: OwnedTask,
+}
 
-    if let Some(spirc) = spirc {
-        if let Some(spirc_task) = owned_tasks.handles.first_mut() {
+impl PlayerEventTask {
+    pub(crate) fn from_owned(stop: mpsc::UnboundedSender<()>, task: OwnedTask) -> Self {
+        Self { stop, task }
+    }
+
+    fn signal_stop(&self) {
+        let _ = self.stop.send(());
+    }
+
+    pub(crate) async fn cancel_and_join(self) {
+        self.signal_stop();
+        self.task.cancel_and_join().await;
+    }
+}
+
+/// Session::drop only releases an Arc; explicit invalidation is required even before Spirc exists.
+/// Construction transfers this guard into GenerationResources without disarming it.
+pub(crate) struct SessionShutdownGuard {
+    session: Session,
+}
+
+impl SessionShutdownGuard {
+    pub(crate) fn new(session: Session) -> Self {
+        Self { session }
+    }
+}
+
+impl Drop for SessionShutdownGuard {
+    fn drop(&mut self) {
+        self.session.shutdown();
+    }
+}
+
+/// Owns a complete generation through construction, publication, and retirement. The sole
+/// production constructor requires every concrete object and the explicitly named Spirc task.
+/// Dropping an unpublished or rejected owner uses the same bounded drain as normal teardown.
+/// Engine accessors only move this value; never destroy it while holding ENGINE.
+pub(crate) struct GenerationResources {
+    contents: Option<GenerationContents>,
+}
+
+// The outer owner can transfer these already-protected contents into asynchronous retirement.
+// Field order is intentional on cancellation: abort tasks, invalidate Session, release objects.
+struct GenerationContents {
+    spirc: Option<SpircOwner>,
+    tasks: GenerationTasks,
+    session: Option<SessionShutdownGuard>,
+    _player: Option<PlayerObserver>,
+    _mixer: Option<Arc<SoftMixer>>,
+}
+
+struct SpircOwner {
+    task: OwnedTask,
+    control: Arc<Spirc>,
+}
+
+struct GenerationTasks {
+    player_events: Option<PlayerEventTask>,
+    observers: Vec<OwnedTask>,
+}
+
+impl GenerationResources {
+    pub(crate) fn new(
+        session: SessionShutdownGuard,
+        player: PlayerObserver,
+        mixer: Arc<SoftMixer>,
+        spirc: Arc<Spirc>,
+        spirc_task: OwnedTask,
+    ) -> Self {
+        Self {
+            contents: Some(GenerationContents {
+                spirc: Some(SpircOwner {
+                    task: spirc_task,
+                    control: spirc,
+                }),
+                tasks: GenerationTasks {
+                    player_events: None,
+                    observers: Vec::new(),
+                },
+                session: Some(session),
+                _player: Some(player),
+                _mixer: Some(mixer),
+            }),
+        }
+    }
+
+    pub(crate) fn session(&self) -> Option<&Session> {
+        self.contents
+            .as_ref()?
+            .session
+            .as_ref()
+            .map(|guard| &guard.session)
+    }
+
+    pub(crate) fn spirc(&self) -> Option<&Arc<Spirc>> {
+        self.contents
+            .as_ref()?
+            .spirc
+            .as_ref()
+            .map(|owner| &owner.control)
+    }
+
+    pub(crate) fn add_observer(&mut self, task: OwnedTask) {
+        self.contents
+            .as_mut()
+            .expect("resources have not retired")
+            .tasks
+            .observers
+            .push(task);
+    }
+
+    pub(crate) fn set_player_events(
+        &mut self,
+        task: PlayerEventTask,
+    ) -> Result<(), PlayerEventTask> {
+        let slot = &mut self
+            .contents
+            .as_mut()
+            .expect("resources have not retired")
+            .tasks
+            .player_events;
+        if slot.is_some() {
+            return Err(task);
+        }
+        *slot = Some(task);
+        Ok(())
+    }
+
+    /// An unpolled future still owns self and its synchronous fallback. Once polled, the
+    /// contents keep task abort and Session invalidation armed throughout all shutdown awaits.
+    pub(crate) async fn shutdown(mut self, context: &str) {
+        if let Some(contents) = self.contents.take() {
+            contents.shutdown(context).await;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(session: Option<Session>, tasks: Vec<JoinHandle<()>>) -> Self {
+        Self {
+            contents: Some(GenerationContents {
+                spirc: None,
+                tasks: GenerationTasks {
+                    player_events: None,
+                    observers: tasks.into_iter().map(OwnedTask::new).collect(),
+                },
+                session: session.map(SessionShutdownGuard::new),
+                _player: None,
+                _mixer: None,
+            }),
+        }
+    }
+}
+
+impl Drop for GenerationResources {
+    fn drop(&mut self) {
+        if let Some(contents) = self.contents.take() {
+            contents.shutdown_sync("generation ownership discarded");
+        }
+    }
+}
+
+impl GenerationContents {
+    fn signal_stop(&self) {
+        if let Some(pump) = &self.tasks.player_events {
+            pump.signal_stop();
+        }
+        proxy_sink::ProxySink::notify_player_gone();
+    }
+
+    async fn shutdown(mut self, context: &str) {
+        self.signal_stop();
+        if let Some(spirc) = &mut self.spirc {
             drain_spirc_task(
-                spirc_task,
+                &mut spirc.task.0,
                 || {
-                    if spirc.shutdown().is_err() {
+                    if spirc.control.shutdown().is_err() {
                         debug!("{}: spirc shutdown could not be queued", context);
                     }
                 },
@@ -108,56 +214,68 @@ pub(crate) async fn shutdown_spirc_and_tasks(
                 context,
             )
             .await;
-        } else if spirc.shutdown().is_err() {
-            debug!("{}: spirc shutdown could not be queued", context);
         }
-    }
 
-    // If the Spirc task was forced down, its run-loop never reached the upstream
-    // `dealer.close()` at the end of `SpircTask::run`. Close the manager explicitly before the
-    // Session is invalidated so its websocket task is joined rather than retained by
-    // `TimeoutOnDrop` after this generation has been replaced. The manager's public close API
-    // has no error result and delegates to the pinned dealer's websocket tasks, so keep this
-    // compensating close bounded by the same four-second lifecycle deadline.
-    if let Some(session) = session {
-        if tokio::time::timeout(SPIRC_GRACEFUL_SHUTDOWN_TIMEOUT, session.dealer().close())
+        // A forced Spirc abort can skip its run-loop close. Compensate while Session remains
+        // valid so the Dealer joins its websocket tasks before replacement. This is a separate
+        // four-second deadline, not a total four-second shutdown budget.
+        if let Some(guard) = &self.session {
+            if tokio::time::timeout(
+                SPIRC_GRACEFUL_SHUTDOWN_TIMEOUT,
+                guard.session.dealer().close(),
+            )
             .await
             .is_err()
-        {
-            debug!(
-                "{}: dealer close timed out; continuing with bounded task abort",
-                context
-            );
+            {
+                debug!(
+                    "{}: dealer close timed out; continuing with bounded task abort",
+                    context
+                );
+            }
         }
+
+        // Abort every child before joining any of them. Retain each handle in its owner across
+        // the await so cancellation cannot detach later children. The named Spirc task is
+        // already joined and is never accidentally selected from registration order.
+        if let Some(pump) = &self.tasks.player_events {
+            pump.task.0.abort();
+        }
+        for task in &self.tasks.observers {
+            task.0.abort();
+        }
+        if let Some(pump) = &mut self.tasks.player_events {
+            let _ = (&mut pump.task.0).await;
+        }
+        for task in &mut self.tasks.observers {
+            let _ = (&mut task.0).await;
+        }
+        // Field destruction invalidates Session only after every owned join has settled.
     }
 
-    let remaining_tasks = if spirc_task_present {
-        &mut owned_tasks.handles[1..]
-    } else {
-        &mut owned_tasks.handles[..]
-    };
-    for task in remaining_tasks.iter() {
-        task.abort();
-    }
-    for task in remaining_tasks.iter_mut() {
-        let _ = (&mut *task).await;
+    fn shutdown_sync(self, context: &str) {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+                tokio::task::block_in_place(|| handle.block_on(self.shutdown(context)));
+            } else {
+                // Blocking a current-thread executor would prevent the owned tasks from
+                // progressing. Signal now; protected field destruction aborts and invalidates.
+                self.signal_stop();
+                if let Some(spirc) = &self.spirc {
+                    let _ = spirc.control.shutdown();
+                }
+            }
+        } else {
+            let _ = block_on_export(self.shutdown(context));
+        }
     }
 }
 
-/// Owns task handles while a graceful teardown future is awaiting.
-///
-/// The normal path joins every handle before this is dropped. If cancellation interrupts a
-/// dealer close or join, the `Drop` fallback still aborts each handle, so no task is detached
-/// merely because an async rollback was cancelled.
-struct OwnedTaskHandles {
-    handles: Vec<JoinHandle<()>>,
-}
-
-impl Drop for OwnedTaskHandles {
-    fn drop(&mut self) {
-        for task in &self.handles {
-            task.abort();
-        }
+/// Only the lifecycle owner retires generation resources. Child tasks request recovery instead;
+/// they never call this helper and therefore cannot join themselves. Extraction releases ENGINE
+/// before callbacks, awaits, Session invalidation, or Player's blocking destructor can run.
+pub(crate) async fn teardown_engine_resources(context: &str) {
+    if let Some(resources) = take_engine_resources() {
+        resources.shutdown(context).await;
     }
 }
 
@@ -189,63 +307,167 @@ async fn drain_spirc_task(
     }
 }
 
-/// Synchronous fallback used only by cancellation guards whose `Drop` cannot be async.
-///
-/// Guard drops happen on the owned runtime in production. `block_in_place` lets this short,
-/// bounded drain run to completion without detaching the Spirc task and allowing a newer
-/// generation to overlap the old dealer. If a guard is dropped on a current-thread runtime,
-/// it signals Spirc and aborts handles because blocking that runtime would deadlock its tasks.
-/// A drop outside Tokio uses the process runtime to drain the same bounded cleanup.
-pub(crate) fn shutdown_spirc_and_tasks_sync(
-    spirc: Option<&Arc<Spirc>>,
-    session: Option<&Session>,
-    tasks: Vec<JoinHandle<()>>,
-    context: &str,
-) {
-    let spirc = spirc.cloned();
-    let session = session.cloned();
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
-            tokio::task::block_in_place(|| {
-                handle.block_on(shutdown_spirc_and_tasks(
-                    spirc.as_ref(),
-                    session.as_ref(),
-                    tasks,
-                    context,
-                ));
-            });
-            return;
-        }
-
-        // A current-thread runtime cannot make progress while Drop blocks its only worker. The
-        // production runtime is multi-threaded; preserve its bounded cancellation guarantee and
-        // use the synchronous signal/abort fallback for an embedding current-thread executor.
-        proxy_sink::ProxySink::notify_player_gone();
-        if let Some(spirc) = spirc.as_ref() {
-            let _ = spirc.shutdown();
-        }
-        for task in tasks {
-            task.abort();
-        }
-        return;
-    }
-
-    // A guard normally drops on the owned runtime, but a caller may discard a staged value on a
-    // non-runtime thread. Run the same bounded drain on the process runtime instead of detaching
-    // its handles; this path is safe because there is no current Tokio runtime to re-enter.
-    let _ = block_on_export(shutdown_spirc_and_tasks(
-        spirc.as_ref(),
-        session.as_ref(),
-        tasks,
-        context,
-    ));
-}
-
 #[cfg(test)]
 mod teardown_tests {
     use super::*;
     use std::future::pending;
     use std::sync::atomic::AtomicBool;
+
+    struct Stopped(Option<tokio::sync::oneshot::Sender<()>>);
+
+    impl Drop for Stopped {
+        fn drop(&mut self) {
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+
+    async fn parked_task() -> (JoinHandle<()>, tokio::sync::oneshot::Receiver<()>) {
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _stopped = Stopped(Some(stopped_tx));
+            let _ = started_tx.send(());
+            pending::<()>().await;
+        });
+        tokio::time::timeout(Duration::from_secs(2), started_rx)
+            .await
+            .expect("task starts")
+            .expect("task signaled start");
+        (task, stopped_rx)
+    }
+
+    #[test]
+    fn spirc_retirement_keeps_children_and_session_until_grace_or_cancellation() {
+        let _guard = lock_lifecycle_test_globals();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            for cancel in [false, true] {
+                let session = Session::new(SessionConfig::default(), None);
+                let (observer, mut observer_stopped) = parked_task().await;
+                let (spirc, mut spirc_stopped) = parked_task().await;
+                let mut resources =
+                    GenerationResources::for_test(Some(session.clone()), vec![observer]);
+                // An actual closed Spirc command channel plus a stalled task exercises the
+                // production grace path without Spotify, a player thread, or real-time delay.
+                resources.contents.as_mut().unwrap().spirc = Some(SpircOwner {
+                    task: OwnedTask::new(spirc),
+                    control: Arc::new(librespot_connect::SpottyTransportFixture::closed_handle()),
+                });
+                let mut retirement = Box::pin(resources.shutdown("parked Spirc retirement"));
+                assert!(futures_util::poll!(retirement.as_mut()).is_pending());
+                assert!(!session.is_invalid());
+                assert_eq!(
+                    observer_stopped.try_recv(),
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                );
+                assert_eq!(
+                    spirc_stopped.try_recv(),
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                );
+                if cancel {
+                    drop(retirement);
+                } else {
+                    tokio::time::advance(SPIRC_GRACEFUL_SHUTDOWN_TIMEOUT).await;
+                    retirement.await;
+                }
+                assert!(session.is_invalid());
+                for stopped in [spirc_stopped, observer_stopped] {
+                    tokio::time::timeout(Duration::from_secs(2), stopped)
+                        .await
+                        .expect("retired task settles")
+                        .expect("task stopped");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn cancellation_on_current_thread_aborts_children_and_invalidates_session() {
+        let _guard = lock_lifecycle_test_globals();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            for poll_retirement in [false, true] {
+                let session = Session::new(SessionConfig::default(), None);
+                let (first, first_stopped) = parked_task().await;
+                let (second, second_stopped) = parked_task().await;
+                let resources =
+                    GenerationResources::for_test(Some(session.clone()), vec![first, second]);
+                if poll_retirement {
+                    let mut retirement = Box::pin(resources.shutdown("cancel pending retirement"));
+                    // The aborted children cannot settle until this executor gets control back.
+                    // Cancel precisely while the real shutdown path is joining its first child.
+                    assert!(futures_util::poll!(retirement.as_mut()).is_pending());
+                    drop(retirement);
+                } else {
+                    drop(resources);
+                }
+                assert!(session.is_invalid());
+                for stopped in [first_stopped, second_stopped] {
+                    tokio::time::timeout(Duration::from_secs(2), stopped)
+                        .await
+                        .expect("current-thread cancellation progresses")
+                        .expect("task stopped");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn dropping_resources_outside_tokio_drains_before_returning() {
+        let _guard = lock_lifecycle_test_globals();
+        let (resources, session, mut stopped) = block_on_export(async {
+            let session = Session::new(SessionConfig::default(), None);
+            let (task, stopped) = parked_task().await;
+            (
+                GenerationResources::for_test(Some(session.clone()), vec![task]),
+                session,
+                stopped,
+            )
+        })
+        .unwrap();
+        drop(resources);
+        assert!(session.is_invalid());
+        assert_eq!(
+            stopped.try_recv(),
+            Ok(()),
+            "the synchronous fallback must join before returning"
+        );
+    }
+
+    #[test]
+    fn unpolled_retirement_stops_tasks_and_invalidates_session() {
+        let _guard = lock_lifecycle_test_globals();
+        block_on_export(async {
+            let session = Session::new(SessionConfig::default(), None);
+            let (task, mut stopped_rx) = parked_task().await;
+            let emergency_abort = task.abort_handle();
+            let resources = GenerationResources::for_test(Some(session.clone()), vec![task]);
+            drop(resources.shutdown("unpolled retirement test"));
+            let invalidated = session.is_invalid();
+            let settled = tokio::time::timeout(Duration::from_secs(2), &mut stopped_rx).await;
+            // Restore the fixture even on the old implementation, which detaches this task.
+            emergency_abort.abort();
+            session.shutdown();
+            assert!(
+                settled.is_ok(),
+                "discarding cleanup must not detach owned tasks"
+            );
+            assert!(
+                invalidated,
+                "discarding cleanup must invalidate the owned Session"
+            );
+        })
+        .expect("unpolled retirement test");
+    }
 
     #[test]
     fn graceful_teardown_requests_shutdown_before_joining_spirc() {

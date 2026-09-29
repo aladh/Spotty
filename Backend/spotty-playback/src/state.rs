@@ -88,20 +88,8 @@ pub(crate) struct ConnectionState {
 pub(crate) struct EngineGeneration {
     /// The generation that owns this state; mirrors [`SESSION_GENERATION`].
     pub(crate) session_generation: u64,
-    /// Observation/lifetime capability only. Spirc owns the mutable librespot Player,
-    /// which decodes in-process and delivers bounded PCM through `proxy_sink`.
-    pub(crate) player: Option<PlayerObserver>,
-    pub(crate) session: Option<Session>,
-    pub(crate) mixer: Option<Arc<SoftMixer>>,
-    pub(crate) spirc: Option<Arc<Spirc>>,
-    pub(crate) player_event_tx: Option<mpsc::UnboundedSender<()>>,
-    /// Join handles for every task created for the current engine generation.
-    ///
-    /// Keeping the handles together makes teardown an owned operation: a failed build can
-    /// cancel all work it started, and a normal generation replacement can await the old tasks
-    /// before dropping the objects they retain. The vector is taken before cancellation, so no
-    /// task is ever awaited while holding this lock.
-    pub(crate) tasks: Option<Vec<JoinHandle<()>>>,
+    /// Complete lifetime ownership; accessors only move this bundle or clone capabilities.
+    resources: Option<GenerationResources>,
     /// Local playing flag. `true` only after `PlayerEvent::Playing`. `Spirc::load` `Ok` means
     /// the command was queued, not that audio started, so the play commands must not set it.
     ///
@@ -168,14 +156,22 @@ impl EngineGeneration {
         self.resuming = false;
     }
 
+    pub(crate) fn session(&self) -> Option<&Session> {
+        self.resources.as_ref()?.session()
+    }
+
+    pub(crate) fn spirc(&self) -> Option<Arc<Spirc>> {
+        self.resources.as_ref()?.spirc().cloned()
+    }
+
     /// Whether the stored Session exists and has been invalidated.
     pub(crate) fn session_is_invalid(&self) -> bool {
-        self.session.as_ref().is_some_and(|s| s.is_invalid())
+        self.session().is_some_and(|s| s.is_invalid())
     }
 
     /// Whether there is no usable Session: none stored, or a stored one that is invalid.
     pub(crate) fn session_missing_or_invalid(&self) -> bool {
-        self.session.as_ref().is_none_or(|s| s.is_invalid())
+        self.session().is_none_or(|s| s.is_invalid())
     }
 
     #[cfg(test)]
@@ -242,99 +238,90 @@ pub(crate) fn with_connection_owned<R>(
     with_engine_owned(generation, |engine| f(&mut engine.connection))
 }
 
-/// A complete generation, constructed locally and not yet visible to commands or teardown.
-pub(crate) struct StagedEngine {
-    pub(crate) session: Session,
-    pub(crate) player: PlayerObserver,
-    pub(crate) mixer: Arc<SoftMixer>,
-    pub(crate) spirc: Arc<Spirc>,
-    pub(crate) tasks: Vec<JoinHandle<()>>,
-    pub(crate) device_id: String,
-    pub(crate) active_device: bool,
-}
-
-/// Installs a fully constructed generation in one lock acquisition.
-///
-/// Refuses when `generation` no longer owns the engine, and hands the staged values back so the
-/// caller can roll them back. Dropping them here instead would detach their Tokio tasks into the
-/// generation that superseded this one.
+/// Installs a protected resource bundle in one lock acquisition. A rejected bundle is returned
+/// intact for async rollback; even dropping that error retains cancellation protection. Refuse
+/// an occupied slot as well as a stale generation: never destroy an old Player under ENGINE.
 pub(crate) fn publish_engine_generation(
     generation: u64,
-    staged: StagedEngine,
-) -> Result<(), StagedEngine> {
-    let mut pending = Some(staged);
+    resources: GenerationResources,
+    device_id: String,
+    active_device: bool,
+) -> Result<(), GenerationResources> {
+    let mut pending = Some(resources);
     with_engine(|engine| {
-        if engine.session_generation != generation {
-            return Err(pending.take().expect("staged generation is present once"));
+        if engine.session_generation != generation || engine.resources.is_some() {
+            return Err(pending.take().expect("resources are present once"));
         }
-        let staged = pending.take().expect("staged generation is present once");
-        engine.session = Some(staged.session);
-        engine.player = Some(staged.player);
-        engine.mixer = Some(staged.mixer);
-        engine.spirc = Some(staged.spirc);
-        // The pump is started after publication; its sender is installed by
-        // `set_player_event_tx` once it exists.
-        engine.player_event_tx = None;
-        engine.tasks = Some(staged.tasks);
-        engine.connection.device_id = Some(staged.device_id);
+        engine.resources = pending.take();
+        engine.connection.device_id = Some(device_id);
         engine.connection.spirc_ready = false;
         engine.connection.session_connected = false;
         engine.connection.resume_pending = false;
         engine.connection.credentials_rejected = false;
         engine.connection.last_error = None;
-        engine.connection.is_active_device = staged.active_device;
+        engine.connection.is_active_device = active_device;
         Ok(())
     })
 }
 
-/// Installs the player-event pump's stop sender for the generation that owns it.
-pub(crate) fn set_player_event_tx(
+/// Registers the stop sender and task together, or returns their protected owner untouched.
+/// The caller cancels and joins a refused pump after the engine lock is released.
+pub(crate) fn register_player_events(
     generation: u64,
-    sender: mpsc::UnboundedSender<()>,
-) -> Result<(), StaleGeneration> {
-    with_engine_owned(generation, |engine| engine.player_event_tx = Some(sender))
-}
-
-/// Appends a generation-owned task handle to its registry.
-///
-/// A refused handle is aborted rather than dropped: dropping a `JoinHandle` detaches the task,
-/// which would leave a superseded generation's work running against a live successor. The abort
-/// happens after the lock is released.
-pub(crate) fn push_engine_task(
-    generation: u64,
-    task: JoinHandle<()>,
-) -> Result<(), StaleGeneration> {
-    let mut refused = Some(task);
-    let result = with_engine(|engine| {
-        if engine.session_generation != generation {
-            return Err(StaleGeneration);
+    task: PlayerEventTask,
+) -> Result<(), PlayerEventTask> {
+    with_engine(|engine| {
+        if engine.session_generation == generation {
+            if let Some(resources) = engine.resources.as_mut() {
+                return resources.set_player_events(task);
+            }
         }
-        let Some(tasks) = engine.tasks.as_mut() else {
-            return Err(StaleGeneration);
-        };
-        tasks.push(refused.take().expect("task handle is present once"));
-        Ok(())
-    });
-    if let Some(task) = refused {
-        task.abort();
-    }
-    result
+        Err(task)
+    })
 }
 
-/// Returns observation/lifetime access only; ordinary transport belongs to Spirc.
-pub(crate) fn current_player() -> Option<PlayerObserver> {
-    with_engine(|engine| engine.player.clone())
+pub(crate) fn register_engine_observer(generation: u64, task: OwnedTask) -> Result<(), OwnedTask> {
+    with_engine(|engine| {
+        if engine.session_generation == generation {
+            if let Some(resources) = engine.resources.as_mut() {
+                resources.add_observer(task);
+                return Ok(());
+            }
+        }
+        Err(task)
+    })
+}
+
+/// The lifecycle lock serializes unconditional cleanup. Resource destruction happens only after
+/// this accessor returns; no renderer callback, join, or Session invalidation runs under ENGINE.
+pub(crate) fn take_engine_resources() -> Option<GenerationResources> {
+    with_engine(|engine| engine.resources.take())
+}
+
+/// Construction rollback can take only its own still-current bundle. Invalidation leaves it to
+/// the waiting lifecycle cleanup, and a stale installation guard cannot touch a replacement.
+pub(crate) fn take_engine_resources_owned(generation: u64) -> Option<GenerationResources> {
+    with_engine_owned(generation, |engine| engine.resources.take())
+        .ok()
+        .flatten()
+}
+
+#[cfg(test)]
+pub(crate) fn replace_engine_resources_for_test(
+    resources: Option<GenerationResources>,
+) -> Option<GenerationResources> {
+    with_engine(|engine| std::mem::replace(&mut engine.resources, resources))
 }
 
 /// Returns the current Spirc without holding the engine lock.
 pub(crate) fn current_spirc_handle() -> Option<Arc<Spirc>> {
-    with_engine(|engine| engine.spirc.clone())
+    with_engine(|engine| engine.spirc())
 }
 
 /// Returns a clone of the current Session, so callers never hold the engine lock across an
 /// upstream call.
 pub(crate) fn current_session() -> Option<Session> {
-    with_engine(|engine| engine.session.clone())
+    with_engine(|engine| engine.session().cloned())
 }
 
 /// Whether the engine currently reports local playback.

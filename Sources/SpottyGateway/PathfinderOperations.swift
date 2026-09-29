@@ -9,30 +9,13 @@ import SpottyDomain
 import Foundation
 import SpottyRuntimeContracts
 
-/// A pathfinder operation: a name, and the hash of the query document Spotify holds for it.
+/// Names and hashes select Spotify's stored query documents; requests supply variables only.
+/// A replacement hash can change response shape, so update its wire models and fixtures together.
+/// Query retirement surfaces as `persistedQueryNotFound`; fixtures do not prove live acceptance.
+/// Live checks follow docs/product/safe-testing.md.
 ///
-/// **The client never sends a query.** `api-partner` speaks persisted queries only: the request
-/// carries an operation name, its variables, and a SHA-256 hash that identifies a query
-/// document stored on Spotify's side. The field selection therefore lives on their servers —
-/// no field can be added or removed here, and the response shape is whatever that document
-/// says it is. Only the variables are ours.
-///
-/// **These hashes are vendored, and they rot.** They are the SHA-256 of the query text
-/// Spotify's web client ships, so a new web client release eventually retires the old ones and
-/// the request starts failing (`PersistedQueryNotFound`). The values below were taken from the
-/// libspot checkout (`pathfinder/pfrequest/operations.go`), which is the upstream to watch when
-/// something stops resolving.
-///
-/// **When libspot is not enough**, harvest them from the live web client:
-/// `libspot-probe/harvest-hashes.sh [pattern]` fetches the current bundle and prints every
-/// operation with its hash. That is already necessary rather than hypothetical — `getAlbum`
-/// came from there, because libspot declares the operation and then panics.
-///
-/// A harvested hash is a *candidate* until the service answers it. The web client's search
-/// hashes differ from the libspot ones below and both work today, so the two sources are simply
-/// different releases: newer does not mean the older one is dead. libspot's were vendored on
-/// 2026-05-22 and were still being accepted twelve weeks later, which is the useful thing to
-/// know about how fast these actually rot.
+/// Recorded provenance: libspot's pathfinder/pfrequest/operations.go (2026-05-22), with the album
+/// exception noted below. These historical sources are not a current service-compatibility claim.
 nonisolated struct PathfinderOperation: Sendable, Equatable {
     let name: String
     let sha256Hash: String
@@ -57,56 +40,33 @@ nonisolated struct PathfinderOperation: Sendable, Equatable {
         sha256Hash: "af1730623dc1248b75a61a18bad1f47f1fc7eff802fb0676683de88815c958d8",
     )
 
-    /// Album details *and* its track list in one response — the whole album view.
-    ///
-    /// **Harvested from the web client, not from libspot**, which is the first operation here
-    /// that had to be: libspot declares `OpGetAlbum` and then falls through to
-    /// `panic("not implemented")`, so there was nothing to copy. Taken on 2026-08-13 from
-    /// `open.spotifycdn.com/cdn/build/web-player/web-player.765d5916.js`, where every operation
-    /// is constructed as `new n.l(name, "query", sha256Hash, null)` — grep that shape for the
-    /// operation name. Verified against the live service before use, which matters more than
-    /// where it came from: the web client's *search* hashes differ from the libspot ones above
-    /// and both are currently accepted, so a bundle and a checkout are simply two releases.
+    /// Album metadata and one track page. Recorded source: the web-player.765d5916.js bundle
+    /// from open.spotifycdn.com, sampled on 2026-08-13.
     static let getAlbum = PathfinderOperation(
         name: "getAlbum",
         sha256Hash: "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10",
     )
 
-    /// Who the artist is: name and images. Also carries a *sample* of the discography, which
-    /// is why the full list comes from `queryArtistDiscographyAll` instead — this one returns
-    /// ten albums of fifteen and ten singles of twenty-one, and the artist page offers "show
-    /// all".
+    /// Artist profile and sampled discography. Full releases use queryArtistDiscographyAll.
     static let queryArtistOverview = PathfinderOperation(
         name: "queryArtistOverview",
         sha256Hash: "ae0e2958a4ab645b35ca19ac04d0495ae12d9c5d7b7286217674801a9aab281a",
     )
 
-    /// Every release by an artist, in one list, with no profile beside it.
-    ///
-    /// Albums, singles and compilations are separate sections in `queryArtistOverview` and one
-    /// `all` list here — which matches what the app wants, since it shows a single album list.
+    /// Paginated releases across albums, singles, and compilations, without the profile.
     static let queryArtistDiscographyAll = PathfinderOperation(
         name: "queryArtistDiscographyAll",
         sha256Hash: "5e07d323febb57b4a56a42abbf781490e58764aa45feb6e3dc0591564fc56599",
     )
 
-    /// A playlist's details *and* its contents.
-    ///
-    /// **The name matters more than usual here.** `fetchPlaylist`, `fetchPlaylistContents` and
-    /// `fetchPlaylistMetadata` share this hash — one stored document defining three operations
-    /// — and `operationName` selects between them. Asking for the wrong one gets a playlist
-    /// with no tracks, or tracks with no names, rather than an error.
+    /// Metadata and one contents page. This hash also names contents-only and metadata-only
+    /// operations; operationName selects the response shape.
     static let fetchPlaylist = PathfinderOperation(
         name: "fetchPlaylist",
         sha256Hash: "86dde7b9d9356e2369414647cf6950cfed96e778e129cfdfc99aea6c1613b3b0",
     )
 
-    /// The playlist mutations, which likewise share one hash and differ by name.
-    ///
-    /// Their variables were established by sending each with no variables at all: GraphQL
-    /// rejects that during validation, before any resolver runs, and names what it wanted —
-    /// schema discovery that writes to nobody's playlist. `PlaylistItemPositionInput` came back
-    /// as full SDL, doc comments included, from a deliberately invalid field.
+    /// Playlist mutations share one document but select different operations and acknowledgments.
     static let addToPlaylist = PathfinderOperation(
         name: "addToPlaylist",
         sha256Hash: playlistMutationHash,
@@ -120,45 +80,33 @@ nonisolated struct PathfinderOperation: Sendable, Equatable {
     private static let playlistMutationHash =
         "47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990"
 
-    /// The user's library — playlists, albums and followed artists — selected by `filters`.
-    ///
-    /// Three Web API endpoints in one document. Saved *tracks* are not part of it; they have
-    /// their own operation below.
+    /// Playlists, albums, and followed artists selected by filters; saved tracks use a separate query.
     static let libraryV3 = PathfinderOperation(
         name: "libraryV3",
         sha256Hash: "390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455",
     )
 
-    /// The saved tracks, replacing `/me/tracks`.
+    /// The listener's saved tracks.
     static let fetchLibraryTracks = PathfinderOperation(
         name: "fetchLibraryTracks",
         sha256Hash: "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240",
     )
 
-    /// Spotify's own start page: a greeting and a list of titled shelves.
-    ///
-    /// Harvested rather than vendored — libspot has no home operation. The live web client
-    /// currently ships a *different* hash for the same operation name
-    /// (`76243c78b0e20ecdbe41b794dec8cbe73f75e585b0a7201b8d2e84578412847a`, shared with
-    /// `homeSection` and `homePinnedSections`), and this one is still accepted. The older one is
-    /// kept because it is the document whose response the decoders in `PathfinderHome.swift`
-    /// were written against: a different stored document can select different fields, so
-    /// swapping the hash is a change to the response shape and wants re-measuring, not a
-    /// version bump.
+    /// Greeting and titled shelves, decoded by PathfinderHome.swift. Changing this document
+    /// requires checking its selected fields, even when the operation name stays the same.
     static let home = PathfinderOperation(
         name: "home",
         sha256Hash: "23e37f2e58d82d567f27080101d36609009d8c3676457b1086cb0acc55b72a5d",
     )
 
-    /// Who the listener is, replacing `/me`.
+    /// The listener's profile.
     static let profileAttributes = PathfinderOperation(
         name: "profileAttributes",
         sha256Hash: "08ffb4730af3746e04a8301396f20875dbbce10c75243803091a9274eacc8ac0",
     )
 }
 
-/// For operations that declare no variables at all — `{}` on the wire, which is what the
-/// endpoint expects. `profileAttributes` is the only one so far.
+/// Encodes an empty object for operations with no declared variables.
 nonisolated struct EmptyVariables: Encodable, Sendable {}
 
 /// The variables the artist operations take.
@@ -178,11 +126,8 @@ nonisolated struct PathfinderAlbumVariables: Encodable, Sendable {
     var limit: Int = 300
 }
 
-/// The variables every search operation takes.
-///
-/// The flags are not decoration: the stored query references them, and omitting one Spotify's
-/// document expects is a request error rather than a default. These mirror what the web client
-/// sends, as recorded in libspot's `defaultSearchCommons`.
+/// Search variables include the flags referenced by the stored document; omission is not a default.
+/// Recorded source: libspot's defaultSearchCommons.
 nonisolated struct PathfinderSearchVariables: Encodable, Sendable {
     var searchTerm: String
     var offset: Int = 0

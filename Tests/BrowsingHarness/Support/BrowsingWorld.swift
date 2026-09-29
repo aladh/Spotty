@@ -85,7 +85,9 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         playback.replaceSession(publish: false)
         record("account.synthetic-replacement")
     }
-    func revocations() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
+    func isCurrent(_: AccountGrantRevocation) async -> Bool { false }
+
+    func revocations() -> AsyncStream<AccountGrantRevocation> { AsyncStream { $0.finish() } }
     func prepareForPlayback() throws { record("audio.no-device") }
     func events() -> AsyncStream<RustPlaybackEventEnvelope> { playback.events() }
     func events() -> AsyncStream<SystemLifecycleEvent> { AsyncStream { $0.finish() } }

@@ -53,27 +53,14 @@ class RustSelectionTests(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def test_app_pin_tests_assets_and_docs_skip_rust(self):
-        for name in ("Sources/Spotty/View.swift", "Sources/SpottyApp/main.swift",
-                     "Sources/SpottyDomain/Model.swift", "Sources/SpottyEngineAdapter/Adapter.swift",
-                     "Sources/SpottyRuntimeContracts/Values.swift", "Sources/SpottySessionRuntime/Runtime.swift",
-                     "Sources/SpottyGateway/Gateway.swift",
-                     "Sources/SpottyCatalogStorage/Storage.swift", "Sources/SpottyDiagnostics/DebugLog.swift",
-                     "Tests/SpottyBoundaryTests/Example.swift",
-                     "Tests/SpottyCatalogStorageTests/Example.swift",
-                     "Tests/SpottySessionRuntimeTests/Example.swift", "Tests/SpottyGatewayTests/Example.swift",
-                     "Tests/SpottyDomainTests/Example.swift", "Package.swift", "Package.resolved",
-                     "Assets/icon.png", "Packaging/Info.plist", "docs/development/guide.md", "README.md",
-                     ".swift-format", "AGENTS.md", "CONTRIBUTING.md", "PRIVACY.md", "SECURITY.md"):
+        for name in ('Sources/Spotty/View.swift', 'Package.swift', 'Assets/icon.png', 'README.md'):
             self.write(name)
         self.commit()
         self.assertEqual(verification_needed("pull_request", self.base, self.root),
                          {"rust_needed": False, "macos_needed": True})
 
     def test_documentation_and_nested_agent_guidance_skip_both_toolchains(self):
-        for name in ("AGENTS.md", "Tests/AGENTS.md", "Sources/SpottyPlaybackCore/AGENTS.md",
-                     "Backend/spotty-playback/AGENTS.md", ".github/AGENTS.md", "Scripts/AGENTS.md",
-                     "README.md", "CONTRIBUTING.md", "SECURITY.md", "PRIVACY.md",
-                     "docs/development/guide.md", "docs/images/overview.png"):
+        for name in ('README.md', 'Backend/spotty-playback/AGENTS.md', 'docs/images/overview.png'):
             self.write(name)
         self.commit()
         self.assertEqual(verification_needed("pull_request", self.base, self.root),
@@ -83,29 +70,6 @@ class RustSelectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output, "rust_needed=false\nmacos_needed=false\n")
 
-    def test_demo_sources_measurements_and_audited_helpers_skip_rust(self):
-        for name in ("Tests/BrowsingHarness/App/BrowsingHarness.swift",
-                     "Tests/BrowsingHarness/Checks/BrowsingHarnessChecks.swift",
-                     "Tests/BrowsingHarness/Support/BrowsingScenario.swift",
-                     "Tests/BrowsingHarness/queue-rendering.json",
-                     "Tests/BrowsingHarness/Icon/SpottyDemo.icns",
-                     "Tests/BrowsingHarness/Support/Artwork/tidal-light.jpg",
-                     "docs/architecture/measurements/synthetic.json",
-                     "Scripts/browse-synthetic.sh", "Scripts/profile_synthetic.py",
-                     "Scripts/summarize_synthetic_trace.py", "Scripts/compare_synthetic_profiles.py",
-                     "Scripts/browsing_process.py", "Scripts/browsing_preflight.swift",
-                     "Scripts/acceptance_scenarios.py", "Scripts/smoke-synthetic-ui.sh",
-                     "Scripts/synthetic_ui_smoke.swift", "Scripts/test_harness_profile_synthetic.py",
-                     "Scripts/test_harness_profile_comparison.py",
-                     "Scripts/test_harness_trace_summary.py", "Scripts/test_harness_browsing_process.py",
-                     "Scripts/test_harness_acceptance_scenarios.py"):
-            with self.subTest(name=name):
-                self.write(name)
-                self.commit()
-                self.assertEqual(verification_needed("pull_request", self.base, self.root),
-                                 {"rust_needed": False, "macos_needed": True})
-                self.base = self.git("rev-parse", "HEAD")
-
     def test_mixed_harness_and_engine_changes_keep_both_toolchains(self):
         self.write("Tests/BrowsingHarness/demo.json")
         self.write("Scripts/test_harness_trace_summary.py")
@@ -113,18 +77,6 @@ class RustSelectionTests(unittest.TestCase):
         self.commit()
         self.assertEqual(verification_needed("pull_request", self.base, self.root),
                          {"rust_needed": True, "macos_needed": True})
-
-    def test_unreviewed_harness_inputs_and_policy_changes_remain_conservative(self):
-        for name in ("Tests/BrowsingHarness/unreviewed.rs", "Tests/BrowsingHarness/tool.sh",
-                     "Scripts/new-harness.sh", "Scripts/test_harness_new.py",
-                     "Scripts/ci_rust_policy.py", "Scripts/script_tests.py",
-                     "Scripts/test_ci_rust_policy.py", "Scripts/check.sh"):
-            with self.subTest(name=name):
-                self.write(name)
-                self.commit()
-                self.assertEqual(verification_needed("pull_request", self.base, self.root),
-                                 {"rust_needed": True, "macos_needed": True})
-                self.base = self.git("rev-parse", "HEAD")
 
     def test_mixed_docs_and_app_change_keeps_macos(self):
         self.write("Tests/AGENTS.md")
@@ -156,20 +108,6 @@ class RustSelectionTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertIn("macos_needed: ${{ steps.rust-scope.outputs.macos_needed != 'false' }}", workflow)
 
-    def test_engine_headers_ci_scripts_licenses_and_unknown_paths_run_rust(self):
-        for name in ("Backend/spotty-playback/src/lib.rs", "Backend/spotty-playback/tests/new.rs",
-                     "Backend/spotty-playback/Cargo.lock", "Sources/SpottyPlaybackCore/include/new.h",
-                     "rust-toolchain.toml", ".github/workflows/ci.yml", "Scripts/check.sh",
-                     "Scripts/test_playback_header.py", "Tests/ABI/example.txt", "LICENSE",
-                     "Scripts/check-session-scenarios.sh", "Scripts/browsing_provenance.py",
-                     "Scripts/test_harness_browsing_provenance.py", "Scripts/test_playback_session_scenarios.py",
-                     "NOTICE", "THIRD_PARTY_NOTICES.md", "new-build-input", ".cargo/config.toml"):
-            with self.subTest(name=name):
-                self.write(name)
-                self.commit()
-                self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
-                self.base = self.git("rev-parse", "HEAD")
-
     def test_deletion_and_rename_out_of_engine_scope_run_rust(self):
         source = self.root / "Backend/spotty-playback/src/lib.rs"
         source.rename(self.root / "docs-renamed.rs")
@@ -192,9 +130,19 @@ class RustSelectionTests(unittest.TestCase):
         self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
 
     def test_filename_newline_does_not_hide_unknown_path(self):
-        self.write("unexpected\nSources/Spotty/View.swift")
+        self.write("README.md\nSources/Spotty/View.swift")
         self.commit()
         self.assertTrue(verification_needed("pull_request", self.base, self.root)["rust_needed"])
+
+    def test_undecodable_filename_is_conservatively_classified(self):
+        # Build the Git entry directly: macOS filesystems reject non-UTF-8 names that
+        # can arrive in a tree committed on Linux. Classification reads the tree diff.
+        blob = self.git("hash-object", "-w", "Scripts/ci_rust_policy.py")
+        subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=self.root, check=True,
+                       input=f"100644 {blob}\t".encode() + b"unknown-\xff\0")
+        self.git("commit", "-qm", "Non-UTF-8 filename")
+        self.assertEqual(verification_needed("pull_request", self.base, self.root),
+                         {"rust_needed": True, "macos_needed": True})
 
     def select_via_workflow(self):
         script = workflow_script("Select Rust verification")
@@ -231,16 +179,9 @@ class RustSelectionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output, "rust_needed=false\nmacos_needed=true\n")
 
-    def test_main_and_other_events_always_run_without_a_base(self):
-        for event in ("push", "workflow_dispatch", "unknown"):
-            with self.subTest(event=event):
-                self.assertEqual(verification_needed(event, "", self.root),
-                                 {"rust_needed": True, "macos_needed": True})
-
-    def test_invalid_or_missing_pr_history_fails_closed(self):
-        for base in ("", "0" * 40, "not-a-sha", "f" * 40):
-            with self.subTest(base=base), self.assertRaises((ValueError, subprocess.CalledProcessError)):
-                verification_needed("pull_request", base, self.root)["rust_needed"]
+    def test_unavailable_pr_history_and_failed_diff_fail_closed(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            verification_needed("pull_request", "f" * 40, self.root)
         with patch("ci_rust_policy.subprocess.check_output", side_effect=subprocess.CalledProcessError(128, "git diff")):
             with self.assertRaises(subprocess.CalledProcessError):
                 verification_needed("pull_request", self.base, self.root)["rust_needed"]

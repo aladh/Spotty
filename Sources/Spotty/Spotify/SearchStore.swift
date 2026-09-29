@@ -12,7 +12,7 @@ import SpottyRuntimeContracts
 @MainActor
 @Observable
 final class SearchStore {
-    private typealias Flight = AccountScopedSingleFlight<String>
+    private typealias Flight = CatalogReadFlights<String>
 
     enum Section: String, CaseIterable, Sendable {
         case tracks, albums, artists, playlists
@@ -55,8 +55,7 @@ final class SearchStore {
     @ObservationIgnored private let session: CatalogSessionAvailability
     @ObservationIgnored private let clock: any PlaybackClock
     @ObservationIgnored private let flight: Flight
-    @ObservationIgnored private var debounceGeneration: UInt64 = 0
-    @ObservationIgnored private var debounceTask: Task<Void, Never>?
+    @ObservationIgnored private let admission: Flight
 
     init(
         provider: any CatalogProviding,
@@ -69,11 +68,12 @@ final class SearchStore {
         self.session = session
         self.clock = clock
         // A newer query always replaces the one in flight; there is nothing to join.
-        flight = Flight(session: session, join: .alwaysSupersede, scope: .singleSelection, publish: .strict)
+        flight = Flight(session: session)
+        admission = Flight(session: session)
     }
 
     func reset() {
-        invalidatePendingAdmission()
+        admission.reset()
         flight.reset()
         clearResults()
         loadState = CatalogLoadState()
@@ -82,112 +82,116 @@ final class SearchStore {
     /// Immediate admission for Try Again. Invalidates a pending debounce so a
     /// later timer cannot start a second fetch for a superseded query.
     func search(_ term: String) async {
-        invalidatePendingAdmission()
+        guard !Task.isCancelled else { return }
+        admission.reset()
         await performSearch(term.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// View-driven query path. Cancelled or superseded before the delay leaves
     /// committed results and `isSearching` unchanged.
     func scheduleSearch(_ term: String) async {
-        invalidatePendingAdmission()
-        let token = debounceGeneration
+        guard !Task.isCancelled else { return }
+        admission.reset()
         let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The connected view owns delayed admission. Direct offline calls clear state without
+        // starting a timer that cannot acquire current account authority.
+        guard session.isAvailable else {
+            await performSearch(query)
+            return
+        }
         // Returning from details should restore the current result set and its native position.
         if admittedQuery == query, loadState.isCurrent(in: session.snapshot), errors.isEmpty { return }
-        let scheduled = session.snapshot
-        let task = Task { [weak self] in
-            guard let self else { return }
+        // This scope spans both delay and fetch, while immediate searches own only `flight`.
+        // Capturing the clock separately lets a cancelled caller release the store during sleep.
+        await admission.read(query, force: true) { [weak self, clock] handle in
             do {
-                try await self.clock.sleep(seconds: Self.queryAdmissionDelay)
+                try await clock.sleep(seconds: Self.queryAdmissionDelay)
             } catch {
                 return
             }
-            guard token == self.debounceGeneration, !Task.isCancelled else { return }
-            guard self.session.snapshot == scheduled else { return }
-            await self.performSearch(query)
+            guard let self, admission.isCurrent(handle) else { return }
+            await performSearch(query)
         }
-        debounceTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
-        if token == debounceGeneration {
-            debounceTask = nil
-        }
-    }
-
-    private func invalidatePendingAdmission() {
-        debounceGeneration &+= 1
-        debounceTask?.cancel()
-        debounceTask = nil
     }
 
     private func performSearch(_ query: String) async {
-        let handle = flight.begin(query)
+        guard !Task.isCancelled else { return }
         guard session.isAvailable, !query.isEmpty else {
+            flight.reset()
             clearResults()
             return
         }
-
-        // Retrying the same admitted result set must not replace usable rows with a spinner.
-        // Different queries and session lifetimes still discard all previous content.
-        if admittedQuery != query || admittedSession != session.snapshot {
-            clearResults()
-        } else {
-            errors = [:]
-        }
-        admittedQuery = query
-        admittedSession = handle.sessionSnapshot
-        loadState.begin(keepPreviousError: false)
-        await flight.run(handle) { [weak self] in
-            guard let self else { return }
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await self.loadTracks(query, handle: handle) }
-                group.addTask { await self.loadAlbums(query, handle: handle) }
-                group.addTask { await self.loadArtists(query, handle: handle) }
-                group.addTask { await self.loadPlaylists(query, handle: handle) }
+        await flight.read(
+            query, force: true,
+            started: { [weak self] handle in
+                guard let self else { return }
+                // A retry keeps usable rows; a different query or session replaces them.
+                if admittedQuery != query || admittedSession != handle.sessionSnapshot {
+                    clearResults()
+                } else {
+                    errors = [:]
+                }
+                admittedQuery = query
+                admittedSession = handle.sessionSnapshot
+                loadState.begin(keepPreviousError: false)
+            },
+            settled: { [weak self] in self?.loadState.finish() }
+        ) { [weak self, provider] handle in
+            await withTaskGroup(of: (Section, Result<SectionPayload, any Error>).self) { group in
+                for section in Section.allCases {
+                    group.addTask { (section, await Self.fetch(section, query: query, provider: provider)) }
+                }
+                for await (section, result) in group {
+                    guard let self, self.flight.isCurrent(handle) else {
+                        group.cancelAll()
+                        return
+                    }
+                    switch result {
+                    case let .success(payload): self.apply(payload)
+                    case let .failure(error): self.record(error, section: section, handle: handle)
+                    }
+                }
             }
-            if self.flight.isCurrent(handle) {
-                self.loadState.receive(session: handle.sessionSnapshot)
+            if self?.flight.isCurrent(handle) == true {
+                self?.loadState.receive(session: handle.sessionSnapshot)
             }
-        }
-        if flight.owns(handle) {
-            loadState.finish()
         }
     }
 
-    private func loadTracks(_ query: String, handle: Flight.Handle) async {
-        await load(.tracks, handle: handle) {
-            let values = try await provider.searchTracks(query, limit: 50)
-            guard flight.isCurrent(handle) else { return }
+    private enum SectionPayload: Sendable {
+        case tracks([CatalogTrack])
+        case albums([CatalogItem])
+        case artists([CatalogItem])
+        case playlists([CatalogItem])
+    }
+
+    private nonisolated static func fetch(
+        _ section: Section, query: String, provider: any CatalogProviding
+    ) async -> Result<SectionPayload, any Error> {
+        do {
+            switch section {
+            case .tracks: return .success(.tracks(try await provider.searchTracks(query, limit: 50)))
+            case .albums: return .success(.albums(try await provider.searchAlbums(query, limit: 30)))
+            case .artists: return .success(.artists(try await provider.searchArtists(query, limit: 30)))
+            case .playlists: return .success(.playlists(try await provider.searchPlaylists(query, limit: 30)))
+            }
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func apply(_ payload: SectionPayload) {
+        switch payload {
+        case let .tracks(values):
             trackCollection.replace(values)
             metadata.replaceTracks(values, from: .search)
-        }
-    }
-
-    private func loadAlbums(_ query: String, handle: Flight.Handle) async {
-        await load(.albums, handle: handle) {
-            let values = try await provider.searchAlbums(query, limit: 30)
-            guard flight.isCurrent(handle) else { return }
+        case let .albums(values):
             albums = values
             replaceItemMetadata()
-        }
-    }
-
-    private func loadArtists(_ query: String, handle: Flight.Handle) async {
-        await load(.artists, handle: handle) {
-            let values = try await provider.searchArtists(query, limit: 30)
-            guard flight.isCurrent(handle) else { return }
+        case let .artists(values):
             artists = values
             replaceItemMetadata()
-        }
-    }
-
-    private func loadPlaylists(_ query: String, handle: Flight.Handle) async {
-        await load(.playlists, handle: handle) {
-            let values = try await provider.searchPlaylists(query, limit: 30)
-            guard flight.isCurrent(handle) else { return }
+        case let .playlists(values):
             playlists = values
             replaceItemMetadata()
         }
@@ -198,30 +202,21 @@ final class SearchStore {
         metadata.replaceItems(albums + artists + playlists, from: .search)
     }
 
-    private func load(
-        _ section: Section,
-        handle: Flight.Handle,
-        operation: () async throws -> Void
-    ) async {
-        do {
-            try await operation()
-        } catch CatalogProviderCapabilityError.unsupported {
-        } catch {
-            guard flight.shouldReport(error, for: handle) else { return }
-            let message = CatalogErrorPresentation.message(for: error)
-            var outcome = loadState
-            if outcome.fail(error) {
-                // Retire this response without cancelling a newer query's pending debounce.
-                // That admission still checks its captured session before starting work.
-                flight.reset()
-                clearResults()
-                loadState = outcome
-                admittedQuery = handle.key
-                admittedSession = handle.sessionSnapshot
-                errors = Dictionary(uniqueKeysWithValues: Section.allCases.map { ($0, message) })
-            } else {
-                errors[section] = message
-            }
+    private func record(_ error: any Error, section: Section, handle: Flight.Handle) {
+        if error as? CatalogProviderCapabilityError == .unsupported { return }
+        guard flight.shouldReport(error, for: handle) else { return }
+        let message = CatalogErrorPresentation.message(for: error)
+        var outcome = loadState
+        if outcome.fail(error) {
+            // A refusal fences sibling results without discarding a newer pending debounce.
+            flight.reset()
+            clearResults()
+            loadState = outcome
+            admittedQuery = handle.key
+            admittedSession = handle.sessionSnapshot
+            errors = Dictionary(uniqueKeysWithValues: Section.allCases.map { ($0, message) })
+        } else {
+            errors[section] = message
         }
     }
 

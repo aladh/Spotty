@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import Testing
 import SpottyDomain
@@ -9,6 +11,38 @@ import SpottyRuntimeContracts
 
 @Suite("Credential Rejection")
 struct CredentialRejectionTests {
+    @Test @MainActor
+    func revocationDeliveryJoinsTheAcceptedGrantHandoffBeforeValidation() async throws {
+        let account = GatedConnectAccount(parkAuthorization: false)
+        defer { account.releaseAdoption() }
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(account: account))
+        player.connect()
+        try await requireEventually { account.adoptEntered }
+        let epoch = player.accountEpoch
+        let started = HarnessCounters()
+        let runtime = player.runtime
+        let delivery = Task { @SessionRuntimeActor in
+            started.record("delivery")
+            await runtime.handleGrantRevocation(account.pendingRevocation)
+        }
+        defer { delivery.cancel() }
+        try await requireEventually { started.count("delivery") == 1 }
+        // Joining the serial executor after the delivery started proves it reached its first
+        // suspension. The fixture validates on that same executor without another actor hop.
+        player.withRuntime { _ in }
+        #expect(account.validationCount == 0)
+        #expect(player.accountEpoch == epoch)
+
+        account.releaseAdoption()
+        await delivery.value
+        player.withRuntime { _ in }
+
+        #expect(account.validationCount == 1)
+        #expect(player.accountEpoch == epoch)
+        #expect(player.requiresReauthentication == false)
+        await player.shutdownForTermination()
+    }
+
     @Test @MainActor
     func testAcceptedRejectionPreservesGrantAndOffersExplicitReauthorization() async {
         let engine = HarnessEngine()
@@ -214,6 +248,8 @@ private final class GatedConnectAccount: AccountSession, @unchecked Sendable {
     private var adoptReturnedStorage = false
     private var adoptStorage = 0
     private var clearStorage = 0
+    private var validationStorage = 0
+    let pendingRevocation = AccountGrantRevocation()
 
     init(parkAuthorization: Bool) {
         self.parkAuthorization = parkAuthorization
@@ -225,6 +261,7 @@ private final class GatedConnectAccount: AccountSession, @unchecked Sendable {
     var adoptReturned: Bool { lock.withLock { adoptReturnedStorage } }
     var adoptCount: Int { lock.withLock { adoptStorage } }
     var clearCount: Int { lock.withLock { clearStorage } }
+    var validationCount: Int { lock.withLock { validationStorage } }
 
     func authorizeInteractively() async throws -> KeymasterTokens {
         if parkAuthorization {
@@ -263,7 +300,15 @@ private final class GatedConnectAccount: AccountSession, @unchecked Sendable {
         return true
     }
 
-    func revocations() -> AsyncStream<Void> {
+    @SessionRuntimeActor
+    func isCurrent(_ revocation: AccountGrantRevocation) -> Bool {
+        lock.withLock {
+            validationStorage += 1
+            return revocation == pendingRevocation && !adoptReturnedStorage
+        }
+    }
+
+    func revocations() -> AsyncStream<AccountGrantRevocation> {
         AsyncStream { continuation in continuation.finish() }
     }
 

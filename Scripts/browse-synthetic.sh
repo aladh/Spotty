@@ -4,6 +4,7 @@ set -euo pipefail
 project_root="${0:A:h:h}"
 source "$project_root/Scripts/swiftpm-env.sh"
 source "$project_root/Scripts/embed-sparkle.sh"
+source "$project_root/Scripts/playback-xcframework.sh"
 cd "$project_root"
 automated=true
 profile=false
@@ -90,6 +91,12 @@ if [[ "$optimized" == true ]]; then
     build_arguments=(--disable-sandbox --sdk "$SDKROOT" --configuration release --scratch-path "$scratch"
         -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED)
 fi
+selected_xcframework="$(spotty_playback_resolve_xcframework)"
+# Exit in the launcher so its final-evidence trap also covers a validator function failure.
+spotty_playback_validate_xcframework "$selected_xcframework" || exit $?
+playback_headers="$(spotty_playback_headers_path "$(spotty_playback_slice_path "$selected_xcframework")")"
+python3 "$project_root/Scripts/playback_module_cache.py" "$scratch" "$playback_headers" \
+    --configuration "$configuration"
 python3 "$project_root/Scripts/browsing_provenance.py" snapshot "$project_root" "$run_root"
 SPOTTY_BUILD_BROWSING_HARNESS=1 swift build "${build_arguments[@]}" \
     --product SpottyBrowsingHarness "${spotty_swiftc_warnings_as_errors[@]}"
@@ -166,6 +173,8 @@ if ! mv "$app" "$installed_app"; then
     fi
     exit 1
 fi
+# The old bundle is only an install rollback; release it after the replacement succeeds.
+rm -rf -- "$run_root/previous-demo.app"
 app="$installed_app"
 /usr/bin/open -n "$app"
 python3 "$project_root/Scripts/browsing_process.py" discover "$run_root" "$app/Contents/MacOS/SpottyDemo"

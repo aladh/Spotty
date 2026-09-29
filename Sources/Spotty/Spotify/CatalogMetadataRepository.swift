@@ -6,21 +6,14 @@
 //
 
 import SpottyDomain
+import SpottyRuntimeContracts
 import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class CatalogMetadataRepository {
-    enum TrackSource: Int, CaseIterable {
-        case nowPlaying
-        case queue
-        case search
-        case playlist
-        case discography
-        case album
-        case library
-    }
+    typealias TrackSource = CatalogTrackContributions.Source
 
     enum ItemSource: Int, CaseIterable {
         case library
@@ -30,14 +23,13 @@ final class CatalogMetadataRepository {
 
     /// Changes only when the effective genuine browsing labels exported to the runtime change.
     /// Playback publications must not feed themselves back as higher-priority browsing input.
-    @ObservationIgnored private(set) var runtimeTracksRevision: UInt64 = 0
-
-    private static let runtimeTrackSources: [TrackSource] = [.search, .playlist, .discography, .album, .library]
+    @ObservationIgnored private var runtimeTracksRevision: UInt64 = 0
+    @ObservationIgnored private var runtimeEntities: [String: CatalogTrackMetadata] = [:]
+    @ObservationIgnored private var dirtyRuntimeURIs: Set<String> = []
 
     @ObservationIgnored private let contentObservation = ObservationRegistrar()
     @ObservationIgnored private let session: CatalogSessionAvailability
-    @ObservationIgnored private var tracksBySource: [TrackSource: [String: CatalogTrack]] = [:]
-    @ObservationIgnored private var retainedTrackURIsBySource: [TrackSource: Set<String>] = [:]
+    @ObservationIgnored private var trackContributions = CatalogTrackContributions()
     @ObservationIgnored private var itemsBySource: [ItemSource: [String: CatalogItem]] = [:]
     @ObservationIgnored private var contentEpoch: UInt64 = 0
 
@@ -51,68 +43,40 @@ final class CatalogMetadataRepository {
 
     func replaceTracks(_ tracks: [CatalogTrack], from source: TrackSource) {
         guard acceptCurrentSessionWrite() else { return }
-        var replacement = Dictionary(
-            tracks.lazy.map { ($0.uri, $0.fillingMissingLinks(from: self.tracksBySource[source]?[$0.uri])) },
-            uniquingKeysWith: { _, latest in latest }
-        )
-        // Queue metadata is deliberately retained only for the current ordering. Preserve those
-        // bounded entries when an ordering-only snapshot arrives, and let any catalog page that
-        // knows one of the queued uris enrich it before that page is replaced.
-        if let retainedURIs = retainedTrackURIsBySource[source] {
-            for (uri, track) in tracksBySource[source] ?? [:]
-            where retainedURIs.contains(uri) && replacement[uri] == nil {
-                replacement[uri] = track
-            }
-        }
-        let affectedURIs = Set(tracksBySource[source]?.keys.map { $0 } ?? []).union(replacement.keys)
-        var updated = tracksBySource
-        updated[source] = replacement
-        if source != .nowPlaying {
-            promoteRetainedTracks(replacement.values, excluding: source, in: &updated)
-        }
-        publishTracks(updated, affectedURIs: affectedURIs)
-    }
-
-    func retainTracks(from source: TrackSource, for uris: Set<String>) {
-        guard acceptCurrentSessionWrite() else { return }
-        retainedTrackURIsBySource[source] = uris
-        var retained = (tracksBySource[source] ?? [:]).filter { uris.contains($0.key) }
-        for uri in uris where retained[uri] == nil {
-            retained[uri] = Self.track(for: uri, in: tracksBySource, excluding: source)
-        }
-        let affectedURIs = Set(tracksBySource[source]?.keys.map { $0 } ?? []).union(uris)
-        var updated = tracksBySource
-        updated[source] = retained
-        publishTracks(updated, affectedURIs: affectedURIs)
+        publishTracks(trackContributions.replacing(tracks, from: source))
     }
 
     func replaceItems(_ items: [CatalogItem], from source: ItemSource) {
         guard acceptCurrentSessionWrite() else { return }
-        var updated = itemsBySource
-        updated[source] = Dictionary(
+        let replacement = Dictionary(
             items.lazy.map { ($0.uri, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
-        let affectedURIs = Set(itemsBySource[source]?.keys.map { $0 } ?? []).union(items.map(\.uri))
+        let affectedURIs = Self.changedURIs(from: itemsBySource[source] ?? [:], to: replacement)
+        var updated = itemsBySource
+        updated[source] = replacement
         publishItems(updated, affectedURIs: affectedURIs)
     }
 
-    /// Genuine browsing input only. Runtime-owned queue and Now Playing publications are never
-    /// re-exported as browsing authority. Callers use runtimeTracksRevision to avoid rebuilding an
-    /// unchanged library during playback timing updates.
-    var runtimeTracks: [String: CatalogTrack] {
-        guard contentEpoch == session.accountEpoch else { return [:] }
-        var result: [String: CatalogTrack] = [:]
-        for source in Self.runtimeTrackSources {
-            result.merge(tracksBySource[source] ?? [:]) { lowerPriority, higherPriority in
-                higherPriority.fillingMissingLinks(from: lowerPriority)
-            }
+    /// Immutable complete input, prepared lazily from only changed entities. Copies share their
+    /// lookup with the runtime; the first subsequent edit pays Swift's copy-on-write cost.
+    /// Compatible links already exported within this account survive a partial browsing update.
+    var browsingMetadata: BrowsingMetadataSnapshot {
+        guard contentEpoch == session.accountEpoch else {
+            return BrowsingMetadataSnapshot(
+                accountEpoch: session.accountEpoch, revision: runtimeTracksRevision, tracks: [:])
         }
-        return result
+        for uri in dirtyRuntimeURIs {
+            runtimeEntities[uri] = trackContributions.browsingTrack(for: uri)?
+                .fillingMissingLinks(from: runtimeEntities[uri])
+        }
+        dirtyRuntimeURIs.removeAll(keepingCapacity: true)
+        return BrowsingMetadataSnapshot(
+            accountEpoch: contentEpoch, revision: runtimeTracksRevision, tracks: runtimeEntities)
     }
 
     func knownTrack(for uri: String) -> CatalogTrack? {
-        self[track: uri]
+        self[track: uri]?.playbackTrack
     }
 
     func knownItem(for uri: String) -> CatalogItem? {
@@ -120,11 +84,11 @@ final class CatalogMetadataRepository {
     }
 
     // Subscript key paths carry the URI, including misses, without storing per-URI observer boxes
-    // or a second metadata cache. Track and item readers subscribe independently.
-    private subscript(track uri: String) -> CatalogTrack? {
+    // or per-reader caches. Track and item readers subscribe independently.
+    private subscript(track uri: String) -> CatalogTrackMetadata? {
         contentObservation.access(self, keyPath: \.[track: uri])
         guard contentEpoch == session.accountEpoch else { return nil }
-        return Self.track(for: uri, in: tracksBySource)
+        return trackContributions.displayTrack(for: uri)
     }
 
     private subscript(item uri: String) -> CatalogItem? {
@@ -154,79 +118,51 @@ final class CatalogMetadataRepository {
     }
 
     private func clearContent(for epoch: UInt64) {
-        publishTracks([:], affectedURIs: Set(tracksBySource.values.flatMap(\.keys)))
+        publishTracks(trackContributions.clearing())
         publishItems([:], affectedURIs: Set(itemsBySource.values.flatMap(\.keys)))
-        retainedTrackURIsBySource.removeAll(keepingCapacity: false)
+        runtimeEntities.removeAll(keepingCapacity: false)
+        dirtyRuntimeURIs.removeAll(keepingCapacity: false)
         contentEpoch = epoch
     }
 
-    private func publishTracks(
-        _ updated: [TrackSource: [String: CatalogTrack]],
-        affectedURIs: Set<String>
-    ) {
-        let changedURIs = affectedURIs.filter {
-            Self.track(for: $0, in: tracksBySource) != Self.track(for: $0, in: updated)
+    private func publishTracks(_ replacement: CatalogTrackContributions.Replacement) {
+        let changes: [KeyPath<CatalogMetadataRepository, CatalogTrackMetadata?>] =
+            replacement.displayChangedURIs.map { \.[track: $0] }
+        // Reuse each captured-URI key path across both notifications; keep the batch local.
+        // Announce before committing the complete snapshot so callbacks see coherent old values.
+        // Hidden source updates still commit, but do not wake unchanged lookups.
+        for keyPath in changes { contentObservation.willSet(self, keyPath: keyPath) }
+        trackContributions = replacement.next
+        if !replacement.browsingInvalidatedURIs.isEmpty {
+            runtimeTracksRevision &+= 1
+            dirtyRuntimeURIs.formUnion(replacement.browsingInvalidatedURIs)
         }
-        let changedRuntimeTracks = affectedURIs.contains {
-            Self.runtimeTrack(for: $0, in: tracksBySource) != Self.runtimeTrack(for: $0, in: updated)
-        }
-        // Announce changes before committing the whole source snapshot so each batch remains
-        // atomic to readers. Hidden source updates still commit, but do not wake unchanged lookups.
-        for uri in changedURIs { contentObservation.willSet(self, keyPath: \.[track: uri]) }
-        tracksBySource = updated
-        if changedRuntimeTracks { runtimeTracksRevision &+= 1 }
-        for uri in changedURIs { contentObservation.didSet(self, keyPath: \.[track: uri]) }
+        for keyPath in changes { contentObservation.didSet(self, keyPath: keyPath) }
     }
 
     private func publishItems(
         _ updated: [ItemSource: [String: CatalogItem]],
         affectedURIs: Set<String>
     ) {
-        let changedURIs = affectedURIs.filter {
-            Self.item(for: $0, in: itemsBySource) != Self.item(for: $0, in: updated)
+        guard !affectedURIs.isEmpty else { return }
+        let changes: [KeyPath<CatalogMetadataRepository, CatalogItem?>] = affectedURIs.compactMap { uri in
+            guard Self.item(for: uri, in: itemsBySource) != Self.item(for: uri, in: updated) else { return nil }
+            return \.[item: uri]
         }
-        for uri in changedURIs { contentObservation.willSet(self, keyPath: \.[item: uri]) }
+        for keyPath in changes { contentObservation.willSet(self, keyPath: keyPath) }
         itemsBySource = updated
-        for uri in changedURIs { contentObservation.didSet(self, keyPath: \.[item: uri]) }
+        for keyPath in changes { contentObservation.didSet(self, keyPath: keyPath) }
     }
 
-    private func promoteRetainedTracks(
-        _ tracks: some Sequence<CatalogTrack>,
-        excluding source: TrackSource,
-        in updated: inout [TrackSource: [String: CatalogTrack]]
-    ) {
-        let candidates = Array(tracks)
-        for retainedSource in TrackSource.allCases where retainedSource != source {
-            guard let wanted = retainedTrackURIsBySource[retainedSource], !wanted.isEmpty else { continue }
-            var retained = updated[retainedSource] ?? [:]
-            for track in candidates where wanted.contains(track.uri) {
-                retained[track.uri] = track.fillingMissingLinks(from: retained[track.uri])
-            }
-            updated[retainedSource] = retained
-        }
-    }
-
-    private static func track(
-        for uri: String,
-        in tracks: [TrackSource: [String: CatalogTrack]],
-        excluding source: TrackSource? = nil
-    ) -> CatalogTrack? {
-        var result: CatalogTrack?
-        for candidate in TrackSource.allCases where candidate != source {
-            if let track = tracks[candidate]?[uri] { result = track.fillingMissingLinks(from: result) }
-        }
-        return result
-    }
-
-    private static func runtimeTrack(
-        for uri: String,
-        in tracks: [TrackSource: [String: CatalogTrack]]
-    ) -> CatalogTrack? {
-        var result: CatalogTrack?
-        for source in runtimeTrackSources {
-            if let track = tracks[source]?[uri] { result = track.fillingMissingLinks(from: result) }
-        }
-        return result
+    /// Compare source entries once; merge source precedence only for entries that changed.
+    /// Hidden writes still reach publication so removing a higher-priority source reveals them.
+    private static func changedURIs<Value: Equatable>(
+        from previous: [String: Value], to replacement: [String: Value]
+    ) -> Set<String> {
+        var changed = Set<String>()
+        for (uri, value) in replacement where previous[uri] != value { changed.insert(uri) }
+        for uri in previous.keys where replacement[uri] == nil { changed.insert(uri) }
+        return changed
     }
 
     private static func item(

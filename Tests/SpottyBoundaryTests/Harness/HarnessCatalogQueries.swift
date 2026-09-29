@@ -1,35 +1,35 @@
 import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
+import SpottyTestSupport
 
 /// Scripted entity publications. Storage invalidation/coalescing is tested by the storage/runtime
-/// suites; this harness lets presentation checks stop a page at a precise suspension boundary.
+/// suites; this harness lets presentation checks stop a complete read at a precise suspension boundary.
 actor HarnessCatalogQueries: CatalogEntityQueryProviding {
     private struct Query {
         let uris: Set<String>
         let continuation: AsyncStream<CatalogEntityChange>.Continuation
     }
 
-    private struct Publication {
-        let ordered: [CatalogTrackMetadata]
-    }
-
     private let lifetime = UUID()
     private var queries: [CatalogEntitySubscriptionToken: Query] = [:]
-    private var publications: [CatalogEntitySubscriptionToken: [UInt64: Publication]] = [:]
+    private var publications: [CatalogEntitySubscriptionToken: [UInt64: [String: CatalogTrackMetadata]]] = [:]
     private var entities: [String: CatalogTrackMetadata] = [:]
     private var revision: UInt64 = 0
     private var failuresRemaining = 0
-    private var pageFailuresRemaining = 0
-    private(set) var failedPageCount = 0
+    private var readFailuresRemaining = 0
+    private(set) var failedReadCount = 0
     private(set) var subscriptionAttemptCount = 0
-    private var heldOffset: Int?
-    private var parked: [CheckedContinuation<Void, Never>] = []
+    private var nextReadCompletion: HarnessResponseGate<Void>?
     private(set) var acknowledgementCount = 0
     private(set) var unsubscribeCount = 0
     private(set) var subscriptionCount = 0
-    var parkedPageCount: Int { parked.count }
+    private(set) var peakQueryCount = 0
+    private var nextSubscriptionCompletion: HarnessResponseGate<Void>?
     var activeQueryCount: Int { queries.count }
+    var activeRequestedURIs: Set<String> {
+        queries.values.reduce(into: Set<String>()) { $0.formUnion($1.uris) }
+    }
 
     func failNextSubscription() { failuresRemaining += 1 }
 
@@ -37,16 +37,10 @@ actor HarnessCatalogQueries: CatalogEntityQueryProviding {
         for query in queries.values { query.continuation.finish() }
     }
 
-    func failNextPage() { pageFailuresRemaining += 1 }
+    func failNextRead() { readFailuresRemaining += 1 }
 
-    func holdPage(at offset: Int) { heldOffset = offset }
-
-    func releasePages() {
-        heldOffset = nil
-        let continuations = parked
-        parked = []
-        for continuation in continuations { continuation.resume() }
-    }
+    func delayNextRead(until completion: HarnessResponseGate<Void>) { nextReadCompletion = completion }
+    func delayNextSubscription(until completion: HarnessResponseGate<Void>) { nextSubscriptionCompletion = completion }
 
     func publish(_ changed: [CatalogTrack]) {
         let metadata = changed.map { CatalogTrackMetadata(track: $0, requestedURI: $0.uri) }
@@ -63,35 +57,38 @@ actor HarnessCatalogQueries: CatalogEntityQueryProviding {
             failuresRemaining -= 1
             throw CatalogEntityQueryFailure.unavailable
         }
+        if let completion = nextSubscriptionCompletion {
+            nextSubscriptionCompletion = nil
+            try await completion.wait()
+        }
+        guard queries.count < CatalogEntityQueryLimits.maximumSubscriptions else {
+            throw CatalogEntityQueryFailure.capacity
+        }
         let token = CatalogEntitySubscriptionToken(accountLifetime: lifetime)
         let (stream, continuation) = AsyncStream<CatalogEntityChange>.makeStream()
         let query = Query(uris: uris, continuation: continuation)
         queries[token] = query
+        peakQueryCount = max(peakQueryCount, queries.count)
         subscriptionCount += 1
         let initial = uris.compactMap { entities[$0] }
         if !initial.isEmpty { emit(initial, token: token, query: query) }
         return CatalogEntitySubscription(token: token, updates: stream)
     }
 
-    func catalogEntityPage(
-        _ token: CatalogEntitySubscriptionToken, revision: UInt64, offset: Int, limit: Int
-    ) async throws -> CatalogEntityPage {
-        if pageFailuresRemaining > 0 {
-            pageFailuresRemaining -= 1
-            failedPageCount += 1
+    func catalogEntities(for change: CatalogEntityChange) async throws -> [String: CatalogTrackMetadata] {
+        if readFailuresRemaining > 0 {
+            readFailuresRemaining -= 1
+            failedReadCount += 1
             throw CatalogEntityQueryFailure.unavailable
         }
-        guard let publication = publications[token]?[revision] else { throw CatalogEntityQueryFailure.superseded }
-        let end = min(offset + limit, publication.ordered.count)
-        let rows = publication.ordered[offset..<end]
-        let page = CatalogEntityPage(
-            token: token, revision: revision, offset: offset, totalCount: publication.ordered.count,
-            nextOffset: end, tracks: Dictionary(uniqueKeysWithValues: rows.map { ($0.uri, $0) }))
-        if heldOffset == offset {
-            // Deliberately uncooperative so lifetime checks must reject a late completed page.
-            await withCheckedContinuation { parked.append($0) }
+        guard let entities = publications[change.token]?[change.revision] else {
+            throw CatalogEntityQueryFailure.superseded
         }
-        return page
+        if let completion = nextReadCompletion {
+            nextReadCompletion = nil
+            try await completion.wait()
+        }
+        return entities
     }
 
     func acknowledgeCatalogEntities(_ token: CatalogEntitySubscriptionToken, revision: UInt64) async {
@@ -107,7 +104,7 @@ actor HarnessCatalogQueries: CatalogEntityQueryProviding {
 
     private func emit(_ tracks: [CatalogTrackMetadata], token: CatalogEntitySubscriptionToken, query: Query) {
         guard !tracks.isEmpty else { return }
-        publications[token, default: [:]][revision] = Publication(ordered: tracks.sorted { $0.uri < $1.uri })
-        query.continuation.yield(CatalogEntityChange(token: token, revision: revision, totalCount: tracks.count))
+        publications[token, default: [:]][revision] = Dictionary(uniqueKeysWithValues: tracks.map { ($0.uri, $0) })
+        query.continuation.yield(CatalogEntityChange(token: token, revision: revision))
     }
 }

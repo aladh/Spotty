@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import AppKit
 import Foundation
 import SpottyDomain
@@ -9,8 +11,32 @@ import Testing
 @MainActor
 struct SystemMediaArtworkChecks {
     private let asset = ArtworkAsset(
-        encodedThumbnail: Data(), rgbaPixels: Data([255, 0, 0, 255]),
+        rgbaPixels: Data([255, 0, 0, 255]),
         pixelWidth: 1, pixelHeight: 1, tint: nil)
+
+    @Test(arguments: [false, true])
+    func disposingControlsRemovesSystemPublicationAndReleasesArtwork(alreadyStopped: Bool) async throws {
+        let images = HarnessArtwork()
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(artwork: images))
+        let output = HarnessSystemMediaOutput()
+        var controls: SystemMediaControls? = SystemMediaControls(player: player, output: output)
+        weak let owner = controls
+        controls?.start()
+        present(player, uri: "a", title: "A", image: "a")
+        try await requireEventually { await images.requests.count == 1 }
+        await images.complete(0, with: .success(asset))
+        try await requireEventually { output.snapshot?.artwork != nil }
+        weak let publishedArtwork = output.snapshot?.artwork
+        if alreadyStopped { controls?.stop() }
+
+        controls = nil
+
+        #expect(owner == nil)
+        #expect(output.removals == 1)
+        #expect(output.snapshot == nil)
+        #expect(publishedArtwork == nil)
+        await player.shutdownForTermination()
+    }
 
     @Test func lateImagesCannotReplaceTheCurrentTrackAndMetadataDoesNotRestartLoading() async throws {
         let images = HarnessArtwork()
@@ -107,7 +133,7 @@ struct SystemMediaArtworkChecks {
         let requests = await images.requests
         #expect(requests[0].accountEpoch != requests[1].accountEpoch)
         let replacement = ArtworkAsset(
-            encodedThumbnail: Data(), rgbaPixels: Data([0, 0, 255, 255]),
+            rgbaPixels: Data([0, 0, 255, 255]),
             pixelWidth: 1, pixelHeight: 1, tint: nil)
         await images.complete(1, with: .success(replacement))
         try await requireEventually { output.snapshot?.artwork != nil }
@@ -129,7 +155,7 @@ struct SystemMediaArtworkChecks {
         #expect(native.image(at: NSSize(width: 100, height: 100))?.size == NSSize(width: 1, height: 1))
         #expect(
             MacSystemMediaControlsOutput.makeArtwork(
-                ArtworkAsset(encodedThumbnail: Data(), rgbaPixels: Data(), pixelWidth: 1, pixelHeight: 1, tint: nil))
+                ArtworkAsset(rgbaPixels: Data(), pixelWidth: 1, pixelHeight: 1, tint: nil))
                 == nil)
     }
 

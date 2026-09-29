@@ -47,7 +47,12 @@ final class PlaybackStore {
     @ObservationIgnored private var lastCatalogInputRevision: UInt64?
     @ObservationIgnored private var lastCatalogInputEpoch: UInt64?
 
-    deinit { subscription?.cancel() }
+    @ObservationIgnored private(set) var catalogLoadTask: Task<Void, Never>?
+
+    deinit {
+        subscription?.cancel()
+        catalogLoadTask?.cancel()
+    }
 
     init(environment: PlaybackEnvironment, feedback: TransientFeedbackPresenter) {
         self.feedback = feedback
@@ -59,18 +64,8 @@ final class PlaybackStore {
             provider: environment.catalog, playlistMutations: environment.playlistMutations, session: session,
             clock: environment.clock, feedback: feedback)
         let runtime = self.runtime
-        SessionRuntimeActor.sync {
-            runtime.setCatalogLoader { [weak self] in await self?.loadCatalog() }
-        }
         apply(SessionRuntimeActor.sync { runtime.presentation() })
         installPresentationSubscription()
-    }
-
-    private func loadCatalog() async {
-        let runtime = runtime
-        apply(SessionRuntimeActor.sync { runtime.presentation() })
-        await catalog.homeLibrary.load()
-        synchronizeCatalogMetadata()
     }
 
     /// A bounded synchronous mailbox entrance is retained for local admission and deterministic
@@ -119,14 +114,14 @@ final class PlaybackStore {
 
     private func synchronizeCatalogMetadata() {
         guard !isApplying, catalogSession.snapshot.isAvailable else { return }
-        let epoch = accountEpoch
-        let revision = catalog.metadata.runtimeTracksRevision
-        guard revision != lastCatalogInputRevision || epoch != lastCatalogInputEpoch else { return }
-        let tracks = Array(catalog.metadata.runtimeTracks.values)
+        let snapshot = catalog.metadata.browsingMetadata
+        guard snapshot.revision != lastCatalogInputRevision || snapshot.accountEpoch != lastCatalogInputEpoch else {
+            return
+        }
         let runtime = runtime
-        if SessionRuntimeActor.sync({ runtime.acceptCatalogMetadata(tracks, accountEpoch: epoch) }) {
-            lastCatalogInputRevision = revision
-            lastCatalogInputEpoch = epoch
+        if SessionRuntimeActor.sync({ runtime.acceptCatalogMetadata(snapshot) }) {
+            lastCatalogInputRevision = snapshot.revision
+            lastCatalogInputEpoch = snapshot.accountEpoch
         }
     }
 
@@ -144,6 +139,7 @@ final class PlaybackStore {
     }
 
     func startLifetimeEffectsIfNeeded() {
+        guard allowsCommands else { return }
         installPresentationSubscription()
         withRuntime { $0.startLifetimeEffectsIfNeeded() }
     }
@@ -155,7 +151,8 @@ final class PlaybackStore {
         lastRevision = value.revision
         let changedAccount = accountEpoch != value.accountEpoch
         accountEpoch = value.accountEpoch
-        catalogSession.update(accountEpoch: value.accountEpoch, isAvailable: value.catalogAvailable)
+        let changedCatalogSession = catalogSession.snapshot != value.catalogSession
+        catalogSession.apply(value.catalogSession)
         if changedAccount {
             catalog.reset()
             history = []
@@ -188,9 +185,9 @@ final class PlaybackStore {
         }
         if playingContextURI != value.playingContextURI { playingContextURI = value.playingContextURI }
         if history != value.history { history = value.history }
-        if value.catalogAvailable, lastMetadata != value.metadata {
+        if value.catalogSession.isAvailable, lastMetadata != value.metadata {
             lastMetadata = value.metadata
-            catalog.metadata.replaceTracks(value.metadata, from: .queue)
+            catalog.metadata.replaceTracks(value.metadata, from: .playback)
         }
         if let message = value.feedback, message.revision > lastFeedbackRevision {
             lastFeedbackRevision = message.revision
@@ -199,6 +196,21 @@ final class PlaybackStore {
             case .informational: feedback.informational(message.text)
             case .failure: feedback.failure(message.text)
             case .dismiss: feedback.dismiss()
+            }
+        }
+        if changedCatalogSession {
+            catalogLoadTask?.cancel()
+            catalogLoadTask = nil
+            if value.catalogSession.isAvailable {
+                // Browsing work belongs to the desktop. The runtime only publishes readiness;
+                // it never awaits UI work or retains a callback into this client.
+                let session = value.catalogSession
+                catalogLoadTask = Task { [weak self, catalog] in
+                    guard !Task.isCancelled, self?.catalogSession.snapshot == session else { return }
+                    await catalog.homeLibrary.load()
+                    guard !Task.isCancelled else { return }
+                    self?.synchronizeCatalogMetadata()
+                }
             }
         }
     }
@@ -219,6 +231,7 @@ final class PlaybackStore {
         withRuntime { _ in }
     }
     func shutdownForTermination() async {
+        catalogLoadTask?.cancel()
         await runtime.shutdownForTermination()
         withRuntime { _ in }
         subscription?.cancel()

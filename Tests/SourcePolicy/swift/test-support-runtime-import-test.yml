@@ -1,0 +1,14 @@
+---
+id: test-support-runtime-import
+valid:
+- import SpottyRuntimeContracts
+- import SpottyEngineAdapter
+- import SpottyGateway
+- import SpottyTestSupport
+- import Testing
+- "// import SpottySessionRuntime"
+- 'let text = "import SpottySessionRuntime"'
+invalid:
+- import SpottySessionRuntime
+- '@testable import SpottySessionRuntime'
+- 'import struct SpottySessionRuntime.RuntimePresentation'

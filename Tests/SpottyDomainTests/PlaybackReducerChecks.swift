@@ -39,13 +39,13 @@ private func item(
     occurrence: Int = 0,
     provider: String = "web-api",
     uid: String = ""
-) -> PlaybackQueueItem {
+) -> QueueEntry {
     let uri = "spotify:track:\(suffix)"
-    return PlaybackQueueItem(uri: uri, provider: provider, occurrence: occurrence, uid: uid)
+    return QueueEntry(uri: uri, provider: provider, occurrence: occurrence, uid: uid)
 }
 
 private func queue(
-    _ entries: [PlaybackQueueItem],
+    _ entries: [QueueEntry],
     source: PlaybackQueueSource,
     completeness: PlaybackQueueCompleteness,
     revision: UInt64,

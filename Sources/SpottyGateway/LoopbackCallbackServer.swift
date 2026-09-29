@@ -7,7 +7,6 @@
 
 import Foundation
 import SpottyRuntimeContracts
-import SpottyDomain
 import Network
 
 /// Receives a single OAuth redirect on `http://127.0.0.1:<port>/login`.
@@ -46,12 +45,28 @@ actor LoopbackCallbackServer {
     }
     private var state = State.idle
     private var timeout: Task<Void, Never>?
-    private var connections: [ObjectIdentifier: NWConnection] = [:]
+    private struct AcceptedConnection {
+        let connection: NWConnection
+        let deadline: Task<Void, Never>
+    }
+    private var connections: [ObjectIdentifier: AcceptedConnection] = [:]
     var activeConnectionCount: Int { connections.count }
     private let expectedState: String
+    private let maximumConnections: Int
+    private let requestClock: any PlaybackClock
 
-    init(expectedState: String) {
+    init(
+        expectedState: String, maximumConnections: Int = 16,
+        requestClock: any PlaybackClock = SystemPlaybackClock()
+    ) {
+        precondition(maximumConnections > 0)
         self.expectedState = expectedState
+        self.maximumConnections = maximumConnections
+        self.requestClock = requestClock
+    }
+
+    isolated deinit {
+        finish(.failure(CancellationError()))
     }
 
     /// Starts listening on a system-assigned loopback port and returns it.
@@ -128,8 +143,17 @@ actor LoopbackCallbackServer {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard case .listening = state else { connection.cancel(); return }
-        connections[ObjectIdentifier(connection)] = connection
+        guard case .listening = state, connections.count < maximumConnections else {
+            connection.cancel()
+            return
+        }
+        let id = ObjectIdentifier(connection)
+        let deadline = Task { [weak self, requestClock] in
+            do { try await requestClock.sleep(seconds: 10) } catch { return }
+            guard !Task.isCancelled else { return }
+            await self?.expireConnection(id)
+        }
+        connections[id] = AcceptedConnection(connection: connection, deadline: deadline)
         connection.start(queue: .global(qos: .userInitiated))
         Self.receiveRequest(on: connection, expectedState: expectedState) { [weak self] callback in
             Task { await self?.requestCompleted(on: connection, callback: callback) }
@@ -137,8 +161,15 @@ actor LoopbackCallbackServer {
     }
 
     private func requestCompleted(on connection: NWConnection, callback: URLComponents?) {
-        guard connections.removeValue(forKey: ObjectIdentifier(connection)) != nil else { return }
+        guard let accepted = connections.removeValue(forKey: ObjectIdentifier(connection)) else { return }
+        accepted.deadline.cancel()
         if let callback { finish(.success(callback)) }
+    }
+
+    private func expireConnection(_ id: ObjectIdentifier) {
+        guard let accepted = connections.removeValue(forKey: id) else { return }
+        accepted.deadline.cancel()
+        accepted.connection.cancel()
     }
 
     private func listenerChanged(_ result: Result<UInt16, Error>) {
@@ -208,7 +239,10 @@ actor LoopbackCallbackServer {
         listener?.newConnectionHandler = nil
         listener?.cancel()
         listener = nil
-        for connection in connections.values { connection.cancel() }
+        for accepted in connections.values {
+            accepted.deadline.cancel()
+            accepted.connection.cancel()
+        }
         connections.removeAll()
 
         // Clearing the listener handler suppresses its cancellation callback.
@@ -313,12 +347,5 @@ actor LoopbackCallbackServer {
                 connection.cancel()
                 completion()
             })
-    }
-
-    /// Pulls the query out of an HTTP request line: `GET /login?code=…&state=… HTTP/1.1`.
-    ///
-    /// Split out so the parsing can be tested without a socket.
-    nonisolated static func parseRequestLine(_ request: String) -> URLComponents? {
-        LoopbackRequestParser.parseRequestLine(request)
     }
 }

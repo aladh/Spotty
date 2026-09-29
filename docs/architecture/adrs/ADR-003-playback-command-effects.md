@@ -10,7 +10,7 @@ need an owner, but not necessarily another state-management framework.
 
 ## Decision
 
-Keep `PlaybackEffectRegistry`; the store starts and owns tasks. Reducer acceptance and shared
+Keep `PlaybackEffectRegistry`; the session runtime starts and owns tasks. Reducer acceptance and shared
 command-follow-up policy govern results. Reuse that policy at new command sites rather than adding
 another runner. Keep callback identity separate from command-effect ownership.
 
@@ -23,7 +23,15 @@ sanctioned revalidation after an `await`.
 Do not adopt The Composable Architecture (TCA) or introduce a generic `Effect` abstraction for the
 current playback architecture.
 
-Queued commands carry a dispatch permit. Route/lifetime publication invalidates unclaimed permits;
+Transport entry points submit concrete command requests. One private preparation boundary derives
+admission kind, optimistic state, matching local/remote operations, and route eligibility together.
+Callers cannot supply these independently. Repeat retains one admission around its ordered mutations;
+transfer always uses the engine, including remote destinations. The existing runtime lifecycle owns
+execution and settlement; request preparation introduces no additional effect owner.
+
+Every user command requires a dispatch permit; the coordinator has no unchecked dispatch entrance.
+Reconnect recovery accepts only a load plan and its engine-enforced generation, not an arbitrary
+playback operation. Route/lifetime publication invalidates unclaimed permits;
 the coordinator claims a permit immediately before committing to the local or remote operation.
 Claim is the irreversible dispatch boundary, not evidence that playback succeeded. Timing and
 metadata changes alone must not invalidate a route. Optimistic idle-local play retains its chosen
@@ -37,7 +45,7 @@ their existing lifetime and registration identity.
 ### Intent outcomes
 
 The reducer records admission, permit dispatch, successful transport return (`sent`), observed
-confirmation, rejection, supersession, and expiration. The store drains the permit's synchronous
+confirmation, rejection, supersession, and expiration. The transition owner drains the permit's synchronous
 claim receipt before reducing observations, including observations arriving before transport returns.
 Only accepted engine payloads received after dispatch can provide confirmation; optimistic state and
 metadata cannot. Spotify does not echo our operation ID, so confirmation means a matching observed
@@ -84,5 +92,5 @@ and generation checks.
 
 ## Revisit trigger
 
-Reconsider when replacing `PlaybackStore` or when a demonstrated testing or effect-management need
-cannot be met by the existing registry and focused suites.
+Reconsider when a demonstrated runtime testing or effect-management need cannot be met by the
+existing registry and focused suites.

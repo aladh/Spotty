@@ -252,8 +252,9 @@ def run_corpus(args):
     # Standalone runs still build normally; the watchdog owns the single attempt.
     command = ["zsh", "-eu", "-c", 'project_root="$PWD"; source Scripts/swiftpm-env.sh; '
                'exec python3 Scripts/swift_test_watchdog.py --lane acceptance --repetition 1 '
-               '--timeout-seconds "$1" --log-dir "$2" -- swift test --disable-sandbox --no-parallel '
-               '--package-path "$project_root" --configuration debug --filter AcceptanceCorpusTests '
+               '--timeout-seconds "$1" --log-dir "$2" --require-tests -- swift test --disable-sandbox --no-parallel '
+               '--package-path "$project_root" --configuration debug --test-product SpottyBrowsingHarnessTests '
+               '--filter AcceptanceCorpusTests '
                '"${spotty_swiftc_warnings_as_errors[@]}"',
                "acceptance", str(args.timeout_seconds), str(output / "diagnostics")]
     host_failure = None

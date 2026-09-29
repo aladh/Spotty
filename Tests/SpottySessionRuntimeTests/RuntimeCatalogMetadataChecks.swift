@@ -1,5 +1,6 @@
 import Foundation
 import SpottyDomain
+import SpottyRuntimeContracts
 import Testing
 @testable import SpottySessionRuntime
 
@@ -19,15 +20,15 @@ struct RuntimeCatalogMetadataTests {
             metadata.replaceTracks([rich], from: .nowPlaying)
             metadata.retainTracks(from: .queue, for: [uri])
             let partial = track(uri, title: "Updated title")
-            metadata.replaceTracks([partial], from: .browsing)
+            metadata.acceptBrowsing(snapshot([partial], revision: 1))
             #expect(metadata.knownTrack(for: uri)?.title == partial.title)
             #expect(metadata.knownTrack(for: uri)?.artists == [artist])
             #expect(metadata.knownTrack(for: uri)?.albumItem == album)
-            metadata.replaceTracks([], from: .browsing)
+            metadata.acceptBrowsing(snapshot([], revision: 2))
             #expect(metadata.playbackTracks.first?.artists == [artist])
             #expect(metadata.playbackTracks.first?.albumItem == album)
-            metadata.replaceTracks([rich], from: .browsing)
-            metadata.replaceTracks([partial], from: .browsing)
+            metadata.acceptBrowsing(snapshot([rich], revision: 3))
+            metadata.acceptBrowsing(snapshot([partial], revision: 4))
             #expect(metadata.knownTrack(for: uri)?.artists == [artist])
             #expect(metadata.knownTrack(for: uri)?.albumItem == album)
             metadata.reset()
@@ -37,7 +38,7 @@ struct RuntimeCatalogMetadataTests {
         }
     }
 
-    @Test func browsingOccurrenceChangesDoNotPublishUnchangedPlaybackLabels() {
+    @Test func queueOccurrenceChangesDoNotPublishUnchangedPlaybackLabels() {
         SessionRuntimeActor.sync {
             let metadata = RuntimeCatalogMetadata()
             let uri = "spotify:track:queued"
@@ -52,7 +53,7 @@ struct RuntimeCatalogMetadataTests {
                             album: "Album", duration: 180, artworkURL: nil,
                             addedAt: Date(timeIntervalSince1970: Double(index)),
                             occurrenceUID: "server-\(index)")
-                    ], from: .browsing)
+                    ], from: .queue)
             }
             #expect(publications == 1)
             #expect(metadata.playbackTracks.first?.id == uri)
@@ -69,8 +70,8 @@ struct RuntimeCatalogMetadataTests {
             metadata.replaceTracks([provisional], from: .queue)
             metadata.retainTracks(from: .queue, for: [provisional.uri])
             metadata.replaceTracks([provisional], from: .nowPlaying)
-            metadata.replaceTracks([enriched], from: .browsing)
-            metadata.replaceTracks([], from: .browsing)
+            metadata.acceptBrowsing(snapshot([enriched], revision: 5))
+            metadata.acceptBrowsing(snapshot([], revision: 6))
             #expect(metadata.knownTrack(for: provisional.uri) == enriched)
             #expect(metadata.playbackTracks == [enriched])
             metadata.replaceTracks([], from: .queue)
@@ -89,14 +90,23 @@ struct RuntimeCatalogMetadataTests {
             let queued = track("spotify:track:queued", title: "Queued")
             let unrelated = track("spotify:track:page-only", title: "Other page row")
             metadata.retainTracks(from: .queue, for: [queued.uri])
-            metadata.replaceTracks([queued, unrelated], from: .browsing)
+            metadata.acceptBrowsing(snapshot([queued, unrelated], revision: 7))
             #expect(metadata.playbackTracks == [queued])
-            metadata.replaceTracks([], from: .browsing)
+            #expect(metadata.knownTrack(for: unrelated.uri) == unrelated)
+            metadata.acceptBrowsing(snapshot([], revision: 8))
             #expect(metadata.knownTrack(for: queued.uri) == queued)
             #expect(metadata.knownTrack(for: unrelated.uri) == nil)
             metadata.reset()
             #expect(metadata.playbackTracks.isEmpty)
         }
+    }
+
+    private func snapshot(_ tracks: [CatalogTrack], revision: UInt64) -> BrowsingMetadataSnapshot {
+        BrowsingMetadataSnapshot(
+            accountEpoch: 1, revision: revision,
+            tracks: Dictionary(
+                tracks.map { ($0.uri, CatalogTrackMetadata(track: $0, requestedURI: $0.uri)) },
+                uniquingKeysWith: { _, latest in latest }))
     }
 
     private func track(_ uri: String, title: String) -> CatalogTrack {

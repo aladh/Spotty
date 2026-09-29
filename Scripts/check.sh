@@ -42,8 +42,7 @@ if [[ "$check_scope" != rust && "$check_scope" != rust-compiled ]]; then
 
     # Keep Launch Services, update eligibility, icons, and compiler probes aligned with SwiftPM.
     minimum_macos="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$project_root/Packaging/Info.plist")"
-    package_minimum_macos="$(swift package --disable-sandbox --package-path "$project_root" dump-package \
-        | python3 -c 'import json, sys; print(next(p["version"] for p in json.load(sys.stdin)["platforms"] if p["platformName"] == "macos"))')"
+    package_minimum_macos="$(python3 "$project_root/Scripts/check-package-graphs.py")"
     engine_minimum_macos="$(cat "$project_root/Backend/spotty-playback/macos-deployment-target")"
     if [[ "$minimum_macos" != "$engine_minimum_macos" ]]; then
         print -u2 "App minimum macOS ($minimum_macos) must match the engine producer ($engine_minimum_macos)"
@@ -173,17 +172,8 @@ if [[ -n "${SPOTTY_SIGNING_IDENTITY:-}" ]]; then
 fi
 swift_arguments+=("${spotty_swiftc_warnings_as_errors[@]}")
 
-swift build "${swift_arguments[@]}"
+SPOTTY_BUILD_BROWSING_HARNESS=0 swift build "${swift_arguments[@]}"
 
-# Pure domain and deterministic scenario tests stay separate from the shipping
-# application target. SwiftPM discovers and runs them through Swift Testing.
-domain_test_arguments=(
-    --disable-sandbox
-    --package-path "$project_root"
-    --configuration "$build_configuration"
-    --filter SpottyDomainTests
-    "${spotty_swiftc_warnings_as_errors[@]}"
-)
 repeat_count="${SPOTTY_CHECK_REPEATS:-1}"
 if ! [[ "$repeat_count" =~ '^[1-9][0-9]*$' ]] || (( repeat_count > 25 )); then
     print -u2 "SPOTTY_CHECK_REPEATS must be between 1 and 25"
@@ -203,44 +193,40 @@ else
     swift_test_diagnostics="${SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR:-${TMPDIR:-/tmp}/spotty-swift-test-diagnostics-$$}"
 fi
 mkdir -p "$swift_test_diagnostics"
-for (( run = 1; run <= repeat_count; run++ )); do
-    python3 "$project_root/Scripts/swift_test_watchdog.py" \
-        --lane domain --repetition "$run" --timeout-seconds "$swift_test_timeout" \
-        --log-dir "$swift_test_diagnostics" \
-        --event-stream-path "$swift_test_diagnostics/domain-repeat-$run-events.jsonl" \
-        -- swift test "${domain_test_arguments[@]}"
-done
+# Build one complete Debug test graph, including the opt-in browsing harness. An unfiltered
+# invocation automatically covers new test targets. Keep shipping compilation above separate;
+# testability and synthetic dependencies never change the production graph.
+run_swift_tests() {
+    local lane="$1" configuration="$2"
+    shift 2
+    local package_graph=full
+    local package_root="$project_root"
+    local graph_arguments=()
+    if [[ "$lane" == domain-release ]]; then
+        package_graph=domain
+        package_root="$(python3 "$project_root/Scripts/verification_package.py" domain)"
+        graph_arguments=(--scratch-path "$project_root/.build/domain")
+    fi
+    local run
+    for (( run = 1; run <= repeat_count; run++ )); do
+        SPOTTY_BUILD_BROWSING_HARNESS=$([[ "$configuration" == debug ]] && print 1 || print 0) \
+            SPOTTY_PACKAGE_GRAPH="$package_graph" \
+            python3 "$project_root/Scripts/swift_test_watchdog.py" \
+            --lane "$lane" --repetition "$run" --timeout-seconds "$swift_test_timeout" \
+            --log-dir "$swift_test_diagnostics" \
+            --require-tests \
+            --event-stream-path "$swift_test_diagnostics/$lane-repeat-$run-events.jsonl" \
+            -- swift test --disable-sandbox --no-parallel --package-path "$package_root" \
+            --configuration "$configuration" "${graph_arguments[@]}" "${spotty_swiftc_warnings_as_errors[@]}" "$@"
+    done
+}
+# Release verification retains optimized pure-policy coverage. Concrete boundaries require Debug
+# @testable modules; production code is never compiled with testability enabled for this purpose.
+if [[ "$build_configuration" == release ]]; then
+    run_swift_tests domain-release release --filter SpottyDomainTests
+fi
+run_swift_tests debug debug
 
-# Concrete codecs/parsers, persistence, transport, and injected session/queue workflows compile
-# against their real owners in debug test targets because they use `@testable` imports. The shipping
-# Spotty and pure-domain tests above still honor a requested release configuration without enabling
-# testability in production code.
-boundary_test_arguments=(
-    --disable-sandbox
-    --no-parallel
-    --package-path "$project_root"
-    --configuration debug
-    --filter 'Spotty(Boundary|CatalogStorage|SessionRuntime|Gateway)Tests'
-    "${spotty_swiftc_warnings_as_errors[@]}"
-)
-for (( run = 1; run <= repeat_count; run++ )); do
-    python3 "$project_root/Scripts/swift_test_watchdog.py" \
-        --lane boundary --repetition "$run" --timeout-seconds "$swift_test_timeout" \
-        --log-dir "$swift_test_diagnostics" \
-        --event-stream-path "$swift_test_diagnostics/boundary-repeat-$run-events.jsonl" \
-        -- swift test "${boundary_test_arguments[@]}"
-done
-
-# The opt-in browsing app is never part of the shipping graph. Its deterministic port/fixture
-# checks run headlessly; launching its real views remains an explicit local acceptance step.
-SPOTTY_BUILD_BROWSING_HARNESS=1 python3 "$project_root/Scripts/swift_test_watchdog.py" \
-    --lane browsing --repetition 1 --timeout-seconds "$swift_test_timeout" \
-    --log-dir "$swift_test_diagnostics" \
-    --event-stream-path "$swift_test_diagnostics/browsing-repeat-1-events.jsonl" \
-    -- swift test --disable-sandbox --no-parallel --package-path "$project_root" \
-    --configuration debug --filter SpottyBrowsingHarnessTests "${spotty_swiftc_warnings_as_errors[@]}"
-
-# Check mutation access against the actual testable Debug module built by the boundary suite.
 "$project_root/Scripts/check-playback-projection-access.sh"
 
 if find "$project_root/Sources/Spotty" -type d -name LogicChecks -print -quit | rg -q .; then
@@ -256,7 +242,7 @@ if find "$project_root/Sources" -type d \( -name SpottyChecks -o -name DeferredB
     exit 1
 fi
 for test_target in SpottyDomainTests SpottyBoundaryTests SpottyCatalogStorageTests \
-    SpottySessionRuntimeTests SpottyGatewayTests; do
+    SpottySessionRuntimeTests SpottyGatewayTests SpottyTestSupportTests SpottyEngineAdapterTests; do
     if [[ ! -d "$project_root/Tests/$test_target" ]]; then
         print -u2 "Conventional Swift test directory is missing: Tests/$test_target"
         exit 1

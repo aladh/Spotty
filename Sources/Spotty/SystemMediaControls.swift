@@ -54,7 +54,7 @@ final class SystemMediaControls {
     private var artwork: SystemMediaArtwork?
     private var artworkTask: Task<Void, Never>?
 
-    deinit { artworkTask?.cancel() }
+    isolated deinit { stop() }
 
     init(player: PlaybackStore, output: any SystemMediaControlsOutput) {
         self.player = player

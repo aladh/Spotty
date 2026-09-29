@@ -13,6 +13,13 @@
 | Production uses live integrations; fixtures remain in tests | [Dependency ownership](../adrs/ADR-002-playback-state-and-dependencies.md), [test guidance](../../../Tests/AGENTS.md) |
 | Valid bundle metadata | [check.sh](../../../Scripts/check.sh), [packaging](../../development/releases.md) |
 
+The portable graph supports isolated macOS policy tests through `verify.py domain`; named Gateway,
+CatalogStorage, and TestSupport tests use a second engine-free graph. Both reuse the full manifest's
+target declarations. [Manifest probes](../../../Scripts/check-package-graphs.py) resolve these graphs
+with an invalid playback override, compare shared declarations, and verify lockfile isolation.
+App and complete-gate entry points explicitly restore the full graph; see
+[workspace selection](../../development/verification.md#normal-verification).
+
 ## ABI and cross-language contracts
 
 | Purpose | Owner |
@@ -29,8 +36,8 @@ The selected header and archive must export the same symbols, and every Swift ca
 that artifact. Exports shared with the current producer must be consumed; retired exports may remain
 in an older pin, and new producer exports require no call until their artifact is adopted.
 
-`SpottyEngineAdapter` is the sole production consumer of `SpottyPlaybackCore`; boundary tests depend
-on it for ABI checks. Its implementation is internal. The [desktop import policy](source-checks.md)
+`SpottyEngineAdapter` is the sole production consumer of `SpottyPlaybackCore`; its own test target
+checks C snapshot ownership and event delivery. Its implementation is internal. The [desktop import policy](source-checks.md)
 and compiler probes close SwiftPM's transitive visibility, re-export, and inferred-access gaps.
 [Package.swift](../../../Package.swift) owns dependencies; [ADR 008](../adrs/ADR-008-headless-session-runtime.md)
 owns runtime ports and desktop presentation boundaries.

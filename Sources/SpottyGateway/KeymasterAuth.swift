@@ -275,9 +275,11 @@ nonisolated enum KeymasterAuth {
         return components?.url
     }
 
-    /// The path is `/login` because that is what the client id is registered with.
+    /// Shared by redirect construction and the listener's request-target policy.
+    static let redirectPath = "/login"
+
     static func redirectURI(port: UInt16) -> String {
-        "http://127.0.0.1:\(port)/login"
+        "http://127.0.0.1:\(port)\(redirectPath)"
     }
 
     /// Reads the code out of the redirect, rejecting anything that is not the request we made.

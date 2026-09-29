@@ -30,7 +30,7 @@ package struct RuntimePresentation: Equatable, Sendable {
     package let requiresReauthentication: Bool
     package let isTearingDown: Bool
     package let allowsCommands: Bool
-    package let catalogAvailable: Bool
+    package let catalogSession: CatalogSessionSnapshot
     package let history: [HistoryEntry]
     package let metadata: [CatalogTrack]
     package let feedback: RuntimeFeedbackMessage?
@@ -43,7 +43,8 @@ package struct RuntimePresentation: Equatable, Sendable {
         catalogPlaybackAvailability: CatalogPlaybackAvailability(state: PlaybackState(accountEpoch: 1)),
         accountEpoch: 1, engineGeneration: 0, queueInspectorOrderingVersion: 0,
         requiresReauthentication: false, isTearingDown: false, allowsCommands: true,
-        catalogAvailable: false, history: [], metadata: [], feedback: nil)
+        catalogSession: CatalogSessionSnapshot(accountEpoch: 1, isAvailable: false), history: [], metadata: [],
+        feedback: nil)
 }
 
 @SessionRuntimeActor
@@ -85,101 +86,4 @@ package final class RuntimeHistory {
     }
 
     package func reset() { entries = []; changed?() }
-}
-
-/// Only the bounded entity labels relevant to playback live here. Browsing collection ordering,
-/// ownership and mutations are never inferred from this metadata input.
-@SessionRuntimeActor
-package final class RuntimeCatalogMetadata {
-    package enum Source: Int, CaseIterable { case nowPlaying, queue, browsing }
-    private var tracks: [Source: [String: CatalogTrack]] = [:]
-    private var retained: [Source: Set<String>] = [:]
-    package var changed: (() -> Void)?
-
-    package private(set) var playbackTracks: [CatalogTrack] = []
-
-    private func refreshPublication() {
-        let uris = Set((tracks[.nowPlaying] ?? [:]).keys).union((tracks[.queue] ?? [:]).keys)
-        let next = uris.sorted().compactMap { knownTrack(for: $0) }
-        guard next != playbackTracks else { return }
-        playbackTracks = next
-        changed?()
-    }
-
-    package func knownTrack(for uri: String) -> CatalogTrack? {
-        var result: CatalogTrack?
-        for source in Source.allCases {
-            if let track = tracks[source]?[uri] { result = track.fillingMissingLinks(from: result) }
-        }
-        return result
-    }
-
-    package func displayInfo(for uri: String) -> (title: String, artist: String) {
-        if let track = knownTrack(for: uri) { return (track.title, track.artist) }
-        return ("Unknown track", uri.split(separator: ":").last.map(String.init) ?? uri)
-    }
-
-    package func replaceTracks(_ values: [CatalogTrack], from source: Source) {
-        // Occurrence identity and date belong to the browsing collection. Playback retains only
-        // entity metadata, so identical labels from another occurrence do not cause publication.
-        var replacement = Dictionary(
-            values.map { track in
-                let entity = CatalogTrack(
-                    id: track.uri, uri: track.uri, title: track.title, artist: track.artist,
-                    album: track.album, duration: track.duration, artworkURL: track.artworkURL,
-                    addedAt: nil, artists: track.artists, albumItem: track.albumItem)
-                return (track.uri, entity.fillingMissingLinks(from: tracks[source]?[track.uri]))
-            }, uniquingKeysWith: { _, latest in latest })
-        for uri in retained[source] ?? [] where replacement[uri] == nil {
-            replacement[uri] = tracks[source]?[uri]
-        }
-        guard tracks[source] != replacement else { return }
-        tracks[source] = replacement
-        if source == .browsing {
-            // A loaded page can improve labels for the retained queue/current track. Preserve
-            // those labels after navigation replaces the page, without retaining its ordering
-            // or treating its membership as playback authority.
-            for target in [Source.queue, .nowPlaying] {
-                let wanted = retained[target] ?? Set(tracks[target]?.keys.map { $0 } ?? [])
-                for (uri, track) in replacement where wanted.contains(uri) {
-                    tracks[target, default: [:]][uri] = track.fillingMissingLinks(from: tracks[target]?[uri])
-                }
-            }
-        }
-        refreshPublication()
-    }
-
-    package func retainTracks(from source: Source, for uris: Set<String>) {
-        retained[source] = uris
-        let replacement = Dictionary(
-            uris.compactMap { uri in knownTrack(for: uri).map { (uri, $0) } },
-            uniquingKeysWith: { _, latest in latest })
-        guard tracks[source] != replacement else { return }
-        tracks[source] = replacement
-        refreshPublication()
-    }
-
-    package func reset() { tracks = [:]; retained = [:]; refreshPublication() }
-}
-
-@SessionRuntimeActor
-package final class RuntimeCatalogState {
-    package let metadata = RuntimeCatalogMetadata()
-    package func reset() { metadata.reset() }
-}
-
-@SessionRuntimeActor
-package final class RuntimeCatalogSession {
-    package private(set) var accountEpoch: UInt64
-    package private(set) var isAvailable: Bool
-
-    package init(accountEpoch: UInt64, isAvailable: Bool) {
-        self.accountEpoch = accountEpoch
-        self.isAvailable = isAvailable
-    }
-
-    package func update(accountEpoch: UInt64, isAvailable: Bool) {
-        self.accountEpoch = accountEpoch
-        self.isAvailable = isAvailable
-    }
 }

@@ -11,6 +11,8 @@ enum NativeTrackColumn: String, CaseIterable {
     case duration
     case playCount
 
+    var isPlainText: Bool { self == .dateAdded || self == .duration || self == .playCount }
+
     var title: String {
         switch self {
         case .index: "#"
@@ -51,7 +53,7 @@ enum NativeTrackColumn: String, CaseIterable {
     }
 }
 
-/// Hosted cell content reads only the observable facts that its column displays.
+/// Hosted leaf content for table columns and composite discography rows.
 /// The native table owns row selection, sizing, and reuse.
 struct NativeTrackCell: View {
     let row: TrackTableRow

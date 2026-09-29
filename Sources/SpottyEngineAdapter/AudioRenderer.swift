@@ -11,10 +11,10 @@ import SpottyDomain
 import CoreMedia
 import OSLog
 
-public nonisolated enum AudioRendererError: LocalizedError, Sendable {
+nonisolated enum AudioRendererError: LocalizedError, Sendable {
     case formatDescription(OSStatus)
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case let .formatDescription(status):
             "Spotty could not configure the system audio output (\(status))."
@@ -33,18 +33,18 @@ public nonisolated enum AudioRendererError: LocalizedError, Sendable {
 /// that only `stop` / `flush` / route recreation can create. Those controls also run on
 /// the player thread, so a full buffer uses one 500 ms backpressure wait and then drops.
 ///
-public final nonisolated class AudioRenderer: @unchecked Sendable {
+final nonisolated class AudioRenderer: @unchecked Sendable {
     // MARK: - Constants
 
     private static let sampleRate: Float64 = 44100
-    private static let channelCount: UInt32 = 2
+    private static let channelCount = UInt32(StereoPCMBuffer.channels)
     private static let bytesPerSample = MemoryLayout<Float>.size  // 4
 
-    /// Ring buffer capacity in f32 samples (~2 seconds of stereo audio)
-    private static let ringBufferCapacity = 176_400  // 44100 * 2ch * 2s
+    /// Two seconds of complete stereo frames; storage never contains a partial channel pair.
+    private static let ringBufferFrameCapacity = 88_200
 
-    /// Chunk size for feeding renderer (~1024 frames = 2048 stereo samples)
-    private static let feedChunkSamples = 2048
+    /// Maximum chunk size passed to Core Media.
+    private static let feedChunkFrames = 1024
 
     // MARK: - AVFoundation Objects (recreated on output device change)
 
@@ -60,13 +60,11 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
 
     // MARK: - Ring Buffer
 
-    private let ringBuffer: UnsafeMutablePointer<Float>
-    private var cursor = PCMBufferCursor(capacity: ringBufferCapacity)
+    private let ringBuffer = StereoPCMBuffer(capacityFrames: ringBufferFrameCapacity)
     private let bufferLock = NSLock()
 
     /// Wake-up for a writer parked on a full buffer. Signal only while a wait is armed.
     private let writerSpace = PCMWriteSpace()
-    private var writeBackpressure = PCMWriteBackpressure()
     private var outputControl = AudioOutputControlEpoch()
 
     // MARK: - Write Throttle (provides real-time pacing)
@@ -100,7 +98,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
 
     // MARK: - Init
 
-    public init() throws(AudioRendererError) {
+    init() throws(AudioRendererError) {
         var asbd = AudioStreamBasicDescription(
             mSampleRate: Self.sampleRate,
             mFormatID: kAudioFormatLinearPCM,
@@ -128,8 +126,6 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
             throw AudioRendererError.formatDescription(status)
         }
         formatDescription = formatDesc
-        ringBuffer = .allocate(capacity: Self.ringBufferCapacity)
-        ringBuffer.initialize(repeating: 0, count: Self.ringBufferCapacity)
         synchronizer.addRenderer(renderer)
 
         // Recover from output device changes (AirPlay ↔ local speaker)
@@ -144,7 +140,6 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
         }
         renderer.stopRequestingMediaData()
         synchronizer.removeRenderer(renderer, at: .invalid)
-        ringBuffer.deallocate()
     }
 
     // MARK: - Volume
@@ -152,7 +147,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
     /// Sets the output gain (0...1) applied to playback. Takes effect immediately
     /// — it scales audio as it is played out, not the already-buffered PCM — so
     /// volume changes are not delayed by the render buffer.
-    public func setVolume(_ volume: Float) {
+    func setVolume(_ volume: Float) {
         let clamped = max(0, min(1, volume))
         renderQueue.async { [weak self] in
             guard let self else { return }
@@ -161,43 +156,32 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
         }
     }
 
-    // MARK: - Ring Buffer Helpers
-
-    /// Number of samples available for reading. Must be called with bufferLock held.
-    private var availableSamples: Int {
-        cursor.available
-    }
-
-    /// Free space in the ring buffer (-1 to distinguish full from empty). Must be called with bufferLock held.
-    private var freeSpace: Int {
-        cursor.free
-    }
-
     // MARK: - Push Side (called from Rust player thread)
 
     /// Write PCM samples into the ring buffer.
     /// Applies bounded backpressure when the buffer is full; drops rather than parking
     /// the player thread on space that only control operations can create.
-    public func writeAudioData(_ samples: UnsafePointer<Float>, count: Int) {
+    func writeAudioData(_ samples: UnsafePointer<Float>, count: Int) {
         var remaining = count
         var offset = 0
 
-        bufferLock.lock()
-        writeBackpressure.beginWrite()
-        bufferLock.unlock()
+        // The wait belongs to this callback. A concurrent route reset may free space, but
+        // cannot replenish this write's one bounded wait.
+        var writeBudget = PCMWriteBudget()
 
         while remaining > 0 {
             bufferLock.lock()
-            switch writeBackpressure.admit(
-                freeSpace: freeSpace,
-                remaining: remaining,
-                isRendering: outputControl.isRendering
-            ) {
-            case .dropRemaining:
+            switch ringBuffer.write(UnsafeBufferPointer(start: samples.advanced(by: offset), count: remaining)) {
+            case .rejectedInput:
                 droppedSampleCount &+= UInt64(remaining)
                 bufferLock.unlock()
                 return
-            case .waitForSpace:
+            case .full:
+                guard writeBudget.takeWait(isRendering: outputControl.isRendering) else {
+                    droppedSampleCount &+= UInt64(remaining)
+                    bufferLock.unlock()
+                    return
+                }
                 // Kick the pull side if an underrun stopped it; otherwise a full ring
                 // waits for a consumer that is no longer asking for data.
                 let needsRestart = !isRequestingData
@@ -208,10 +192,9 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
                         self?.startRequestingData()
                     }
                 }
-                _ = writerSpace.wait(timeoutMilliseconds: PCMWriteBackpressure.waitTimeoutMilliseconds)
+                _ = writerSpace.wait(timeoutMilliseconds: PCMWriteBudget.timeoutMilliseconds)
                 continue
-            case let .write(toWrite):
-                copyIntoRing(samples, offset: offset, count: toWrite)
+            case let .written(toWrite):
                 totalSamplesWritten += Int64(toWrite)
                 let samplesWritten = totalSamplesWritten
                 let startTime = writeStartTime
@@ -243,21 +226,6 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
         }
     }
 
-    /// Copies `count` samples from `samples[offset...]` into the ring at the current write
-    /// cursor, wrapping as needed, and advances the cursor. Must be called with `bufferLock` held.
-    private func copyIntoRing(_ samples: UnsafePointer<Float>, offset: Int, count: Int) {
-        let firstChunk = min(count, Self.ringBufferCapacity - cursor.writeIndex)
-        ringBuffer.advanced(by: cursor.writeIndex)
-            .update(from: samples.advanced(by: offset), count: firstChunk)
-
-        if firstChunk < count {
-            let secondChunk = count - firstChunk
-            ringBuffer.update(from: samples.advanced(by: offset + firstChunk), count: secondChunk)
-        }
-
-        cursor.advanceWrite(by: count)
-    }
-
     // MARK: - Pull Side (called on renderQueue by AVSampleBufferAudioRenderer)
 
     private func startRequestingData() {
@@ -278,10 +246,9 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
         while renderer.isReadyForMoreMediaData {
             // Read a chunk from ring buffer
             bufferLock.lock()
-            let available = availableSamples
-            let toRead = min(Self.feedChunkSamples, available)
+            let requestedFrames = min(Self.feedChunkFrames, ringBuffer.availableFrames)
 
-            if toRead == 0 {
+            if requestedFrames == 0 {
                 // Buffer empty — stop requesting until more data arrives
                 if outputControl.isRendering { underrunCount &+= 1 }
                 isRequestingData = false
@@ -291,7 +258,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
             }
 
             // Allocate through the same allocator Core Media will use to release the block.
-            let chunkSize = toRead * Self.bytesPerSample
+            let chunkSize = requestedFrames * Int(Self.channelCount) * Self.bytesPerSample
             guard let chunk = CFAllocatorAllocate(kCFAllocatorDefault, chunkSize, 0) else {
                 isRequestingData = false
                 bufferLock.unlock()
@@ -300,19 +267,10 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
                 return
             }
 
-            // Copy with wrap-around
-            let firstChunk = min(toRead, Self.ringBufferCapacity - cursor.readIndex)
-            chunk.copyMemory(
-                from: ringBuffer.advanced(by: cursor.readIndex),
-                byteCount: firstChunk * Self.bytesPerSample,
-            )
-            if firstChunk < toRead {
-                let secondChunk = toRead - firstChunk
-                chunk.advanced(by: firstChunk * Self.bytesPerSample)
-                    .copyMemory(from: ringBuffer, byteCount: secondChunk * Self.bytesPerSample)
-            }
-
-            cursor.advanceRead(by: toRead)
+            let frameCount = ringBuffer.read(
+                into: UnsafeMutableBufferPointer(
+                    start: chunk.bindMemory(to: Float.self, capacity: requestedFrames * Int(Self.channelCount)),
+                    count: requestedFrames * Int(Self.channelCount)))
             bufferLock.unlock()
             writerSpace.signalIfArmed()
 
@@ -337,7 +295,6 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
             }
 
             // Create CMSampleBuffer
-            let frameCount = toRead / Int(Self.channelCount)
             var sampleBuffer: CMSampleBuffer?
             status = CMAudioSampleBufferCreateReadyWithPacketDescriptions(
                 allocator: kCFAllocatorDefault,
@@ -370,7 +327,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
     /// Called from Rust player thread via FFI callback. Synchronous dispatch
     /// ensures the caller can rely on state being fully updated on return
     /// (e.g. playback teardown expects flush to complete before proceeding).
-    public func start() {
+    func start() {
         renderQueue.sync { [self] in
             bufferLock.lock()
             guard !outputControl.isRendering else {
@@ -405,7 +362,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
         }
     }
 
-    public func stop() {
+    func stop() {
         // Wake a parked writer before joining `renderQueue`. Clear rendering on this thread so
         // the writer can drop, but only tear down AVFoundation if a later start has not already
         // won the queue.
@@ -430,7 +387,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
         }
     }
 
-    public func flush() {
+    func flush() {
         // Reset the ring and wake a waiting writer without first joining `renderQueue`,
         // then serialize AVFoundation flush on that queue.
         resetRingCursorAndWakeWriter()
@@ -516,14 +473,13 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
 
     // MARK: - Internal
 
-    /// Resets ring indices and the wait budget, and wakes a parked writer. Safe from any thread.
+    /// Discards buffered frames and wakes a parked writer. Safe from any thread.
     private func resetRingCursorAndWakeWriter() {
         bufferLock.lock()
         isRequestingData = false
-        cursor.reset()
+        ringBuffer.reset()
         totalSamplesWritten = 0
         writeStartTime = ProcessInfo.processInfo.systemUptime
-        writeBackpressure.beginWrite()
         bufferLock.unlock()
         writerSpace.signalIfArmed()
     }
@@ -542,7 +498,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
         defer { bufferLock.unlock() }
         let formattedThrottle = String(format: "%.3f", throttleSeconds)
         return
-            "underruns=\(underrunCount), droppedSamples=\(droppedSampleCount), throttleSeconds=\(formattedThrottle), bufferedSamples=\(cursor.available)"
+            "underruns=\(underrunCount), droppedSamples=\(droppedSampleCount), throttleSeconds=\(formattedThrottle), bufferedSamples=\(ringBuffer.availableFrames * Int(Self.channelCount))"
     }
 
     /// Flushes the renderer and resets the ring buffer.
@@ -556,7 +512,7 @@ public final nonisolated class AudioRenderer: @unchecked Sendable {
 
 /// The one process-wide renderer. PCM reaches it directly from the retained engine adapter's
 /// decoder callback; it is never routed through observable UI state.
-public nonisolated let spottyAudioRendererResult: Result<AudioRenderer, AudioRendererError> = {
+nonisolated let spottyAudioRendererResult: Result<AudioRenderer, AudioRendererError> = {
     do {
         return .success(try AudioRenderer())
     } catch {

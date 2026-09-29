@@ -12,19 +12,8 @@ struct SessionLifetimeTests {
         )
         let logout = SessionTeardownIntent(clearGrant: true, finalPhase: .signedOut)
 
-        var revocationFirst = SessionTeardownCoalescer()
-        #expect((revocationFirst.request(revoked)) == true, "first request owns the teardown")
-        #expect((!revocationFirst.request(logout)) == true, "overlapping logout joins the existing teardown")
-        #expect((revocationFirst.intent?.clearGrant) == (true), "logout upgrades grant clearing")
-        #expect((revocationFirst.intent?.finalPhase) == (.signedOut), "logout wins the final phase")
-        #expect((revocationFirst.complete()) == (logout), "completion returns the cumulative intent")
-        #expect((!revocationFirst.isActive) == true, "completion releases the single-flight gate")
-        #expect((revocationFirst.request(revoked)) == true, "a later boundary can start")
-
-        var logoutFirst = SessionTeardownCoalescer()
-        #expect((logoutFirst.request(logout)) == true, "logout can own the teardown")
-        #expect((!logoutFirst.request(revoked)) == true, "late revocation is coalesced")
-        #expect((logoutFirst.intent) == (logout), "revocation cannot downgrade grant clearing")
+        #expect(revoked.merging(logout) == logout, "Logout upgrades grant clearing")
+        #expect(logout.merging(revoked) == logout, "Revocation cannot downgrade grant clearing")
     }
 
     @Test
@@ -153,34 +142,6 @@ struct SessionLifetimeTests {
         #expect(
             (watermark.accept(generation: 3, revision: 1, engineEpoch: 3)) == true,
             "a callback matching the later engine epoch is accepted")
-    }
-
-    @Test
-    func playbackCommandAdmissionRefusesTeardownAndDuplicates() {
-        #expect(
-            (playbackCommandShouldAdmit(
-                isTearingDown: false,
-                allowsCommands: true,
-                hasPendingCommandForKind: false
-            )) == true, "an idle live session admits a command")
-        #expect(
-            (!playbackCommandShouldAdmit(
-                isTearingDown: true,
-                allowsCommands: true,
-                hasPendingCommandForKind: false
-            )) == true, "teardown refuses admission")
-        #expect(
-            (!playbackCommandShouldAdmit(
-                isTearingDown: false,
-                allowsCommands: false,
-                hasPendingCommandForKind: false
-            )) == true, "a started termination gate refuses admission")
-        #expect(
-            (!playbackCommandShouldAdmit(
-                isTearingDown: false,
-                allowsCommands: true,
-                hasPendingCommandForKind: true
-            )) == true, "a pending command of the same kind refuses admission")
     }
 
     @Test

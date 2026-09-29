@@ -6,7 +6,6 @@ enum PlaybackEffectID: Hashable, Sendable {
     case lifecycle
     case queueServiceBootstrap
     case preferencesRestore
-    case catalogLoad
     case positionRefresh
     case queueSnapshot
     case connectQueueAccept
@@ -121,6 +120,12 @@ final class PlaybackEffectRegistry {
     }
 
     private var entries: [PlaybackEffectID: Entry] = [:]
+
+    isolated deinit {
+        // Dropping a Task handle does not cancel it. Runtime disposal must release streams
+        // even when no explicit account or process shutdown remains to drain them.
+        for entry in entries.values { entry.task.cancel() }
+    }
 
     func settlement(of id: PlaybackEffectID) -> PlaybackEffectSettlement? {
         entries[id].map { PlaybackEffectSettlement(task: $0.task) }

@@ -23,6 +23,24 @@ public struct CatalogTrackMetadata: Codable, Equatable, Sendable {
         artists = track.artists
         albumItem = track.albumItem
     }
+
+    /// Playback labels have entity identity only; this cannot manufacture a collection occurrence.
+    package var playbackTrack: CatalogTrack {
+        CatalogTrack(
+            id: uri, uri: uri, title: title, artist: artist, album: album, duration: duration,
+            artworkURL: artworkURL, addedAt: nil, artists: artists, albumItem: albumItem)
+    }
+
+    package func fillingMissingLinks(from known: CatalogTrackMetadata?) -> CatalogTrackMetadata {
+        guard let known, known.uri == uri else { return self }
+        let needsArtists = artists.isEmpty && !known.artists.isEmpty && !artist.isEmpty && artist == known.artist
+        let needsAlbum =
+            albumItem == nil && known.albumItem != nil && !album.isEmpty
+            && album == known.album && artist == known.artist
+        guard needsArtists || needsAlbum else { return self }
+        return CatalogTrackMetadata(
+            track: playbackTrack.fillingMissingLinks(from: known.playbackTrack), requestedURI: uri)
+    }
 }
 
 extension CatalogTrack {

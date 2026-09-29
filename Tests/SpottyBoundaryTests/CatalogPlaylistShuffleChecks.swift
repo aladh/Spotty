@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
@@ -53,7 +55,7 @@ struct CatalogPlaylistShuffleChecks {
             : CatalogItem(
                 id: "previous", uri: "spotify:playlist:previous", title: "Previous", subtitle: "", artworkURL: nil,
                 kind: .playlist)
-        catalog.onPlaylistSnapshot = { _ in
+        catalog.onPlaylist = { _ in
             CatalogPlaylistSnapshot(description: "", ownerURI: nil, tracks: loadedTracks)
         }
         await player.catalog.playlistStore.load(loaded)

@@ -1,0 +1,16 @@
+---
+id: test-support-runtime-import
+language: Swift
+severity: error
+message: Shared runtime fakes consume contracts and adapter ports. Runtime implementation
+  access and composition belong in the consuming test target.
+files:
+- Tests/SpottyRuntimeTestSupport/**/*.swift
+note: SwiftPM can expose transitive modules through shared search paths even when the
+  fixture target has no declared dependency. The package graph separately rejects that edge.
+rule:
+  kind: import_declaration
+  has:
+    stopBy: end
+    matches: swift-symbol
+    regex: "^SpottySessionRuntime$"

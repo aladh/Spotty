@@ -1,13 +1,13 @@
 import Foundation
 import SpottyRuntimeContracts
 
-/// The desktop submits the account identity it rendered. The raw Spotify port never accepts
+/// The desktop submits the catalog-session identity it rendered. The raw Spotify port never accepts
 /// an unstamped request from production presentation, including a deferred menu action.
 package struct AccountScopedPlaylistMutations: PlaylistMutating {
     private let source: any PlaylistMutationDispatching
-    private let admission: PlaylistMutationAdmission
+    private let admission: CatalogSessionAdmission
 
-    package init(source: any PlaylistMutationDispatching, admission: PlaylistMutationAdmission) {
+    package init(source: any PlaylistMutationDispatching, admission: CatalogSessionAdmission) {
         self.source = source
         self.admission = admission
     }

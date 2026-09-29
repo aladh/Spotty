@@ -1,3 +1,4 @@
+import SpottyDomain
 import Foundation
 
 /// Bounded presentation snapshots for completed routes. Session freshness is distinct from

@@ -30,6 +30,8 @@ struct StoredItem: Codable, Equatable {
 }
 
 struct StoredTrack: Codable, Equatable {
+    // Optional for records written before entity freshness was tracked independently.
+    let fetchedAt: Date?
     let uri: String
     let title: String
     let artist: String
@@ -39,7 +41,8 @@ struct StoredTrack: Codable, Equatable {
     let artists: [StoredItem]
     let albumItem: StoredItem?
 
-    init(_ track: CatalogTrack) {
+    init(_ track: CatalogTrack, fetchedAt: Date) {
+        self.fetchedAt = fetchedAt
         uri = track.uri
         title = track.title
         artist = track.artist

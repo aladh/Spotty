@@ -37,7 +37,7 @@ extension PlaybackSessionRuntime {
                     revision: state.revision
                 )
             else { return }
-            receive(state, revision: state.revision, engineEpoch: state.sessionGeneration)
+            receive(state)
         case let .connection(state):
             receive(state, revision: state.revision, receivedAt: receivedAt)
         case let .cluster(state):
@@ -131,13 +131,12 @@ extension PlaybackSessionRuntime {
         if reduction.acceptedSources.contains(.engineDevices),
             let remote = devices.first(where: { $0.isActive && $0.id != localID })
         {
-            lastRemoteDeviceID = remote.id
-            preferenceWriter.submit(epoch: accountEpoch) { await $0.setLastRemoteDeviceID(remote.id) }
+            preferenceState.rememberRemoteDevice(remote.id, accountEpoch: accountEpoch)
         }
         if let queue = cluster.queue,
             acceptsConnectQueueCallback(generation: queue.sessionGeneration, revision: queue.revision)
         {
-            receive(queue, revision: queue.revision, mayAdoptPlaybackIdentity: false)
+            receive(queue, mayAdoptPlaybackIdentity: false)
         }
         if reduction.acceptedSources.contains(.engineConnection), let rawConnection = cluster.connection {
             handleAcceptedConnection(rawConnection, session: session)
@@ -152,7 +151,7 @@ extension PlaybackSessionRuntime {
         sessionGeneration: UInt64,
         snapshots: [RustPlaybackEventEnvelope]
     ) {
-        guard !isTearingDown, terminationGate.allowsCommands,
+        guard lifecycle.acceptsWork,
             sessionGeneration >= engineGeneration
         else { return }
         invalidatePlaybackDispatchPermits()
@@ -272,34 +271,17 @@ extension PlaybackSessionRuntime {
 
     func receive(
         _ state: RustQueueState,
-        revision: UInt64,
         mayAdoptPlaybackIdentity: Bool = true,
-        accountEpoch capturedAccountEpoch: UInt64? = nil,
-        engineEpoch capturedEngineEpoch: UInt64? = nil
+        accountEpoch capturedAccountEpoch: UInt64? = nil
     ) {
         guard !isTearingDown else { return }
-        let protocolNext = state.protocolNextTracks
-        let protocolPrev = state.protocolPrevTracks
-        let entries = QueueProtocolProjection.upcomingEntries(from: protocolNext)
         let epoch = capturedAccountEpoch ?? accountEpoch
-        // Stamp from the payload generation. `engineGeneration` is only a fallback when the
-        // caller omitted a captured epoch; it must not override a newer decoded epoch.
-        let engineEpoch = capturedEngineEpoch ?? state.sessionGeneration
+        let engineEpoch = state.sessionGeneration
         let lifetime = PlaybackLifetime(accountEpoch: epoch, engineGeneration: engineEpoch)
         effects.run(.connectQueueAccept) { [weak self] in
             guard let self else { return }
             let accepted = await self.queueService.acceptConnect(
-                entries,
-                accountEpoch: epoch,
-                sourceRevision: revision,
-                contextURI: state.track?.uri ?? self.trackURI,
-                provisional: state.track == nil && entries.isEmpty,
-                engineEpoch: engineEpoch,
-                protocolNext: protocolNext,
-                protocolPrev: protocolPrev,
-                queueRevision: state.queueRevision,
-                disallowSetQueue: state.disallowSetQueue,
-                disallowRemovingFromNextTracks: state.disallowRemovingFromNextTracks
+                state, accountEpoch: epoch, fallbackTrackURI: self.trackURI
             )
             // Engine identity is a stale-payload floor here, not an equality: a payload from a
             // newer generation than this store has adopted is still the authoritative queue.
@@ -357,7 +339,7 @@ extension PlaybackSessionRuntime {
     ) {
         if !force, hasCurrentTrackMetadata { return }
 
-        if let track = catalog.metadata.knownTrack(for: uri) {
+        if let track = catalogMetadata.knownTrack(for: uri) {
             let accepted = setTrackMetadata(
                 uri: uri,
                 title: track.title,
@@ -408,7 +390,7 @@ extension PlaybackSessionRuntime {
         effects.run(.trackMetadata) { [weak self] in
             do {
                 guard let self else { return }
-                let metadata = try await self.coordinator.metadata(for: uri)
+                let metadata = try await self.metadataService.metadata(for: uri)
                 guard self.stillCurrent(lifetime, scope: .account) else { return }
                 let accepted = self.setTrackMetadata(
                     uri: uri,
@@ -421,7 +403,7 @@ extension PlaybackSessionRuntime {
                     engineEpoch: capturedEngineEpoch
                 )
                 guard accepted else { return }
-                self.catalog.metadata.replaceTracks(
+                self.catalogMetadata.replaceTracks(
                     [
                         CatalogTrack(
                             id: uri, uri: uri, title: metadata.title, artist: metadata.artist,
@@ -461,8 +443,7 @@ extension PlaybackSessionRuntime {
         )
         guard accepted else { return }
         if let remote = devices.first(where: { $0.isActive && $0.id != localDeviceID }) {
-            lastRemoteDeviceID = remote.id
-            preferenceWriter.submit(epoch: accountEpoch) { await $0.setLastRemoteDeviceID(remote.id) }
+            preferenceState.rememberRemoteDevice(remote.id, accountEpoch: accountEpoch)
         }
     }
 
@@ -543,11 +524,9 @@ extension PlaybackSessionRuntime {
         let lifetime = playbackLifetime
         effects.run(.reconnectRehydration) { [weak self] in
             guard let self, self.stillCurrent(lifetime) else { return }
-            let operation = LocalPlaybackOperation.rehydrate(
-                plan, sessionGeneration: state.sessionGeneration)
             // The claim-time predicate runs on the coordinator's task, so it compares lifetime
             // and the still-open window directly rather than this task's cancellation state.
-            let result = await self.coordinator.performLocalIfStillWanted(operation) {
+            let result = await self.coordinator.rehydrate(plan, sessionGeneration: state.sessionGeneration) {
                 [weak self] in
                 guard let self else { return false }
                 return self.playbackLifetime == lifetime && self.engineRehydrationWindowOpen

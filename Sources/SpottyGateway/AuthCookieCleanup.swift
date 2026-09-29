@@ -1,6 +1,4 @@
-import SpottyDomain
 import Foundation
-import SpottyRuntimeContracts
 
 /// Removes Spotify authentication cookies from the jar used by `URLSession.shared`.
 ///
@@ -8,20 +6,19 @@ import SpottyRuntimeContracts
 /// empty the process-wide jar: other clients of the shared storage can coexist in-process
 /// during checks, and unrelated cookies are not Spotty's grant.
 enum AuthCookieCleanup {
-    static func cookiesToDelete(in cookies: [HTTPCookie]) -> [HTTPCookie] {
-        let matched = cookies.filter {
-            SpotifyAuthenticationCookies.shouldRemove(domain: $0.domain, path: $0.path)
-        }
-        return matched.sorted {
-            ($0.domain.lowercased(), $0.path, $0.name) < ($1.domain.lowercased(), $1.path, $1.name)
-        }
-    }
-
     static func removeSpotifyAuthenticationCookies(
         from storage: HTTPCookieStorage = .shared
     ) {
-        for cookie in cookiesToDelete(in: storage.cookies ?? []) {
+        for cookie in storage.cookies ?? [] where shouldRemove(cookie) {
             storage.deleteCookie(cookie)
         }
+    }
+
+    private static func shouldRemove(_ cookie: HTTPCookie) -> Bool {
+        // Cookie paths are origin-form. Anything else is not ours to remove.
+        guard cookie.path.hasPrefix("/") else { return false }
+        var host = cookie.domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while host.hasPrefix(".") { host.removeFirst() }
+        return host == "spotify.com" || host.hasSuffix(".spotify.com")
     }
 }

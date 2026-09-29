@@ -133,20 +133,34 @@ public struct PlaybackIntent: Equatable, Sendable {
                 snapshot.revision > queueRevision, snapshot.receivedAt >= dispatchedAt,
                 snapshot.contextURI == queueContextURI
             else { return }
-            if let counts = queueMinimumCounts {
-                let observed = Dictionary(grouping: snapshot.entries, by: \.uri).mapValues(\.count)
-                if counts.allSatisfy({ observed[$0.key, default: 0] >= $0.value }) {
-                    settle(.observedConfirmed, at: envelope.receivedAt)
-                }
+            if let counts = queueMinimumCounts, Self.meetsMinimumCounts(counts, in: snapshot.entries) {
+                settle(.observedConfirmed, at: envelope.receivedAt)
             }
             if let removedQueueUIDs,
-                removedQueueUIDs.isDisjoint(with: Set(snapshot.entries.map(\.uid)))
+                removedQueueUIDs.isDisjoint(with: snapshot.entries.lazy.map(\.uid))
             {
                 settle(.observedConfirmed, at: envelope.receivedAt)
             }
         default: break
         }
     }
+    /// Keep only the requested occurrence counts. Unrelated queue entries need no grouping or
+    /// retained array, and a complete match can stop before scanning the rest of the snapshot.
+    private static func meetsMinimumCounts(_ minimumCounts: [String: Int], in entries: [QueueEntry]) -> Bool {
+        var remaining = minimumCounts.filter { $0.value > 0 }
+        guard !remaining.isEmpty else { return true }
+        for entry in entries {
+            guard let count = remaining[entry.uri] else { continue }
+            if count == 1 {
+                remaining.removeValue(forKey: entry.uri)
+                if remaining.isEmpty { return true }
+            } else {
+                remaining[entry.uri] = count - 1
+            }
+        }
+        return false
+    }
+
     private mutating func observeOwner(_ owner: PlaybackOwner, at date: Date) {
         if command.kind != .transfer {
             if let baseline = baselineOwner.flatMap(PlaybackReducer.playbackOwnerStableDeviceID),

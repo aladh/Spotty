@@ -26,29 +26,23 @@ public struct SessionTeardownIntent: Equatable, Sendable {
     }
 }
 
-/// Pure single-flight state shared by the presentation and account lifecycle owners.
-/// `request` returns true only for the caller that must start the underlying teardown.
-public struct SessionTeardownCoalescer: Sendable {
-    public private(set) var intent: SessionTeardownIntent?
+/// Account catalog readiness with a revision that survives coalesced runtime publications.
+/// Even within one account, work from before an unavailable interval cannot become current again.
+public struct CatalogSessionSnapshot: Equatable, Sendable {
+    public private(set) var accountEpoch: UInt64
+    public private(set) var isAvailable: Bool
+    public private(set) var revision: UInt64 = 0
 
-    public init() {}
-
-    public var isActive: Bool { intent != nil }
-
-    @discardableResult
-    public mutating func request(_ requested: SessionTeardownIntent) -> Bool {
-        guard let intent else {
-            self.intent = requested
-            return true
-        }
-        self.intent = intent.merging(requested)
-        return false
+    public init(accountEpoch: UInt64, isAvailable: Bool) {
+        self.accountEpoch = accountEpoch
+        self.isAvailable = isAvailable
     }
 
-    @discardableResult
-    public mutating func complete() -> SessionTeardownIntent? {
-        defer { intent = nil }
-        return intent
+    public mutating func update(accountEpoch: UInt64, isAvailable: Bool) {
+        guard self.accountEpoch != accountEpoch || self.isAvailable != isAvailable else { return }
+        self.accountEpoch = accountEpoch
+        self.isAvailable = isAvailable
+        revision &+= 1
     }
 }
 
@@ -142,19 +136,6 @@ public struct ConnectQueueCallbackWatermark: Equatable, Sendable {
         self = next
         return true
     }
-}
-
-/// Runtime admission before a playback command reaches the reducer.
-///
-/// Route selection, route refusal, and waiting for local Connect identity never consult this,
-/// so those paths cannot create pending commands. This gate refuses a duplicate kind in
-/// production; the reducer can supersede an existing intent when given a new `commandStarted`.
-public func playbackCommandShouldAdmit(
-    isTearingDown: Bool,
-    allowsCommands: Bool,
-    hasPendingCommandForKind: Bool
-) -> Bool {
-    !isTearingDown && allowsCommands && !hasPendingCommandForKind
 }
 
 /// Runtime follow-up after reducing `commandFinished`.

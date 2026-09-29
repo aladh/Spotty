@@ -12,14 +12,15 @@ positive_fixture="$fixtures_root/positive.swift"
 negative_fixture="$fixtures_root/negative.swift"
 desktop_negative_fixture="$project_root/Tests/Compiler/DesktopBoundary/negative.swift"
 desktop_capability_fixture="$project_root/Tests/Compiler/DesktopBoundary/capabilities.swift"
+engine_capability_fixture="$project_root/Tests/Compiler/EngineBoundary/capabilities.swift"
 
 if (( $# > 1 )); then
     print -u2 "usage: $0 [SWIFT_BUILD_BIN_PATH]"
     exit 2
 fi
 if [[ ! -f "$positive_fixture" || ! -f "$negative_fixture" || ! -f "$desktop_negative_fixture" \
-    || ! -f "$desktop_capability_fixture" ]]; then
-    print -u2 "Desktop compiler access fixtures are missing"
+    || ! -f "$desktop_capability_fixture" || ! -f "$engine_capability_fixture" ]]; then
+    print -u2 "Compiler access fixtures are missing"
     exit 1
 fi
 if ! command -v swift >/dev/null 2>&1; then
@@ -47,7 +48,7 @@ fi
 
 swift_bin_path="${1:-${SPOTTY_SWIFT_BUILD_BIN_PATH:-}}"
 if [[ -z "$swift_bin_path" ]]; then
-    swift_bin_path="$(swift build \
+    swift_bin_path="$(SPOTTY_PACKAGE_GRAPH=full swift build \
         --disable-sandbox \
         --package-path "$project_root" \
         --configuration debug \
@@ -125,84 +126,21 @@ swift_arguments=(
 
 "$swiftc_path" "${swift_arguments[@]}" "$positive_fixture"
 
-# Keep one probe per access surface. A single fixture containing all writes could still fail if a
-# new writable projection were added next to an existing invalid write; independent diagnostics
-# make each access-control promise observable. The compiler's diagnostic wording is intentionally
-# the only assertion here: no production source or generated interface is parsed by the script.
-# The conditional fixture is the inventory: adding a negative branch automatically runs it.
-negative_flags=("${(@f)$(awk '/^[[:space:]]*#(if|elseif) NEG_[A-Z_]+$/ { print $2 }' "$negative_fixture")}")
-if (( ${#negative_flags} == 0 )) || [[ -z "${negative_flags[1]}" ]]; then
-    print -u2 "PlaybackStore compiler fixture contains no negative probes"
-    exit 1
-fi
-
-for flag in "${negative_flags[@]}"; do
-    negative_log="$module_cache/$flag.err"
-    if "$swiftc_path" "${swift_arguments[@]}" "-D$flag" "$negative_fixture" \
-        > /dev/null 2> "$negative_log"; then
-        print -u2 "negative $flag probe unexpectedly compiled"
-        exit 1
-    fi
-    expected_diagnostic='setter is inaccessible|get-only property'
-    if [[ "$flag" == NEG_STATE || "$flag" == NEG_STATE_MEMBER ]]; then
-        expected_diagnostic="value of type 'PlaybackStore' has no member 'state'"
-    fi
-    if ! rg -q "$expected_diagnostic" "$negative_log"; then
-        print -u2 "negative $flag probe failed for an unexpected reason"
-        cat "$negative_log" >&2
+# Swift's diagnostic verifier checks every annotated location independently: accepting any one
+# forbidden access leaves an unmet expectation, while missing modules and unrelated fixture errors
+# also fail. Ignore diagnostics in imported modules, whose note locations are toolchain-specific;
+# the positive fixture above independently requires those imports to type-check.
+# This avoids launching one compiler per forbidden member without weakening the per-access proof.
+for fixture in "$negative_fixture" "$desktop_negative_fixture" "$desktop_capability_fixture" "$engine_capability_fixture"; do
+    if ! rg -q 'expected-error' "$fixture"; then
+        print -u2 "Compiler fixture contains no expected failures: $fixture"
         exit 1
     fi
 done
-
-print "PlaybackStore compiler access contract passed: positive reads and ${#negative_flags} access-control negatives"
-
-# First compile the same desktop import with no selected negative. A missing module or broken
-# dependency must never be mistaken for evidence that its concrete implementation is hidden.
+verify_arguments=(-Xfrontend -verify -Xfrontend -verify-ignore-unrelated)
+"$swiftc_path" "${swift_arguments[@]}" "${verify_arguments[@]}" "$negative_fixture"
 package_arguments=("${swift_arguments[@]}" -package-name "$package_identity")
-"$swiftc_path" "${package_arguments[@]}" "$desktop_negative_fixture"
-desktop_negative_flags=("${(@f)$(awk '/^[[:space:]]*#(if|elseif) NEG_[A-Z_]+$/ { print $2 }' "$desktop_negative_fixture")}")
-if (( ${#desktop_negative_flags} == 0 )) || [[ -z "${desktop_negative_flags[1]}" ]]; then
-    print -u2 "Desktop compiler fixture contains no negative probes"
-    exit 1
-fi
-for flag in "${desktop_negative_flags[@]}"; do
-    negative_log="$module_cache/$flag.err"
-    if "$swiftc_path" "${package_arguments[@]}" "-D$flag" "$desktop_negative_fixture" \
-        > /dev/null 2> "$negative_log"; then
-        print -u2 "negative $flag desktop boundary probe unexpectedly compiled"
-        exit 1
-    fi
-    if ! rg -q "cannot find '[A-Za-z]+' in scope" "$negative_log"; then
-        print -u2 "negative $flag desktop boundary probe failed for an unexpected reason"
-        cat "$negative_log" >&2
-        exit 1
-    fi
-done
-print "Desktop compiler boundary passed: ${#desktop_negative_flags} concrete implementation negatives"
-
-# Also check inferred member types through the shipping desktop's package access. Import Runtime
-# normally: test-only @testable access to that module would intentionally reopen internal owners.
-"$swiftc_path" "${package_arguments[@]}" "$desktop_capability_fixture"
-capability_flags=("${(@f)$(awk '/^[[:space:]]*#(if|elseif) NEG_[A-Z_]+$/ { print $2 }' "$desktop_capability_fixture")}")
-if (( ${#capability_flags} == 0 )) || [[ -z "${capability_flags[1]}" ]]; then
-    print -u2 "Desktop capability fixture contains no negative probes"
-    exit 1
-fi
-for flag in "${capability_flags[@]}"; do
-    negative_log="$module_cache/$flag.err"
-    if "$swiftc_path" "${package_arguments[@]}" "-D$flag" "$desktop_capability_fixture" \
-        > /dev/null 2> "$negative_log"; then
-        print -u2 "negative $flag desktop capability probe unexpectedly compiled"
-        exit 1
-    fi
-    expected_diagnostic="is inaccessible due to '(internal|private|fileprivate)' protection level|setter is inaccessible"
-    if [[ "$flag" == NEG_RUNTIME_PRESENTATION_STATE ]]; then
-        expected_diagnostic="value of type 'RuntimePresentation' has no member 'state'"
-    fi
-    if ! rg -q "$expected_diagnostic" "$negative_log"; then
-        print -u2 "negative $flag desktop capability probe failed for an unexpected reason"
-        cat "$negative_log" >&2
-        exit 1
-    fi
-done
-print "Desktop compiler capabilities passed: supported ports/actions and ${#capability_flags} inaccessible implementation members"
+"$swiftc_path" "${package_arguments[@]}" "${verify_arguments[@]}" "$desktop_negative_fixture"
+"$swiftc_path" "${package_arguments[@]}" "${verify_arguments[@]}" "$desktop_capability_fixture"
+"$swiftc_path" "${package_arguments[@]}" "${verify_arguments[@]}" "$engine_capability_fixture"
+print "Compiler contracts passed: projection reads, forbidden writes, hidden implementations, and supported capabilities"

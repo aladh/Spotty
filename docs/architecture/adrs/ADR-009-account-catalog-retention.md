@@ -4,94 +4,107 @@ Status: accepted on 2026-09-12.
 
 ## Context
 
-A selected-page store loses useful content when another page replaces it. Browsing needs stable
-track identity, ordered duplicate occurrences, bounded reuse, and a clear distinction between
-saved metadata and current authority. Persisting account-derived content also introduces a storage
-and deletion obligation that an in-memory cache did not have.
+Browsing needs bounded reuse across navigation, stable track and occurrence identity, and a clear
+distinction between saved metadata and current authority. Persistence additionally requires account
+admission and deletion guarantees. Saved content must improve continuity without granting playback,
+account, or mutation authority.
 
 ## Decision
 
-Use SQLite through the serialized `SpottyCatalogStorage` owner for typed catalog entities,
-collection membership, completeness, and freshness. Track identity remains the requested/market
-Spotify URI. Ordered occurrences have separate display identity; duplicate URIs are preserved.
-Stored server UIDs and playlist ownership are historical metadata and cannot authorize mutations.
-Partial or older results must not replace an accepted complete collection. Transactions report
-changed entity and collection IDs; identical effective metadata produces no entity change.
+[`SpottyCatalogStorage`](../../../Sources/SpottyCatalogStorage) serializes SQLite access and owns
+storage format and retention limits. It stores typed entities, collection membership, completeness,
+and freshness. Track identity remains the requested/market Spotify URI; ordered occurrences retain
+separate display identity and duplicates. Stored server UIDs and ownership are historical metadata.
+Partial or older results cannot replace an accepted complete collection.
 
-The runtime's catalog provider opens a partition only after a current live profile verifies the
-account. A stored selector, account hash, or cached playlist owner is not account admission.
-The production cache retains the complete playlist library tree and playlist and album browsing
-results. After profile verification, the sidebar and first visits to saved playlists or albums
-publish complete cached content while refreshing. In-memory route retention takes precedence over
-disk reads. Home and other catalog surfaces continue through the live gateway. Offline, timeout,
-and throttled reads can return a complete saved result with cached freshness. Credential refusal,
-cancellation, and a retired account cannot be hidden by a cache hit. Credential refusal clears the affected detail store and
-its retained routes, fences suspended provider reads, and requires new profile proof before any
-further cached reads. An unavailable, corrupt, or unsupported database leaves
-live browsing available without trusting or silently migrating unknown stored content.
+Transactions report changed entities and collections; identical effective metadata produces no
+entity notification. Shared entities and library snapshots retain observation dates across launches.
+Older responses can supply collection membership without replacing newer entity metadata. Equal
+dates use read admission order retained only until eviction or storage retirement. That order
+advances after commit, including identical values, without being persisted or notifying subscribers.
 
-Each account database has explicit entity, collection, occurrence, page, record, and file-size
-bounds. Directory and file permissions are private to the macOS user; storage excludes grants,
-raw Spotify responses, audio, and artwork bytes. Account lifetime tokens are not persisted.
-Sign-out fences admission before deleting catalog content and SQLite sidecars. Failed deletion
-keeps the owner fenced and reports failure; ordinary process termination closes the database for
-later reuse. Empty ownership-lock files may remain. Deletion is logical removal, not forensic
-erasure. [Privacy](../../../PRIVACY.md#local-storage) owns the user-facing storage disclosure.
+The runtime's [`PersistentCatalogProvider`](../../../Sources/SpottySessionRuntime/PersistentCatalogProvider.swift)
+opens a partition only after a current live profile verifies the account. A stored selector, account
+hash, or owner cannot substitute. Activation and retirement carry account epochs: retirement fences
+queued activations, and an older retirement cannot purge a replacement account. Logout retires
+catalog and artwork admission before joining old connection work; durable grant adoption still
+settles before credential removal.
 
-Presentation keeps a separate bounded set of completed playlist, album, and artist routes for
-synchronous revisits. These snapshots preserve collection versions and restore window-local search,
-selection, sort, and scroll state. They are retired on account replacement. Reconnect can preserve
-useful rows, but saved or failed-refresh content stays visibly stale and cannot enable occurrence
-removal. A playlist write that succeeds, or whose admitted outcome becomes uncertain or cancelled,
-invalidates its retained route even when another page is open. A cancelled reconciliation cannot
-turn the previous rows into fresh authority.
+Each database bounds entities, collections, occurrences, pages, records, and file size. Files and
+directories are private to the macOS user. Storage excludes grants, raw Spotify responses, audio,
+artwork bytes, and account lifetime tokens. Sign-out fences admission before deleting content and
+SQLite sidecars. Failed deletion reports failure and keeps the owner fenced; normal termination
+closes the database for reuse. Empty ownership-lock files may remain. Deletion is logical removal,
+not forensic erasure; [privacy](../../../PRIVACY.md#local-storage) owns the user-facing disclosure.
 
-`CatalogLoadState` owns completed-content reuse and shared presentation transitions;
-`AccountScopedSingleFlight` owns request, cancellation, and publication lifetimes without caching
-completed-content freshness. Do not recreate independent freshness/error/loading
-flags in each feature. Gateway collection mapping accepts only validated complete walks, and
-playlist playback carries collection URI, account epoch, and occurrences together. These values
-do not grant mutation authority. The [shared product contract](../../product/catalog-interaction.md)
-owns refusal, retention, and retry behavior, including sibling fencing within Home/library and Search.
+After profile verification, complete saved library trees and playlist/album results can appear while
+refreshing; retained in-memory routes take precedence. Home and other queries remain live. Library
+traversal shares page/entry budgets across folders and rejects repeated folder identities. Live and
+stored trees share [structural limits](../../../Sources/SpottyDomain/PlaylistLibraryNode.swift);
+storage owns encoded-byte limits.
 
-Playlist and album stores subscribe to a bounded set of track URIs across their active and retained
-routes through the [entity query contract](../../../Sources/SpottyRuntimeContracts/CatalogEntityQueries.swift).
-Database transactions publish changes only for requested entities with changed metadata. Dirty
-entity IDs remain pending until acknowledged, so coalescing notifications cannot lose an update.
-Presentation assembles bounded pages from one revision and account lifetime before applying any
-metadata; a superseded revision or retired account cannot publish a partial result.
+Offline, timeout, and throttled reads may return complete saved results with cached freshness.
+Credential refusal, cancellation, and retirement cannot become cached success. Refusal clears the
+affected detail and retained routes, fences suspended reads, and requires new profile proof.
+Unavailable, corrupt, or unsupported storage leaves live browsing available without trusting or
+migrating unknown content. [Catalog interaction](../../product/catalog-interaction.md) owns visible
+loading, refusal, retention, and retry behavior.
 
-Entity pages carry a metadata-only value; row IDs, occurrence UIDs and added dates stay with the
-collection. The domain owns the merge policy. Updates replace labels and other metadata while
-preserving requested URI, display occurrence identity, server occurrence UID, source order,
-date added, collection freshness, and ownership. For example, metadata learned on album B updates
-a retained playlist A containing the same track without reloading A. Only collections with changed
-effective metadata receive a new version; unrelated collections and playback timeline observation
-stay unchanged. An entity update
-does not grant fresh collection or mutation authority.
+[`CatalogDetailCoordinator`](../../../Sources/Spotty/Spotify/CatalogDetailCoordinator.swift) owns
+selection, cached/live reads, bounded route retention, freshness, refusal, and entity merging.
+Concrete projections expose content without controlling read lifecycle. Discography owns its bounded
+album children, aggregate publication, and one union entity query; children publish cached/live
+replacements immediately without private metadata repositories or subscriptions. Revisited routes preserve collection versions and
+window-local search, selection, sort, and scroll; account replacement retires them. Reconnect may
+preserve rows, but stale content cannot enable occurrence removal. Successful, uncertain, or cancelled
+admitted playlist writes invalidate the retained route, even offscreen. Cancelled reconciliation
+cannot restore fresh authority.
 
-Artwork has a separate account-scoped memory owner rather than being stored in SQLite. Source
-fetches are shared by size variants and artwork-derived header tint; decoding uses an independent
-worker. The pipeline bounds retained source, encoded-thumbnail, and decoded-pixel bytes, rejects
-oversized inputs, and does not use a shared response cache. Retirement cancels work, clears memory,
-and rejects old completions. Reusing source bytes establishes an ownership and request-sharing
-invariant, not a claim about the old framework cache's network traffic or measured speed.
+Shared read flights own admission, sharing, and loading settlement. Consumers cancel independently;
+final cancellation or reset settles loading without awaiting timer or provider cooperation. Late completions
+cannot publish or finish replacements. Cancelled admission cannot alter selection or debounce state.
+Playlist writes retain separate session-valid reconciliation and latest-intent error reporting;
+cancellation cannot establish a sent write's outcome. View tasks use the published session revision,
+including coalesced reconnects.
+Search's delayed scope includes its eventual fetch; immediate retries use a separate fetch scope.
 
-Live Connect queue order, playback ownership, and command admission remain runtime facts. The
-catalog supplies browsing and labels; it never reconstructs queue authority from disk. This adds
-no downloaded music or offline playback. New windows still start on Home; route interaction state
-is not restored across launches.
+Playlist and album stores observe bounded track URI sets across active and retained routes through
+[entity queries](../../../Sources/SpottyRuntimeContracts/CatalogEntityQueries.swift). Transactions
+notify only requested entities with changed metadata. Dirty IDs remain pending until acknowledged,
+so coalescing cannot lose an update. A synchronous observation owner hides registration, dirty sets,
+revision validation, acknowledgement, and write retries. The provider retains account admission and
+cache write authority, assembling complete metadata through bounded storage
+batches under one account and write revision. Presentation rechecks its route lifetime, applies,
+then acknowledges. Cancellation, supersession, and retirement cannot publish partial results.
+Presentation supplies immutable collections; the observation owner reuses one bounded URI set by
+collection versions without retaining rows. Reuse still checks session admission and retries failed
+queries. Metadata versions do not replace a query whose membership is unchanged.
+Query registration and retirement serialize independently of reads. Replacements retire the old
+token before admission; cancelled reads cannot retain subscription capacity. A late registration
+is retired even after disposal. Whole collection replacement fences old reads even for unchanged URIs.
+
+The domain merges metadata without changing requested URI, display identity, server UID, source
+order, added date, freshness, or ownership. Only changed collections receive new versions; unrelated
+collections and playback timeline observation remain unchanged. Entity updates never grant collection
+or mutation authority. `CatalogTrackContributions` owns source precedence, compatible link learning,
+and display/browsing deltas as a pure value. The desktop repository owns account admission, atomic
+observation, and lazy export history; playback contributions never become browsing authority.
+
+Artwork uses separate account-scoped memory, excluding a shared response cache. Size variants and
+header tint share source fetches. Private workers await loading and decoding without retaining the
+cache owner; capacity stays occupied until actual work settles. Retained bytes are bounded and
+oversized inputs rejected. Cancellation settles each caller and cancels the final shared fetch,
+preserving other variants. Retirement fences memory immediately and serializes loader cleanup;
+replacement sources wait for that cleanup before loading. Late results cannot affect replacements.
+SQLite stores no artwork bytes.
 
 ## Tradeoffs and revisit conditions
 
-The synchronous route cache and serialized database serve different latency needs, so their
-freshness and invalidation rules must agree. Playlist and album entity subscriptions refresh
-metadata; ordered membership and freshness remain with the complete collection result. Other
-catalog surfaces still use their existing live presentation and metadata owners. A whole-result
-fallback must reject mixed revisions while paging its database read.
+Storage returns complete bounded collections through non-suspending reads. Provider lifetime and
+write-revision fences reject reads overlapping refreshes; entity observations additionally retain
+incremental invalidations and acknowledgement. Persistent search/home/library expansion, on-disk
+artwork, and subscriptions changing membership need measured benefits and privacy/lifetime checks.
 
-The storage format and retention limits are owned by
-[`SpottyCatalogStorage`](../../../Sources/SpottyCatalogStorage), not duplicated in feature stores.
-Broader persistent search/home/album-library/artist queries, on-disk artwork retention, or subscriptions
-that change collection membership require their own measured benefit and privacy/lifetime
-verification.
+Connect order, playback ownership, and command admission remain runtime facts; catalog data never
+reconstructs queue authority. This adds no downloaded music or offline playback. New windows start
+on Home, and route interaction state is not restored across launches.

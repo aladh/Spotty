@@ -258,9 +258,10 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             recorded = acceptance.read_json(output / "command.json")
             self.assertEqual(recorded["arguments"], [
                 "Scripts/swift_test_watchdog.py", "--lane", "acceptance", "--repetition", "1",
-                "--timeout-seconds", "123", "--log-dir", str(output / "diagnostics"), "--",
+                "--timeout-seconds", "123", "--log-dir", str(output / "diagnostics"), "--require-tests", "--",
                 "swift", "test", "--disable-sandbox", "--no-parallel", "--package-path", str(root),
-                "--configuration", "debug", "--filter", "AcceptanceCorpusTests", "-Xswiftc", "-warnings-as-errors",
+                "--configuration", "debug", "--test-product", "SpottyBrowsingHarnessTests",
+                "--filter", "AcceptanceCorpusTests", "-Xswiftc", "-warnings-as-errors",
             ])
             self.assertEqual(recorded["harness"], "1")
             self.assertTrue(recorded["sdk"])
@@ -375,6 +376,16 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             shutil.copy2(acceptance.ROOT / "Scripts/browse-synthetic.sh", scripts / "browse-synthetic.sh")
             (scripts / "swiftpm-env.sh").write_text('SDKROOT=/synthetic/sdk\nspotty_swiftc_warnings_as_errors=()\n')
             (scripts / "embed-sparkle.sh").write_text(':\n')
+            (scripts / "playback-xcframework.sh").write_text(
+                'spotty_playback_resolve_xcframework() { print -r -- "/synthetic/artifact.xcframework"; }\n'
+                'spotty_playback_validate_xcframework() { return "${DEMO_TEST_ARTIFACT_STATUS:-0}"; }\n'
+                'spotty_playback_slice_path() { print -r -- "$1/macos-arm64"; }\n'
+                'spotty_playback_headers_path() { print -r -- "$1/Headers"; }\n')
+            (scripts / "playback_module_cache.py").write_text(
+                'import os, pathlib, sys\n'
+                'assert sys.argv[2] == "/synthetic/artifact.xcframework/macos-arm64/Headers"\n'
+                'with pathlib.Path(os.environ["DEMO_TEST_EVENTS"]).open("a") as stream:\n'
+                '    stream.write("cache:" + pathlib.Path(sys.argv[1]).name + ":" + sys.argv[-1] + "\\n")\n')
             (scripts / "browsing_provenance.py").write_text('')
             (scripts / "profile_synthetic.py").write_text(
                 'import json, os, pathlib, sys\n'
@@ -412,7 +423,8 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             for key in ("SPOTTY_DEVELOPMENT_SIGNING_IDENTITY", "SPOTTY_SIGNING_IDENTITY"):
                 environment.pop(key, None)
             for arguments, expected in (
-                ([str(scenario)], ["build", "evidence:42"]),
+                ([str(scenario)], ["cache:.build:debug", "build", "evidence:42"]),
+                (["--optimized", str(scenario)], ["cache:browsing-optimized:release", "build", "evidence:42"]),
                 (["--profile", str(scenario)], ["preflight", "evidence:43"]),
                 (["--scenario", "missing.scenario"], ["prepare", "evidence:44"]),
                 ([str(root / "missing.json")], ["evidence:2"]),
@@ -433,6 +445,12 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                     if "--profile" in arguments:
                         codes, _ = profile_synthetic.capture_diagnostics(run_root, "left", profile_synthetic.InvalidRun("capture-incomplete"))
                         self.assertEqual(codes[0], "left.session-locked")
+            events.write_text("")
+            result = subprocess.run(["zsh", str(scripts / "browse-synthetic.sh"), str(scenario)],
+                                    env=environment | {"DEMO_TEST_ARTIFACT_STATUS": "45"},
+                                    capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(events.read_text().splitlines(), ["evidence:45"], result.stderr)
 
     def test_demo_requires_sandbox_and_preserves_legacy_report(self):
         with tempfile.TemporaryDirectory() as directory:

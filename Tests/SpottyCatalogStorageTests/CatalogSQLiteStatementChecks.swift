@@ -45,6 +45,31 @@ struct CatalogSQLiteStatementChecks {
         }
     }
 
+    @Test(arguments: [false, true])
+    func throwingRowConsumersResetStatementsAndReleaseBindings(cancellation: Bool) throws {
+        try withConnection { connection in
+            let statement = try CatalogSQLiteStatement(
+                connection: connection, sql: "SELECT ? UNION ALL SELECT ?")
+            var visited = 0
+            do {
+                try statement.forEachRow([.text("first"), .text("second")]) { _ in
+                    visited += 1
+                    if visited == 2 {
+                        if cancellation { throw CancellationError() }
+                        throw CatalogStorageError.invalidStoredData
+                    }
+                }
+                Issue.record("The second row must fail the execution")
+            } catch {
+                #expect(cancellation ? error is CancellationError : error as? CatalogStorageError == .invalidStoredData)
+            }
+            #expect(visited == 2)
+            let retried = try statement.rows([.text("replacement")])
+            #expect(retried.first?.first?.text == "replacement")
+            #expect(retried.last?.allSatisfy(isNull) == true, "The failed execution's second binding was released")
+        }
+    }
+
     @Test func connectionClosesStatementsBeforeReleasingOwnership() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("spotty-statements-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

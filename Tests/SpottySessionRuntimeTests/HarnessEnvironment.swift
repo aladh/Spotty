@@ -1,0 +1,50 @@
+import SpottyTestSupport
+import Foundation
+import SpottyDomain
+import SpottyGateway
+import SpottyRuntimeContracts
+import SpottyEngineAdapter
+@testable import SpottySessionRuntime
+
+@testable import SpottyRuntimeTestSupport
+
+/// Test-target composition may access runtime internals; shared fakes use only package ports.
+///
+/// Every dependency defaults to its harness fake, so a check names only the collaborators it is
+/// about. The defaults are deliberately inert: the engine succeeds and records, the Connect
+/// client succeeds, the web queue and catalog are unavailable, the account has no grant, and the
+/// clock is stuck at `HarnessDates.fixed`.
+enum HarnessEnvironment {
+    static func make(
+        engine: any LocalPlaybackEngine = HarnessEngine(),
+        remote: any RemotePlaybackClient = HarnessRemote(),
+        webQueue: any WebQueueClient = HarnessWebQueue(),
+        account: any AccountSession = HarnessAccount(),
+        audioOutput: any AudioOutputPreparing = HarnessAudioOutput(),
+        preferences: any PlaybackPreferences = HarnessPreferences(),
+        lifecycle: any SystemLifecycleEvents = HarnessLifecycleEvents(),
+        clock: any PlaybackClock = HarnessClock.sticky(),
+        catalog: any CatalogProviding = HarnessCatalog(),
+        playlistMutations: any PlaylistMutationDispatching = HarnessPlaylistMutations(),
+        catalogCacheLifecycle: (any CatalogCacheLifecycle)? = nil,
+        queueServiceHook: (any QueueServiceHook)? = nil,
+        artwork: any ArtworkProviding = UnavailableArtworkProvider()
+    ) -> PlaybackEnvironment {
+        PlaybackEnvironment(
+            remote: remote,
+            local: engine,
+            webQueue: webQueue,
+            account: account,
+            audioOutput: audioOutput,
+            preferences: preferences,
+            lifecycle: lifecycle,
+            clock: clock,
+            catalog: catalog,
+            playlistMutations: playlistMutations,
+            queueServiceHook: queueServiceHook,
+            catalogCacheLifecycle: catalogCacheLifecycle,
+            artwork: artwork
+        )
+    }
+
+}

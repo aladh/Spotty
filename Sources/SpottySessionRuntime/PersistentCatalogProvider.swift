@@ -5,9 +5,9 @@ import SpottyDomain
 import SpottyRuntimeContracts
 
 package protocol CatalogCacheLifecycle: Sendable {
-    func activate() async
+    func activate(accountEpoch: UInt64) async
     /// False means account content remains fenced but could not be removed from disk.
-    func retire(purge: Bool) async -> Bool
+    func retire(accountEpoch: UInt64, purge: Bool) async -> Bool
 }
 
 /// Account-stamped gateway reads with an optional persistent browsing cache. A verified profile
@@ -18,6 +18,8 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private let rootDirectory: URL
     private let clock: any PlaybackClock
     private var generation: UInt64 = 0
+    private var highestAccountEpoch: UInt64 = 0
+    private var retiredThrough: UInt64?
     private var active = false
     private var storage: PersistentCatalog?
     private var accountURI: String?
@@ -29,31 +31,19 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private var cacheWritesInFlight = 0
     private var cacheWriteWaiters: [CheckedContinuation<Void, Never>] = []
     // Only outstanding keys are retained; completed requests leave no historical bookkeeping.
-    private var collectionReads: [String: UUID] = [:]
+    private var collectionReads: [String: UInt64] = [:]
+    private var nextCollectionReadID: UInt64 = 0
 
     private struct CollectionRead {
         let key: String
-        let id = UUID()
+        let id: UInt64
         let fetchedAt: Date
     }
     private var libraryReadRevision: UInt64 = 0
     private var accountLifetime = UUID()
     private enum EntityQueryAvailability { case unbound, available, degraded }
     private var entityQueryAvailability: EntityQueryAvailability = .unbound
-    private var entitySubscriptions: [UUID: EntityObservation] = [:]
-
-    private struct EntityObservation {
-        let token: CatalogEntitySubscriptionToken
-        let requestedURIs: Set<String>
-        let continuation: AsyncStream<CatalogEntityChange>.Continuation
-        var pendingURIs: Set<String>
-        var revision: UInt64 = 0
-        var retryAfterWrite = false
-
-        var change: CatalogEntityChange {
-            CatalogEntityChange(token: token, revision: revision, totalCount: pendingURIs.count)
-        }
-    }
+    private var entityObservations = CatalogEntityObservations()
 
     package init(
         source: any CatalogProviding,
@@ -65,15 +55,26 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         self.clock = clock
     }
 
-    package func activate() async {
+    deinit {
+        entityObservations.finishAll()
+    }
+
+    package func activate(accountEpoch: UInt64) async {
+        guard accountEpoch >= highestAccountEpoch, retiredThrough.map({ accountEpoch > $0 }) ?? true else { return }
         guard !active, !cleanupFailed, !retirementInProgress, !accountMismatch else { return }
+        highestAccountEpoch = accountEpoch
         advanceGeneration()
         accountLifetime = UUID()
         entityQueryAvailability = .unbound
         active = true
     }
 
-    package func retire(purge: Bool) async -> Bool {
+    package func retire(accountEpoch: UInt64, purge: Bool) async -> Bool {
+        retiredThrough = max(retiredThrough ?? 0, accountEpoch)
+        // An old completion cannot close or delete a replacement account's database. Record
+        // retirement even before first activation so a queued old activation remains inert.
+        guard accountEpoch >= highestAccountEpoch else { return true }
+        highestAccountEpoch = accountEpoch
         // A competing retirement cannot clear this owner's storage or reopen admission while
         // its disk operation is suspended. A false result keeps the caller's cleanup fence.
         guard !retirementInProgress else { return false }
@@ -81,7 +82,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         defer { retirementInProgress = false }
         active = false
         advanceGeneration()
-        finishEntitySubscriptions()
+        entityObservations.finishAll()
         accountURI = nil
         accountVerified = false
         do {
@@ -120,7 +121,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
                 active = false
                 advanceGeneration()
                 accountMismatch = true
-                finishEntitySubscriptions()
+                entityObservations.finishAll()
                 throw CatalogReadFailure.sessionExpired
             }
             return profile
@@ -131,7 +132,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             active = false
             advanceGeneration()
             accountMismatch = true
-            finishEntitySubscriptions()
+            entityObservations.finishAll()
             throw CatalogReadFailure.sessionExpired
         }
         let database: PersistentCatalog
@@ -211,18 +212,18 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         let stamp = try admission()
         guard let cached = try await cachedCollection("spotify:playlist:\(id)", stamp: stamp) else { return nil }
         return CatalogPlaylistSnapshot(
-            description: cached.page.metadata.description, ownerURI: nil, tracks: cached.tracks,
-            item: Self.withoutOwnership(cached.page.metadata.item),
-            freshness: .cached(fetchedAt: cached.page.fetchedAt))
+            description: cached.metadata.description, ownerURI: nil, tracks: cached.occurrences.map(\.track),
+            item: Self.withoutOwnership(cached.metadata.item),
+            freshness: .cached(fetchedAt: cached.fetchedAt))
     }
 
     package func cachedAlbum(id: String) async throws -> CatalogAlbumSnapshot? {
         let stamp = try admission()
         guard let cached = try await cachedCollection("spotify:album:\(id)", stamp: stamp) else { return nil }
         return CatalogAlbumSnapshot(
-            tracks: cached.tracks, releaseDate: cached.page.metadata.releaseDate,
-            item: cached.page.metadata.item, freshness: .cached(fetchedAt: cached.page.fetchedAt),
-            playCounts: cached.page.metadata.playCounts, artists: cached.page.metadata.albumArtists)
+            tracks: cached.occurrences.map(\.track), releaseDate: cached.metadata.releaseDate,
+            item: cached.metadata.item, freshness: .cached(fetchedAt: cached.fetchedAt),
+            playCounts: cached.metadata.playCounts, artists: cached.metadata.albumArtists)
     }
 
     package func searchTracks(_ term: String, limit: Int) async throws -> [CatalogTrack] {
@@ -250,7 +251,8 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         if revision == libraryReadRevision, accountVerified, let storage {
             do {
                 try await storage.replacePlaylistLibrary(
-                    CatalogPlaylistLibraryRecord(nodes: nodes, fetchedAt: fetchedAt), scope: storage.scope)
+                    CatalogPlaylistLibraryRecord(nodes: nodes, fetchedAt: fetchedAt), scope: storage.scope,
+                    admissionOrdinal: revision)
             } catch {
                 SpottyLog.catalog.warning("Playlist library could not be retained")
             }
@@ -304,7 +306,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
                 // live profile must verify it again; already suspended cache reads are fenced.
                 accountVerified = false
                 advanceGeneration()
-                finishEntitySubscriptions()
+                entityObservations.finishAll()
             }
             throw error
         }
@@ -328,7 +330,8 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     }
 
     private func beginCollectionRead(_ key: String) -> CollectionRead {
-        let request = CollectionRead(key: key, fetchedAt: clock.now())
+        nextCollectionReadID &+= 1
+        let request = CollectionRead(key: key, id: nextCollectionReadID, fetchedAt: clock.now())
         collectionReads[key] = request.id
         return request
     }
@@ -348,7 +351,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
     private func finishCacheWrite() {
         cacheWritesInFlight -= 1
         if cacheWriteWaiters.isEmpty {
-            retryEntityPagesAfterWrites()
+            entityObservations.writesDrained()
         } else {
             cacheWriteWaiters.removeFirst().resume()
         }
@@ -370,7 +373,8 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
             let changes = try await storage.replaceCollection(
                 CatalogCollectionWrite(
                     key: request.key, occurrences: CatalogOccurrence.browsingRows(tracks),
-                    completeness: .complete, fetchedAt: request.fetchedAt, metadata: metadata
+                    completeness: .complete, fetchedAt: request.fetchedAt, metadata: metadata,
+                    admissionOrdinal: request.id
                 ), scope: storage.scope
             )
             guard active, stamp == generation else { return }
@@ -378,7 +382,7 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
                 disableEntityQueries()
                 return
             }
-            publishEntityChanges(changes.trackURIs)
+            entityObservations.committed(changedURIs: changes.trackURIs)
         } catch {
             guard active, stamp == generation else { return }
             disableEntityQueries()
@@ -391,114 +395,57 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         guard entityQueryAvailability == .available, storage != nil, accountVerified else {
             throw CatalogEntityQueryFailure.unavailable
         }
-        guard uris.count <= CatalogEntityQueryLimits.maximumRequestedURIs,
-            uris.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 8_192 && !$0.contains("\0") })
-        else { throw CatalogEntityQueryFailure.invalidRequest }
-        guard entitySubscriptions.count < CatalogEntityQueryLimits.maximumSubscriptions else {
-            throw CatalogEntityQueryFailure.capacity
-        }
-        let token = CatalogEntitySubscriptionToken(accountLifetime: accountLifetime)
-        let (stream, continuation) = AsyncStream.makeStream(
-            of: CatalogEntityChange.self, bufferingPolicy: .bufferingNewest(1)
-        )
-        continuation.onTermination = { [weak self] _ in
+        return try entityObservations.subscribe(uris, accountLifetime: accountLifetime) { [weak self] token in
             Task { await self?.unsubscribeCatalogEntities(token) }
         }
-        let observation = EntityObservation(
-            token: token, requestedURIs: uris, continuation: continuation, pendingURIs: uris
-        )
-        entitySubscriptions[token.id] = observation
-        continuation.yield(observation.change)
-        return CatalogEntitySubscription(token: token, updates: stream)
     }
 
-    package func catalogEntityPage(
-        _ token: CatalogEntitySubscriptionToken, revision: UInt64, offset: Int, limit: Int
-    ) async throws -> CatalogEntityPage {
+    package func catalogEntities(for change: CatalogEntityChange) async throws -> [String: CatalogTrackMetadata] {
         let stamp = try admission()
-        let observation = try entityObservation(token)
-        guard observation.revision == revision else { throw CatalogEntityQueryFailure.superseded }
-        guard offset >= 0, offset <= observation.pendingURIs.count,
-            limit > 0, limit <= CatalogEntityQueryLimits.pageSize
-        else { throw CatalogEntityQueryFailure.invalidRequest }
-        guard let storage else { throw CatalogEntityQueryFailure.unavailable }
-        // The storage actor may commit a transaction before this actor receives its change set.
-        // Suspend consumers until the last pending writer has published, including no-op writes.
-        guard cacheWritesInFlight == 0 else {
-            entitySubscriptions[token.id]?.retryAfterWrite = true
-            throw CatalogEntityQueryFailure.superseded
-        }
         let writeRevision = cacheRevision
-        let uris = observation.pendingURIs.sorted()
-        let nextOffset = min(uris.count, offset + limit)
-        let tracks: [String: CatalogTrack]
-        do {
-            tracks = try await storage.tracks(for: Array(uris[offset..<nextOffset]), scope: storage.scope)
-        } catch {
-            try validate(stamp)
-            throw CatalogEntityQueryFailure.unavailable
-        }
-        try validate(stamp)
-        let current = try entityObservation(token)
-        guard current.revision == revision else { throw CatalogEntityQueryFailure.superseded }
-        guard cacheWritesInFlight == 0, cacheRevision == writeRevision else {
-            if cacheWritesInFlight == 0 {
-                // A write completed during this read. Its entity change may be unrelated, so
-                // explicitly retry this consumer without invalidating any other observation.
-                current.continuation.yield(current.change)
-            } else {
-                entitySubscriptions[token.id]?.retryAfterWrite = true
+        let uris = Array(try entityReadURIs(change, stamp: stamp, writeRevision: writeRevision))
+        guard let storage else { throw CatalogEntityQueryFailure.unavailable }
+        // Results are unordered. Snapshot membership once; no public cursor or retained sorted
+        // copy is needed. Keep each storage turn bounded so writes and retirement can interleave.
+        let batchSize = CatalogRetentionLimits().pageSize
+        var entities: [String: CatalogTrackMetadata] = [:]
+        for offset in stride(from: 0, to: uris.count, by: batchSize) {
+            let tracks: [String: CatalogTrack]
+            do {
+                tracks = try await storage.tracks(
+                    for: Array(uris[offset..<min(uris.count, offset + batchSize)]), scope: storage.scope)
+            } catch {
+                try validate(stamp)
+                throw CatalogEntityQueryFailure.unavailable
             }
-            throw CatalogEntityQueryFailure.superseded
+            _ = try entityReadURIs(change, stamp: stamp, writeRevision: writeRevision)
+            for (requestedURI, track) in tracks {
+                entities[requestedURI] = CatalogTrackMetadata(track: track, requestedURI: requestedURI)
+            }
         }
-        return CatalogEntityPage(
-            token: token, revision: revision, offset: offset, totalCount: uris.count,
-            nextOffset: nextOffset,
-            tracks: Dictionary(
-                uniqueKeysWithValues: tracks.map { requestedURI, track in
-                    (requestedURI, CatalogTrackMetadata(track: track, requestedURI: requestedURI))
-                })
-        )
+        return entities
+    }
+
+    private func entityReadURIs(
+        _ change: CatalogEntityChange, stamp: UInt64, writeRevision: UInt64
+    ) throws -> Set<String> {
+        try validate(stamp)
+        guard change.token.accountLifetime == accountLifetime else { throw CatalogEntityQueryFailure.retired }
+        // One fence spans the complete read, including unrelated and no-op writes. Storage may
+        // commit before this actor receives the change set; retry only after all writes drain.
+        let consistency: CatalogEntityObservations.ReadConsistency =
+            cacheWritesInFlight > 0 ? .writesPending : cacheRevision != writeRevision ? .crossedWrite : .stable
+        return try entityObservations.pendingURIs(for: change, consistency: consistency)
     }
 
     package func acknowledgeCatalogEntities(_ token: CatalogEntitySubscriptionToken, revision: UInt64) async {
-        guard let observation = try? entityObservation(token), observation.revision == revision else { return }
-        entitySubscriptions[token.id]?.pendingURIs.removeAll(keepingCapacity: false)
+        guard active, token.accountLifetime == accountLifetime else { return }
+        entityObservations.acknowledge(token, revision: revision)
     }
 
     package func unsubscribeCatalogEntities(_ token: CatalogEntitySubscriptionToken) async {
-        guard let observation = try? entityObservation(token) else { return }
-        entitySubscriptions.removeValue(forKey: token.id)
-        observation.continuation.finish()
-    }
-
-    private func entityObservation(_ token: CatalogEntitySubscriptionToken) throws -> EntityObservation {
-        guard active, token.accountLifetime == accountLifetime,
-            let observation = entitySubscriptions[token.id], observation.token == token
-        else { throw CatalogEntityQueryFailure.retired }
-        return observation
-    }
-
-    private func publishEntityChanges(_ changedURIs: Set<String>) {
-        guard !changedURIs.isEmpty else { return }
-        for id in Array(entitySubscriptions.keys) {
-            guard var observation = entitySubscriptions[id] else { continue }
-            let relevant = changedURIs.intersection(observation.requestedURIs)
-            guard !relevant.isEmpty else { continue }
-            observation.pendingURIs.formUnion(relevant)
-            observation.revision &+= 1
-            entitySubscriptions[id] = observation
-            observation.continuation.yield(observation.change)
-        }
-    }
-
-    private func retryEntityPagesAfterWrites() {
-        for id in Array(entitySubscriptions.keys) {
-            guard var observation = entitySubscriptions[id], observation.retryAfterWrite else { continue }
-            observation.retryAfterWrite = false
-            entitySubscriptions[id] = observation
-            observation.continuation.yield(observation.change)
-        }
+        guard active, token.accountLifetime == accountLifetime else { return }
+        entityObservations.unsubscribe(token)
     }
 
     private func disableEntityQueries() {
@@ -506,38 +453,19 @@ package actor PersistentCatalogProvider: CatalogProviding, CatalogCacheLifecycle
         // not replace them with older metadata. An unrelated successful write cannot prove all
         // missed entities repaired, so observations remain unavailable for this account lifetime.
         entityQueryAvailability = .degraded
-        finishEntitySubscriptions()
+        entityObservations.finishAll()
     }
 
-    private func finishEntitySubscriptions() {
-        let observations = entitySubscriptions.values
-        entitySubscriptions.removeAll(keepingCapacity: false)
-        for observation in observations { observation.continuation.finish() }
-    }
-
-    private func cachedCollection(
-        _ key: String, stamp: UInt64
-    ) async throws -> (page: CatalogCollectionPage, tracks: [CatalogTrack])? {
+    private func cachedCollection(_ key: String, stamp: UInt64) async throws -> CatalogCollectionSnapshot? {
         guard accountVerified, let storage, cacheWritesInFlight == 0 else { return nil }
         let revision = cacheRevision
         do {
-            let saved = try await storage.collection(key: key, scope: storage.scope)
+            let saved = try await storage.completeCollection(key: key, scope: storage.scope)
             try validate(stamp)
-            guard let first = saved, first.completeness == .complete else { return nil }
+            // Storage supplies a coherent result. The provider additionally refuses a snapshot
+            // whose read overlapped a live write, even when its clock sample and size match.
             guard cacheWritesInFlight == 0, cacheRevision == revision else { return nil }
-            var tracks = first.occurrences.map(\.track)
-            while tracks.count < first.totalCount {
-                let savedPage = try await storage.collection(key: key, offset: tracks.count, scope: storage.scope)
-                try validate(stamp)
-                guard let page = savedPage, page.fetchedAt == first.fetchedAt,
-                    page.totalCount == first.totalCount, !page.occurrences.isEmpty
-                else { return nil }
-                // Equal clock samples and collection sizes are not a revision. A concurrent
-                // refresh must not splice two accepted results into one cached response.
-                guard cacheWritesInFlight == 0, cacheRevision == revision else { return nil }
-                tracks.append(contentsOf: page.occurrences.map(\.track))
-            }
-            return (first, tracks)
+            return saved
         } catch is CatalogStorageError {
             try validate(stamp)
             return nil

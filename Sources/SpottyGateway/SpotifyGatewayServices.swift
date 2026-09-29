@@ -2,6 +2,13 @@ import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
 
+/// An opaque notification identity. Only its credential owner can say whether it still applies;
+/// replacing or clearing the grant invalidates notifications already queued for delivery.
+package struct AccountGrantRevocation: Equatable, Sendable {
+    private let id = UUID()
+    package init() {}
+}
+
 /// Account primitives are package-only: desktop contracts contain no credentials or auth implementation.
 package protocol AccountSession: Sendable {
     func authorizeInteractively() async throws -> KeymasterTokens
@@ -12,7 +19,9 @@ package protocol AccountSession: Sendable {
     func accessToken() async throws -> String
     func adopt(_ tokens: KeymasterTokens) async throws
     func clear() async -> Bool
-    func revocations() -> AsyncStream<Void>
+    func revocations() -> AsyncStream<AccountGrantRevocation>
+    /// Reads notification validity only; does not refresh credentials or access persistence.
+    func isCurrent(_ revocation: AccountGrantRevocation) async -> Bool
 }
 
 extension AccountSession {
@@ -21,19 +30,29 @@ extension AccountSession {
     package func markReauthenticationRequired() async {}
 }
 
-private struct LiveAccountSession: AccountSession {
-    let openAuthorizationURL: @Sendable (URL) async -> Bool
+struct LiveAccountSession: AccountSession {
+    private let session: KeymasterSession
+    private let openAuthorizationURL: @Sendable (URL) async -> Bool
+
+    init(
+        session: KeymasterSession,
+        openAuthorizationURL: @escaping @Sendable (URL) async -> Bool
+    ) {
+        self.session = session
+        self.openAuthorizationURL = openAuthorizationURL
+    }
     func authorizeInteractively() async throws -> KeymasterTokens {
         try await KeymasterAuth.authorize(openInBrowser: openAuthorizationURL)
     }
-    func hasGrant() async -> Bool { await KeymasterSession.shared.hasGrant }
-    func grantState() async -> KeymasterGrantState { await KeymasterSession.shared.retryGrantState() }
-    func reauthenticationRequired() async -> Bool { await KeymasterSession.shared.reauthenticationRequired() }
-    func markReauthenticationRequired() async { await KeymasterSession.shared.markReauthenticationRequired() }
-    func accessToken() async throws -> String { try await KeymasterSession.shared.accessToken() }
-    func adopt(_ tokens: KeymasterTokens) async throws { try await KeymasterSession.shared.adopt(tokens) }
-    func clear() async -> Bool { await KeymasterSession.shared.clear() }
-    func revocations() -> AsyncStream<Void> { KeymasterSession.shared.grantRevocations() }
+    func hasGrant() async -> Bool { await session.hasGrant }
+    func grantState() async -> KeymasterGrantState { await session.retryGrantState() }
+    func reauthenticationRequired() async -> Bool { await session.reauthenticationRequired() }
+    func markReauthenticationRequired() async { await session.markReauthenticationRequired() }
+    func accessToken() async throws -> String { try await session.accessToken() }
+    func adopt(_ tokens: KeymasterTokens) async throws { try await session.adopt(tokens) }
+    func clear() async -> Bool { await session.clear() }
+    func revocations() -> AsyncStream<AccountGrantRevocation> { session.grantRevocations() }
+    func isCurrent(_ revocation: AccountGrantRevocation) async -> Bool { await session.isCurrent(revocation) }
 }
 
 extension SpotifyConnectAPI: RemotePlaybackClient {}
@@ -101,7 +120,7 @@ package struct SpotifyGatewayServices: Sendable {
         )
         remote = LiveRemotePlaybackClient(metadata: SpotifyConnectAPI(transport: enrichment))
         webQueue = SpotifyWebPlayerAPI(transport: interactive)
-        account = LiveAccountSession(openAuthorizationURL: openAuthorizationURL)
+        account = LiveAccountSession(session: .shared, openAuthorizationURL: openAuthorizationURL)
         self.catalog = catalog
         playlistMutations = catalog
     }

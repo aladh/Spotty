@@ -2,8 +2,8 @@
 
 /// Configurable catalog retirement for checks of account and process teardown ordering.
 struct HarnessCatalogCacheLifecycle: CatalogCacheLifecycle {
-    var onRetire: @Sendable (Bool) async -> Bool = { _ in true }
+    var onRetire: @Sendable (UInt64, Bool) async -> Bool = { _, _ in true }
 
-    func activate() async {}
-    func retire(purge: Bool) async -> Bool { await onRetire(purge) }
+    func activate(accountEpoch: UInt64) async {}
+    func retire(accountEpoch: UInt64, purge: Bool) async -> Bool { await onRetire(accountEpoch, purge) }
 }

@@ -4,7 +4,7 @@ import ImageIO
 import SpottyRuntimeContracts
 import Synchronization
 
-/// A dedicated lane keeps ImageIO and PNG encoding away from the state actor and MainActor.
+/// A dedicated lane keeps image decoding away from the state actor and MainActor.
 final class ArtworkDecoder: Sendable {
     private let queue = DispatchQueue(label: "dev.spotty.artwork.decode", qos: .utility)
     private let mainThreadDecodes = Mutex(0)
@@ -55,14 +55,8 @@ final class ArtworkDecoder: Sendable {
             return true
         }
         guard rendered else { throw ArtworkFailure.invalidImage }
-        let encoded = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(encoded, "public.png" as CFString, 1, nil) else {
-            throw ArtworkFailure.invalidImage
-        }
-        CGImageDestinationAddImage(destination, thumbnail, nil)
-        guard CGImageDestinationFinalize(destination) else { throw ArtworkFailure.invalidImage }
         return ArtworkAsset(
-            encodedThumbnail: encoded as Data, rgbaPixels: pixels,
+            rgbaPixels: pixels,
             pixelWidth: pixelWidth, pixelHeight: pixelHeight, tint: tint(in: pixels)
         )
     }

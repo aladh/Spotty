@@ -67,6 +67,24 @@ class PlaybackPinTests(unittest.TestCase):
                                             env=env, text=True, capture_output=True)
                     self.assertEqual(result.returncode == 0, valid, result.stderr)
 
+    def test_artifact_resolution_uses_full_graph_even_after_domain_only_work(self):
+        with tempfile.TemporaryDirectory(prefix="spotty-pin-graph-") as directory:
+            root = Path(directory)
+            (root / "Package.swift").write_text(
+                f'private let generatedPlaybackArtifactURL = "{PREFIX}playback-v1.0.0{ASSET}"\n'
+                f'private let generatedPlaybackArtifactChecksum = "{"a" * 64}"\n')
+            swift = root / "swift"
+            swift.write_text('#!/bin/sh\nprintf "%s" "$SPOTTY_PACKAGE_GRAPH" > "$project_root/graph"\nexit 1\n')
+            swift.chmod(0o755)
+            env = {**os.environ, "project_root": str(root), "PIN_HELPER": str(ROOT / "Scripts/playback-xcframework.sh"),
+                   "PATH": str(root) + os.pathsep + os.environ["PATH"], "SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK": "",
+                   "SPOTTY_PACKAGE_GRAPH": "engine-free"}
+            result = subprocess.run(["sh", "-c", '. "$PIN_HELPER"; spotty_playback_resolve_xcframework'],
+                                    env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("could not resolve", result.stderr)
+            self.assertEqual((root / "graph").read_text(), "full")
+
 
 if __name__ == "__main__":
     unittest.main()

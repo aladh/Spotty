@@ -25,60 +25,59 @@ func useSupportedRuntimeActions(_ runtime: PlaybackSessionRuntime) {
 }
 
 func rejectInferredEnvironmentCapabilities(_ environment: PlaybackEnvironment) {
-    #if NEG_ENV_LOCAL
-        _ = environment.local
-    #elseif NEG_ENV_ACCOUNT
-        _ = environment.account
-    #elseif NEG_ENV_REMOTE
-        _ = environment.remote
-    #elseif NEG_ENV_WEB_QUEUE
-        _ = environment.webQueue
-    #elseif NEG_ENV_AUDIO_OUTPUT
-        _ = environment.audioOutput
-    #elseif NEG_ENV_PREFERENCES
-        _ = environment.preferences
-    #elseif NEG_ENV_QUEUE_HOOK
-        _ = environment.queueServiceHook
-    #elseif NEG_ENV_CATALOG_LIFECYCLE
-        _ = environment.catalogCacheLifecycle
-    #elseif NEG_ENV_MUTATION_ADMISSION
-        _ = environment.playlistMutationAdmission
-    #elseif NEG_ENV_INITIALIZER
-        _ = PlaybackEnvironment.init
-    #endif
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.local
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.account
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.remote
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.webQueue
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.audioOutput
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.preferences
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.queueServiceHook
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.catalogCacheLifecycle
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = environment.catalogSessionAdmission
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = PlaybackEnvironment.init
 }
 
 @SessionRuntimeActor
 func rejectInferredRuntimeCapabilities(_ runtime: PlaybackSessionRuntime) {
-    #if NEG_RUNTIME_ENVIRONMENT
-        _ = runtime.environment
-    #elseif NEG_RUNTIME_COORDINATOR
-        _ = runtime.coordinator
-    #elseif NEG_RUNTIME_ACCOUNT_STORE
-        _ = runtime.accountStore
-    #elseif NEG_RUNTIME_EFFECTS
-        _ = runtime.effects
-    #elseif NEG_RUNTIME_QUEUE_SERVICE
-        _ = runtime.queueService
-    #elseif NEG_RUNTIME_STATE
-        _ = runtime.state
-    #elseif NEG_RUNTIME_PRESENTATION_STATE
-        _ = runtime.presentation().state
-    #elseif NEG_RUNTIME_GENERATION_WRITE
-        runtime.engineGeneration = runtime.engineGeneration
-    #elseif NEG_RUNTIME_CATALOG_STATE
-        _ = runtime.catalog
-    #elseif NEG_RUNTIME_CATALOG_SESSION
-        _ = runtime.catalogSession
-    #elseif NEG_RUNTIME_TEARDOWN
-        _ = runtime.teardown
-    #elseif NEG_RUNTIME_SEND
-        runtime.send(.session(.signedOut), source: .account)
-    #elseif NEG_RUNTIME_REDUCE
-        runtime.reduce(.session(.signedOut), source: .account)
-    #elseif NEG_RUNTIME_PERFORM_COMMAND
-        runtime.performCommand("Synthetic probe", operation: .pause)
-    #elseif NEG_RUNTIME_ENGINE_EVENT
-        runtime.receive([], revision: 0, engineEpoch: 0)
-    #endif
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.environment
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.coordinator
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.accountStore
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.effects
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.queueService
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.state
+    // expected-error@+1 {{value of type 'RuntimePresentation' has no member 'state'}}
+    _ = runtime.presentation().state
+    // expected-error@+1 {{'engineGeneration' is a get-only property}}
+    runtime.engineGeneration = runtime.engineGeneration
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.catalogMetadata
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.catalogSession
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    _ = runtime.lifecycle
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    runtime.send(.session(.signedOut), source: .account)
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    runtime.reduce(.session(.signedOut), source: .account)
+    // expected-error@+2 {{is inaccessible due to 'internal' protection level}}
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    runtime.submitCommand(.pause, failureMessage: "Synthetic probe")
+    // expected-error@+1 {{is inaccessible due to 'internal' protection level}}
+    runtime.receive([], revision: 0, engineEpoch: 0)
 }

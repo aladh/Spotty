@@ -5,9 +5,8 @@ import SpottyDomain
 /// requested track identity, occurrence identifiers, and freshness from its collection result.
 public protocol CatalogEntityQueryProviding: Sendable {
     func subscribeCatalogEntities(_ uris: Set<String>) async throws -> CatalogEntitySubscription
-    func catalogEntityPage(
-        _ token: CatalogEntitySubscriptionToken, revision: UInt64, offset: Int, limit: Int
-    ) async throws -> CatalogEntityPage
+    /// Returns one complete metadata change or throws; storage batching stays provider-owned.
+    func catalogEntities(for change: CatalogEntityChange) async throws -> [String: CatalogTrackMetadata]
     func acknowledgeCatalogEntities(_ token: CatalogEntitySubscriptionToken, revision: UInt64) async
     func unsubscribeCatalogEntities(_ token: CatalogEntitySubscriptionToken) async
 }
@@ -15,7 +14,6 @@ public protocol CatalogEntityQueryProviding: Sendable {
 public enum CatalogEntityQueryLimits {
     public static let maximumRequestedURIs = 20_000
     public static let maximumSubscriptions = 8
-    public static let pageSize = 500
 }
 
 public enum CatalogEntityQueryFailure: Error, Equatable, Sendable {
@@ -52,35 +50,9 @@ public struct CatalogEntitySubscription: Sendable {
 public struct CatalogEntityChange: Codable, Equatable, Sendable {
     public let token: CatalogEntitySubscriptionToken
     public let revision: UInt64
-    public let totalCount: Int
 
-    public init(token: CatalogEntitySubscriptionToken, revision: UInt64, totalCount: Int) {
+    public init(token: CatalogEntitySubscriptionToken, revision: UInt64) {
         self.token = token
         self.revision = revision
-        self.totalCount = totalCount
-    }
-}
-
-public struct CatalogEntityPage: Codable, Equatable, Sendable {
-    public let token: CatalogEntitySubscriptionToken
-    public let revision: UInt64
-    public let offset: Int
-    public let totalCount: Int
-    /// Advance with this value even when some requested entities are absent from retention.
-    public let nextOffset: Int
-    /// Metadata is projected to the requested URI key, even when stored playback metadata was
-    /// relinked. Row IDs, added dates and server occurrence UIDs are absent from these entities.
-    public let tracks: [String: CatalogTrackMetadata]
-
-    public init(
-        token: CatalogEntitySubscriptionToken, revision: UInt64, offset: Int,
-        totalCount: Int, nextOffset: Int, tracks: [String: CatalogTrackMetadata]
-    ) {
-        self.token = token
-        self.revision = revision
-        self.offset = offset
-        self.totalCount = totalCount
-        self.nextOffset = nextOffset
-        self.tracks = tracks
     }
 }

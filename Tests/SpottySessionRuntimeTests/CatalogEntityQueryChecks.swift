@@ -1,33 +1,79 @@
+import Darwin
 import Foundation
 import SpottyCatalogStorage
 import SpottyDomain
 import SpottyRuntimeContracts
+import SpottyTestSupport
 import Testing
 @testable import SpottySessionRuntime
 
 struct CatalogEntityQueryChecks {
-    @Test func initialEntitiesArePagedAndMissingRowsAdvanceTheCursor() async throws {
+    @Test @MainActor func disposingProviderFinishesRetainedSubscriptionReaders() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("catalog-disposal-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var provider: PersistentCatalogProvider? = PersistentCatalogProvider(
+            source: EntityQuerySource(), rootDirectory: directory)
+        await provider?.activate(accountEpoch: 1)
+        _ = try await provider?.profile()
+        let subscription = try await provider!.subscribeCatalogEntities([])
+        var started = false
+        var finished = false
+        let reader = Task { @MainActor in
+            for await _ in subscription.updates { started = true }
+            finished = true
+        }
+        defer { reader.cancel() }
+        try await requireEventually { started }
+        weak let released = provider
+        provider = nil
+        try await requireEventually { released == nil }
+        try await requireEventually(description: "disposed catalog provider finishes retained subscription readers") {
+            finished
+        }
+        await reader.value
+    }
+
+    @Test func retirementFencesAnAdmittedCompleteCacheRead() async throws {
         let fixture = QueryFixture()
         defer { fixture.removeFiles() }
-        let rows = (0..<502).map { queryTrack("\($0)") }
+        await fixture.source.setTracks((0..<501).map { queryTrack("retiring-\($0)") })
+        try await fixture.bind()
+        _ = try await fixture.provider.playlist(id: "measurement")
+        _ = try await restoreAndRetire(fixture.provider)
+    }
+
+    @Test(arguments: EntityReadInterruption.allCases)
+    func interruptedEntityReadCannotReturnPartialMetadata(interruption: EntityReadInterruption) async throws {
+        let fixture = QueryFixture()
+        defer { fixture.removeFiles() }
+        let rows = (0..<501).map { queryTrack("interrupted-\($0)") }
+        await fixture.source.setTracks(rows)
+        try await fixture.bind()
+        _ = try await fixture.provider.playlist(id: "measurement")
+        let subscription = try await fixture.provider.subscribeCatalogEntities(Set(rows.map(\.uri)))
+        let change = CatalogEntityChange(token: subscription.token, revision: 0)
+        try await interruptEntityRead(fixture.provider, change: change, interruption: interruption)
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
+    }
+
+    @Test(arguments: [0, 500, 501, 20_000])
+    func completeEntitiesIncludeAllBatchesAndSkipMissingRows(requestCount: Int) async throws {
+        let fixture = QueryFixture()
+        defer { fixture.removeFiles() }
+        let rows = (0..<min(requestCount, 502)).map { queryTrack("\($0)") }
         await fixture.source.setTracks(rows)
         try await fixture.bind()
         _ = try await fixture.provider.playlist(id: "one")
-        let requested = Set(rows.map(\.uri)).union(["spotify:track:missing"])
+        let requested = Set((0..<requestCount).map { queryTrack("\($0)").uri })
         let subscription = try await fixture.provider.subscribeCatalogEntities(requested)
         var updates = subscription.updates.makeAsyncIterator()
         let initial = try #require(await updates.next())
-        #expect(initial.totalCount == 503)
-        let first = try await fixture.provider.catalogEntityPage(
-            subscription.token, revision: initial.revision, offset: 0, limit: 500)
-        let last = try await fixture.provider.catalogEntityPage(
-            subscription.token, revision: initial.revision, offset: first.nextOffset, limit: 500)
-        #expect(first.nextOffset == 500)
-        #expect(last.nextOffset == 503)
-        #expect(first.tracks.count + last.tracks.count == 502)
-        #expect(first.tracks.allSatisfy { $0.key == $0.value.uri })
+        let entities = try await fixture.provider.catalogEntities(for: initial)
+        #expect(entities.count == rows.count)
+        #expect(Set(entities.keys) == Set(rows.map(\.uri)))
+        #expect(entities.allSatisfy { $0.key == $0.value.uri })
         await fixture.provider.acknowledgeCatalogEntities(subscription.token, revision: initial.revision)
-        #expect(await fixture.provider.retire(purge: true))
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
         #expect(await updates.next() == nil)
     }
 
@@ -50,10 +96,10 @@ struct CatalogEntityQueryChecks {
         try await blocker.close(scope: blocker.scope)
         _ = try await fixture.provider.profile()
         let subscription = try await fixture.provider.subscribeCatalogEntities([retained.uri])
-        let page = try await fixture.provider.catalogEntityPage(
-            subscription.token, revision: 0, offset: 0, limit: 500)
-        #expect(page.tracks[retained.uri]?.title == retained.title)
-        #expect(await fixture.provider.retire(purge: true))
+        let entities = try await fixture.provider.catalogEntities(
+            for: CatalogEntityChange(token: subscription.token, revision: 0))
+        #expect(entities[retained.uri]?.title == retained.title)
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
 
     @Test func retryingAccountProofCannotRecoverQueriesAfterAMissedLiveWrite() async throws {
@@ -79,7 +125,7 @@ struct CatalogEntityQueryChecks {
         await #expect(throws: CatalogEntityQueryFailure.unavailable) {
             try await fixture.provider.subscribeCatalogEntities([fresh.uri])
         }
-        #expect(await fixture.provider.retire(purge: true))
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
 
     @Test func relinkedMetadataRetainsRequestedQueryIdentity() async throws {
@@ -100,12 +146,13 @@ struct CatalogEntityQueryChecks {
         try await storage.close(scope: storage.scope)
         try await fixture.bind()
         let subscription = try await fixture.provider.subscribeCatalogEntities([requested])
-        let page = try await fixture.provider.catalogEntityPage(subscription.token, revision: 0, offset: 0, limit: 500)
-        let entity = try #require(page.tracks[requested])
+        let entities = try await fixture.provider.catalogEntities(
+            for: CatalogEntityChange(token: subscription.token, revision: 0))
+        let entity = try #require(entities[requested])
         #expect(entity.uri == requested)
         #expect(entity.title == playable.title)
         #expect(entity == CatalogTrackMetadata(track: playable, requestedURI: requested))
-        #expect(await fixture.provider.retire(purge: true))
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
 
     @Test func effectiveMetadataChangesAreFilteredAndCoalesceUntilAcknowledged() async throws {
@@ -126,34 +173,33 @@ struct CatalogEntityQueryChecks {
         _ = try await fixture.provider.album(id: "unrelated")
         await fixture.source.setTracks([queryTrack("one", occurrence: "new-occurrence")])
         _ = try await fixture.provider.album(id: "identical")
-        let silent = try await fixture.provider.catalogEntityPage(
-            subscription.token, revision: initial.revision, offset: 0, limit: 500)
-        #expect(silent.totalCount == 0)
+        let silent = try await fixture.provider.catalogEntities(for: initial)
+        #expect(silent.count == 0)
 
         await fixture.source.setTracks([queryTrack("one", title: "Updated one")])
         _ = try await fixture.provider.album(id: "changed-one")
         let updateOne = try #require(await updates.next())
         #expect(updateOne.revision == initial.revision + 1)
-        #expect(updateOne.totalCount == 1)
+        let firstUpdate = try await fixture.provider.catalogEntities(for: updateOne)
+        #expect(firstUpdate.count == 1)
+        #expect(firstUpdate[first.uri]?.title == "Updated one")
         await fixture.source.setTracks([queryTrack("two", title: "Updated two")])
         _ = try await fixture.provider.album(id: "changed-two")
         await fixture.provider.acknowledgeCatalogEntities(subscription.token, revision: updateOne.revision)
         let updateBoth = try #require(await updates.next())
         #expect(updateBoth.revision == updateOne.revision + 1)
-        #expect(updateBoth.totalCount == 2)
         await #expect(throws: CatalogEntityQueryFailure.superseded) {
-            try await fixture.provider.catalogEntityPage(
-                subscription.token, revision: updateOne.revision, offset: 0, limit: 500)
+            try await fixture.provider.catalogEntities(
+                for: CatalogEntityChange(token: subscription.token, revision: updateOne.revision))
         }
-        let entities = try await fixture.provider.catalogEntityPage(
-            subscription.token, revision: updateBoth.revision, offset: 0, limit: 500)
-        #expect(entities.tracks[first.uri]?.title == "Updated one")
-        #expect(entities.tracks[second.uri]?.title == "Updated two")
+        let entities = try await fixture.provider.catalogEntities(for: updateBoth)
+        #expect(entities.count == 2)
+        #expect(entities[first.uri]?.title == "Updated one")
+        #expect(entities[second.uri]?.title == "Updated two")
         await fixture.provider.acknowledgeCatalogEntities(subscription.token, revision: updateBoth.revision)
-        let acknowledged = try await fixture.provider.catalogEntityPage(
-            subscription.token, revision: updateBoth.revision, offset: 0, limit: 500)
-        #expect(acknowledged.totalCount == 0)
-        #expect(await fixture.provider.retire(purge: true))
+        let acknowledged = try await fixture.provider.catalogEntities(for: updateBoth)
+        #expect(acknowledged.count == 0)
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
 
     @Test func slowSubscriberReceivesTheUnionWithoutAnUnboundedEventQueue() async throws {
@@ -170,19 +216,17 @@ struct CatalogEntityQueryChecks {
         var updates = subscription.updates.makeAsyncIterator()
         let newest = try #require(await updates.next())
         #expect(newest.revision == 2)
-        #expect(newest.totalCount == 2)
-        let page = try await fixture.provider.catalogEntityPage(
-            subscription.token, revision: newest.revision, offset: 0, limit: 500)
-        #expect(page.tracks.count == 2)
+        let entities = try await fixture.provider.catalogEntities(for: newest)
+        #expect(entities.count == 2)
         await fixture.provider.unsubscribeCatalogEntities(subscription.token)
         #expect(await updates.next() == nil)
-        #expect(await fixture.provider.retire(purge: true))
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
 
     @Test func subscriptionsAreBoundedAndOldTokensCannotRemoveReplacementObservations() async throws {
         let fixture = QueryFixture()
         defer { fixture.removeFiles() }
-        await fixture.provider.activate()
+        await fixture.provider.activate(accountEpoch: 1)
         await #expect(throws: CatalogEntityQueryFailure.unavailable) {
             try await fixture.provider.subscribeCatalogEntities([])
         }
@@ -199,20 +243,20 @@ struct CatalogEntityQueryChecks {
             try await fixture.provider.subscribeCatalogEntities([])
         }
         let old = try #require(subscriptions.first)
-        #expect(await fixture.provider.retire(purge: false))
-        await fixture.provider.activate()
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: false))
+        await fixture.provider.activate(accountEpoch: 2)
         _ = try await fixture.provider.profile()
         let replacement = try await fixture.provider.subscribeCatalogEntities([])
         #expect(replacement.token.accountLifetime != old.token.accountLifetime)
         await fixture.provider.unsubscribeCatalogEntities(old.token)
         await fixture.provider.acknowledgeCatalogEntities(old.token, revision: 0)
         await #expect(throws: CatalogEntityQueryFailure.retired) {
-            try await fixture.provider.catalogEntityPage(old.token, revision: 0, offset: 0, limit: 500)
+            try await fixture.provider.catalogEntities(for: CatalogEntityChange(token: old.token, revision: 0))
         }
         #expect(
-            try await fixture.provider.catalogEntityPage(replacement.token, revision: 0, offset: 0, limit: 500)
-                .totalCount == 0)
-        #expect(await fixture.provider.retire(purge: true))
+            try await fixture.provider.catalogEntities(for: CatalogEntityChange(token: replacement.token, revision: 0))
+                .isEmpty)
+        #expect(await fixture.provider.retire(accountEpoch: 2, purge: true))
     }
 
     @Test func failedPersistenceCannotHydrateFreshLiveRowsFromOlderEntities() async throws {
@@ -237,7 +281,7 @@ struct CatalogEntityQueryChecks {
         await #expect(throws: CatalogEntityQueryFailure.unavailable) {
             try await fixture.provider.subscribeCatalogEntities([fresh.uri])
         }
-        #expect(await fixture.provider.retire(purge: true))
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
 
     @Test func rejectedRefreshCannotHydrateFreshLiveRowsFromAnOlderClockSample() async throws {
@@ -259,7 +303,7 @@ struct CatalogEntityQueryChecks {
         await #expect(throws: CatalogEntityQueryFailure.unavailable) {
             try await fixture.provider.subscribeCatalogEntities([fresh.uri])
         }
-        #expect(await fixture.provider.retire(purge: true))
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
 
     @Test func changedAccountProofFinishesOutstandingObservations() async throws {
@@ -272,8 +316,213 @@ struct CatalogEntityQueryChecks {
         await fixture.source.setAccount("spotify:user:replacement")
         await #expect(throws: CatalogReadFailure.sessionExpired) { try await fixture.provider.profile() }
         #expect(await updates.next() == nil)
-        #expect(await fixture.provider.retire(purge: true))
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
     }
+}
+
+enum EntityReadInterruption: CaseIterable, Sendable {
+    case cancelledBeforeAdmission, cancelledDuringRead, unsubscribed, retired
+}
+
+/// Admission runs synchronously on the provider through the first storage await. Interrupt on
+/// that same actor before the read can resume; no timing or oversized fixture establishes order.
+private func interruptEntityRead(
+    _ provider: isolated PersistentCatalogProvider, change: CatalogEntityChange, interruption: EntityReadInterruption
+) async throws {
+    let read = Task.immediate {
+        if interruption == .cancelledBeforeAdmission { withUnsafeCurrentTask { $0?.cancel() } }
+        return try await provider.catalogEntities(for: change)
+    }
+    defer { read.cancel() }
+    switch interruption {
+    case .cancelledBeforeAdmission, .cancelledDuringRead:
+        read.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await read.value }
+        let retry = try await provider.catalogEntities(for: change)
+        #expect(retry.count == 501, "cancellation must not acknowledge the pending metadata")
+    case .unsubscribed:
+        await provider.unsubscribeCatalogEntities(change.token)
+        await #expect(throws: CatalogEntityQueryFailure.retired) { _ = try await read.value }
+    case .retired:
+        #expect(await provider.retire(accountEpoch: 1, purge: true))
+        await #expect(throws: CatalogReadFailure.sessionExpired) { _ = try await read.value }
+    }
+}
+
+/// Opt-in complete entity-read cost, including storage batches, with no timing assertion.
+struct CatalogEntityQueryMeasurementTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SPOTTY_ENTITY_PAGING_REPORT"] != nil))
+    func measureCompleteEntityRead() async throws {
+        let fixture = QueryFixture()
+        defer { fixture.removeFiles() }
+        let environment = ProcessInfo.processInfo.environment
+        let requestedCount = try #require(Int(environment["SPOTTY_ENTITY_PAGING_REQUEST_COUNT"] ?? "20000"))
+        let iterations = try #require(Int(environment["SPOTTY_ENTITY_PAGING_ITERATIONS"] ?? "5"))
+        try #require((1...CatalogEntityQueryLimits.maximumRequestedURIs).contains(requestedCount))
+        try #require((1...10_000).contains(iterations))
+        let rows = (0..<max(1, requestedCount / 2)).map { queryTrack("synthetic-\($0)") }
+        await fixture.source.setTracks(rows)
+        try await fixture.bind()
+        _ = try await fixture.provider.playlist(id: "measurement")
+        let uris = Set((0..<requestedCount).map { "spotify:track:synthetic-\($0)" })
+        var reports: [[String: Any]] = []
+        for iteration in 0..<iterations {
+            let started = ContinuousClock.now
+            let before = try cpuSeconds()
+            let subscription = try await fixture.provider.subscribeCatalogEntities(uris)
+            let entities = try await fixture.provider.catalogEntities(
+                for: CatalogEntityChange(token: subscription.token, revision: 0))
+            let found = Set(entities.keys)
+            await fixture.provider.unsubscribeCatalogEntities(subscription.token)
+            let cpu = try cpuSeconds() - before
+            let elapsed = started.duration(to: .now).components
+            reports.append([
+                "iteration": iteration, "cpuSeconds": cpu,
+                "wallSeconds": Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18,
+            ])
+            #expect(found == Set(rows.map(\.uri)))
+        }
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
+        let report = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1, "requestedCount": requestedCount, "retainedCount": rows.count,
+                "storageBatchSize": CatalogRetentionLimits().pageSize, "iterations": iterations,
+                "os": ProcessInfo.processInfo.operatingSystemVersionString, "measurements": reports,
+            ], options: [.prettyPrinted, .sortedKeys])
+        let path = try #require(ProcessInfo.processInfo.environment["SPOTTY_ENTITY_PAGING_REPORT"])
+        try report.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SPOTTY_COLLECTION_RESTORE_REPORT"] != nil))
+    func measureCachedCollectionRestore() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let iterations = try #require(Int(environment["SPOTTY_COLLECTION_RESTORE_ITERATIONS"] ?? "10"))
+        try #require((1...1_000).contains(iterations))
+        var reports: [[String: Any]] = []
+        var retirements: [[String: Any]] = []
+        for count in [500, 5_000, 10_000] {
+            let fixture = QueryFixture()
+            defer { fixture.removeFiles() }
+            let rows = (0..<count).map { queryTrack("restore-\($0)") }
+            await fixture.source.setTracks(rows)
+            try await fixture.bind()
+            _ = try await fixture.provider.playlist(id: "measurement")
+            try #require(try await fixture.provider.cachedPlaylist(id: "measurement")?.tracks.count == count)
+            for iteration in 0..<iterations {
+                let started = ContinuousClock.now
+                let before = try cpuSeconds()
+                let snapshot = try await fixture.provider.cachedPlaylist(id: "measurement")
+                let cpu = try cpuSeconds() - before
+                let elapsed = started.duration(to: .now).components
+                try #require(snapshot?.tracks.count == count)
+                #expect(snapshot?.tracks.map(\.uri) == rows.map(\.uri))
+                reports.append([
+                    "rows": count, "iteration": iteration, "cpuSeconds": cpu,
+                    "wallSeconds": Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18,
+                ])
+            }
+            let elapsed = try await restoreAndRetire(fixture.provider)
+            retirements.append(["rows": count, "wallSeconds": elapsed])
+        }
+        var usage = rusage()
+        try #require(getrusage(RUSAGE_SELF, &usage) == 0)
+        let report = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1, "iterations": iterations, "measurements": reports, "retirements": retirements,
+                "processPeakResidentBytes": usage.ru_maxrss,
+                "os": ProcessInfo.processInfo.operatingSystemVersionString,
+            ], options: [.prettyPrinted, .sortedKeys])
+        let path = try #require(environment["SPOTTY_COLLECTION_RESTORE_REPORT"])
+        try report.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    /// End-to-end provider/SQLite publication cost for slow subscribers, without timing assertions.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SPOTTY_ENTITY_FANOUT_REPORT"] != nil))
+    func measureSlowSubscriberInvalidations() async throws {
+        let fixture = QueryFixture()
+        defer { fixture.removeFiles() }
+        try await fixture.bind()
+        var reports: [[String: Any]] = []
+        let writes = 100
+        let iterations = 3
+        for requestedCount in [1, CatalogEntityQueryLimits.maximumRequestedURIs] {
+            let requested = Set((0..<requestedCount).map { "spotify:track:fanout-\($0)" })
+            for subscriberCount in [1, CatalogEntityQueryLimits.maximumSubscriptions] {
+                for iteration in 0..<iterations {
+                    var subscriptions: [CatalogEntitySubscription] = []
+                    for _ in 0..<subscriberCount {
+                        subscriptions.append(try await fixture.provider.subscribeCatalogEntities(requested))
+                    }
+                    for subscription in subscriptions {
+                        await fixture.provider.acknowledgeCatalogEntities(subscription.token, revision: 0)
+                    }
+                    let prefixCount = max(1, requestedCount / 2)
+                    await fixture.source.setTracks(
+                        (0..<prefixCount).map {
+                            queryTrack("fanout-\($0)", title: "Seed \(requestedCount) \(subscriberCount) \(iteration)")
+                        })
+                    _ = try await fixture.provider.album(id: "fanout-seed")
+                    for warmup in 0..<5 {
+                        let index = requestedCount == 1 ? 0 : prefixCount + warmup
+                        await fixture.source.setTracks([
+                            queryTrack("fanout-\(index)", title: "Warmup \(iteration) \(warmup)")
+                        ])
+                        _ = try await fixture.provider.album(id: "fanout")
+                    }
+                    let started = ContinuousClock.now
+                    let before = try cpuSeconds()
+                    for write in 0..<writes {
+                        let index = requestedCount == 1 ? 0 : prefixCount + 5 + write
+                        await fixture.source.setTracks([
+                            queryTrack("fanout-\(index)", title: "Update \(iteration) \(write)")
+                        ])
+                        _ = try await fixture.provider.album(id: "fanout")
+                    }
+                    let cpu = try cpuSeconds() - before
+                    let elapsed = started.duration(to: .now).components
+                    reports.append([
+                        "requestedCount": requestedCount, "subscribers": subscriberCount,
+                        "iteration": iteration, "writes": writes, "cpuSeconds": cpu,
+                        "wallSeconds": Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18,
+                    ])
+                    for subscription in subscriptions {
+                        var updates = subscription.updates.makeAsyncIterator()
+                        let latest = try #require(await updates.next())
+                        #expect(latest.revision == UInt64(writes + 6))
+                        let entities = try await fixture.provider.catalogEntities(for: latest)
+                        #expect(entities.count == (requestedCount == 1 ? 1 : prefixCount + 5 + writes))
+                        let lastIndex = requestedCount == 1 ? 0 : prefixCount + 5 + writes - 1
+                        #expect(entities["spotify:track:fanout-\(lastIndex)"]?.title == "Update \(iteration) 99")
+                        await fixture.provider.unsubscribeCatalogEntities(subscription.token)
+                    }
+                }
+            }
+        }
+        #expect(await fixture.provider.retire(accountEpoch: 1, purge: true))
+        let path = try #require(ProcessInfo.processInfo.environment["SPOTTY_ENTITY_FANOUT_REPORT"])
+        let report = try JSONSerialization.data(
+            withJSONObject: ["version": 1, "measurements": reports], options: [.prettyPrinted, .sortedKeys])
+        try report.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func cpuSeconds() throws -> Double {
+        var usage = rusage()
+        try #require(getrusage(RUSAGE_SELF, &usage) == 0)
+        return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec)
+            + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6
+    }
+}
+
+/// Immediate admission reaches the storage await while retaining this actor turn. Retirement
+/// therefore revokes publication before the suspended read can resume on the provider.
+private func restoreAndRetire(_ provider: isolated PersistentCatalogProvider) async throws -> Double {
+    let read = Task.immediate { try await provider.cachedPlaylist(id: "measurement") }
+    defer { read.cancel() }
+    let started = ContinuousClock.now
+    #expect(await provider.retire(accountEpoch: 1, purge: true))
+    let elapsed = started.duration(to: .now).components
+    await #expect(throws: CatalogReadFailure.sessionExpired) { try await read.value }
+    return Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
 }
 
 private struct QueryFixture {
@@ -288,7 +537,7 @@ private struct QueryFixture {
     }
 
     func bind() async throws {
-        await provider.activate()
+        await provider.activate(accountEpoch: 1)
         _ = try await provider.profile()
     }
 

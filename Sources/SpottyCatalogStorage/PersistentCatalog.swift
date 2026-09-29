@@ -18,6 +18,12 @@ public actor PersistentCatalog {
     private let limits: CatalogRetentionLimits
     private let validAccountID: Bool
     private var database: CatalogSQLiteDatabase?
+    private var lastTouch: Int64?
+    // Ordering exists only for entities retained by this owner; account lifetime tokens never
+    // reach disk. Reopening retains timestamps but starts a fresh admission-order namespace.
+    private var entityAdmissionOrdinals: [String: UInt64] = [:]
+    private var libraryAdmissionOrdinal: UInt64?
+    private enum EntityOrderUpdate { case set(UInt64), remove }
     private var isRetired = false
     private var isFinished = false
 
@@ -49,11 +55,15 @@ public actor PersistentCatalog {
         return record
     }
 
-    public func replacePlaylistLibrary(_ record: CatalogPlaylistLibraryRecord, scope: CatalogStorageScope) throws {
+    /// Admission order breaks equal-date ties only within this storage lifetime. It is never
+    /// persisted, so a fresh owner's first observation can replace an equal-date saved tree.
+    public func replacePlaylistLibrary(
+        _ record: CatalogPlaylistLibraryRecord, scope: CatalogStorageScope, admissionOrdinal: UInt64? = nil
+    ) throws {
         let db = try connection(scope)
         try record.validate()
         let data = try encode(record, maximumBytes: CatalogPlaylistLibraryRecord.maximumBytes)
-        try db.transaction {
+        let accepted = try db.transaction {
             let previous: CatalogPlaylistLibraryRecord?
             do {
                 previous = try playlistLibrary(scope: scope)
@@ -62,11 +72,23 @@ public actor PersistentCatalog {
                 // repairs only this record; database, lifetime and scope errors still fail.
                 previous = nil
             }
-            if let previous, previous.fetchedAt > record.fetchedAt { return }
+            if let previous,
+                previous.fetchedAt > record.fetchedAt
+                    || (previous.fetchedAt == record.fetchedAt
+                        && admissionOrdinal.map { incoming in
+                            libraryAdmissionOrdinal.map { $0 >= incoming } == true
+                        } == true)
+            {
+                return false
+            }
             try db.execute(
                 "INSERT INTO playlist_library(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
                 [.blob(data)])
+            return true
         }
+        // Failed/rejected transactions cannot acquire freshness authority. Even an identical
+        // accepted snapshot advances it; an unversioned replacement starts a fresh ordering base.
+        if accepted { libraryAdmissionOrdinal = admissionOrdinal }
     }
 
     /// Ends this lifetime, retaining browsing data for the next process. Later retirement is a no-op.
@@ -76,6 +98,8 @@ public actor PersistentCatalog {
         // A failed purge must be retried as retirement, not silently converted into retention.
         guard !isRetired else { throw CatalogStorageError.retired }
         isRetired = true
+        entityAdmissionOrdinals.removeAll(keepingCapacity: false)
+        libraryAdmissionOrdinal = nil
         database?.close()
         database = nil
         isFinished = true
@@ -87,6 +111,8 @@ public actor PersistentCatalog {
         try validateScope(scope)
         guard !isFinished else { return }
         isRetired = true
+        entityAdmissionOrdinals.removeAll(keepingCapacity: false)
+        libraryAdmissionOrdinal = nil
         if database == nil {
             try validateConfiguration()
             database = try CatalogSQLiteDatabase(
@@ -100,10 +126,23 @@ public actor PersistentCatalog {
     public func tracks(for requestedURIs: [String], scope: CatalogStorageScope) throws -> [String: CatalogTrack] {
         let db = try connection(scope)
         guard requestedURIs.count <= limits.pageSize else { throw CatalogStorageError.invalidInput }
+        let uris = Array(Set(requestedURIs))
+        for uri in uris { try validateKey(uri) }
         var tracks: [String: CatalogTrack] = [:]
-        for uri in Set(requestedURIs) {
-            try validateKey(uri)
-            if let data = try trackData(uri: uri, db: db) {
+        tracks.reserveCapacity(uris.count)
+        // Bound temporary encoded rows as well as SQLite work. Power-of-two parameter counts
+        // give the connection only seven query shapes, even when page sizes vary.
+        for offset in stride(from: 0, to: uris.count, by: 64) {
+            let batch = uris[offset..<min(uris.count, offset + 64)]
+            var parameterCount = 1
+            while parameterCount < batch.count { parameterCount *= 2 }
+            let placeholders = Array(repeating: "?", count: parameterCount).joined(separator: ",")
+            var values = batch.map(CatalogSQLiteValue.text)
+            values.append(contentsOf: repeatElement(.null, count: parameterCount - batch.count))
+            for row in try db.rows("SELECT uri,data FROM entities WHERE kind=0 AND uri IN (\(placeholders))", values) {
+                guard row.count == 2, let uri = row[0].text, let data = row[1].blob else {
+                    throw CatalogStorageError.invalidStoredData
+                }
                 tracks[uri] = try decode(StoredTrack.self, data).value(id: uri)
             }
         }
@@ -122,18 +161,20 @@ public actor PersistentCatalog {
         else { throw CatalogStorageError.invalidInput }
         let header = StoredCollection(write)
         let headerData = try encode(header)
-        var tracks: [String: Data] = [:]
+        var tracks: [String: (track: StoredTrack, data: Data)] = [:]
         var rows: [Data] = []
         for occurrence in write.occurrences {
             try validateKey(occurrence.id)
             try validateKey(occurrence.requestedURI)
             try validateKey(occurrence.track.uri)
             if let uid = occurrence.serverUID { try validateKey(uid) }
-            tracks[occurrence.requestedURI] = try encode(StoredTrack(occurrence.track))
+            let track = StoredTrack(occurrence.track, fetchedAt: write.fetchedAt)
+            tracks[occurrence.requestedURI] = (track, try encode(track))
             rows.append(try encode(StoredOccurrence(occurrence)))
         }
         guard tracks.count <= limits.entities else { throw CatalogStorageError.invalidInput }
-        return try db.transaction {
+        var orderUpdates: [String: EntityOrderUpdate] = [:]
+        let changes = try db.transaction {
             var changes = CatalogStorageChanges()
             let oldHeader = try collectionData(write.key, db: db)
             if let oldHeader {
@@ -146,7 +187,9 @@ public actor PersistentCatalog {
                     return changes
                 }
             }
-            try upsertTracks(tracks, db: db, changes: &changes)
+            try upsertTracks(
+                tracks, admissionOrdinal: write.admissionOrdinal, db: db, changes: &changes, orderUpdates: &orderUpdates
+            )
             let oldRows = try db.rows(
                 "SELECT data FROM occurrences WHERE collection_key=? ORDER BY position", [.text(write.key)]
             ).map { try storedData($0) }
@@ -168,56 +211,74 @@ public actor PersistentCatalog {
                     )
                 }
             }
-            try trim(db, changes: &changes)
+            try trim(db, changes: &changes, orderUpdates: &orderUpdates)
             return changes
         }
+        // Publish ordering only after COMMIT. A later SQL error cannot grant an observation
+        // authority it never retained; eviction overrides an accepted write in this journal.
+        for (uri, update) in orderUpdates {
+            switch update {
+            case .set(let ordinal): entityAdmissionOrdinals[uri] = ordinal
+            case .remove: entityAdmissionOrdinals.removeValue(forKey: uri)
+            }
+        }
+        return changes
     }
 
-    public func collection(
-        key: String,
-        offset: Int = 0,
-        limit: Int = 500,
-        scope: CatalogStorageScope
-    ) throws -> CatalogCollectionPage? {
+    /// Missing or partial results are unavailable. A successful read contains every occurrence
+    /// from one storage turn; callers never assemble pages or compare storage revisions.
+    public func completeCollection(key: String, scope: CatalogStorageScope) throws -> CatalogCollectionSnapshot? {
+        try Task.checkCancellation()
         let db = try connection(scope)
         try validateKey(key)
-        guard offset >= 0, limit > 0, limit <= limits.pageSize else { throw CatalogStorageError.invalidInput }
         guard let data = try collectionData(key, db: db) else { return nil }
         let header = try decode(StoredCollection.self, data)
-        let total =
-            try db.rows("SELECT COUNT(*) FROM occurrences WHERE collection_key=?", [.text(key)])
-            .first?.first?.integer ?? 0
-        let rows = try db.rows(
-            "SELECT o.data,e.data FROM occurrences o LEFT JOIN entities e ON e.kind=0 AND e.uri=o.requested_uri WHERE o.collection_key=? ORDER BY o.position LIMIT ? OFFSET ?",
-            [.text(key), .integer(Int64(limit)), .integer(Int64(offset))]
-        )
-        let occurrences = try rows.map { row -> CatalogOccurrence in
-            guard let occurrenceData = row[0].blob, let trackData = row[1].blob else {
-                throw CatalogStorageError.invalidStoredData
-            }
+        guard header.completeness == .complete else { return nil }
+        var occurrences: [CatalogOccurrence] = []
+        try db.forEachRow(
+            "SELECT o.data,e.data FROM occurrences o LEFT JOIN entities e ON e.kind=0 AND e.uri=o.requested_uri WHERE o.collection_key=? ORDER BY o.position",
+            [.text(key)]
+        ) { row in
+            if occurrences.count.isMultiple(of: 64) { try Task.checkCancellation() }
+            guard occurrences.count < limits.occurrencesPerCollection,
+                let occurrenceData = row[0].blob, let trackData = row[1].blob
+            else { throw CatalogStorageError.invalidStoredData }
             let occurrence = try decode(StoredOccurrence.self, occurrenceData)
             let track = try decode(StoredTrack.self, trackData)
-            return CatalogOccurrence(
-                id: occurrence.id, requestedURI: occurrence.requestedURI, serverUID: occurrence.serverUID,
-                track: track.value(
-                    id: occurrence.trackID, addedAt: occurrence.addedAt, occurrenceUID: occurrence.serverUID)
-            )
+            occurrences.append(
+                CatalogOccurrence(
+                    id: occurrence.id, requestedURI: occurrence.requestedURI, serverUID: occurrence.serverUID,
+                    track: track.value(
+                        id: occurrence.trackID, addedAt: occurrence.addedAt, occurrenceUID: occurrence.serverUID)))
         }
+        try Task.checkCancellation()
         try db.execute("UPDATE collections SET touched=? WHERE key=?", [.integer(try nextTouch(db)), .text(key)])
-        return CatalogCollectionPage(
-            key: key, occurrences: occurrences, offset: offset, totalCount: Int(total),
-            completeness: header.completeness, revision: header.revision, fetchedAt: header.fetchedAt,
-            metadata: header.metadata
-        )
+        return CatalogCollectionSnapshot(
+            key: key, occurrences: occurrences, revision: header.revision, fetchedAt: header.fetchedAt,
+            metadata: header.metadata)
     }
 
     private func upsertTracks(
-        _ writes: [String: Data], db: CatalogSQLiteDatabase, changes: inout CatalogStorageChanges
+        _ writes: [String: (track: StoredTrack, data: Data)], admissionOrdinal: UInt64?, db: CatalogSQLiteDatabase,
+        changes: inout CatalogStorageChanges, orderUpdates: inout [String: EntityOrderUpdate]
     ) throws {
         let touched = try nextTouch(db)
         for uri in writes.keys.sorted() {
-            guard let data = writes[uri] else { continue }
-            if try trackData(uri: uri, db: db) != data {
+            guard let write = writes[uri] else { continue }
+            let previous = try trackData(uri: uri, db: db).map { try decode(StoredTrack.self, $0) }
+            // Membership belongs to the collection, but shared metadata has its own freshness.
+            // Even a stale observation references this entity and should renew its retention.
+            if let previousDate = previous?.fetchedAt, let incomingDate = write.track.fetchedAt,
+                previousDate > incomingDate
+                    || (previousDate == incomingDate
+                        && admissionOrdinal.map { incoming in
+                            entityAdmissionOrdinals[uri].map { $0 >= incoming } == true
+                        } == true)
+            {
+                try db.execute("UPDATE entities SET touched=? WHERE kind=0 AND uri=?", [.integer(touched), .text(uri)])
+                continue
+            }
+            if previous?.value(id: uri) != write.track.value(id: uri) {
                 changes.trackURIs.insert(uri)
                 let references = try db.rows(
                     "SELECT DISTINCT collection_key FROM occurrences WHERE requested_uri=?", [.text(uri)]
@@ -226,12 +287,16 @@ public actor PersistentCatalog {
             }
             try db.execute(
                 "INSERT INTO entities(kind,uri,data,touched) VALUES(0,?,?,?) ON CONFLICT(kind,uri) DO UPDATE SET data=excluded.data,touched=excluded.touched",
-                [.text(uri), .blob(data), .integer(touched)]
+                [.text(uri), .blob(write.data), .integer(touched)]
             )
+            orderUpdates[uri] = admissionOrdinal.map(EntityOrderUpdate.set) ?? .remove
         }
     }
 
-    private func trim(_ db: CatalogSQLiteDatabase, changes: inout CatalogStorageChanges) throws {
+    private func trim(
+        _ db: CatalogSQLiteDatabase, changes: inout CatalogStorageChanges,
+        orderUpdates: inout [String: EntityOrderUpdate]
+    ) throws {
         let collectionVictims = try db.rows(
             "SELECT key FROM collections ORDER BY touched DESC,key LIMIT -1 OFFSET ?",
             [.integer(Int64(limits.collections))]
@@ -254,6 +319,7 @@ public actor PersistentCatalog {
                 ).compactMap { $0.first?.text }
                 for key in references { try evictCollection(key, db: db, changes: &changes) }
                 changes.trackURIs.insert(uri)
+                orderUpdates[uri] = .remove
             } else {
                 changes.itemURIs.insert(uri)
             }
@@ -287,12 +353,20 @@ public actor PersistentCatalog {
     }
 
     private func nextTouch(_ db: CatalogSQLiteDatabase) throws -> Int64 {
-        let current =
-            try db.rows(
-                "SELECT MAX(touched) FROM (SELECT touched FROM entities UNION ALL SELECT touched FROM collections)"
-            )
-            .first?.first?.integer ?? 0
+        let current: Int64
+        if let lastTouch {
+            current = lastTouch
+        } else {
+            current =
+                try db.rows(
+                    "SELECT MAX(touched) FROM (SELECT touched FROM entities UNION ALL SELECT touched FROM collections)"
+                )
+                .first?.first?.integer ?? 0
+        }
         guard current < Int64.max else { throw CatalogStorageError.invalidStoredData }
+        // The account lock gives this lifetime exclusive write ownership. Reserve counters in
+        // memory after the first scan; gaps after rolled-back transactions do not affect LRU order.
+        lastTouch = current + 1
         return current + 1
     }
 

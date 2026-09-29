@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Testing
 import SpottyDomain
 import Foundation
@@ -41,6 +43,44 @@ private func seedRemoteOwner(_ player: PlaybackStore) {
 
 @Suite("Transient Feedback")
 struct TransientFeedbackTests {
+    @Test @MainActor
+    func timedFeedbackKeepsAReplacementForItsEntireDuration() async throws {
+        let clock = HarnessClock.scheduled()
+        let feedback = TransientFeedbackPresenter(clock: clock, duration: 4)
+        defer { feedback.dismiss(); clock.releaseAll() }
+        feedback.success("First")
+        try await requireEventually { clock.waiterCount == 1 }
+        clock.advance(seconds: 3)
+        #expect(feedback.message?.text == "First")
+        feedback.success("Replacement")
+        try await requireEventually { clock.requestedSleeps.count == 2 && clock.waiterCount == 1 }
+        clock.advance(seconds: 3)
+        #expect(clock.waiterCount == 1)
+        #expect(feedback.message?.text == "Replacement")
+        clock.advance(seconds: 1)
+        try await requireEventually { feedback.message == nil }
+        #expect(clock.waiterCount == 0)
+    }
+
+    @Test(arguments: [false, true]) @MainActor
+    func disposingPresenterReleasesItBeforeItsTimerWakes(cooperative: Bool) async throws {
+        let clock = HarnessClock(sleep: cooperative ? .parked : .uncooperativelyParked)
+        defer { clock.releaseAll() }
+        var feedback: TransientFeedbackPresenter? = TransientFeedbackPresenter(clock: clock)
+        weak let owner = feedback
+        feedback?.success("Temporary feedback")
+        try await requireEventually { clock.waiterCount == 1 }
+
+        feedback = nil
+
+        #expect(owner == nil)
+        if cooperative {
+            try await requireEventually(description: "presenter disposal cancels its dismissal timer") {
+                clock.waiterCount == 0
+            }
+        }
+    }
+
     @Test
     @MainActor
     func testTransientFeedback() async throws {
@@ -91,7 +131,7 @@ struct TransientFeedbackTests {
         }
 
         do {
-            let cooperative = CooperativeParkedClock()
+            let cooperative = HarnessClock.parked()
             let cancelling = TransientFeedbackPresenter(clock: cooperative, duration: 4)
             cancelling.success("First")
             await expectEventually { cooperative.waiterCount == 1 }

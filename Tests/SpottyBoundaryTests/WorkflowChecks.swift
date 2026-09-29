@@ -1,50 +1,32 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
 @testable import SpottyEngineAdapter
 @testable import SpottySessionRuntime
-@testable import SpottyGateway
 import SpottyRuntimeContracts
-
-/// Parks `libraryAlbums`/`libraryArtists` reads for `HarnessCatalog.onLibraryAlbums`/
-/// `onLibraryArtists` closures. `HarnessCatalog` has no built-in notion of an overlapping in-flight
-/// library read, so this small gate composes with it instead of hand-rolling a whole
-/// `CatalogProviding` fake.
-private actor LibraryParkGate {
-    private var albumContinuation: CheckedContinuation<[PathfinderAlbum], Never>?
-    private var artistContinuation: CheckedContinuation<[PathfinderArtist], Never>?
-    private var albumsReleased = false
-    private var artistsReleased = false
-
-    var albumsAreParked: Bool { albumContinuation != nil }
-    var artistsAreParked: Bool { artistContinuation != nil }
-
-    func parkAlbums() async -> [PathfinderAlbum] {
-        guard !albumsReleased else { return [] }
-        return await withCheckedContinuation { albumContinuation = $0 }
-    }
-
-    func parkArtists() async -> [PathfinderArtist] {
-        guard !artistsReleased else { return [] }
-        return await withCheckedContinuation { artistContinuation = $0 }
-    }
-
-    func completeAlbums() {
-        albumsReleased = true
-        albumContinuation?.resume(returning: [])
-        albumContinuation = nil
-    }
-
-    func completeArtists() {
-        artistsReleased = true
-        artistContinuation?.resume(returning: [])
-        artistContinuation = nil
-    }
-}
 
 @Suite("Workflow")
 struct WorkflowTests {
+    @Test(arguments: [PlaybackQueueSource.connect, .webAPI], [false, true])
+    @MainActor
+    func replacementQueueCannotBorrowOccurrenceIdentity(source: PlaybackQueueSource, changesContext: Bool) {
+        let current = workflowQueueSnapshot(
+            revision: 1, contextURI: "spotify:playlist:first", entryURI: "spotify:track:shared", uid: "old-occurrence")
+        let incoming = workflowQueueSnapshot(
+            revision: 2, contextURI: changesContext ? "spotify:playlist:second" : "spotify:playlist:first",
+            entryURI: "spotify:track:shared", source: source)
+        let merged = mergeQueueSnapshots(current: current, incoming: incoming)
+        if source == .webAPI && !changesContext {
+            #expect(merged.entries == current.entries, "Same-context Web metadata keeps accepted Connect ordering")
+        } else {
+            #expect(merged.entries == incoming.entries, "Replacement ordering owns its exact occurrence identities")
+            #expect(merged.entries.first?.uid == "", "A matching song and position cannot prove an old occurrence")
+        }
+    }
+
     @Test
     @MainActor
     func queueBootstrapKeepsConnectOrderingDuringWebFallback() async throws {
@@ -59,8 +41,11 @@ struct WorkflowTests {
         #expect(web.requestCount == 1)
         let upcoming = QueueEntry(uri: "spotify:track:next", provider: "queue", occurrence: 0, uid: "next-occurrence")
         _ = await service.acceptConnect(
-            [upcoming], accountEpoch: 1, sourceRevision: 1, contextURI: "spotify:track:current"
-        )
+            HarnessFixtures.queueState(
+                revision: 1,
+                trackURI: "spotify:track:current",
+                next: HarnessFixtures.queueTracks([upcoming])),
+            accountEpoch: 1, fallbackTrackURI: nil)
         web.fail()
         let result = await refresh.value
         #expect(
@@ -93,18 +78,22 @@ struct WorkflowTests {
     func theCoordinatorReportsTypedOutcomesForLocalAndRemoteCommands() async throws {
         let local = HarnessEngine()
         let remote = HarnessRemote()
-        let coordinator = PlaybackCoordinator(local: local, remote: remote)
-
-        try await coordinator.performLocalCommand(.pause).get()
-        try await coordinator.performRemoteCommand {
-            try await $0.send(.shuffle(true), from: "source", to: "target")
-        }.get()
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: local, remote: remote))
+        let coordinator = player.coordinator
+        let localPermit = try #require(player.makeQueueDispatchPermit())
+        let localOutcome = try await coordinator.performLocalCommand(.pause, permit: localPermit)
+        try #require(localOutcome).get()
+        let remotePermit = try #require(player.makeQueueDispatchPermit())
+        let remoteOutcome = try await coordinator.performRemoteCommand(
+            { try await $0.send(.shuffle(true), from: "source", to: "target") }, permit: remotePermit)
+        try #require(remoteOutcome).get()
         #expect(local.operations.count == 1, "one local command recorded")
         guard case .pause? = local.operations.first else {
             Issue.record("Pause command must reach the injected engine")
             return
         }
         #expect(remote.endpoints == [.shuffle], "one shuffle command reaches the injected remote")
+        await player.shutdownForTermination()
     }
 
     @Test
@@ -135,22 +124,26 @@ struct WorkflowTests {
         #expect((staleResult) == nil, "old-account web result is rejected after reset")
 
         let accepted = await service.acceptConnect(
-            [QueueEntry(uri: "spotify:track:fresh", provider: "connect", occurrence: 0)],
-            accountEpoch: 8,
-            sourceRevision: 1,
-            contextURI: "spotify:track:fresh"
-        )
+            HarnessFixtures.queueState(
+                revision: 1,
+                trackURI: "spotify:track:fresh",
+                next: HarnessFixtures.queueTracks([
+                    QueueEntry(uri: "spotify:track:fresh", provider: "connect", occurrence: 0)
+                ])),
+            accountEpoch: 8, fallbackTrackURI: nil)
         #expect((accepted?.snapshot.accountEpoch) == (8), "new-account queue remains authoritative")
         #expect(
             (accepted?.snapshot.entries.first?.uri) == ("spotify:track:fresh"),
             "new-account queue retains fresh entry")
 
         let wrongAccount = await service.acceptConnect(
-            [QueueEntry(uri: "spotify:track:wrong", provider: "connect", occurrence: 0)],
-            accountEpoch: 7,
-            sourceRevision: 2,
-            contextURI: "spotify:track:wrong"
-        )
+            HarnessFixtures.queueState(
+                revision: 2,
+                trackURI: "spotify:track:wrong",
+                next: HarnessFixtures.queueTracks([
+                    QueueEntry(uri: "spotify:track:wrong", provider: "connect", occurrence: 0)
+                ])),
+            accountEpoch: 7, fallbackTrackURI: nil)
         #expect((wrongAccount) == nil, "a stale account cannot read the replacement queue")
     }
 
@@ -264,12 +257,11 @@ struct WorkflowTests {
         )
         await orderedService.reset(accountEpoch: 3)
         _ = await orderedService.acceptConnect(
-            [QueueEntry(uri: "spotify:track:same", provider: "connect", occurrence: 0, uid: "occ-4")],
-            accountEpoch: 3,
-            sourceRevision: 1,
-            contextURI: "spotify:track:same",
-            protocolNext: [QueueProtocolTrack(uri: "spotify:track:same", uid: "occ-4", provider: "queue")]
-        )
+            HarnessFixtures.queueState(
+                revision: 1,
+                trackURI: "spotify:track:same",
+                next: [QueueProtocolTrack(uri: "spotify:track:same", uid: "occ-4", provider: "queue")]),
+            accountEpoch: 3, fallbackTrackURI: nil)
         let refreshed = await orderedService.refresh(
             fallbackEntries: [
                 QueueEntry(uri: "spotify:track:same", provider: "connect", occurrence: 0, uid: "occ-4")
@@ -291,20 +283,15 @@ struct WorkflowTests {
             (await orderedService.mutationSnapshot()?.next.map(\.uid)) == (["occ-4"]),
             "Web refresh does not rewrite the Connect mutation snapshot")
         let laterConnect = await orderedService.acceptConnect(
-            [
-                QueueEntry(uri: "spotify:track:same", provider: "connect", occurrence: 0, uid: "occ-a"),
-                QueueEntry(uri: "spotify:track:same", provider: "connect", occurrence: 1, uid: "occ-b"),
-                QueueEntry(uri: "spotify:track:tail", provider: "connect", occurrence: 2, uid: "occ-c"),
-            ],
-            accountEpoch: 3,
-            sourceRevision: 2,
-            contextURI: "spotify:track:same",
-            protocolNext: [
-                QueueProtocolTrack(uri: "spotify:track:same", uid: "occ-a", provider: "queue"),
-                QueueProtocolTrack(uri: "spotify:track:same", uid: "occ-b", provider: "queue"),
-                QueueProtocolTrack(uri: "spotify:track:tail", uid: "occ-c", provider: "queue"),
-            ]
-        )
+            HarnessFixtures.queueState(
+                revision: 2,
+                trackURI: "spotify:track:same",
+                next: [
+                    QueueProtocolTrack(uri: "spotify:track:same", uid: "occ-a", provider: "queue"),
+                    QueueProtocolTrack(uri: "spotify:track:same", uid: "occ-b", provider: "queue"),
+                    QueueProtocolTrack(uri: "spotify:track:tail", uid: "occ-c", provider: "queue"),
+                ]),
+            accountEpoch: 3, fallbackTrackURI: nil)
         #expect(
             (laterConnect?.snapshot.entries.map(\.uri))
                 == (["spotify:track:same", "spotify:track:same", "spotify:track:tail"]),
@@ -384,85 +371,56 @@ struct WorkflowTests {
 
     @Test
     @MainActor
-    func concurrentMetadataConsumersShareOneRemoteLookup() async throws {
-        let remote = HarnessRemote(metadata: .park)
-        let metadata = TrackMetadataService(remote: remote)
-        let uri = "spotify:track:shared"
-        let first = Task { try? await metadata.metadata(for: uri) }
-        let second = Task { try? await metadata.metadata(for: uri) }
-        defer {
-            first.cancel()
-            second.cancel()
-            _ = remote.failMetadata(for: uri)
-        }
-        try await requireEventually { remote.parkedMetadataURIs.contains(uri) }
-        #expect((remote.requestedURIs.count) == (1), "concurrent consumers issue one remote lookup")
-        #expect(remote.completeMetadata(for: uri))
-        let values = await [first.value, second.value]
-        #expect((values.compactMap { $0 }.count) == (2), "both consumers receive the shared result")
-        _ = try? await metadata.metadata(for: uri)
-        #expect((remote.requestedURIs.count) == (1), "the account-scoped cache avoids a second lookup")
-    }
-
-    @Test
-    @MainActor
     func catalogMetadataRetainsQueueTracksAcrossSectionReplacement() async {
-        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let metadata = CatalogMetadataRepository(session: session)
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make())
+        player.withRuntime { $0.accountStore.publishPhase(.ready) }
+        await player.catalogLoadTask?.value
+        let metadata = player.catalog.metadata
         let queued = workflowTrack("spotify:track:queued")
         let unrelated = workflowTrack("spotify:track:unrelated")
-
-        metadata.retainTracks(from: .queue, for: [queued.uri])
+        player.withRuntime { $0.catalogMetadata.retainTracks(from: .queue, for: [queued.uri]) }
         metadata.replaceTracks([queued], from: .playlist)
+        player.withRuntime { _ in }
         metadata.replaceTracks([unrelated], from: .playlist)
-        metadata.replaceTracks([], from: .queue)
+        player.withRuntime { _ in }
         metadata.replaceTracks([], from: .playlist)
+        player.withRuntime { _ in }
 
-        #expect(
-            (metadata.knownTrack(for: queued.uri)?.uri) == (queued.uri),
-            "visited playlist metadata survives for the active queue")
-        #expect(
-            (metadata.knownTrack(for: unrelated.uri)) == nil,
-            "unrelated playlist metadata is not retained with the queue")
-
-        metadata.retainTracks(from: .queue, for: [])
-        metadata.replaceTracks([], from: .queue)
-        #expect(
-            (metadata.knownTrack(for: queued.uri)) == nil, "queue metadata is released when its ordering clears")
+        #expect(metadata.knownTrack(for: queued.uri)?.uri == queued.uri)
+        #expect(metadata.knownTrack(for: unrelated.uri) == nil)
+        player.withRuntime { $0.catalogMetadata.retainTracks(from: .queue, for: []) }
+        #expect(metadata.knownTrack(for: queued.uri) == nil)
+        await player.shutdownForTermination()
     }
 
     @Test
     @MainActor
     func homeLibraryLoadsCoalesceDuplicateSectionRequests() async throws {
         let provider = HarnessCatalog()
-        let gate = LibraryParkGate()
-        provider.onLibraryAlbums = { [gate] in await gate.parkAlbums() }
-        provider.onLibraryArtists = { [gate] in await gate.parkArtists() }
+        let albumResponses = HarnessResponseGate<[CatalogItem]>(cancellation: .ignored)
+        let artistResponses = HarnessResponseGate<[CatalogItem]>(cancellation: .ignored)
+        defer { albumResponses.close(); artistResponses.close() }
+        provider.onLibraryAlbums = { try await albumResponses.wait() }
+        provider.onLibraryArtists = { try await artistResponses.wait() }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let store = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
 
         let albums = Task { await store.loadAlbums() }
-        defer {
-            albums.cancel()
-            Task {
-                await gate.completeAlbums()
-                await gate.completeArtists()
-            }
-        }
-        try await requireEventually { await gate.albumsAreParked }
+        defer { albums.cancel() }
+        try await requireEventually { albumResponses.waiterCount == 1 }
         let albumFollower = Task { await store.loadAlbums() }
         let artists = Task { await store.loadArtists() }
         defer {
             albumFollower.cancel()
             artists.cancel()
         }
-        try await requireEventually { await gate.artistsAreParked }
+        try await requireEventually { artistResponses.waiterCount == 1 }
 
         #expect((provider.libraryAlbumRequestCount) == (1), "duplicate requests for one section coalesce")
 
-        await gate.completeAlbums()
-        await gate.completeArtists()
+        albumResponses.finish([])
+        artistResponses.finish([])
         await albums.value
         await albumFollower.value
         await artists.value
@@ -476,35 +434,9 @@ struct WorkflowTests {
     @MainActor
     func emptyAlbumAndArtistLoadsStillCompleteTheirSections() async {
         let provider = HarnessCatalog()
-        provider.onAlbum = { id in
-            PathfinderAlbumUnion(
-                uri: "spotify:album:\(id)",
-                name: "Empty Album",
-                type: "album",
-                date: nil,
-                coverArt: nil,
-                artists: nil,
-                tracksV2: PathfinderAlbumUnion.TrackList(items: [], totalCount: 0)
-            )
-        }
-        provider.onArtist = { id in
-            PathfinderArtistUnion(
-                uri: "spotify:artist:\(id)",
-                id: id,
-                profile: PathfinderArtistUnion.Profile(name: "Empty Artist"),
-                visuals: nil,
-                discography: nil
-            )
-        }
-        provider.onArtistDiscography = { id in
-            PathfinderArtistUnion(
-                uri: "spotify:artist:\(id)",
-                id: id,
-                profile: nil,
-                visuals: nil,
-                discography: nil
-            )
-        }
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "") }
+        provider.onArtist = { _ in CatalogArtistSnapshot(name: "Empty Artist", releases: []) }
+        provider.onArtistDiscography = { _ in CatalogArtistSnapshot(name: nil, releases: []) }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let albumStore = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
@@ -739,7 +671,8 @@ struct WorkflowTests {
 
         // Same generation: the window closes (ready snapshot) while the coordinator is busy.
         engine.onExecute = { [gate] _ in gate.enter() }
-        let busy = Task { try await coordinator.performLocalCommand(.pause) }
+        let firstPermit = try #require(player.makeQueueDispatchPermit())
+        let busy = Task { try await coordinator.performLocalCommand(.pause, permit: firstPermit) }
         #expect(
             (await waitUntil { gate.hasStarted && !busy.isCancelled }) == true,
             "the coordinator is occupied by an earlier local command")
@@ -750,14 +683,16 @@ struct WorkflowTests {
             workflowConnectionEnvelope(sequence: 2, sessionGeneration: 1, spircReady: true, resumePending: false))
         engine.onExecute = nil
         gate.finish(with: .ok)
-        try await busy.value.get()
+        let firstOutcome = try await busy.value
+        try #require(firstOutcome).get()
         await player.effects.settlement(of: .reconnectRehydration)?.wait()
         #expect((engine.rehydrations.count) == (0), "a rehydration whose window closed while queued issues no load")
         #expect((engine.operations.count) == (1), "the earlier command still executed")
 
         // New generation: the engine session changes while the coordinator is busy.
         engine.onExecute = { [gate] _ in gate.enter() }
-        let busyAgain = Task { try await coordinator.performLocalCommand(.pause) }
+        let secondPermit = try #require(player.makeQueueDispatchPermit())
+        let busyAgain = Task { try await coordinator.performLocalCommand(.pause, permit: secondPermit) }
         #expect(
             (await waitUntil { gate.enteredCount == 2 }) == true,
             "the coordinator is occupied before the replacement generation arrives")
@@ -770,7 +705,8 @@ struct WorkflowTests {
             workflowConnectionEnvelope(sequence: 4, sessionGeneration: 3, spircReady: false, resumePending: true))
         engine.onExecute = nil
         gate.finish(with: .ok)
-        try await busyAgain.value.get()
+        let secondOutcome = try await busyAgain.value
+        try #require(secondOutcome).get()
         #expect(
             (await waitUntil { engine.rehydrations.count == 1 }) == true,
             "the newer generation's own rehydration runs")
@@ -781,59 +717,66 @@ struct WorkflowTests {
         await player.shutdownForTermination()
     }
 
+    #if DEBUG
+        @Test
+        @MainActor
+        func terminationDuringBootstrapPreventsEngineInitialization() async throws {
+            let engine = HarnessEngine(
+                events: .live, resumePosition: 10, resumeContextURI: "spotify:playlist:ctx",
+                resumeTrackURI: "spotify:track:one"
+            )
+            let account = HarnessAccount(hasGrant: true, authorization: .succeed, revocations: .live)
+            let lifecycle = HarnessLifecycleEvents(.live)
+            let hook = QueueServiceTestHook()
+            defer { hook.close() }
+            await hook.parkNextReset()
+            let environment = HarnessEnvironment.make(
+                engine: engine,
+                account: account,
+                lifecycle: lifecycle,
+                clock: HarnessClock(sleep: .immediate),
+                queueServiceHook: hook
+            )
+            let player = HarnessEnvironment.makePlaybackStore(environment)
+
+            let restore = Task { await player.restore() }
+            defer { restore.cancel() }
+            try await requireEventually(description: "queue bootstrap parks before engine restore") {
+                await hook.resetIsParked()
+            }
+            await player.shutdownForTermination()
+            await restore.value
+
+            #expect((engine.count(.initialize)) == (0), "termination during bootstrap prevents engine initialization")
+            #expect((engine.count(.shutdown)) == (1), "termination during bootstrap shuts down once")
+            #expect((player.phase) == (.signedOut), "termination during bootstrap leaves the store signed out")
+            #expect(
+                (engine.activeEventSubscriptionCount) == (0),
+                "cancelled bootstrap leaves no active engine subscription")
+            #expect(
+                (account.activeSubscriptionCount) == (0), "cancelled bootstrap leaves no active revocation subscription"
+            )
+            #expect(
+                (lifecycle.activeSubscriptionCount) == (0),
+                "cancelled bootstrap leaves no active lifecycle subscription")
+        }
+    #endif
+
     @Test
     @MainActor
-    func terminationDuringBootstrapPreventsEngineInitialization() async {
+    func aLatePreferenceReadCannotRestoreStaleState() async throws {
         let engine = HarnessEngine(
             events: .live, resumePosition: 10, resumeContextURI: "spotify:playlist:ctx",
             resumeTrackURI: "spotify:track:one"
         )
         let account = HarnessAccount(hasGrant: true, authorization: .succeed, revocations: .live)
         let lifecycle = HarnessLifecycleEvents(.live)
-        let hook = QueueServiceTestHook()
-        await hook.parkNextReset()
-        let environment = HarnessEnvironment.make(
-            engine: engine,
-            account: account,
-            lifecycle: lifecycle,
-            clock: HarnessClock(sleep: .immediate),
-            queueServiceHook: hook
-        )
-        let player = HarnessEnvironment.makePlaybackStore(environment)
-
-        let restore = Task { await player.restore() }
-        #expect(
-            (await waitUntil { await hook.resetIsParked() }) == true, "queue bootstrap parks before engine restore")
-        await player.shutdownForTermination()
-        await restore.value
-
-        #expect((engine.count(.initialize)) == (0), "termination during bootstrap prevents engine initialization")
-        #expect((engine.count(.shutdown)) == (1), "termination during bootstrap shuts down once")
-        #expect((player.phase) == (.signedOut), "termination during bootstrap leaves the store signed out")
-        #expect(
-            (engine.activeEventSubscriptionCount) == (0),
-            "cancelled bootstrap leaves no active engine subscription")
-        #expect(
-            (account.activeSubscriptionCount) == (0), "cancelled bootstrap leaves no active revocation subscription"
-        )
-        #expect(
-            (lifecycle.activeSubscriptionCount) == (0),
-            "cancelled bootstrap leaves no active lifecycle subscription")
-    }
-
-    @Test
-    @MainActor
-    func aLatePreferenceReadCannotRestoreStaleState() async {
-        let engine = HarnessEngine(
-            events: .live, resumePosition: 10, resumeContextURI: "spotify:playlist:ctx",
-            resumeTrackURI: "spotify:track:one"
-        )
-        let account = HarnessAccount(hasGrant: true, authorization: .succeed, revocations: .live)
-        let lifecycle = HarnessLifecycleEvents(.live)
+        let shuffleResponses = HarnessResponseGate<Bool>(cancellation: .ignored)
+        defer { shuffleResponses.close() }
         let preferences = HarnessPreferences(
             lastRemoteDeviceID: "spotify:device:stale",
             shuffleHistory: ["spotify:track:stale": 1],
-            parkShuffleReads: true
+            shuffleResponses: shuffleResponses
         )
         let environment = HarnessEnvironment.make(
             engine: engine,
@@ -845,11 +788,12 @@ struct WorkflowTests {
         let player = HarnessEnvironment.makePlaybackStore(environment)
 
         let restore = Task { await player.restore() }
-        #expect(
-            (await waitUntil { preferences.shuffleIsParked() && engine.count(.initialize) == 1 }) == true,
-            "preference read parks while account restoration proceeds")
+        defer { restore.cancel() }
+        try await requireEventually(description: "preference read parks while account restoration proceeds") {
+            shuffleResponses.waiterCount == 1 && engine.count(.initialize) == 1
+        }
         await player.shutdownForTermination()
-        preferences.resumeShuffle()
+        shuffleResponses.finish(true)
         await restore.value
 
         #expect((player.state.options.shuffle) == (false), "late preference read cannot restore shuffle")

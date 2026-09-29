@@ -7,17 +7,15 @@
 
 import SpottyDomain
 import SpottyRuntimeContracts
-import SpottyEngineAdapter
 import Foundation
-import OSLog
 
 package extension PlaybackSessionRuntime {
     func play(uri: String) {
-        submitPlay(uri: uri)
+        submitCommand(.playURI(uri), failureMessage: "Could not play that Spotify URI")
     }
 
     func play(track: CatalogTrack) {
-        submitPlay(uri: track.uri, expectedTrack: currentTrack(from: track))
+        submitCommand(.playTrack(track), failureMessage: "Could not play that Spotify URI")
     }
 
     func activateTrack(_ track: CatalogTrack, isPlayable: Bool = true) {
@@ -49,60 +47,13 @@ package extension PlaybackSessionRuntime {
         // Home/sidebar actions may target a different playlist from the retained detail page.
         let tracks = contents?.tracks(for: item.uri, accountEpoch: accountEpoch) ?? []
         let orderedTracks = isShuffleEnabled ? fewerRepeatsOrder(tracks) : tracks
-        let expectedTrack: CurrentTrack?
-        if let first = orderedTracks.first {
-            expectedTrack = currentTrack(from: first)
-        } else {
-            expectedTrack = nil
-        }
-
         if isShuffleEnabled, !orderedTracks.isEmpty {
-            let trackURIs = orderedTracks.map(\.uri)
-            performRoutedCommand(
-                "Could not shuffle that playlist",
-                kind: .transport,
-                expecting: true,
-                expectedTiming: expectedTrack.map { playTargetTiming(from: $0) },
-                expectedTrack: expectedTrack,
-                local: .playTracks(trackURIs),
-                remote: .play(trackURIs: trackURIs)
-            )
-            return
+            submitCommand(.playTracks(orderedTracks), failureMessage: "Could not shuffle that playlist")
+        } else {
+            submitCommand(
+                .playContext(uri: item.uri, firstTrack: orderedTracks.first),
+                failureMessage: "Could not play that Spotify URI")
         }
-        submitPlay(uri: item.uri, expectedTrack: expectedTrack)
-    }
-
-    private func submitPlay(
-        uri: String,
-        expectedTrack: CurrentTrack? = nil
-    ) {
-        let value = uri.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else {
-            return
-        }
-        performRoutedCommand(
-            "Could not play that Spotify URI",
-            expecting: true,
-            expectedTiming: expectedTrack.map { playTargetTiming(from: $0) },
-            expectedTrack: expectedTrack,
-            local: .playURI(value),
-            remote: .play(uri: value)
-        )
-    }
-
-    private func currentTrack(from track: CatalogTrack) -> CurrentTrack {
-        CurrentTrack(
-            uri: track.uri,
-            title: track.title,
-            artist: track.artist,
-            artworkURL: track.artworkURL,
-            duration: track.duration,
-            metadataSource: .catalog
-        )
-    }
-
-    private func playTargetTiming(from track: CurrentTrack) -> PlaybackTiming {
-        PlaybackTiming(position: 0, duration: track.duration, anchoredAt: environment.clock.now())
     }
 
     func toggleShuffle() {
@@ -110,83 +61,38 @@ package extension PlaybackSessionRuntime {
         // Spotify Connect only exposes an on/off command. Keep other clients in sync when
         // there is a live context; playlist starts in Spotty use the local freshness ordering.
         if isActiveDevice || activeRemoteDevice != nil {
-            let preferenceWriter = self.preferenceWriter
+            let preferenceState = self.preferenceState
             let epoch = accountEpoch
-            performRoutedCommand(
-                "Could not update shuffle",
-                kind: .options,
-                expectedShuffle: enabled,
-                local: .shuffle(enabled),
-                remote: .shuffle(enabled)
-            ) { accepted in
-                guard accepted else { return }
-                preferenceWriter.submit(epoch: epoch) { await $0.setShuffleEnabled(enabled) }
-            }
+            submitCommand(
+                .shuffle(enabled), failureMessage: "Could not update shuffle",
+                completion: { accepted in
+                    guard accepted else { return }
+                    preferenceState.persistShuffle(enabled, accountEpoch: epoch)
+                })
             return
         }
         setShuffleEnabled(enabled)
-        preferenceWriter.submit(epoch: accountEpoch) { await $0.setShuffleEnabled(enabled) }
+        preferenceState.persistShuffle(enabled, accountEpoch: accountEpoch)
     }
 
     func togglePlayback() {
         guard canTogglePlayback else { return }
         let targetIsPlaying = !isPlaying
-        let now = environment.clock.now()
-        let resumeTarget = PlaybackResumeTarget(
-            trackURI: trackURI, contextURI: state.playbackContextURI,
-            positionMS: UInt32(max(0, min(Double(UInt32.max), position * 1_000))),
-            engineGeneration: engineGeneration)
-        let localOperation: LocalPlaybackOperation =
-            targetIsPlaying ? .resumeObserved(resumeTarget) : .pause
-        let expectedTiming: PlaybackTiming
-        if targetIsPlaying {
-            // A paused anchor may be arbitrarily old; resume interpolation from now.
-            expectedTiming = PlaybackTiming(
-                position: position, duration: duration, anchoredAt: now)
-        } else {
-            // Freeze the smooth UI clock in the same event that applies paused transport. The
-            // local player can still refresh an exact position as a follow-up; a remote device
-            // is represented by this clock.
-            if isActiveDevice {
-                refreshPosition()
-            }
-            expectedTiming = PlaybackTiming(
-                position: displayedPosition(at: now),
-                duration: duration,
-                anchoredAt: now
-            )
-        }
-
-        let failure = targetIsPlaying ? "Resume was rejected" : "Pause was rejected"
-        performRoutedCommand(
-            failure,
-            kind: .transport,
-            expecting: targetIsPlaying,
-            expectedTiming: expectedTiming,
-            local: localOperation,
-            remote: targetIsPlaying ? .resume : .pause
-        ) { [weak self] accepted in
-            guard let self, accepted else { return }
-            self.refreshPosition()
-        }
+        submitCommand(
+            targetIsPlaying ? .resume : .pause,
+            failureMessage: targetIsPlaying ? "Resume was rejected" : "Pause was rejected",
+            completion: { [weak self] accepted in
+                guard let self, accepted else { return }
+                self.refreshPosition()
+            })
     }
 
     func next() {
-        performRoutedCommand(
-            "Next was rejected",
-            kind: .navigation,
-            local: .next,
-            remote: .next
-        )
+        submitCommand(.next, failureMessage: "Next was rejected")
     }
 
     func previous() {
-        performRoutedCommand(
-            "Previous was rejected",
-            kind: .navigation,
-            local: .previous,
-            remote: .previous
-        )
+        submitCommand(.previous, failureMessage: "Previous was rejected")
     }
 
     func seek(to fraction: Double) {
@@ -194,18 +100,7 @@ package extension PlaybackSessionRuntime {
         // Catalog/remote durations are not bounded by the engine's UInt32 millisecond ABI.
         // Clamp before conversion, including when multiplying a finite duration overflows.
         let milliseconds = UInt32(min(Double(UInt32.max), max(0, min(1, fraction)) * duration * 1_000))
-        let now = environment.clock.now()
-        performRoutedCommand(
-            "Seek was rejected",
-            kind: .seek,
-            expectedTiming: PlaybackTiming(
-                position: TimeInterval(milliseconds) / 1_000,
-                duration: duration,
-                anchoredAt: now
-            ),
-            local: .seek(milliseconds),
-            remote: .seek(to: Int(milliseconds))
-        )
+        submitCommand(.seek(milliseconds: milliseconds), failureMessage: "Seek was rejected")
     }
 
     func refreshPosition() {
@@ -233,19 +128,7 @@ package extension PlaybackSessionRuntime {
     /// Cycles off → repeat queue → repeat track → off, like Spotify's transport.
     func cycleRepeat() {
         guard canStartPlayback else { return }
-        let nextFlags = repeatMode.next.flags
-        let plan = RepeatTransitionPlan.planning(from: state.options.repeatFlags, to: nextFlags)
-        performRoutedOperation(
-            "Could not update repeat",
-            kind: .options,
-            expectedRepeatFlags: nextFlags,
-            local: .repeatOptions(plan),
-            remote: { api, from, to in
-                try await RepeatTransitionApplication.applyRemote(plan) { mutation in
-                    try await api.send(.repeatMutation(mutation), from: from, to: to)
-                }
-            }
-        )
+        submitCommand(.repeatMode(repeatMode.next), failureMessage: "Could not update repeat")
     }
 
     // MARK: - Spotify Connect devices
@@ -260,28 +143,11 @@ package extension PlaybackSessionRuntime {
                 self?.feedback.success("Playback request sent to \(successTargetName)")
             }
         }
-        if device.id == localDeviceID {
-            performCommand(
-                "Could not move playback to this Mac",
-                operation: .transferToLocal,
-                kind: .transfer,
-                completion: announceSuccess
-            )
-            return
-        }
-        performCommand(
-            "Could not move playback to \(device.name)",
-            expectedOwner: .uncertain(
-                PlaybackDevice(
-                    id: device.id,
-                    name: device.name,
-                    type: device.type,
-                    isActive: false
-                )),
-            operation: .transferToDevice(device.id),
-            kind: .transfer,
-            completion: announceSuccess
-        )
+        submitCommand(
+            .transfer(device),
+            failureMessage: device.id == localDeviceID
+                ? "Could not move playback to this Mac" : "Could not move playback to \(device.name)",
+            completion: announceSuccess)
     }
 
     /// Sticky resume-load identity read through the engine getters, never presentation state.

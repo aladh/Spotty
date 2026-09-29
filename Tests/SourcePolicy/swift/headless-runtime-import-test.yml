@@ -12,5 +12,6 @@ invalid:
 - import SwiftUI
 - import Observation
 - import UIKit
+- import SpottyCore
 - '@_exported import SwiftUI'
 - import class AppKit.NSImage

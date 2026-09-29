@@ -24,7 +24,7 @@ enum PlaybackLifetimeScope {
 extension PlaybackSessionRuntime {
     /// The only sanctioned way to resume after an `await` in a store effect.
     ///
-    /// Checks, in order: cooperative cancellation, session teardown, the process-termination gate,
+    /// Checks, in order: cooperative cancellation, lifecycle admission,
     /// the captured account epoch, and — for `.playback` scope — the captured engine generation.
     /// `requiresConnection` additionally requires the accepted session to still be ready, and
     /// `route` requires the projected command destination to still be the captured one.
@@ -38,7 +38,7 @@ extension PlaybackSessionRuntime {
         requiresConnection: Bool = false,
         route: ConnectCommandRoute? = nil
     ) -> Bool {
-        guard !Task.isCancelled, !isTearingDown, terminationGate.allowsCommands else { return false }
+        guard !Task.isCancelled, lifecycle.acceptsWork else { return false }
         guard lifetime.accountEpoch == accountEpoch else { return false }
         if scope == .playback, lifetime.engineGeneration != engineGeneration { return false }
         if requiresConnection, !isConnected { return false }

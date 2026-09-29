@@ -82,6 +82,25 @@ class DocumentationPolicyTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(check(root), 0)
 
+    def test_non_utf8_git_filename_does_not_hide_document_violations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            # Git can carry Linux filenames that a macOS checkout cannot materialize.
+            blob = subprocess.check_output(["git", "hash-object", "-w", "--stdin"], cwd=root, input=b"fixture\n").strip()
+            subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=root, check=True,
+                           input=b"100644 " + blob + b"\tunknown-\xff\0")
+            (root / "docs").mkdir()
+            guide = root / "docs/new\nsection.md"
+            guide.write_text("word " * 1001)
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                self.assertEqual(check(root), 1)
+            self.assertIn("docs/new\nsection.md: 1001 words", errors.getvalue())
+            guide.write_text("Short guide.\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(check(root), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

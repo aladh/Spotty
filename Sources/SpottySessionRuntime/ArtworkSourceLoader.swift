@@ -13,8 +13,8 @@ actor ArtworkSourceLoader: ArtworkSourceLoading {
     private let allowFileURLs: Bool
     private let protocolClasses: [AnyClass]?
     private var generation: UInt64 = 0
-    private var session: URLSession
-    private var transfers: ArtworkTransferDelegate
+    private var session: URLSession?
+    private var transfers = ArtworkTransferDelegate()
     private var fileReads: [UUID: Task<Data, any Error>] = [:]
 
     init(
@@ -25,9 +25,11 @@ actor ArtworkSourceLoader: ArtworkSourceLoading {
         self.maximumSourceBytes = maximumSourceBytes
         self.allowFileURLs = allowFileURLs
         self.protocolClasses = protocolClasses
-        let transfers = ArtworkTransferDelegate()
-        self.transfers = transfers
-        session = Self.makeSession(delegate: transfers, protocolClasses: protocolClasses)
+    }
+
+    deinit {
+        // Foundation retains a delegated session's resources until explicit invalidation.
+        session?.invalidateAndCancel()
     }
 
     func load(_ url: URL) async throws -> Data {
@@ -64,6 +66,8 @@ actor ArtworkSourceLoader: ArtworkSourceLoading {
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.httpShouldHandleCookies = false
+        let session = session ?? Self.makeSession(delegate: transfers, protocolClasses: protocolClasses)
+        self.session = session
         let task = session.dataTask(with: request)
         let transfer = transfers.register(task, maximumBytes: maximumSourceBytes)
         let data = try await transfer.value()
@@ -77,9 +81,11 @@ actor ArtworkSourceLoader: ArtworkSourceLoading {
         fileReads.values.forEach { $0.cancel() }
         fileReads.removeAll()
         transfers.cancelAll()
-        session.invalidateAndCancel()
+        session?.invalidateAndCancel()
+        // Retirement must release the transport, not create another idle session. A later
+        // HTTPS load creates its own session; file-only Demo workloads never need one.
+        session = nil
         transfers = ArtworkTransferDelegate()
-        session = Self.makeSession(delegate: transfers, protocolClasses: protocolClasses)
     }
 
     private static func makeSession(delegate: ArtworkTransferDelegate, protocolClasses: [AnyClass]?) -> URLSession {

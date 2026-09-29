@@ -58,13 +58,21 @@ spotty_playback_archive_path() { printf '%s\\n' "$1/libtest.a"; }
         path.write_text(f"#!{sys.executable}\nimport sys\n{body}\n")
         path.chmod(0o755)
 
-    def report(self):
+    def report(self, *, locate_binary=False):
+        arguments = [] if locate_binary else ["--binary", str(self.binary)]
         result = subprocess.run(
-            ["/bin/bash", str(self.command), "--binary", str(self.binary), "--out-dir", str(self.output)],
+            ["/bin/bash", str(self.command), *arguments, "--out-dir", str(self.output)],
             env=self.environment, capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads((self.output / "size-report.json").read_text()), result
+
+    def test_default_binary_lookup_uses_the_app_graph(self):
+        self.prepare()
+        self.environment["SPOTTY_PACKAGE_GRAPH"] = "engine-free"
+        self.tool("swift", f"import os\nassert os.environ['SPOTTY_PACKAGE_GRAPH'] == 'full'\nprint({str(self.root)!r})")
+        report, _ = self.report(locate_binary=True)
+        self.assertEqual(report["binary_path"], str(self.binary))
 
     def test_json_preserves_paths_and_numeric_measurements(self):
         self.prepare('quoted " checkout\\name\nwith unicode é')

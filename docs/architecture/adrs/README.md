@@ -7,9 +7,9 @@ boundary; routine implementation work does not require reading the whole history
 
 ## Current decisions
 
-The summary below is authoritative for current ownership. A partially superseded record retains a
-current decision, but its historical body also describes ownership replaced by the linked successor;
-use the successor rather than those historical details when changing code.
+The summary below identifies each decision's current scope. Partially superseded records retain
+their applicable rules and link to the successor that owns the replaced choices. Repository history
+preserves earlier implementation details; current records should not instruct agents to use them.
 
 | Record | Status | Current decision |
 | --- | --- | --- |

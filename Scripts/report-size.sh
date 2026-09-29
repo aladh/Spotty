@@ -110,7 +110,7 @@ archive_name="$(basename "$archive_path")"
 
 if [[ -z "$binary_path" ]]; then
     # Match the compiler's selected build engine; searching old layouts can pick a stale binary.
-    bin_path="$(swift build --disable-sandbox --package-path "$project_root" \
+    bin_path="$(SPOTTY_PACKAGE_GRAPH=full swift build --disable-sandbox --package-path "$project_root" \
         --configuration release --product Spotty --show-bin-path)"
     binary_path="$bin_path/Spotty"
 fi

@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import SpottyDomain
 import Testing
@@ -55,10 +57,7 @@ struct CatalogPlaybackActionChecks {
         seed(
             player, track: current ? track : HarnessFixtures.track(uri: "spotify:track:other"), playing: false,
             local: local)
-        player.withRuntime {
-            $0.setShuffleEnabled(true)
-            $0.setRepeat(mode: .track, flags: RepeatMode.track.flags)
-        }
+        try #require(player.send(.options(PlaybackOptions(shuffle: true, repeatMode: .track)), source: .user))
         CatalogPlaybackAccess(player: player).action(
             for: track,
             behavior: current ? .startFromBeginning : .activateSelection

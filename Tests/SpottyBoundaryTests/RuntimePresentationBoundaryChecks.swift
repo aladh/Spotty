@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import SpottyDomain
 import Testing
@@ -39,7 +41,7 @@ struct RuntimePresentationBoundaryTests {
             _ = runtime.send(
                 .queue(
                     PlaybackQueueSnapshot(
-                        entries: entries.map { PlaybackQueueItem($0) }, source: .connect,
+                        entries: entries, source: .connect,
                         completeness: .complete, revision: 1, receivedAt: anchor)),
                 source: .engineQueue, revision: 1)
             return runtime.presentation()

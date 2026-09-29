@@ -1,17 +1,127 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Testing
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
 @testable import SpottySessionRuntime
-@testable import SpottyGateway
 
 @Suite("Account Epoch Ownership")
 struct AccountEpochOwnershipTests {
+    @Test(arguments: [false, true]) @MainActor
+    func teardownCommitsEngineIdentityBeforeCancellingAccountEffects(terminating: Bool) async throws {
+        let gate = HarnessResponseGate<Void>()
+        defer { gate.close() }
+        let cancellations = HarnessCounters()
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make())
+        player.withRuntime { runtime in
+            _ = runtime.send(.session(.ready), source: .account, engineEpoch: 4)
+            runtime.effects.run(
+                .positionRefresh,
+                onCancel: { [weak runtime] in
+                    guard let runtime else { Issue.record("The retiring runtime must own cancellation"); return }
+                    let generation = runtime.engineGeneration
+                    let committedGeneration = runtime.state.engineEpoch
+                    #expect(generation == 5)
+                    #expect(committedGeneration == generation, "Cancellation sees one committed engine identity")
+                    cancellations.record("cancelled")
+                }
+            ) { try? await gate.wait() }
+        }
+        try await requireEventually { gate.waiterCount == 1 }
+
+        if terminating { await player.shutdownForTermination() } else { await player.logout() }
+
+        #expect(cancellations.count("cancelled") == 1)
+        await player.shutdownForTermination()
+    }
+
+    @Test @MainActor
+    func currentGrantRevocationStillRetiresTheRunningSession() async throws {
+        let account = HarnessAccount(hasGrant: true, revocations: .live)
+        let engine = HarnessEngine()
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(engine: engine, account: account))
+        player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+            $0.startLifetimeEffectsIfNeeded()
+        }
+        let epoch = player.accountEpoch
+        try #require(account.subscriptionCount == 1)
+
+        account.revoke()
+
+        try await requireEventually {
+            player.withRuntime { $0.accountEpoch > epoch && !$0.isTearingDown && $0.requiresReauthentication }
+        }
+        #expect(player.phase == .failed(ConnectionSnapshotProjection.credentialsRejectedMessage))
+        #expect(engine.clearStreamingCredentialsCount == 1)
+        await player.shutdownForTermination()
+    }
+
+    @Test @MainActor
+    func adoptionDuringRevocationValidationFencesItsLateAnswer() async throws {
+        let account = HarnessAccount(authorization: .succeed)
+        let revocation = account.revoke()
+        let validation = HarnessResponseGate<Void>()
+        defer { validation.close() }
+        account.onRevocationValidation = { try? await validation.wait() }
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(account: account))
+        let epoch = player.accountEpoch
+        let delivery = Task { await player.runtime.handleGrantRevocation(revocation) }
+        defer { delivery.cancel() }
+        try await requireEventually { validation.waiterCount == 1 }
+
+        player.connect()
+        try await requireEventually { account.hasStoredGrant }
+        account.onRevocationValidation = nil
+        validation.finish(())
+        await delivery.value
+        player.withRuntime { _ in }
+
+        #expect(player.accountEpoch == epoch)
+        #expect(player.requiresReauthentication == false)
+        #expect(account.markReauthenticationCount == 0)
+        await player.shutdownForTermination()
+    }
+
+    @Test @MainActor
+    func logoutRetiresCatalogBeforeWaitingForAnOldConnection() async throws {
+        let retired = HarnessCounters()
+        let cache = HarnessCatalogCacheLifecycle { epoch, purge in
+            #expect(epoch == 1)
+            #expect(purge)
+            retired.record("catalog")
+            return true
+        }
+        let account = HarnessAccount(hasGrant: true)
+        account.parkGrantRead = true
+        defer { account.completeGrantRead() }
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(account: account, catalogCacheLifecycle: cache))
+        let restore = Task { await player.restore() }
+        defer { restore.cancel() }
+        try await requireEventually { account.isGrantReadParked }
+        let logout = Task { await player.logout() }
+        defer { logout.cancel() }
+        try await requireEventually(description: "catalog retired during connection drain") {
+            retired.count("catalog") == 1
+        }
+        #expect(account.isGrantReadParked)
+        #expect(account.clearCount == 0, "credential cleanup still joins the older connection")
+        account.completeGrantRead()
+        await restore.value
+        await logout.value
+        #expect(account.clearCount == 1)
+        #expect(player.accountEpoch == 2)
+    }
+
     @Test @MainActor
     func terminationDrainsPlaybackBeforeWaitingForCatalogStorage() async {
         let retirement = HarnessClock.parked()
         defer { retirement.releaseAll() }
-        let cache = HarnessCatalogCacheLifecycle { purge in
+        let cache = HarnessCatalogCacheLifecycle { epoch, purge in
+            #expect(epoch == 1)
             #expect(!purge, "quitting retains the catalog and saved account")
             try? await retirement.sleep(seconds: 1)
             return true
@@ -56,7 +166,7 @@ struct AccountEpochOwnershipTests {
         #expect(await account.hasGrant() == false)
         #expect(await account.grantState() == .removalFailed)
         #expect(account.hasStoredGrant, "failure retains the file without making it usable")
-        await #expect(throws: KeymasterSessionError.noGrant) { try await account.accessToken() }
+        await #expect(throws: HarnessFailure.unavailable) { try await account.accessToken() }
 
         await player.restore()
         #expect(player.accountStore.phase == .failed(failureMessage))
@@ -110,6 +220,7 @@ struct AccountEpochOwnershipTests {
             await player.restore()
             let start = player.accountStore.epoch
 
+            let pendingRevocation = account.revoke()
             let logout = Task { await player.logout() }
             #expect((await waitUntil { account.isClearParked }) == true, "logout reaches grant clear")
             let duringTeardown = player.accountStore.epoch
@@ -122,13 +233,15 @@ struct AccountEpochOwnershipTests {
                 (await waitUntil { await player.queueService.accountEpoch == duringTeardown }) == true,
                 "QueueService already reset to the teardown epoch")
 
-            let upgrade = Task { await player.handleGrantRevocation() }
+            let upgrade = Task { await player.runtime.handleGrantRevocation(pendingRevocation) }
             for _ in 0..<20 { await Task.yield() }
             #expect(
                 (player.accountStore.epoch) == (duringTeardown),
                 "an overlapping revocation does not advance the epoch again")
-            #expect((player.accountEpoch) == (duringTeardown), "projection is unchanged after the upgrade")
-            #expect((player.state.accountEpoch) == (duringTeardown), "reducer epoch is unchanged after the upgrade")
+            #expect((player.accountEpoch) == (duringTeardown), "projection is unchanged after the stale revocation")
+            #expect(
+                (player.state.accountEpoch) == (duringTeardown), "reducer epoch is unchanged after the stale revocation"
+            )
 
             account.completeClear()
             await logout.value
@@ -191,11 +304,13 @@ struct AccountEpochOwnershipTests {
 
             let staleSession = player.send(.session(.ready), source: .account, accountEpoch: prior)
             let staleQueue = await player.queueService.acceptConnect(
-                [QueueEntry(uri: "spotify:track:stale", provider: "connect", occurrence: 0)],
-                accountEpoch: prior,
-                sourceRevision: 1,
-                contextURI: "spotify:track:stale"
-            )
+                HarnessFixtures.queueState(
+                    revision: 1,
+                    trackURI: "spotify:track:stale",
+                    next: HarnessFixtures.queueTracks([
+                        QueueEntry(uri: "spotify:track:stale", provider: "connect", occurrence: 0)
+                    ])),
+                accountEpoch: prior, fallbackTrackURI: nil)
             #expect((!staleSession) == true, "a reducer send stamped with the prior epoch is rejected")
             #expect((staleQueue) == nil, "QueueService rejects the prior epoch after reset")
             #expect((player.state.currentTrack) == nil, "prior-epoch work cannot revive signed-out presentation")

@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import Observation
 import SpottyDomain
@@ -34,25 +36,27 @@ struct CatalogMetadataObservationTests {
         let partial = CatalogTrack(
             id: uri, uri: uri, title: "Updated title", artist: "Artist", album: "Album", duration: 180,
             artworkURL: nil, addedAt: nil)
-        metadata.replaceTracks([rich], from: .nowPlaying)
-        metadata.retainTracks(from: .queue, for: [uri])
+        metadata.replaceTracks([rich], from: .playback)
         metadata.replaceTracks([partial], from: .playlist)
         #expect(metadata.knownTrack(for: uri)?.title == partial.title)
         #expect(metadata.knownTrack(for: uri)?.artists == [artist])
         #expect(metadata.knownTrack(for: uri)?.albumItem == album)
         #expect(
-            metadata.runtimeTracks[uri]?.artists == [], "playback links cannot be re-exported as browsing authority")
+            metadata.browsingMetadata.tracks[uri]?.artists == [],
+            "playback links cannot be re-exported as browsing authority")
         metadata.replaceTracks([], from: .playlist)
         #expect(metadata.knownTrack(for: uri)?.artists == [artist])
         #expect(metadata.knownTrack(for: uri)?.albumItem == album)
         metadata.replaceTracks([rich], from: .album)
         metadata.replaceTracks([partial], from: .album)
-        #expect(metadata.runtimeTracks[uri]?.artists == [artist], "genuine browsing links may enrich browsing input")
-        #expect(metadata.runtimeTracks[uri]?.albumItem == album)
-        let revision = metadata.runtimeTracksRevision
+        #expect(
+            metadata.browsingMetadata.tracks[uri]?.artists == [artist],
+            "genuine browsing links may enrich browsing input")
+        #expect(metadata.browsingMetadata.tracks[uri]?.albumItem == album)
+        let revision = metadata.browsingMetadata.revision
         let reader = observe { _ = metadata.knownTrack(for: uri) }
         metadata.replaceTracks([partial], from: .album)
-        #expect(reader.count("changes") == 0 && metadata.runtimeTracksRevision == revision)
+        #expect(reader.count("changes") == 0 && metadata.browsingMetadata.revision == revision)
         metadata.reset()
         metadata.replaceTracks([partial], from: .playlist)
         #expect(metadata.knownTrack(for: uri)?.artists == [])
@@ -65,19 +69,17 @@ struct CatalogMetadataObservationTests {
         let current = HarnessFixtures.track(uri: "spotify:track:current")
         let other = HarnessFixtures.track(uri: "spotify:track:other")
         metadata.replaceTracks([current], from: .library)
-        metadata.retainTracks(from: .queue, for: [current.uri])
 
         // Each subscription is fresh: Observation callbacks are one-shot.
         let writes: [() -> Void] = [
             { metadata.replaceTracks([current], from: .library) },
-            { metadata.retainTracks(from: .queue, for: [current.uri]) },
-            { metadata.replaceTracks([], from: .queue) },
+            { metadata.replaceTracks([], from: .playback) },
             { metadata.replaceTracks([other], from: .search) },
             { metadata.replaceTracks([other], from: .playlist) },
             { metadata.replaceTracks([], from: .playlist) },
             {
                 metadata.replaceTracks(
-                    [HarnessFixtures.track(uri: current.uri, title: "Provisional")], from: .nowPlaying)
+                    [HarnessFixtures.track(uri: current.uri, title: "Provisional")], from: .playback)
             },
             { metadata.replaceItems([Self.item(other.uri)], from: .search) },
         ]
@@ -98,7 +100,7 @@ struct CatalogMetadataObservationTests {
         let reader = observe { _ = metadata.knownTrack(for: wanted.uri) }
         metadata.replaceTracks([HarnessFixtures.track(uri: "spotify:track:other")], from: .search)
         #expect(reader.count("changes") == 0)
-        metadata.replaceTracks([wanted], from: .queue)
+        metadata.replaceTracks([wanted], from: .playback)
         #expect(reader.count("changes") == 1)
         #expect(metadata.knownTrack(for: wanted.uri) == wanted)
     }
@@ -112,22 +114,60 @@ struct CatalogMetadataObservationTests {
             album: "New album", duration: 210, artworkURL: URL(string: "https://example.invalid/cover.jpg"),
             addedAt: HarnessDates.fixed, artists: [Self.item("spotify:artist:artist")]
         )
-        metadata.replaceTracks([provisional], from: .nowPlaying)
+        metadata.replaceTracks([provisional], from: .playback)
         let nowPlayingReader = observe { _ = metadata.knownTrack(for: provisional.uri) }
         let queueReader = observe { _ = metadata.displayInfo(for: provisional.uri) }
         metadata.replaceTracks([enriched], from: .album)
         #expect(nowPlayingReader.count("changes") == 1)
         #expect(queueReader.count("changes") == 1)
-        #expect(metadata.knownTrack(for: provisional.uri) == enriched)
+        #expect(
+            metadata.knownTrack(for: provisional.uri)
+                == CatalogTrackMetadata(track: enriched, requestedURI: enriched.uri).playbackTrack)
 
         let fallbackReader = observe { _ = metadata.knownTrack(for: provisional.uri) }
         metadata.replaceTracks([], from: .album)
         #expect(fallbackReader.count("changes") == 1)
         #expect(metadata.knownTrack(for: provisional.uri) == provisional)
         let removalReader = observe { _ = metadata.knownTrack(for: provisional.uri) }
-        metadata.replaceTracks([], from: .nowPlaying)
+        metadata.replaceTracks([], from: .playback)
         #expect(removalReader.count("changes") == 1)
         #expect(metadata.knownTrack(for: provisional.uri) == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func batchNotificationsExposeTheCompleteOldSnapshotBeforeCommit(items: Bool) {
+        let metadata = makeMetadata()
+        let uris = ["spotify:\(items ? "playlist" : "track"):first", "spotify:\(items ? "playlist" : "track"):second"]
+        let oldTitles = ["Old first", "Old second"]
+        let newTitles = ["New first", "New second"]
+        func replace(_ titles: [String]) {
+            if items {
+                metadata.replaceItems(zip(uris, titles).map { Self.item($0.0, title: $0.1) }, from: .library)
+            } else {
+                metadata.replaceTracks(
+                    zip(uris, titles).map { HarnessFixtures.track(uri: $0.0, title: $0.1) }, from: .library)
+            }
+        }
+        let read: @MainActor @Sendable (String) -> String? = { uri in
+            items ? metadata.knownItem(for: uri)?.title : metadata.knownTrack(for: uri)?.title
+        }
+        replace(oldTitles)
+        let notifications = HarnessCounters()
+        for uri in uris {
+            withObservationTracking {
+                _ = read(uri)
+            } onChange: {
+                MainActor.assumeIsolated {
+                    notifications.record(uris.map { read($0) } == oldTitles ? "old" : "mixed")
+                }
+            }
+        }
+
+        replace(newTitles)
+
+        #expect(notifications.count("old") == 2)
+        #expect(notifications.count("mixed") == 0)
+        #expect(uris.map { read($0) } == newTitles)
     }
 
     @Test(arguments: ["title", "artist", "artwork"])
@@ -153,7 +193,7 @@ struct CatalogMetadataObservationTests {
         let fallback = HarnessFixtures.track(uri: preferred.uri, title: "Updated fallback")
         metadata.replaceTracks([preferred], from: .library)
         let reader = observe { _ = metadata.knownTrack(for: preferred.uri) }
-        metadata.replaceTracks([fallback], from: .nowPlaying)
+        metadata.replaceTracks([fallback], from: .playback)
         #expect(reader.count("changes") == 0)
         metadata.replaceTracks([], from: .library)
         #expect(reader.count("changes") == 1)
@@ -161,20 +201,19 @@ struct CatalogMetadataObservationTests {
     }
 
     @Test
-    func retainedQueuePromotionOnlyPublishesEffectiveChanges() {
+    func playbackPublicationsOnlyNotifyChangedEffectiveLabels() {
         let metadata = makeMetadata()
         let queued = HarnessFixtures.track(uri: "spotify:track:queued")
-        metadata.retainTracks(from: .queue, for: [queued.uri])
         let hydrationReader = observe { _ = metadata.knownTrack(for: queued.uri) }
-        metadata.replaceTracks([queued], from: .playlist)
+        metadata.replaceTracks([queued], from: .playback)
         #expect(hydrationReader.count("changes") == 1)
 
         let retainedReader = observe { _ = metadata.knownTrack(for: queued.uri) }
+        metadata.replaceTracks([queued], from: .playlist)
         metadata.replaceTracks([], from: .playlist)
-        metadata.replaceTracks([], from: .queue)
+        metadata.replaceTracks([queued], from: .playback)
         #expect(retainedReader.count("changes") == 0)
-        #expect(metadata.knownTrack(for: queued.uri) == queued)
-        metadata.retainTracks(from: .queue, for: [])
+        metadata.replaceTracks([], from: .playback)
         #expect(retainedReader.count("changes") == 1)
         #expect(metadata.knownTrack(for: queued.uri) == nil)
     }
@@ -230,7 +269,6 @@ struct CatalogMetadataObservationTests {
         let item = Self.item("spotify:playlist:current")
         metadata.replaceTracks([track], from: .library)
         metadata.replaceItems([item], from: .home)
-        metadata.retainTracks(from: .queue, for: [track.uri])
         let trackReader = observe { _ = metadata.knownTrack(for: track.uri) }
         let itemReader = observe { _ = metadata.knownItem(for: item.uri) }
         if changeAccount { session.update(accountEpoch: 2, isAvailable: true) }
@@ -244,7 +282,7 @@ struct CatalogMetadataObservationTests {
         metadata.replaceTracks([track], from: .playlist)
         #expect(hydrationReader.count("changes") == 1)
         metadata.replaceTracks([], from: .playlist)
-        #expect(metadata.knownTrack(for: track.uri) == nil, "reset also releases retained queue metadata")
+        #expect(metadata.knownTrack(for: track.uri) == nil)
     }
 
     @Test

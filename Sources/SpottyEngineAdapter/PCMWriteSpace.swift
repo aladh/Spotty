@@ -6,15 +6,15 @@ import Synchronization
 /// Control and the pull side signal only while a wait is armed, covering the unlock-to-wait
 /// window without leaving a generation for a later unrelated park. Timeouts use a monotonic
 /// dispatch deadline.
-public nonisolated final class PCMWriteSpace: Sendable {
+nonisolated final class PCMWriteSpace: Sendable {
     private enum State: Equatable, Sendable { case idle, armed, signaled }
     private let state = Mutex(State.idle)
     private let wake = DispatchSemaphore(value: 0)
 
-    public init() {}
+    init() {}
 
     /// Marks that the caller will `wait`. Must run before releasing `bufferLock`.
-    public func arm() {
+    func arm() {
         state.withLock { state in
             // Drain a wake left by a superseded arm before reusing the semaphore.
             _ = wake.wait(timeout: .now())
@@ -23,7 +23,7 @@ public nonisolated final class PCMWriteSpace: Sendable {
     }
 
     /// Wakes an armed writer. No-op if no wait is in the unlock-to-wait or parked window.
-    public func signalIfArmed() {
+    func signalIfArmed() {
         state.withLock { state in
             guard state == .armed else { return }
             state = .signaled
@@ -36,7 +36,7 @@ public nonisolated final class PCMWriteSpace: Sendable {
     /// The callback must only signal a test handshake and return; it must not call
     /// `signalIfArmed`, or it would deadlock on the state lock.
     @discardableResult
-    public func wait(timeoutMilliseconds: Int, onWillBlock: (() -> Void)? = nil) -> Bool {
+    func wait(timeoutMilliseconds: Int, onWillBlock: (() -> Void)? = nil) -> Bool {
         let deadline = state.withLock { state -> DispatchTime? in
             if state == .signaled {
                 _ = wake.wait(timeout: .now())
@@ -58,5 +58,18 @@ public nonisolated final class PCMWriteSpace: Sendable {
             if !didWake { _ = wake.wait(timeout: .now()) }
             return true
         }
+    }
+}
+
+/// One full-buffer wait per PCM callback. The value stays local to the writer, so a route reset
+/// can wake it or free space without replenishing its allowance. Copy admission belongs to the buffer.
+nonisolated struct PCMWriteBudget {
+    static let timeoutMilliseconds = 500
+    private var spent = false
+
+    mutating func takeWait(isRendering: Bool) -> Bool {
+        guard isRendering, !spent else { return false }
+        spent = true
+        return true
     }
 }

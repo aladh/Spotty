@@ -15,16 +15,10 @@ extension PlaybackSessionRuntime {
     func recordPlayed(_ uri: String) {
         guard !uri.isEmpty else { return }
         let playedAt = environment.clock.now()
-        let now = playedAt.timeIntervalSince1970
-        var history = shuffleHistoryCache
-        history[uri] = now
-        history = ShufflePolicy.pruned(history, now: now)
+        preferenceState.recordPlayed(uri, at: playedAt.timeIntervalSince1970, accountEpoch: accountEpoch)
 
-        shuffleHistoryCache = history
-        preferenceWriter.submit(epoch: accountEpoch) { [history] in await $0.setShuffleHistory(history) }
-
-        let track = catalog.metadata.knownTrack(for: uri)
-        let info = catalog.metadata.displayInfo(for: uri)
+        let track = catalogMetadata.knownTrack(for: uri)
+        let info = catalogMetadata.displayInfo(for: uri)
         self.history.notePlayed(
             uri: uri,
             title: track?.title ?? info.title,

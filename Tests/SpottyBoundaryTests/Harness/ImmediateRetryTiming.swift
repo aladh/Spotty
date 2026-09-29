@@ -1,5 +1,5 @@
 import Foundation
-import SpottyDomain
+@testable import SpottyGateway
 
 extension SpotifyTransientRetry.Timing {
     /// Completes backoff without waiting. Injected by deterministic checks.

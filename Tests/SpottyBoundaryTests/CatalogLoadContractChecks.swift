@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
@@ -34,20 +36,20 @@ struct CatalogLoadContractChecks {
         let provider = HarnessCatalog()
         let tracks = empty ? [] : [HarnessFixtures.track(uri: "spotify:track:kept")]
         let releases = empty ? [] : [item("release", kind: .album)]
-        provider.onPlaylistSnapshot = { _ in .init(description: "Kept", ownerURI: nil, tracks: tracks) }
-        provider.onAlbumSnapshot = { _ in .init(tracks: tracks, releaseDate: "2026") }
-        provider.onArtistSnapshot = { _ in .init(name: "Artist", releases: releases) }
-        provider.onArtistDiscographySnapshot = provider.onArtistSnapshot
+        provider.onPlaylist = { _ in .init(description: "Kept", ownerURI: nil, tracks: tracks) }
+        provider.onAlbum = { _ in .init(tracks: tracks, releaseDate: "2026") }
+        provider.onArtist = { _ in .init(name: "Artist", releases: releases) }
+        provider.onArtistDiscography = provider.onArtist
         let session = CatalogSessionAvailability(isAvailable: true)
         let adapter = detail(surface, provider: provider, session: session)
         await adapter.load(false)
         let expected = empty ? 0 : 1
         #expect(adapter.count() == expected && !adapter.saved() && adapter.error() == nil)
         for failure in [CatalogReadFailure.offline, .timedOut, .throttled, .compatibility, .sessionExpired] {
-            provider.onPlaylistSnapshot = { _ in throw failure }
-            provider.onAlbumSnapshot = { _ in throw failure }
-            provider.onArtistSnapshot = { _ in throw failure }
-            provider.onArtistDiscographySnapshot = { _ in throw failure }
+            provider.onPlaylist = { _ in throw failure }
+            provider.onAlbum = { _ in throw failure }
+            provider.onArtist = { _ in throw failure }
+            provider.onArtistDiscography = { _ in throw failure }
             await adapter.load(true)
             #expect(adapter.error() != nil)
             #expect(adapter.count() == (failure == .sessionExpired ? 0 : expected))
@@ -87,7 +89,7 @@ struct CatalogLoadContractChecks {
 
     @Test func cancelledRefreshStaysStaleAcrossRouteRevisits() async throws {
         let provider = HarnessCatalog()
-        provider.onPlaylistSnapshot = { _ in .init(description: "Kept", ownerURI: nil, tracks: []) }
+        provider.onPlaylist = { _ in .init(description: "Kept", ownerURI: nil, tracks: []) }
         let session = CatalogSessionAvailability(isAvailable: true)
         let store = PlaylistStore(
             provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
@@ -95,7 +97,7 @@ struct CatalogLoadContractChecks {
         await store.load(selected)
         #expect(store.canEditLoadedContent)
         let gate = HarnessClock.parked()
-        provider.onPlaylistSnapshot = { _ in
+        provider.onPlaylist = { _ in
             try await gate.sleep(seconds: 1)
             throw CatalogReadFailure.offline
         }
@@ -107,7 +109,7 @@ struct CatalogLoadContractChecks {
         store.prepare(item("other", kind: .playlist))
         store.prepare(selected)
         #expect(store.isShowingCachedContent && !store.canEditLoadedContent)
-        provider.onPlaylistSnapshot = { _ in .init(description: "Fresh", ownerURI: nil, tracks: []) }
+        provider.onPlaylist = { _ in .init(description: "Fresh", ownerURI: nil, tracks: []) }
         await store.load(selected)
         #expect(store.description == "Fresh" && store.canEditLoadedContent)
     }

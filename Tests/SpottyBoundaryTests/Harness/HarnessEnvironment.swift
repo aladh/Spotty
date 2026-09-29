@@ -1,12 +1,15 @@
+@testable import SpottyCore
+import SpottyTestSupport
 import Foundation
 import SpottyDomain
-@testable import SpottyCore
-@testable import SpottyGateway
+import SpottyGateway
 import SpottyRuntimeContracts
-@testable import SpottyEngineAdapter
+import SpottyEngineAdapter
 @testable import SpottySessionRuntime
 
-/// The one composition point for boundary checks.
+@testable import SpottyRuntimeTestSupport
+
+/// Test-target composition may access runtime internals; shared fakes use only package ports.
 ///
 /// Every dependency defaults to its harness fake, so a check names only the collaborators it is
 /// about. The defaults are deliberately inert: the engine succeeds and records, the Connect
@@ -45,6 +48,9 @@ enum HarnessEnvironment {
         )
     }
 
+}
+
+extension HarnessEnvironment {
     /// Builds a store and the presenter it publishes through. The presenter defaults to one
     /// driven by the environment's own clock, so a parked clock holds messages visible.
     @MainActor

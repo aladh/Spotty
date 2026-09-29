@@ -14,8 +14,8 @@ package extension PlaybackSessionRuntime {
             accountEpoch: accountEpoch,
             engineGeneration: engineGeneration, queueInspectorOrderingVersion: queueInspectorOrderingVersion,
             requiresReauthentication: requiresReauthentication, isTearingDown: isTearingDown,
-            allowsCommands: terminationGate.allowsCommands, catalogAvailable: catalogSession.isAvailable,
-            history: history.entries, metadata: catalog.metadata.playbackTracks, feedback: feedback.message)
+            allowsCommands: lifecycle.acceptsWork, catalogSession: catalogSession,
+            history: history.entries, metadata: catalogMetadata.playbackTracks, feedback: feedback.message)
     }
 
     func presentations() -> AsyncStream<RuntimePresentation> {
@@ -50,10 +50,9 @@ package extension PlaybackSessionRuntime {
     /// A client can contribute labels only for the same account. This never supplies Connect
     /// ordering, device ownership, command readiness or playlist write authorization.
     @discardableResult
-    func acceptCatalogMetadata(_ tracks: [CatalogTrack], accountEpoch: UInt64) -> Bool {
-        guard self.accountEpoch == accountEpoch, catalogSession.isAvailable, !isTearingDown else { return false }
-        catalog.metadata.replaceTracks(tracks, from: .browsing)
-        return true
+    func acceptCatalogMetadata(_ snapshot: BrowsingMetadataSnapshot) -> Bool {
+        guard accountEpoch == snapshot.accountEpoch, catalogSession.isAvailable, !isTearingDown else { return false }
+        return catalogMetadata.acceptBrowsing(snapshot)
     }
 
 }

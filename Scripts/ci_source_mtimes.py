@@ -15,7 +15,7 @@ MANIFESTS = {
 
 
 def inputs(root, scope="swift"):
-    paths = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).decode().split("\0")
+    paths = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).decode("utf-8", errors="surrogateescape").split("\0")
     for name in paths:
         selected = (
             name in {"Package.swift", "Package.resolved"} or name.startswith(("Sources/", "Tests/"))

@@ -35,12 +35,20 @@ public enum ShufflePolicy {
 
         var best = Array(0..<count)
         best.shuffle(using: &generator)
-        var bestScore = score(best, uri: uri, history: history, now: now)
+        guard !history.isEmpty else { return best }
+
+        // History is constant across candidates. Resolve it once per occurrence, including
+        // duplicate URIs, instead of repeating dictionary lookups for every random order.
+        let freshness = (0..<count).map { freshness(for: uri($0), history: history, now: now) }
+        // Equal weights make every order score identically; retain the first random order
+        // without generating another 23 candidates or consuming their randomness.
+        guard !freshness.allSatisfy({ $0 == freshness[0] }) else { return best }
+        var bestScore = score(best, freshness: freshness)
 
         for _ in 1..<candidateCount {
             var candidate = Array(0..<count)
             candidate.shuffle(using: &generator)
-            let candidateScore = score(candidate, uri: uri, history: history, now: now)
+            let candidateScore = score(candidate, freshness: freshness)
             if candidateScore > bestScore {
                 bestScore = candidateScore
                 best = candidate
@@ -58,12 +66,19 @@ public enum ShufflePolicy {
         now: TimeInterval,
     ) -> Double {
         indices.enumerated().reduce(0) { result, entry in
-            let freshness =
-                history[uri(entry.element)].map { playedAt in
-                    min(max((now - playedAt) / freshnessWindow, 0), 1)
-                } ?? 1
-            return result + freshness * Double(indices.count - entry.offset)
+            result + freshness(for: uri(entry.element), history: history, now: now)
+                * Double(indices.count - entry.offset)
         }
+    }
+
+    private static func score(_ indices: [Int], freshness: [Double]) -> Double {
+        indices.enumerated().reduce(0) { result, entry in
+            result + freshness[entry.element] * Double(indices.count - entry.offset)
+        }
+    }
+
+    private static func freshness(for uri: String, history: [String: TimeInterval], now: TimeInterval) -> Double {
+        history[uri].map { playedAt in min(max((now - playedAt) / freshnessWindow, 0), 1) } ?? 1
     }
 
     /// Drops expired entries; the caller persists the result.

@@ -1,8 +1,8 @@
 # ADR 002: Atomic playback state and explicit dependency ownership
 
-Status: accepted on 2026-08-23; `PlaybackStore` ownership, MainActor execution, and target-placement
-choices are superseded by [ADR 008](ADR-008-headless-session-runtime.md). The atomic reducer,
-lifetime, and projection decisions below remain current.
+Status: accepted on 2026-08-23. [ADR 008](ADR-008-headless-session-runtime.md) supersedes the original
+`PlaybackStore` ownership, MainActor execution, and target placement. This record retains the
+current atomic reducer, lifetime, and projection decisions.
 
 ## Context
 
@@ -13,30 +13,24 @@ writes can mix lifetimes and make stale work appear current.
 
 - Keep one reducer-owned `SpottyDomain` playback presentation snapshot. Observations carry their
   account/engine lifetime and applicable source revision; the reducer decides whether to apply them.
-- Give account lifecycle, queue authority, catalog requests, and commands explicit owners with
-  read-only projections. Suspended work revalidates its lifetime before applying results.
-- Revalidation has one primitive per boundary: `PlaybackStore.stillCurrent` for playback-scoped
-  store work and `AccountScopedSingleFlight` for catalog requests, both with named scope and
-  publish policies. A site that deliberately ignores an owner states which one and why.
-- Session teardown has one owner. `PlaybackStore` coalesces, orders, and releases the gate;
-  `AccountStore` exposes only the account primitives that owner drives.
+- Suspended work revalidates its lifetime before applying results. Playback work uses the
+  runtime's `stillCurrent`; [catalog owners](ADR-009-account-catalog-retention.md) fence browsing
+  reads and writes. A site deliberately bypassing its owner explains why.
 - Assemble production dependencies at the app composition root. Views and feature stores use
   injected ports; they do not construct authentication, network, or C playback dependencies.
 - Keep PCM delivery outside observable presentation state. Transient mutation feedback also has a
   separate owner; it is not playback state or a general event bus.
-- Keep portable policy in `SpottyDomain`, the playback binary's Swift boundary in
-  `SpottyEngineAdapter`, concrete app adapters in `SpottyCore`, and the executable launcher thin.
-  Dependencies run one way; test targets do not ship.
+- Dependencies run one way; test targets do not ship. Runtime, lifecycle, and target ownership
+  follow ADR 008; the [ownership map](../playback-engine-ownership.md) links their implementations.
 
 ## Tradeoffs
 
-The reducer snapshot is not itself observable. `PlaybackStore.send` publishes equatable semantic,
-queue, device and timing projections from the accepted candidate in the same MainActor turn.
-`PlaybackReducer.apply` also reports what it accepted and changed — including per-component
-acceptance inside a Connect cluster — so the store drives follow-ups from that report instead of
-rediscovering acceptance by diffing published state.
-Source watermarks remain internal; timing-only samples update only the timeline. Views read those
-projections, while command and lifetime decisions continue to read the reducer snapshot. Local
+The reducer snapshot is not observable. `PlaybackReducer.apply` reports acceptance and changes,
+including per-component acceptance inside a Connect cluster. The runtime drives follow-ups from
+that report rather than rediscovering acceptance by diffing published state. It prepares equatable
+semantic, queue, device, and timing projections; the desktop applies one coherent publication.
+Source watermarks remain internal; timing-only samples update only the timeline. Views read
+projections, while command and lifetime decisions read the reducer snapshot. Local
 progress interpolation remains in the progress control. System media receives ordinary timing
 anchors at most once per second, with semantic changes, seeks and discontinuities bypassing that
 budget; MediaPlayer interpolates between anchors.
@@ -55,9 +49,6 @@ create new listening history.
 Explicit stamps and owners cost coordination but make cancellation, stale results, and source
 precedence testable without a live account. A single mutable controller or independently writable
 snapshots would hide those relationships.
-
-A separate infrastructure target is not justified solely by folder organization: the adapters share
-private transport models, while injected ports and import checks enforce the useful boundaries.
 
 ## Implementation and evidence
 

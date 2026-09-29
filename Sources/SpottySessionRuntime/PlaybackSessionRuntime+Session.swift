@@ -7,6 +7,7 @@ import SpottyDiagnostics
 //  coalescing, ordering, and presentation cleanup live here.
 //
 
+import SpottyGateway
 import SpottyDomain
 import SpottyRuntimeContracts
 import SpottyEngineAdapter
@@ -26,7 +27,7 @@ extension PlaybackSessionRuntime {
     }
 
     package func restore() async {
-        guard terminationGate.allowsCommands else { return }
+        guard lifecycle.acceptsWork else { return }
         let lifetime = playbackLifetime
         startLifetimeEffectsIfNeeded()
         let queueServiceBootstrap = effects.settlement(of: .queueServiceBootstrap)
@@ -38,12 +39,12 @@ extension PlaybackSessionRuntime {
     }
 
     package func connect() {
-        guard !isTearingDown else { return }
+        guard lifecycle.acceptsWork else { return }
         accountStore.connect()
     }
 
     package func reauthorize() {
-        guard !isTearingDown else { return }
+        guard lifecycle.acceptsWork else { return }
         accountStore.reauthorize()
     }
 
@@ -55,7 +56,8 @@ extension PlaybackSessionRuntime {
         await endSession(clearGrant: true, finalPhase: .signedOut)
     }
 
-    func handleGrantRevocation() async {
+    func handleGrantRevocation(_ revocation: AccountGrantRevocation) async {
+        guard await accountStore.acceptsGrantRevocation(revocation) else { return }
         accountStore.markCredentialRejection()
         await endSession(
             clearGrant: false,
@@ -71,56 +73,53 @@ extension PlaybackSessionRuntime {
     /// and releasing the teardown gate, so a later request either coalesces into this teardown or
     /// starts a genuinely new session boundary.
     func endSession(clearGrant: Bool, finalPhase: Phase) async {
-        guard terminationGate.allowsCommands else { return }
+        guard !lifecycle.isTerminating else { return }
         feedback.dismiss()
-        let (shouldStart, cumulative) = teardown.request(
-            SessionTeardownIntent(clearGrant: clearGrant, finalPhase: finalPhase)
-        )
-
-        if !shouldStart {
+        guard
+            let retirement = lifecycle.endAccount(
+                SessionTeardownIntent(clearGrant: clearGrant, finalPhase: finalPhase),
+                prepare: prepareAccountRetirement
+            )
+        else { return }
+        if !retirement.started {
             // Upgrade the visible result immediately, but keep the existing epoch and teardown.
-            send(.reset(session: cumulative.finalPhase), source: .account)
-            accountStore.publishPhase(cumulative.finalPhase)
-            await teardown.awaitActive()
-            return
+            send(.reset(session: retirement.intent.finalPhase), source: .account)
+            accountStore.publishPhase(retirement.intent.finalPhase)
         }
+        await retirement.task.value
+    }
 
-        isTearingDown = true
-        accountStore.isTearingDown = true
+    private func prepareAccountRetirement(_ cumulative: SessionTeardownIntent) -> Task<Void, Never> {
         invalidatePlaybackDispatchPermits()
         // Advance AccountStore.epoch before any reducer send, catalog update, queue reset,
         // or effect invalidation so every observer uses that already-advanced identity.
         let staleConnectionTask = accountStore.invalidateAccountIdentity()
         accountStore.publishPhase(cumulative.finalPhase)
-        // The account-side shutdown runs concurrently with presentation cleanup, the effect
-        // drain, and the queue reset, exactly as the previous two-owner split did.
+        // Account shutdown can run while the runtime drains effects and clears presentation.
         let accountTeardown = Task { [accountStore] in
             await accountStore.performAccountTeardown(
                 staleConnectionTask: staleConnectionTask,
                 intent: cumulative
             )
         }
-        engineGeneration &+= 1
+        // Commit the new engine identity before synchronous cancellation handlers inspect it.
+        send(.reset(session: cumulative.finalPhase), source: .account, engineEpoch: engineGeneration &+ 1)
+        preferenceState.retireAccount(to: accountEpoch)
         connectQueueCallback.reset()
         queueInspectorOrderingVersion = 0
-        catalogSession.update(accountEpoch: accountEpoch, isAvailable: false)
         let cancelledEffects = effects.cancelAccountScoped()
         hasReceivedPlaybackSnapshot = false
-        catalog.reset()
+        catalogMetadata.reset()
         history.reset()
         queueMutation = nil
         queueReplacementToken = nil
-        shuffleHistoryCache = [:]
-        send(.reset(session: cumulative.finalPhase), source: .account)
 
-        let task = Task { [weak self] in
+        return Task { [weak self] in
             guard let self else { return }
             let drain = await self.effects.drain(cancelledEffects)
             self.report(effectDrain: drain, during: "account teardown")
             await self.completeEndSession(accountTeardown: accountTeardown)
         }
-        teardown.setActiveTask(task)
-        await task.value
     }
 
     private func completeEndSession(
@@ -128,10 +127,11 @@ extension PlaybackSessionRuntime {
     ) async {
         await queueService.reset(accountEpoch: accountEpoch)
         var appliedIntent = await accountTeardown.value
-        await preferenceWriter.submit(epoch: accountEpoch) { await $0.setShuffleHistory([:]) }.value
+        preferenceState.clearHistory()
+        await preferenceState.flush()
 
         var clearedRemoteDevice = false
-        while let desiredIntent = teardown.intent {
+        while let desiredIntent = lifecycle.intent {
             if desiredIntent != appliedIntent {
                 appliedIntent = await accountStore.applyStrongerIntent(
                     applied: appliedIntent,
@@ -141,29 +141,19 @@ extension PlaybackSessionRuntime {
             }
 
             if desiredIntent.clearGrant, !clearedRemoteDevice {
-                lastRemoteDeviceID = nil
-                await preferenceWriter.submit(epoch: accountEpoch) { await $0.setLastRemoteDeviceID(nil) }.value
+                preferenceState.forgetRemoteDevice()
+                await preferenceState.flush()
                 clearedRemoteDevice = true
                 continue
             }
 
             // There is no suspension between this final comparison and releasing the gate, so a
             // request either coalesces above or starts a genuinely new session boundary afterward.
-            let completed = teardown.complete() ?? desiredIntent
+            let completed = lifecycle.completeAccount() ?? desiredIntent
             send(.session(completed.finalPhase), source: .account)
-            releaseTeardownGate()
+            publish()
             return
         }
-
-        // Defensive recovery for an impossible externally-cleared coalescer.
-        teardown.setActiveTask(nil)
-        releaseTeardownGate()
-    }
-
-    private func releaseTeardownGate() {
-        isTearingDown = false
-        accountStore.isTearingDown = false
-        publish()
     }
 
     private func report(effectDrain: PlaybackEffectDrainReport, during operation: String) {
@@ -177,27 +167,43 @@ extension PlaybackSessionRuntime {
     /// next launch; account logout is a separate operation. It uses the same account primitives
     /// as `endSession` so there is still only one teardown owner.
     package func shutdownForTermination() async {
-        guard terminationGate.begin() else { return }
-        guard !isTearingDown else { return }
-        feedback.dismiss()
-        isTearingDown = true
-        accountStore.isTearingDown = true
-        invalidatePlaybackDispatchPermits()
-        let staleConnectionTask = accountStore.invalidateAccountIdentity()
-        accountStore.publishPhase(.signedOut)
-        engineGeneration &+= 1
-        connectQueueCallback.reset()
-        queueInspectorOrderingVersion = 0
-        catalogSession.update(accountEpoch: accountEpoch, isAvailable: false)
-        var cancelledEffects = effects.cancelAccountScoped()
+        let task = lifecycle.terminate(prepare: prepareTermination)
+        await task.value
+    }
+
+    private func prepareTermination(_ accountRetirement: Task<Void, Never>?) -> Task<Void, Never> {
+        preferenceState.prepareForTermination()
+        var cancelledEffects: [PlaybackEffectID: PlaybackEffectSettlement] = [:]
         for id in [PlaybackEffectID.engineEvents, .grantRevocations, .lifecycle] {
             if let settlement = effects.cancel(id) {
                 cancelledEffects[id] = settlement
             }
         }
-        send(.reset(session: .signedOut), source: .account)
-        let drain = await effects.drain(cancelledEffects)
-        report(effectDrain: drain, during: "process termination")
-        await accountStore.completeShutdownForTermination(staleConnectionTask: staleConnectionTask)
+        if let accountRetirement {
+            // Sign-out already owns engine shutdown and durable credential removal. Quit
+            // must join that owner before AppKit may end the process, and still retire the
+            // process subscriptions that ordinary account teardown keeps alive.
+            publish()
+            return Task {
+                let drain = await effects.drain(cancelledEffects)
+                report(effectDrain: drain, during: "process termination")
+                await accountRetirement.value
+                await preferenceState.flush()
+            }
+        }
+        feedback.dismiss()
+        invalidatePlaybackDispatchPermits()
+        let staleConnectionTask = accountStore.invalidateAccountIdentity()
+        accountStore.publishPhase(.signedOut)
+        send(.reset(session: .signedOut), source: .account, engineEpoch: engineGeneration &+ 1)
+        connectQueueCallback.reset()
+        queueInspectorOrderingVersion = 0
+        cancelledEffects.merge(effects.cancelAccountScoped()) { current, _ in current }
+        return Task {
+            let drain = await effects.drain(cancelledEffects)
+            report(effectDrain: drain, during: "process termination")
+            await accountStore.completeShutdownForTermination(staleConnectionTask: staleConnectionTask)
+            await preferenceState.flush()
+        }
     }
 }

@@ -3,93 +3,6 @@ import SpottyEngineAdapter
 import SpottyGateway
 import SpottyRuntimeContracts
 import Foundation
-import Synchronization
-
-/// Account-scoped metadata requests are shared by Now Playing and queue hydration. The actor
-/// coalesces identical in-flight requests and retains only a bounded cache for the current account.
-actor TrackMetadataService {
-    private struct InFlightRequest {
-        let generation: UInt64
-        let id: UInt64
-        let task: Task<SpotifyConnectTrackMetadata, any Error>
-    }
-
-    private static let cacheLimit = 512
-
-    private let remote: any RemotePlaybackClient
-    private var cache: [String: SpotifyConnectTrackMetadata] = [:]
-    private var generation: UInt64 = 0
-    private var nextRequestID: UInt64 = 0
-    private var inFlight: [String: InFlightRequest] = [:]
-
-    init(remote: any RemotePlaybackClient) {
-        self.remote = remote
-    }
-
-    func metadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        if let cached = cache[uri] { return cached }
-        if let request = inFlight[uri] { return try await request.task.value }
-
-        let task = Task { [remote] in try await remote.trackMetadata(for: uri) }
-        nextRequestID &+= 1
-        let request = InFlightRequest(generation: generation, id: nextRequestID, task: task)
-        inFlight[uri] = request
-        do {
-            let value = try await task.value
-            if let current = inFlight[uri],
-                current.id == request.id,
-                current.generation == request.generation
-            {
-                inFlight[uri] = nil
-                cache[uri] = value
-                trimCache(preserving: uri)
-            }
-            return value
-        } catch {
-            if let current = inFlight[uri],
-                current.id == request.id,
-                current.generation == request.generation
-            {
-                inFlight[uri] = nil
-            }
-            throw error
-        }
-    }
-
-    func reset() {
-        generation &+= 1
-        inFlight.values.forEach { $0.task.cancel() }
-        inFlight.removeAll(keepingCapacity: false)
-        cache.removeAll(keepingCapacity: false)
-    }
-
-    private func trimCache(preserving uri: String) {
-        guard cache.count > Self.cacheLimit else { return }
-        for key in cache.keys where key != uri {
-            cache[key] = nil
-            if cache.count <= Self.cacheLimit { break }
-        }
-    }
-}
-
-package nonisolated protocol AudioOutputPreparing: Sendable {
-    func prepareForPlayback() throws
-}
-
-package nonisolated struct LiveAudioOutput: AudioOutputPreparing {
-    package func prepareForPlayback() throws {
-        try spottyAudioRendererResult.get().setVolume(1)
-    }
-}
-
-package nonisolated protocol PlaybackPreferences: Sendable {
-    func shuffleEnabled() async -> Bool
-    func setShuffleEnabled(_ enabled: Bool) async
-    func lastRemoteDeviceID() async -> String?
-    func setLastRemoteDeviceID(_ id: String?) async
-    func shuffleHistory() async -> [String: TimeInterval]
-    func setShuffleHistory(_ history: [String: TimeInterval]) async
-}
 
 package nonisolated final class UserDefaultsPlaybackPreferences: PlaybackPreferences, @unchecked Sendable {
     package static let shared = UserDefaultsPlaybackPreferences()
@@ -139,15 +52,6 @@ package nonisolated final class UserDefaultsPlaybackPreferences: PlaybackPrefere
     }
 }
 
-package nonisolated enum SystemLifecycleEvent: Sendable {
-    case willSleep
-    case didWake
-}
-
-package nonisolated protocol SystemLifecycleEvents: Sendable {
-    func events() -> AsyncStream<SystemLifecycleEvent>
-}
-
 package nonisolated struct PlaybackEnvironment: Sendable {
     let remote: any RemotePlaybackClient
     let local: any LocalPlaybackEngine
@@ -160,7 +64,7 @@ package nonisolated struct PlaybackEnvironment: Sendable {
     package let clock: any PlaybackClock
     package let catalog: any CatalogProviding
     package let playlistMutations: any PlaylistMutating
-    let playlistMutationAdmission: PlaylistMutationAdmission
+    let catalogSessionAdmission: CatalogSessionAdmission
     let queueServiceHook: (any QueueServiceHook)?
     let catalogCacheLifecycle: (any CatalogCacheLifecycle)?
 
@@ -192,9 +96,9 @@ package nonisolated struct PlaybackEnvironment: Sendable {
         self.lifecycle = lifecycle
         self.clock = clock
         self.catalog = catalog
-        let mutationAdmission = PlaylistMutationAdmission()
-        playlistMutationAdmission = mutationAdmission
-        self.playlistMutations = AccountScopedPlaylistMutations(source: playlistMutations, admission: mutationAdmission)
+        let catalogAdmission = CatalogSessionAdmission()
+        catalogSessionAdmission = catalogAdmission
+        self.playlistMutations = AccountScopedPlaylistMutations(source: playlistMutations, admission: catalogAdmission)
         self.queueServiceHook = queueServiceHook
         self.catalogCacheLifecycle = catalogCacheLifecycle
     }
@@ -223,193 +127,4 @@ package nonisolated struct PlaybackEnvironment: Sendable {
         )
     }
 
-}
-
-/// Serial owner for local blocking commands and remote network commands. The runtime receives
-/// command outcomes; blocking engine work stays off the transition executor and MainActor.
-actor PlaybackCoordinator {
-    private let local: any LocalPlaybackEngine
-    private let remote: any RemotePlaybackClient
-    private let metadataService: TrackMetadataService
-
-    func prepareAudioOutput(_ output: any AudioOutputPreparing) throws {
-        try output.prepareForPlayback()
-    }
-
-    init(
-        local: any LocalPlaybackEngine,
-        remote: any RemotePlaybackClient,
-        metadataService: TrackMetadataService? = nil
-    ) {
-        self.local = local
-        self.remote = remote
-        self.metadataService = metadataService ?? TrackMetadataService(remote: remote)
-    }
-
-    /// Executes only if the operation is still wanted once this actor actually reaches it.
-    ///
-    /// A queued operation can wait behind another local command; by then the runtime may have
-    /// changed engine generation or the condition that requested it may have lapsed.
-    /// `isStillWanted` is evaluated on SessionRuntimeActor immediately before execution and is an
-    /// early-out, not the guarantee: nothing serializes the hop back with `execute`, so
-    /// operations that must not run late also carry a token the engine enforces (see
-    /// `.rehydrate`). Returns nil when the operation was skipped.
-    func performLocalIfStillWanted(
-        _ operation: LocalPlaybackOperation,
-        isStillWanted: @SessionRuntimeActor @Sendable () -> Bool
-    ) async -> PlaybackEngineResult? {
-        if Task.isCancelled { return nil }
-        guard await isStillWanted() else { return nil }
-        return local.execute(operation)
-    }
-
-    /// Maps a local engine integer into a typed command outcome. Throws only if this task
-    /// was cancelled; operational failures are `Result` values.
-    func performLocalCommand(
-        _ operation: LocalPlaybackOperation
-    ) async throws(CancellationError) -> Result<Void, PlaybackCommandFailure> {
-        if Task.isCancelled { throw CancellationError() }
-        let outcome = PlaybackCommandFailure.from(engineResult: local.execute(operation))
-        if Task.isCancelled { throw CancellationError() }
-        return outcome
-    }
-
-    /// Claims a lock-linearized dispatch permit immediately before entering local C work. A
-    /// failed claim means the store invalidated this queued command before it reached the engine.
-    func performLocalCommand(
-        _ operation: LocalPlaybackOperation,
-        permit: PlaybackDispatchPermit
-    ) async throws(CancellationError) -> Result<Void, PlaybackCommandFailure>? {
-        if Task.isCancelled { throw CancellationError() }
-        guard permit.claim() else { return nil }
-        let outcome = PlaybackCommandFailure.from(engineResult: local.execute(operation))
-        if Task.isCancelled { throw CancellationError() }
-        return outcome
-    }
-
-    func authorizeStreaming(with token: String) async -> Int32 {
-        local.authorizeStreaming(with: token)
-    }
-
-    func initializeEngine() async -> PlaybackEngineResult {
-        local.initialize()
-    }
-
-    func shutdownEngine() async -> PlaybackEngineResult {
-        local.shutdown()
-    }
-
-    func cleanupEngine() { local.cleanup() }
-    func clearStreamingCredentials() { local.clearStreamingCredentials() }
-    func positionMilliseconds() -> UInt32 { local.positionMilliseconds() }
-    func resumePositionMilliseconds() -> UInt32 { local.resumePositionMilliseconds() }
-    func queueSnapshot() -> RustQueueState? { local.queueSnapshot() }
-    func disconnect() async -> PlaybackEngineResult {
-        local.disconnect()
-    }
-    func forceReconnect() async -> Int32 {
-        // A replaced or account-cancelled recovery task must not reach the engine once it
-        // finally gets its turn on this actor.
-        guard !Task.isCancelled else { return PlaybackEngineResult.error.rawValue }
-        return local.forceReconnect()
-    }
-
-    func metadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        try await metadataService.metadata(for: uri)
-    }
-
-    /// Maps an arbitrary remote `Error` into a typed command outcome. `CancellationError`
-    /// (including cancellation surfaced as another error while `Task.isCancelled`) is rethrown
-    /// and is never an operational failure.
-    func performRemoteCommand(
-        _ operation: @escaping @Sendable (any RemotePlaybackClient) async throws -> Void
-    ) async throws(CancellationError) -> Result<Void, PlaybackCommandFailure> {
-        if Task.isCancelled { throw CancellationError() }
-        do {
-            try await operation(remote)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            if Task.isCancelled {
-                throw CancellationError()
-            }
-            return .failure(.remoteRejected)
-        }
-        if Task.isCancelled { throw CancellationError() }
-        return .success(())
-    }
-
-    /// Claims a dispatch permit immediately before entering the remote client. After the claim,
-    /// the request may be in flight and later route invalidation cannot revoke it.
-    func performRemoteCommand(
-        _ operation: @escaping @Sendable (any RemotePlaybackClient) async throws -> Void,
-        permit: PlaybackDispatchPermit
-    ) async throws(CancellationError) -> Result<Void, PlaybackCommandFailure>? {
-        if Task.isCancelled { throw CancellationError() }
-        guard permit.claim() else { return nil }
-        do {
-            try await operation(remote)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            if Task.isCancelled {
-                throw CancellationError()
-            }
-            return .failure(.remoteRejected)
-        }
-        if Task.isCancelled { throw CancellationError() }
-        return .success(())
-    }
-}
-
-/// A lock-linearized commitment shared by the transition owner and the coordinator actor. Before
-/// `claim` succeeds, a lifecycle or route publication can invalidate queued work. Once `claim`
-/// succeeds, the operation has crossed the point where it may be sent to the engine or Spotify;
-/// later invalidation cannot revoke that already-started work.
-final class PlaybackDispatchPermit: Sendable {
-    private enum State: Equatable, Sendable {
-        case pending
-        case invalidated
-        case claimed(Date?)
-    }
-
-    private let state = Mutex(State.pending)
-    private let clock: any PlaybackClock
-
-    init(clock: any PlaybackClock = SystemPlaybackClock()) { self.clock = clock }
-
-    func takeDispatchReceipt() -> Date? {
-        state.withLock { state in
-            guard case let .claimed(receipt) = state else { return nil }
-            state = .claimed(nil)
-            return receipt
-        }
-    }
-
-    func invalidate() {
-        state.withLock { state in
-            if state == .pending { state = .invalidated }
-        }
-    }
-
-    func claim() -> Bool {
-        state.withLock { state in
-            guard state == .pending else { return false }
-            state = .claimed(clock.now())
-            return true
-        }
-    }
-
-    var canDiscard: Bool {
-        state.withLock { state in
-            switch state {
-            case .pending, .claimed(.some): false
-            case .invalidated, .claimed(nil): true
-            }
-        }
-    }
-
-    var isResolved: Bool {
-        state.withLock { $0 != .pending }
-    }
 }

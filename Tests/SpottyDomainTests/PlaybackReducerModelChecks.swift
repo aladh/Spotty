@@ -223,12 +223,12 @@ private struct EnvelopeGenerator {
 
     private mutating func randomQueueSnapshot() -> PlaybackQueueSnapshot {
         let count = nextInt(&rng, 4)
-        var entries: [PlaybackQueueItem] = []
+        var entries: [QueueEntry] = []
         for index in 0..<count {
             let provider = nextBool(&rng) ? "connect" : "web-api"
             let uid = nextBool(&rng) ? "uid-\(index)" : ""
             entries.append(
-                PlaybackQueueItem(
+                QueueEntry(
                     uri: modelTrackURIs[index % modelTrackURIs.count],
                     provider: provider,
                     occurrence: index,
@@ -913,6 +913,45 @@ private func firstViolation(
         pre: pre, post: post, envelope: envelope, accepted: accepted, captured: captured)
 }
 
+/// Receipts must describe newly terminal intents, including ones removed by history retention.
+/// Compare externally visible outcomes; do not depend on how the reducer indexes or visits them.
+private func intentReceiptViolation(pre: PlaybackState, post: PlaybackState, reduction: PlaybackReduction) -> String? {
+    let receipts = reduction.settledIntents
+    guard Set(receipts.map(\.id)).count == receipts.count else { return "duplicate settlement receipt" }
+    guard reduction.accepted || (receipts.isEmpty && reduction.confirmedPlayTrackURIs.isEmpty) else {
+        return "rejected event reported settlement"
+    }
+    for receipt in receipts {
+        guard receipt.outcome.isTerminal else { return "nonterminal settlement receipt" }
+        let previous = pre.intents.first { $0.command.id == receipt.id }
+        guard previous?.outcome.isTerminal != true else { return "terminal intent was reported again" }
+        if let retained = post.intents.first(where: { $0.command.id == receipt.id }) {
+            guard retained.outcome == receipt.outcome, retained.dispatchedAt == receipt.dispatchedAt else {
+                return "settlement receipt disagrees with retained intent"
+            }
+        } else if previous == nil {
+            return "settlement receipt has no admitted intent"
+        }
+    }
+    for intent in post.intents where intent.outcome.isTerminal {
+        if pre.intents.first(where: { $0.command.id == intent.command.id })?.outcome.isTerminal != true,
+            !receipts.contains(where: { $0.id == intent.command.id })
+        {
+            return "new terminal intent has no settlement receipt"
+        }
+    }
+    let confirmed = receipts.compactMap { receipt -> String? in
+        guard receipt.outcome == .observedConfirmed,
+            let intent = post.intents.first(where: { $0.command.id == receipt.id })
+                ?? pre.intents.first(where: { $0.command.id == receipt.id }),
+            intent.command.expectedTransport == .playing, intent.command.resumeTarget == nil
+        else { return nil }
+        return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
+    }
+    return confirmed == reduction.confirmedPlayTrackURIs
+        ? nil : "play-history receipt disagrees with observed settlement"
+}
+
 private func runModelTrace(seed: UInt64, steps: Int, commandHeavy: Bool) -> String? {
     var generator = EnvelopeGenerator(rng: SplitMix64(seed: seed), commandHeavy: commandHeavy)
     var state = PlaybackState(accountEpoch: 1, engineEpoch: 1, session: .ready)
@@ -934,6 +973,10 @@ private func runModelTrace(seed: UInt64, steps: Int, commandHeavy: Bool) -> Stri
         let enteredPlaying = accepted && pre.transport != .playing && post.transport == .playing
         if reduction.transportBecamePlaying != enteredPlaying {
             return "seed \(seed) step \(step) \(describe(envelope.event)): incorrect playing-transition report"
+        }
+
+        if let violation = intentReceiptViolation(pre: pre, post: post, reduction: reduction) {
+            return "seed \(seed) step \(step) \(describe(envelope.event)): \(violation)"
         }
 
         if let violation = firstViolation(
@@ -979,6 +1022,52 @@ private func runModelTrace(seed: UInt64, steps: Int, commandHeavy: Bool) -> Stri
 
 @Suite("Playback Reducer Model")
 struct PlaybackReducerModelChecks {
+    @Test func queueIntentEvidenceMatchesOccurrenceMultisets() {
+        var rng = SplitMix64(seed: 5_000)
+        let now = Date(timeIntervalSince1970: 100)
+        for step in 0..<256 {
+            let entries = (0..<nextInt(&rng, 17)).map { _ in
+                QueueEntry(uri: pick(modelTrackURIs, &rng), provider: "queue", uid: "uid-\(nextInt(&rng, 8))")
+            }
+            var counts: [String: Int] = [:]
+            for _ in 0..<nextInt(&rng, 4) { counts[pick(modelTrackURIs, &rng)] = nextInt(&rng, 5) - 1 }
+            var removals: Set<String> = []
+            for _ in 0..<nextInt(&rng, 4) { removals.insert("uid-\(nextInt(&rng, 10))") }
+            // Deliberately simple independent multiset model, including repeated UIDs and
+            // zero/nonpositive minima. Every requested occurrence must have its own evidence.
+            let added = counts.allSatisfy { uri, minimum in entries.filter { $0.uri == uri }.count >= minimum }
+            let removed = removals.allSatisfy { uid in entries.allSatisfy { $0.uid != uid } }
+            let command = PendingPlaybackCommand(
+                id: makeUUID(&rng), kind: .queue, expectedTransport: nil, startedAt: now)
+            for mode in 0..<3 {
+                for invalid in 0..<7 {
+                    var intent = PlaybackIntent(command: command, baselineTrackURI: nil)
+                    intent.dispatchedAt = now
+                    intent.outcome = .sent
+                    intent.queueRevision = 1
+                    intent.queueContextURI = "spotify:playlist:context"
+                    if mode != 1 { intent.queueMinimumCounts = counts }
+                    if mode != 0 { intent.removedQueueUIDs = removals }
+                    let snapshot = PlaybackQueueSnapshot(
+                        entries: entries, source: invalid == 1 ? .webAPI : .connect,
+                        completeness: invalid == 2 ? .partial : .complete,
+                        revision: invalid == 3 ? 1 : 2,
+                        receivedAt: now.addingTimeInterval(invalid == 4 ? -1 : 0),
+                        contextURI: invalid == 5 ? "spotify:playlist:other" : "spotify:playlist:context")
+                    intent.observe(
+                        PlaybackEventEnvelope(
+                            accountEpoch: 1, engineEpoch: 1, source: invalid == 6 ? .command : .engineQueue,
+                            receivedAt: now, event: .queue(snapshot)))
+                    let confirms = invalid == 0 && ((mode != 1 && added) || (mode != 0 && removed))
+                    let outcome = intent.outcome
+                    #expect(
+                        outcome == (confirms ? .observedConfirmed : .sent),
+                        "seed 5000 step \(step), mode \(mode), invalid \(invalid)")
+                }
+            }
+        }
+    }
+
     @Test(arguments: [false, true])
     func historyKeepsRecentAdmissionsAlongsideOlderActiveRequests(queueCommands: Bool) {
         var state = PlaybackState(accountEpoch: 1, engineEpoch: 1, session: .ready)

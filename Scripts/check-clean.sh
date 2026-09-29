@@ -3,7 +3,7 @@ set -euo pipefail
 
 project_root="${0:A:h:h}"
 
-swift package --package-path "$project_root" clean
+SPOTTY_PACKAGE_GRAPH=full swift package --package-path "$project_root" clean
 playback_input_digest="$("$project_root/Backend/spotty-playback/source-input-digest.sh")"
 local_xcframework="$project_root/.build/playback-engine/$playback_input_digest/SpottyPlaybackCore.xcframework"
 "$project_root/Backend/spotty-playback/build-xcframework.sh"

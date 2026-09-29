@@ -38,6 +38,48 @@ struct CatalogOccurrenceTests {
         #expect(PlaylistMutationSelection.occurrenceIDsForRemoval(from: collection.tracks) == ["server-uid"])
     }
 
+    @Test func generatedDisplayIDsAvoidExistingNamesAndPreserveAllOtherFields() {
+        let rows = [
+            track(id: "x", uid: "unique-a"), track(id: "x", uid: "unique-b"),
+            track(id: "display:1:x:0"), track(id: "display:1:x:0:1"),
+            track(id: "display:1:x:1"), track(id: "display:1:x:1:1"),
+        ]
+        let result = CatalogTrackCollection(tracks: rows).tracks
+        #expect(Set(result.map(\.id)).count == rows.count)
+        #expect(Array(result.dropFirst(2)) == Array(rows.dropFirst(2)))
+        #expect(result.map(\.occurrenceUID) == rows.map(\.occurrenceUID))
+        #expect(result.map(\.title) == rows.map(\.title))
+        #expect(result.map(\.addedAt) == rows.map(\.addedAt))
+        #expect(CatalogTrackCollection(tracks: result).tracks == result)
+    }
+
+    @Test func mixedOccurrenceIdentitiesRemainUniqueStableAndSafeForRemoval() {
+        var seed: UInt64 = 0x51_07_79
+        func next(_ limit: Int) -> Int {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1
+            return Int((seed >> 32) % UInt64(limit))
+        }
+        let identities = ["", "x", "é", "👋", "row", "display:1:x:0", "display:1:x:0:1", "display:1:x:1"]
+        for _ in 0..<100 {
+            let rows = (0..<next(80)).map { _ in
+                track(id: identities[next(identities.count)], uid: next(3) == 0 ? nil : "uid-\(next(20))")
+            }
+            let result = CatalogTrackCollection(tracks: rows).tracks
+            #expect(Set(result.map(\.id)).count == rows.count)
+            #expect(result.map(\.uri) == rows.map(\.uri))
+            #expect(result.map(\.title) == rows.map(\.title))
+            #expect(CatalogTrackCollection(tracks: rows).tracks == result)
+            #expect(CatalogTrackCollection(tracks: result).tracks == result)
+            for (source, normalized) in zip(rows, result) {
+                if rows.filter({ $0.id == source.id }).count == 1 { #expect(normalized.id == source.id) }
+                let expectedUID = source.occurrenceUID.flatMap { uid in
+                    rows.filter { $0.occurrenceUID == uid }.count == 1 ? uid : nil
+                }
+                #expect(normalized.occurrenceUID == expectedUID)
+            }
+        }
+    }
+
     private func track(id: String, uid: String? = nil) -> CatalogTrack {
         CatalogTrack(
             id: id, uri: "spotify:track:shared", title: id, artist: "Artist", album: "Album",

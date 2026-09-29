@@ -1,3 +1,4 @@
+import SpottyTestSupport
 import AppKit
 import SwiftUI
 import Testing

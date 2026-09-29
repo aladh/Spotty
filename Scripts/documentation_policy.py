@@ -54,7 +54,7 @@ def check(root: Path) -> int:
     names = subprocess.check_output(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=root,
-    ).decode("utf-8").split("\0")
+    ).decode("utf-8", errors="surrogateescape").split("\0")
     failures = violations(root, [name for name in names if name])
     if failures:
         print("\n".join(failures), file=sys.stderr)

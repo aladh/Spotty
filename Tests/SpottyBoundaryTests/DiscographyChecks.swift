@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import AppKit
 import SwiftUI
@@ -16,15 +18,15 @@ struct DiscographyChecks {
             id: "fixture", uri: "spotify:artist:fixture", title: "Fixture Artist", subtitle: "Artist", artworkURL: nil,
             kind: .artist)
         let releases = (0..<40).map { release("album-\($0)") }
-        provider.onArtistSnapshot = { _ in CatalogArtistSnapshot(name: artist.title, releases: [], item: artist) }
-        provider.onArtistDiscographySnapshot = { _ in
+        provider.onArtist = { _ in CatalogArtistSnapshot(name: artist.title, releases: [], item: artist) }
+        provider.onArtistDiscography = { _ in
             CatalogArtistSnapshot(
                 name: nil, releases: releases,
                 item: CatalogItem(
                     id: artist.id, uri: artist.uri, title: "Unknown artist", subtitle: "Artist", artworkURL: nil,
                     kind: .artist))
         }
-        provider.onAlbumSnapshot = { id in
+        provider.onAlbum = { id in
             CatalogAlbumSnapshot(
                 tracks: (0..<3).map { HarnessFixtures.track(uri: "spotify:track:\(id)-\($0)") }, releaseDate: "2026")
         }
@@ -64,13 +66,13 @@ struct DiscographyChecks {
         #expect(selection == restoredSelection)
         #expect(interaction.selection == [selection], "retained selection survives mounting before albums load")
         host.layoutSubtreeIfNeeded()
-        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
         await album.load(releases[0], force: true)
         try await requireEventually {
             host.layoutSubtreeIfNeeded()
             return interaction.selection.isEmpty
         }
-        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [track], releaseDate: "2026") }
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: [track], releaseDate: "2026") }
         await album.load(releases[0], force: true)
         host.layoutSubtreeIfNeeded()
         #expect(interaction.selection.isEmpty, "reappearing tracks do not regain a removed selection")
@@ -116,7 +118,7 @@ struct DiscographyChecks {
 
     @Test func visibleAlbumsReuseAlbumAdmissionAndKeepRetentionBounded() async {
         let provider = HarnessCatalog()
-        provider.onAlbumSnapshot = { id in
+        provider.onAlbum = { id in
             CatalogAlbumSnapshot(tracks: [HarnessFixtures.track(uri: "spotify:track:\(id)")], releaseDate: "2026")
         }
         let session = CatalogSessionAvailability(isAvailable: true)
@@ -135,7 +137,7 @@ struct DiscographyChecks {
         #expect(metadata.knownTrack(for: "spotify:track:album-page") != nil)
         metadata.replaceTracks([HarnessFixtures.track(uri: "spotify:track:first", title: "Album page")], from: .album)
         #expect(metadata.knownTrack(for: "spotify:track:first")?.title == "Album page")
-        #expect(metadata.runtimeTracks["spotify:track:first"]?.title == "Album page")
+        #expect(metadata.browsingMetadata.tracks["spotify:track:first"]?.title == "Album page")
         metadata.replaceTracks([HarnessFixtures.track(uri: "spotify:track:album-page")], from: .album)
         for number in 0..<22 { await store.load(release("album-\(number)"), artistURI: "spotify:artist:one") }
         #expect(store.albums.count == 20)

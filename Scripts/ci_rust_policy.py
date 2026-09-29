@@ -14,7 +14,9 @@ APP_ONLY_DIRECTORIES = (
     "Sources/SpottyCatalogStorage/", "Sources/SpottyDiagnostics/",
     "Tests/SpottyBoundaryTests/", "Tests/SpottyDomainTests/",
     "Tests/SpottyCatalogStorageTests/",
-    "Tests/SpottySessionRuntimeTests/", "Tests/SpottyGatewayTests/",
+    "Tests/SpottySessionRuntimeTests/", "Tests/SpottyGatewayTests/", "Tests/SpottyTestSupport/",
+    "Tests/SpottyTestSupportTests/", "Tests/SpottyEngineAdapterTests/",
+    "Tests/SpottyRuntimeTestSupport/",
     "Assets/", "Packaging/", "docs/",
 )
 APP_ONLY_FILES = {
@@ -46,6 +48,18 @@ def app_only_path(path):
             or (path.startswith("Tests/BrowsingHarness/") and Path(path).suffix in HARNESS_SUFFIXES))
 
 
+def verification_for_paths(paths):
+    """Classify exact repository-relative names without normalization or I/O."""
+    macos_needed = False
+    for path in paths:
+        if documentation_path(path):
+            continue
+        macos_needed = True
+        if not app_only_path(path):
+            return {"rust_needed": True, "macos_needed": True}
+    return {"rust_needed": False, "macos_needed": macos_needed}
+
+
 def verification_needed(event, base, repository):
     if event != "pull_request":
         return {"rust_needed": True, "macos_needed": True}
@@ -61,10 +75,7 @@ def verification_needed(event, base, repository):
         ["git", "diff", "--name-only", "--no-renames", "-z", base, "HEAD", "--"], cwd=repository,
     )
     paths = [path for path in result.decode("utf-8", errors="surrogateescape").split("\0") if path]
-    return {
-        "rust_needed": any(not documentation_path(path) and not app_only_path(path) for path in paths),
-        "macos_needed": any(not documentation_path(path) for path in paths),
-    }
+    return verification_for_paths(paths)
 
 
 def main():

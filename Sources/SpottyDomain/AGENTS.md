@@ -4,7 +4,7 @@ Follow [ADR 002](../../docs/architecture/adrs/ADR-002-playback-state-and-depende
 portable, deterministic policy layer.
 
 - This target is portable policy. The Linux build enforces the module boundary. Review injected
-  closures and globals for environment access. Live retry timing belongs to the app adapter.
+  closures and globals for environment access. Network integration and live scheduling belong in adapters.
 - Reducer acceptance and lifetime values are behavior, not implementation trivia. Preserve stale,
   superseded, teardown, cancellation, epoch, and revision semantics when adding events or effects.
   Settled intent outcomes are immutable;

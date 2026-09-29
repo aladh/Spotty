@@ -13,7 +13,9 @@ Native ownership is not a reason to substitute macOS default styling for Spotify
 
 Own the important dense tables and their scroll containers directly with AppKit. `NSTableView`
 owns row reuse, native selection, column sorting, keyboard handling, menus, and scrolling. SwiftUI
-remains the composition and leaf-content layer for headers, cards, status, and other simple views.
+remains the composition and interactive leaf-content layer for headers, cards, and status.
+Plain table metadata (dates, durations, play counts) uses native text labels with the same typography,
+spacing, unavailable styling, and accessibility, avoiding a hosting tree per numeric or date cell.
 Playlist header scrolling and its compact pinned header belong to the owned scroll container,
 not an observer searching SwiftUI's private view hierarchy.
 

@@ -127,15 +127,11 @@ public struct RepeatFlagMutation: Equatable, Sendable {
     }
 }
 
-/// Forward mutations for one off → context → track → off step, plus compensation
-/// for the only two-flag transition.
-///
-/// Only flags that differ from the captured previous state are sent. Repeat-queue
-/// → repeat-track is the only two-flag step. Context is applied before track,
-/// matching the existing Connect/FFI sequence; the intermediate account state is
-/// off. If the track mutation fails after context was accepted, `compensation`
-/// restores the captured previous flags (context on). This is a repeat-specific
-/// plan, not a generic two-phase command framework.
+/// Ordered changes from the captured raw repeat flags, plus best-effort compensation.
+/// Only changed flags are sent, with context before track. If both change and the track
+/// mutation fails, compensation restores the previous context flag. The raw pair matters:
+/// both context-to-track and clearing an observed both-true pair require two mutations.
+/// This is a repeat-specific plan, not a generic transaction framework.
 public struct RepeatTransitionPlan: Equatable, Sendable {
     public let mutations: [RepeatFlagMutation]
     public let compensation: [RepeatFlagMutation]
@@ -162,61 +158,6 @@ public struct RepeatTransitionPlan: Equatable, Sendable {
             compensation = []
         }
         return RepeatTransitionPlan(mutations: mutations, compensation: compensation)
-    }
-}
-
-/// One row in the queue panel. Queue updates carry uris only, so display names
-/// resolve against the catalog at render time.
-public struct QueueEntry: Identifiable, Equatable, Sendable {
-    public let id: String
-    public let uri: String
-    public let provider: String
-    public let occurrence: Int
-    /// Connect occurrence uid when the authoritative snapshot supplied one.
-    /// Empty for Web/non-authoritative presentation that has not bound a uid.
-    public let uid: String
-
-    public init(uri: String, provider: String, occurrence: Int = 0, uid: String = "") {
-        id = Self.identity(occurrence: occurrence, provider: provider, uri: uri, uid: uid)
-        self.uri = uri
-        self.provider = provider
-        self.occurrence = occurrence
-        self.uid = uid
-    }
-
-    /// A Connect occurrence keeps its identity when ordering changes. Without a UID, the
-    /// positional fallback deliberately does not promise continuity across reorder.
-    public static func identity(occurrence: Int, provider: String, uri: String, uid: String) -> String {
-        if uid.isEmpty {
-            return "\(occurrence)-\(provider)-\(uri)"
-        }
-        return "uid-\(uid)-\(provider)-\(uri)"
-    }
-
-    /// Malformed duplicate UIDs cannot produce duplicate SwiftUI row IDs. Their original UID
-    /// remains available to the mutation policy, which refuses ambiguous protocol identities.
-    public static func uniquelyIdentified(_ entries: [Self]) -> [Self] {
-        let counts = Dictionary(entries.map { ($0.id, 1) }, uniquingKeysWith: +)
-        return entries.enumerated().map { index, entry in
-            guard counts[entry.id, default: 0] > 1 else { return entry }
-            return Self(entry, id: "ambiguous-\(index)-\(entry.id)")
-        }
-    }
-
-    private init(_ entry: Self, id: String) {
-        self.id = id
-        uri = entry.uri
-        provider = entry.provider
-        occurrence = entry.occurrence
-        uid = entry.uid
-    }
-
-    /// What fed this entry, in listener-facing words.
-    public var sourceLabel: String {
-        if provider == "web-api" { return "Up next" }
-        if provider.contains("queue") { return "From your queue" }
-        if provider.contains("autoplay") { return "Suggested by Spotify" }
-        return "From the current context"
     }
 }
 

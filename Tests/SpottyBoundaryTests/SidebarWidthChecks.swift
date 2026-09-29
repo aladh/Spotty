@@ -1,27 +1,16 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import AppKit
 import SwiftUI
 import Testing
 @testable import SpottyCore
-@testable import SpottyGateway
 @testable import SpottySessionRuntime
 
 @Suite("Sidebar width continuity")
 @MainActor
 struct SidebarWidthChecks {
     @Test func changingContentKeepsTheLibraryWidthInANarrowWindow() async throws {
-        let items = (0..<8).map { index in
-            """
-            {"content":{"__typename":"PlaylistResponseWrapper","data":{
-              "uri":"spotify:playlist:mix\(index)","name":"Mix \(index)"}}}
-            """
-        }.joined(separator: ",")
-        let home = try JSONDecoder().decode(
-            PathfinderHome.self,
-            from: Data(
-                """
-                {"__typename":"HomeResponsePayload","sectionContainer":{"sections":{"items":[
-                  {"uri":"section:quick","sectionItems":{"items":[\(items)]}}]}}}
-                """.utf8))
+        let home = HarnessFixtures.home(sectionIDs: [0], itemsPerSection: 8)
         let provider = HarnessCatalog()
         provider.onHome = { home }
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))

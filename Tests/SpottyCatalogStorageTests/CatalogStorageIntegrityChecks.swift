@@ -5,6 +5,30 @@ import SpottyDomain
 import Testing
 
 struct CatalogStorageIntegrityChecks {
+    @Test func legacyEntitiesRemainReadableAndAcquireFreshnessOnRefresh() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let initial = PersistentCatalog(rootDirectory: directory, accountID: "synthetic-account")
+        let original = write("a", tracks: [track("one")])
+        _ = try await initial.replaceCollection(original, scope: initial.scope)
+        try await initial.close(scope: initial.scope)
+        try executeSQL(
+            "UPDATE entities SET data=CAST(json_remove(CAST(data AS TEXT),'$.fetchedAt') AS BLOB)",
+            file: databaseFile(directory))
+
+        let catalog = PersistentCatalog(rootDirectory: directory, accountID: "synthetic-account")
+        #expect(
+            try await catalog.completeCollection(key: "a", scope: catalog.scope)?.occurrences == original.occurrences)
+        let current = track("one", title: "Refreshed title")
+        _ = try await catalog.replaceCollection(write("b", tracks: [current]), scope: catalog.scope)
+        let late = CatalogCollectionWrite(
+            key: "c", occurrences: original.occurrences, completeness: .complete,
+            fetchedAt: original.fetchedAt.addingTimeInterval(-1))
+        #expect(try await catalog.replaceCollection(late, scope: catalog.scope).trackURIs.isEmpty)
+        #expect(try await catalog.tracks(for: [current.uri], scope: catalog.scope)[current.uri] == current)
+        try await catalog.retire(scope: catalog.scope)
+    }
+
     @Test(arguments: [
         CatalogRetentionLimits(entities: 1),
         CatalogRetentionLimits(collections: 1),
@@ -28,7 +52,9 @@ struct CatalogStorageIntegrityChecks {
         }
         #expect(try Data(contentsOf: database) == before)
         let compatible = PersistentCatalog(rootDirectory: directory, accountID: "synthetic-account")
-        #expect(try await compatible.collection(key: "a", scope: compatible.scope)?.occurrences == original.occurrences)
+        #expect(
+            try await compatible.completeCollection(key: "a", scope: compatible.scope)?.occurrences
+                == original.occurrences)
         try await compatible.close(scope: compatible.scope)
         try await restricted.retire(scope: restricted.scope)
         #expect(!FileManager.default.fileExists(atPath: database.path))
@@ -88,7 +114,7 @@ struct CatalogStorageIntegrityChecks {
             }
         } else {
             await #expect(throws: CatalogStorageError.invalidStoredData) {
-                try await catalog.collection(key: "a", scope: catalog.scope)
+                try await catalog.completeCollection(key: "a", scope: catalog.scope)
             }
             await #expect(throws: CatalogStorageError.invalidStoredData) {
                 try await catalog.replaceCollection(
@@ -99,6 +125,30 @@ struct CatalogStorageIntegrityChecks {
                 try await catalog.tracks(for: [track("one").uri], scope: catalog.scope)[track("one").uri]
                     == track("one"))
         }
+        try await catalog.retire(scope: catalog.scope)
+    }
+
+    @Test(arguments: [false, true])
+    func anUnavailableJoinedEntityFailsTheWholeCollectionAndDoesNotPoisonTheNextRead(missing: Bool) async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let initial = PersistentCatalog(rootDirectory: directory, accountID: "synthetic-account")
+        _ = try await initial.replaceCollection(
+            write("damaged", tracks: [track("one"), track("two")]), scope: initial.scope)
+        let healthy = write("healthy", tracks: [track("other")])
+        _ = try await initial.replaceCollection(healthy, scope: initial.scope)
+        try await initial.close(scope: initial.scope)
+        try executeSQL(
+            missing
+                ? "DELETE FROM entities WHERE uri='spotify:track:two'"
+                : "UPDATE entities SET data=x'00' WHERE uri='spotify:track:two'", file: databaseFile(directory))
+        let catalog = PersistentCatalog(rootDirectory: directory, accountID: "synthetic-account")
+        await #expect(throws: CatalogStorageError.invalidStoredData) {
+            try await catalog.completeCollection(key: "damaged", scope: catalog.scope)
+        }
+        #expect(
+            try await catalog.completeCollection(key: "healthy", scope: catalog.scope)?.occurrences
+                == healthy.occurrences)
         try await catalog.retire(scope: catalog.scope)
     }
 

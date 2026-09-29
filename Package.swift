@@ -8,8 +8,8 @@ private let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathCompon
 // BEGIN GENERATED PLAYBACK ARTIFACT PIN. Run Backend/spotty-playback/update-artifact-pin.sh
 // after publishing a new immutable XCFramework. This is the app dependency pin.
 private let generatedPlaybackArtifactURL =
-    "https://github.com/aladh/Spotty/releases/download/playback-v0.2.0/SpottyPlaybackCore.xcframework.zip"
-private let generatedPlaybackArtifactChecksum = "5275968aba48eb728234a18e8ce40d11ea02d29dc46063c3e613c23217eaa522"
+    "https://github.com/aladh/Spotty/releases/download/playback-v0.2.1/SpottyPlaybackCore.xcframework.zip"
+private let generatedPlaybackArtifactChecksum = "ee930c23f399ba6d1d2923f7d802af08acdefa8f606aabfcdf92063fb88d565d"
 // END GENERATED PLAYBACK ARTIFACT PIN
 
 private func pathRelativeToPackageRoot(_ url: URL) -> String {
@@ -87,170 +87,197 @@ private func playbackTarget() -> Target {
     return .binaryTarget(name: "SpottyPlaybackCore", path: pathRelativeToPackageRoot(url))
 }
 
-// The domain is portable, Foundation-only policy. On Linux the package declares only that target
-// and its tests: the playback XCFramework, Sparkle, AppKit/SwiftUI/AVFoundation adapters, and the
-// macOS app have no Linux slice. Building SpottyDomain there is what makes an accidental UI, audio,
-// or FFI import a compiler error rather than a source-policy snapshot. `playbackTarget()` above is
-// only ever *called* from this branch, so its environment override and artifact file checks never
-// run off macOS; keep any new macOS-only evaluation inside here too.
+// One portable graph supports Linux and isolated policy verification on macOS. It never
+// evaluates playback selection or resolves shipping dependencies.
+private func domainTargets() -> [Target] {
+    [
+        .target(name: "SpottyDomain", path: "Sources/SpottyDomain", exclude: ["AGENTS.md"]),
+        .testTarget(name: "SpottyDomainTests", dependencies: ["SpottyDomain"], path: "Tests/SpottyDomainTests"),
+    ]
+}
+private func domainPackage() -> Package {
+    Package(
+        name: "Spotty", platforms: [.macOS(.v26)],
+        products: [.library(name: "SpottyDomain", targets: ["SpottyDomain"])],
+        targets: domainTargets())
+}
+
+// Share declarations with the full graph: focused adapter tests must not resolve playback
+// or desktop dependencies before SwiftPM even selects what to compile.
+private func engineFreeTargets() -> [Target] {
+    domainTargets() + [
+        .target(name: "SpottyDiagnostics", path: "Sources/SpottyDiagnostics"),
+        .target(name: "SpottyRuntimeContracts", dependencies: ["SpottyDomain"]),
+        // Shared deterministic test primitives; no production target depends on this module.
+        .target(
+            name: "SpottyTestSupport", dependencies: ["SpottyRuntimeContracts"],
+            path: "Tests/SpottyTestSupport"
+        ),
+        .testTarget(name: "SpottyTestSupportTests", dependencies: ["SpottyTestSupport"]),
+        .target(
+            name: "SpottyGateway",
+            dependencies: ["SpottyDomain", "SpottyRuntimeContracts", "SpottyDiagnostics"]
+        ),
+        .testTarget(
+            name: "SpottyGatewayTests",
+            dependencies: ["SpottyGateway", "SpottyRuntimeContracts", "SpottyDomain", "SpottyTestSupport"],
+            resources: [.copy("Fixtures")]
+        ),
+        .target(
+            name: "SpottyCatalogStorage",
+            dependencies: ["SpottyDomain"],
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        .testTarget(
+            name: "SpottyCatalogStorageTests",
+            dependencies: ["SpottyCatalogStorage", "SpottyDomain"],
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+    ]
+}
+private func engineFreePackage() -> Package {
+    Package(name: "Spotty", platforms: [.macOS(.v26)], targets: engineFreeTargets())
+}
+
+let package: Package
 #if os(macOS)
-    private let playbackSelection = playbackTarget()
+    switch ProcessInfo.processInfo.environment["SPOTTY_PACKAGE_GRAPH"] ?? "full" {
+    case "domain":
+        package = domainPackage()
+    case "engine-free":
+        package = engineFreePackage()
+    case "full":
+        let playbackSelection = playbackTarget()
 
-    let package = Package(
-        name: "Spotty",
-        platforms: [.macOS(.v26)],
-        products: [
-            .executable(name: "Spotty", targets: ["SpottyApp"]),
-            .library(name: "SpottyCore", targets: ["SpottyCore"]),
-            .library(name: "SpottyDomain", targets: ["SpottyDomain"]),
-        ],
-        dependencies: [
-            .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
-        ],
-        targets: [
-            playbackSelection,
-            .target(name: "SpottyDiagnostics", path: "Sources/SpottyDiagnostics"),
-            .target(name: "SpottyRuntimeContracts", dependencies: ["SpottyDomain"]),
-            .target(
-                name: "SpottyGateway",
-                dependencies: ["SpottyDomain", "SpottyRuntimeContracts", "SpottyDiagnostics"]
-            ),
-            .testTarget(
-                name: "SpottyGatewayTests",
-                dependencies: ["SpottyGateway", "SpottyRuntimeContracts", "SpottyDomain"]
-            ),
-            .target(
-                name: "SpottySessionRuntime",
-                dependencies: [
-                    "SpottyDomain", "SpottyRuntimeContracts", "SpottyGateway", "SpottyCatalogStorage",
-                    "SpottyEngineAdapter", "SpottyDiagnostics",
-                ]
-            ),
-            .testTarget(
-                name: "SpottySessionRuntimeTests",
-                dependencies: [
-                    "SpottySessionRuntime", "SpottyRuntimeContracts", "SpottyDomain", "SpottyCatalogStorage",
-                ]
-            ),
-            .target(
-                name: "SpottyCatalogStorage",
-                dependencies: ["SpottyDomain"],
-                linkerSettings: [.linkedLibrary("sqlite3")]
-            ),
-            .testTarget(
-                name: "SpottyCatalogStorageTests",
-                dependencies: ["SpottyCatalogStorage", "SpottyDomain"],
-                linkerSettings: [.linkedLibrary("sqlite3")]
-            ),
-            // The production owner of the playback binary, C symbols, Rust snapshots and audio
-            // renderer. The headless runtime consumes this adapter; desktop code cannot reach it.
-            .target(
-                name: "SpottyEngineAdapter",
-                dependencies: ["SpottyDomain", "SpottyPlaybackCore", "SpottyDiagnostics", "SpottyRuntimeContracts"],
-                path: "Sources/SpottyEngineAdapter",
-                exclude: ["AGENTS.md"],
-                linkerSettings: [
-                    .linkedFramework("SystemConfiguration"),
-                    .linkedFramework("Security"),
-                    .linkedFramework("CoreFoundation"),
-                    .linkedFramework("AVFoundation"),
-                ]
-            ),
-            .target(
-                name: "SpottyCore",
-                dependencies: [
-                    "SpottyDomain", "SpottyRuntimeContracts", "SpottySessionRuntime", "SpottyDiagnostics",
-                    .product(name: "Sparkle", package: "Sparkle"),
-                ],
-                path: "Sources/Spotty",
-                exclude: [
-                    "AGENTS.md",
-                    "Spotify/AGENTS.md",
-                    "Views/AGENTS.md",
-                ]
-            ),
-            .executableTarget(
-                name: "SpottyApp",
-                dependencies: ["SpottyCore"],
-                path: "Sources/SpottyApp",
-                linkerSettings: [
-                    .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
-                ]
-            ),
-            .target(
-                name: "SpottyDomain",
-                path: "Sources/SpottyDomain",
-                exclude: ["AGENTS.md"]
-            ),
-            .testTarget(
-                name: "SpottyDomainTests",
-                dependencies: ["SpottyDomain"],
-                path: "Tests/SpottyDomainTests"
-            ),
-            // Non-shipping. It keeps the direct adapter and binary dependencies SpottyCore used to
-            // pass through transitively, so `@testable import SpottyEngineAdapter` reaches the C
-            // snapshot conversions. Production dependency direction is unaffected.
-            .testTarget(
-                name: "SpottyBoundaryTests",
-                dependencies: [
-                    "SpottyCore", "SpottyEngineAdapter", "SpottyPlaybackCore", "SpottyGateway",
-                    "SpottySessionRuntime", "SpottyRuntimeContracts",
-                ],
-                path: "Tests/SpottyBoundaryTests",
-                resources: [.copy("Fixtures")]
-            ),
-        ]
-    )
+        package = Package(
+            name: "Spotty",
+            platforms: [.macOS(.v26)],
+            products: [
+                .executable(name: "Spotty", targets: ["SpottyApp"]),
+                .library(name: "SpottyCore", targets: ["SpottyCore"]),
+                .library(name: "SpottyDomain", targets: ["SpottyDomain"]),
+            ],
+            dependencies: [
+                .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
+            ],
+            targets: [
+                playbackSelection,
+                .target(
+                    name: "SpottySessionRuntime",
+                    dependencies: [
+                        "SpottyDomain", "SpottyRuntimeContracts", "SpottyGateway", "SpottyCatalogStorage",
+                        "SpottyEngineAdapter", "SpottyDiagnostics",
+                    ]
+                ),
+                // Shared fakes consume ports and adapters; runtime composition stays in test targets.
+                .target(
+                    name: "SpottyRuntimeTestSupport",
+                    dependencies: [
+                        "SpottyEngineAdapter", "SpottyGateway",
+                        "SpottyRuntimeContracts", "SpottyDomain", "SpottyTestSupport",
+                    ],
+                    path: "Tests/SpottyRuntimeTestSupport"
+                ),
+                .testTarget(
+                    name: "SpottySessionRuntimeTests",
+                    dependencies: [
+                        "SpottySessionRuntime", "SpottyRuntimeContracts", "SpottyDomain", "SpottyCatalogStorage",
+                        "SpottyEngineAdapter", "SpottyTestSupport", "SpottyRuntimeTestSupport",
+                    ]
+                ),
+                // The production owner of the playback binary, C symbols, Rust snapshots and audio
+                // renderer. The headless runtime consumes this adapter; desktop code cannot reach it.
+                .target(
+                    name: "SpottyEngineAdapter",
+                    dependencies: [
+                        "SpottyDomain", "SpottyPlaybackCore", "SpottyDiagnostics", "SpottyRuntimeContracts",
+                    ],
+                    path: "Sources/SpottyEngineAdapter",
+                    exclude: ["AGENTS.md"],
+                    linkerSettings: [
+                        .linkedFramework("SystemConfiguration"),
+                        .linkedFramework("Security"),
+                        .linkedFramework("CoreFoundation"),
+                        .linkedFramework("AVFoundation"),
+                    ]
+                ),
+                .testTarget(
+                    name: "SpottyEngineAdapterTests",
+                    dependencies: [
+                        "SpottyEngineAdapter", "SpottyPlaybackCore", "SpottyDomain", "SpottyRuntimeContracts",
+                        "SpottyTestSupport",
+                    ]
+                ),
+                .target(
+                    name: "SpottyCore",
+                    dependencies: [
+                        "SpottyDomain", "SpottyRuntimeContracts", "SpottySessionRuntime", "SpottyDiagnostics",
+                        .product(name: "Sparkle", package: "Sparkle"),
+                    ],
+                    path: "Sources/Spotty",
+                    exclude: [
+                        "AGENTS.md",
+                        "Spotify/AGENTS.md",
+                        "Views/AGENTS.md",
+                    ]
+                ),
+                .executableTarget(
+                    name: "SpottyApp",
+                    dependencies: ["SpottyCore"],
+                    path: "Sources/SpottyApp",
+                    linkerSettings: [
+                        .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+                    ]
+                ),
+                // Cross-module workflows use injected engine ports. C snapshot and event-delivery
+                // implementation checks live in SpottyEngineAdapterTests without the desktop.
+                .testTarget(
+                    name: "SpottyBoundaryTests",
+                    dependencies: [
+                        "SpottyCore", "SpottyEngineAdapter", "SpottyGateway",
+                        "SpottySessionRuntime", "SpottyRuntimeContracts",
+                        "SpottyTestSupport", "SpottyRuntimeTestSupport",
+                    ],
+                    path: "Tests/SpottyBoundaryTests"
+                ),
+            ] + engineFreeTargets()
+        )
 
-    // An opt-in, non-shipping app inspects production views through explicitly enabled testability.
-    // The ordinary package graph (including distribution builds) contains no harness or fixtures.
-    if ProcessInfo.processInfo.environment["SPOTTY_BUILD_BROWSING_HARNESS"] == "1" {
-        package.products.append(.executable(name: "SpottyBrowsingHarness", targets: ["SpottyBrowsingHarness"]))
-        package.targets += [
-            .target(
-                name: "SpottyBrowsingSupport",
-                dependencies: [
-                    "SpottyCore", "SpottyDomain", "SpottySessionRuntime", "SpottyEngineAdapter",
-                    "SpottyRuntimeContracts", "SpottyGateway",
-                ],
-                path: "Tests/BrowsingHarness/Support",
-                resources: [.copy("Artwork")]
-            ),
-            .executableTarget(
-                name: "SpottyBrowsingHarness",
-                dependencies: ["SpottyBrowsingSupport"],
-                path: "Tests/BrowsingHarness/App",
-                linkerSettings: [
-                    .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
-                ]
-            ),
-            .testTarget(
-                name: "SpottyBrowsingHarnessTests",
-                dependencies: [
-                    "SpottyBrowsingSupport", "SpottyCore", "SpottyDomain", "SpottyGateway",
-                    "SpottyEngineAdapter", "SpottyRuntimeContracts", "SpottySessionRuntime",
-                ],
-                path: "Tests/BrowsingHarness/Checks"
-            ),
-        ]
+        // An opt-in, non-shipping app inspects production views through explicitly enabled testability.
+        // The ordinary package graph (including distribution builds) contains no harness or fixtures.
+        if ProcessInfo.processInfo.environment["SPOTTY_BUILD_BROWSING_HARNESS"] == "1" {
+            package.products.append(.executable(name: "SpottyBrowsingHarness", targets: ["SpottyBrowsingHarness"]))
+            package.targets += [
+                .target(
+                    name: "SpottyBrowsingSupport",
+                    dependencies: [
+                        "SpottyCore", "SpottyDomain", "SpottySessionRuntime", "SpottyEngineAdapter",
+                        "SpottyRuntimeContracts", "SpottyGateway",
+                    ],
+                    path: "Tests/BrowsingHarness/Support",
+                    resources: [.copy("Artwork")]
+                ),
+                .executableTarget(
+                    name: "SpottyBrowsingHarness",
+                    dependencies: ["SpottyBrowsingSupport"],
+                    path: "Tests/BrowsingHarness/App",
+                    linkerSettings: [
+                        .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
+                    ]
+                ),
+                .testTarget(
+                    name: "SpottyBrowsingHarnessTests",
+                    dependencies: [
+                        "SpottyBrowsingSupport", "SpottyCore", "SpottyDomain", "SpottyGateway",
+                        "SpottyEngineAdapter", "SpottyRuntimeContracts", "SpottySessionRuntime",
+                    ],
+                    path: "Tests/BrowsingHarness/Checks"
+                ),
+            ]
+        }
+    default:
+        fatalError("SPOTTY_PACKAGE_GRAPH must be full, domain, or engine-free")
     }
 #else
-    let package = Package(
-        name: "Spotty",
-        products: [
-            .library(name: "SpottyDomain", targets: ["SpottyDomain"])
-        ],
-        targets: [
-            .target(
-                name: "SpottyDomain",
-                path: "Sources/SpottyDomain",
-                exclude: ["AGENTS.md"]
-            ),
-            .testTarget(
-                name: "SpottyDomainTests",
-                dependencies: ["SpottyDomain"],
-                path: "Tests/SpottyDomainTests"
-            ),
-        ]
-    )
+    package = domainPackage()
 #endif

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import SpottyCore
-@testable import SpottyGateway
+import SpottyDomain
 import SpottyRuntimeContracts
 
 @Suite("Catalog Navigation")
@@ -70,64 +70,27 @@ struct CatalogNavigationTests {
         #expect(home.shelfScroll(for: repeatID).offset == 0)
     }
 
-    @Test func preservesArtistAndAlbumDestinations() throws {
-        let data = Data(
-            #"{"uri":"spotify:track:track","name":"Song","artists":{"items":[{"uri":"spotify:artist:first","profile":{"name":"First"}},{"uri":"spotify:artist:second","profile":{"name":"Second"}}]},"albumOfTrack":{"uri":"spotify:album:album","name":"Album"}}"#
-                .utf8)
-        let track = try JSONDecoder().decode(PathfinderTrack.self, from: data)
-        let mapped = try #require(CatalogMapping.searchTrack(from: track))
-        #expect(mapped.artists.map(\.uri) == ["spotify:artist:first", "spotify:artist:second"])
-        #expect(mapped.artists.map(\.title) == ["First", "Second"])
-        #expect(mapped.albumItem?.uri == "spotify:album:album")
-        #expect(mapped.albumItem?.title == "Album")
-        let entryData = Data("{\"uid\":\"one\",\"itemV2\":{\"data\":\(String(decoding: data, as: UTF8.self))}}".utf8)
-        let entry = try JSONDecoder().decode(PathfinderPlaylistItem.self, from: entryData)
-        let playlistTrack = try #require(CatalogMapping.playlistTrack(from: entry))
-        #expect(playlistTrack.artists == mapped.artists)
-        #expect(playlistTrack.albumItem == mapped.albumItem)
-    }
-
     @Test @MainActor
-    func uriLessHomeShelvesKeepTheirOwnOffsetsAfterInsertionAndEmptyFiltering() throws {
-        func section(_ title: String, item: String?) -> String {
-            let data =
-                item.map { "\"uri\":\"spotify:playlist:\($0)\",\"name\":\"Mix\"" } ?? "\"__typename\":\"NotFound\""
-            return """
-                {"data":{"title":{"transformedLabel":"\(title)"}},"sectionItems":{"items":[
-                {"content":{"__typename":"PlaylistResponseWrapper","data":{\(data)}}}]}}
-                """
+    func homeShelfOffsetsSurviveInsertionAndRemoval() {
+        func section(_ id: String, title: String) -> CatalogSection {
+            CatalogSection(id: id, title: title, items: [])
         }
-        func mapped(_ sections: [String]) throws -> [CatalogDisplayOccurrence<CatalogSection>] {
-            let data = Data(
-                "{\"sectionContainer\":{\"sections\":{\"items\":[\(sections.joined(separator: ","))]}}}".utf8)
-            let home = try JSONDecoder().decode(PathfinderHome.self, from: data)
-            return CatalogDisplayOccurrence.identifying(CatalogMapping.sections(from: home))
-        }
-        let first = section("First", item: "first")
-        let second = section("Second", item: "second")
+        let first = section("first", title: "First")
+        let second = section("second", title: "Second")
         let state = HomeInteractionState()
-        let original = try mapped([first, second])
+        let original = CatalogDisplayOccurrence.identifying([first, second])
         state.shelfScroll(for: original[0].id).offset = 210
         state.shelfScroll(for: original[1].id).offset = 420
-        let inserted = try mapped([section("New", item: "new"), first, second])
+        let inserted = CatalogDisplayOccurrence.identifying([section("new", title: "New"), first, second])
         state.retainShelves(inserted.map(\.id))
         #expect(state.shelfScroll(for: inserted[0].id).offset == 0)
         #expect(state.shelfScroll(for: inserted[1].id).offset == 210)
         #expect(state.shelfScroll(for: inserted[2].id).offset == 420)
-        let filtered = try mapped([section("New", item: nil), first, second])
+        let filtered = CatalogDisplayOccurrence.identifying([first, second])
         state.retainShelves(filtered.map(\.id))
         #expect(filtered.map(\.element.title) == ["First", "Second"])
         #expect(state.shelfScroll(for: filtered[0].id).offset == 210)
         #expect(state.shelfScroll(for: filtered[1].id).offset == 420)
-    }
-    @Test func incompleteArtistDestinationsPreserveAllCredits() throws {
-        let data = Data(
-            #"{"uri":"spotify:track:track","name":"Song","artists":{"items":[{"uri":"spotify:artist:first","profile":{"name":"First"}},{"profile":{"name":"Second"}}]},"albumOfTrack":{"name":"Album"}}"#
-                .utf8)
-        let track = try JSONDecoder().decode(PathfinderTrack.self, from: data)
-        let mapped = try #require(CatalogMapping.searchTrack(from: track))
-        #expect(mapped.artists.isEmpty)
-        #expect(mapped.artist == "First, Second")
     }
 
 }

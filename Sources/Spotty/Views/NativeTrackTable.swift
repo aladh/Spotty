@@ -43,6 +43,8 @@ struct NativeTrackTable: NSViewRepresentable {
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         private var content: NativeTrackTable
         private var displayedRows: [TrackTableRow] = []
+        private var selectionSnapshot: Set<CatalogTrack.ID> = []
+        private var desiredSelection = IndexSet()
         private var applyingUpdate = false
         private weak var container: NativeTrackTableContainer?
 
@@ -77,7 +79,9 @@ struct NativeTrackTable: NSViewRepresentable {
         func update(_ next: NativeTrackTable, in container: NativeTrackTableContainer) {
             applyingUpdate = true
             defer { applyingUpdate = false }
-            let oldRows = displayedRows
+            let changes: RowChanges =
+                container.table.numberOfRows != next.rows.count
+                ? .structure : rowChanges(to: next.rows)
             content = next
             displayedRows = next.rows
             container.updateHeaders(
@@ -96,25 +100,55 @@ struct NativeTrackTable: NSViewRepresentable {
             )
             // Metadata/playing changes are observed by hosted leaves. Reconfigure only changed
             // occurrences; sorting, filtering or membership changes require a structural reload.
-            if oldRows.map(\.id) != next.rows.map(\.id) || container.table.numberOfRows != next.rows.count {
+            let structureChanged: Bool
+            switch changes {
+            case .structure:
+                structureChanged = true
                 container.table.reloadData()
-            } else {
-                let changed = IndexSet(next.rows.indices.filter { next.rows[$0] != oldRows[$0] })
-                if !changed.isEmpty {
-                    container.table.reloadData(
-                        forRowIndexes: changed,
-                        columnIndexes: IndexSet(integersIn: 0..<container.table.numberOfColumns)
-                    )
-                }
+            case .metadata(let changed):
+                structureChanged = false
+                container.table.reloadData(
+                    forRowIndexes: changed,
+                    columnIndexes: IndexSet(integersIn: 0..<container.table.numberOfColumns)
+                )
+            case .unchanged:
+                structureChanged = false
             }
-            let desired = IndexSet(next.rows.indices.filter { next.selection.contains(next.rows[$0].id) })
-            if container.table.selectedRowIndexes != desired {
-                container.table.selectRowIndexes(desired, byExtendingSelection: false)
+            // Bindings read current state, so content.selection cannot serve as an old value.
+            let selection = next.selection
+            if structureChanged || selection != selectionSnapshot {
+                selectionSnapshot = selection
+                desiredSelection =
+                    selection.isEmpty
+                    ? []
+                    : IndexSet(
+                        next.rows.indices.filter { selection.contains(next.rows[$0].id) })
+            }
+            if container.table.selectedRowIndexes != desiredSelection {
+                container.table.selectRowIndexes(desiredSelection, byExtendingSelection: false)
             }
             container.rowCount = next.rows.count
             container.layoutSubtreeIfNeeded()
             container.restoreScrollOffset(next.scrollOffset)
-            refreshVisibleSelection(in: container.table)
+            refreshVisibleCells(in: container.table)
+        }
+
+        private enum RowChanges {
+            case unchanged
+            case metadata(IndexSet)
+            case structure
+        }
+
+        private func rowChanges(to rows: [TrackTableRow]) -> RowChanges {
+            guard displayedRows.count == rows.count else { return .structure }
+            // Prepared projections retain their array storage across unrelated view updates.
+            guard displayedRows != rows else { return .unchanged }
+            var changed = IndexSet()
+            for index in rows.indices {
+                guard displayedRows[index].id == rows[index].id else { return .structure }
+                if displayedRows[index] != rows[index] { changed.insert(index) }
+            }
+            return .metadata(changed)
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { displayedRows.count }
@@ -123,6 +157,14 @@ struct NativeTrackTable: NSViewRepresentable {
             guard displayedRows.indices.contains(row), let tableColumn,
                 let column = NativeTrackColumn(rawValue: tableColumn.identifier.rawValue)
             else { return nil }
+            if column.isPlainText {
+                let cell =
+                    tableView.makeView(withIdentifier: tableColumn.identifier, owner: nil) as? NativeTrackTextCell
+                    ?? NativeTrackTextCell()
+                cell.identifier = tableColumn.identifier
+                configure(cell, row: row, column: column)
+                return cell
+            }
             let cell =
                 tableView.makeView(withIdentifier: tableColumn.identifier, owner: nil) as? NativeTrackHostingCell
                 ?? NativeTrackHostingCell()
@@ -138,15 +180,22 @@ struct NativeTrackTable: NSViewRepresentable {
                     variant: content.variant, isSelected: content.selection.contains(displayedRows[row].id),
                     playback: content.playback, searchQuery: content.searchQuery,
                     onSelect: content.onSelect,
-                    artistTrack: content.artistTracks[displayedRows[row].track.uri],
-                    playCount: content.playCounts[displayedRows[row].track.uri]
-                        ?? content.artistTracks[displayedRows[row].track.uri]?.playCount
+                    artistTrack: content.artistTracks[displayedRows[row].track.uri]
                 )
                 .environment(\.artworkAccess, content.artworkAccess)
                 .id("\(content.artworkAccess.accountEpoch):\(displayedRows[row].id)")
                 .padding(.horizontal, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: column == .index ? .trailing : .leading)
             )
+        }
+
+        private func configure(_ cell: NativeTrackTextCell, row: Int, column: NativeTrackColumn) {
+            let track = displayedRows[row].track
+            let artistTrack = content.artistTracks[track.uri]
+            cell.configure(
+                track: track, column: column, variant: content.variant,
+                playCount: content.playCounts[track.uri] ?? artistTrack?.playCount,
+                isPlayable: artistTrack?.isPlayable != false)
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
@@ -159,17 +208,18 @@ struct NativeTrackTable: NSViewRepresentable {
                 table.selectedRowIndexes.compactMap { index in
                     displayedRows.indices.contains(index) ? displayedRows[index].id : nil
                 })
-            refreshVisibleSelection(in: table)
+            refreshVisibleCells(in: table)
         }
 
-        private func refreshVisibleSelection(in table: NSTableView) {
+        private func refreshVisibleCells(in table: NSTableView) {
             let visible = table.rows(in: table.visibleRect)
             guard visible.location != NSNotFound else { return }
             for row in visible.location..<min(NSMaxRange(visible), displayedRows.count) {
                 for (index, column) in NativeTrackColumn.columns(for: content.variant).enumerated() {
-                    if let cell = table.view(atColumn: index, row: row, makeIfNecessary: false)
-                        as? NativeTrackHostingCell
-                    {
+                    let cell = table.view(atColumn: index, row: row, makeIfNecessary: false)
+                    if let cell = cell as? NativeTrackHostingCell {
+                        configure(cell, row: row, column: column)
+                    } else if let cell = cell as? NativeTrackTextCell {
                         configure(cell, row: row, column: column)
                     }
                 }

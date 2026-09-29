@@ -190,7 +190,7 @@ final class BrowsingRun {
             if window() != nil, world.snapshot().requests["account.has-grant"] != nil,
                 player.accountStore.phase == (world.scenario.mode != .signedOut ? .ready : .signedOut)
             {
-                await player.effects.settlement(of: .catalogLoad)?.wait()
+                await player.catalogLoadTask?.value
                 try writeRunStatus(.ready)
                 return
             }

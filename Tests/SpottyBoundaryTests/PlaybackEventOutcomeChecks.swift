@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Testing
 import SpottyDomain
 import Foundation
@@ -95,23 +97,6 @@ private func seedReadyLocalPlayback(
     )
 }
 
-private func queueSnapshot(
-    uri: String,
-    revision: UInt64 = 1,
-    sessionGeneration: UInt64 = 1
-) -> RustQueueState {
-    RustQueueState(
-        revision: revision,
-        sessionGeneration: sessionGeneration,
-        track: RustQueueState.Item(uri: uri, provider: "context", uid: "occ-now"),
-        protocolNextTracks: [],
-        protocolPrevTracks: [],
-        queueRevision: "",
-        disallowSetQueue: false,
-        disallowRemovingFromNextTracks: false
-    )
-}
-
 @MainActor
 private func bumpEngine(_ player: PlaybackStore) {
     _ = player.send(
@@ -146,15 +131,6 @@ private func startTrackResolution(_ player: PlaybackStore, uri: String) {
         revision: 1,
         receivedAt: Date(timeIntervalSince1970: 1_800_000_000)
     )
-}
-
-@MainActor
-private func awaitCapturedEffect(
-    _ settlement: PlaybackEffectSettlement?,
-    registered: String
-) async {
-    #expect((settlement) != nil, "\(registered)")
-    await settlement?.wait()
 }
 
 /// Kept as a bespoke fake: it maps commands to simplified strings and tracks `to` destinations
@@ -426,705 +402,178 @@ struct PlaybackEventOutcomeTests {
 
     @Test
     @MainActor
-    func testPlaybackEventOutcome() async throws {
-        do {
-            let successRemote = HarnessRemote(metadata: .park)
-            let success = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: successRemote))
-            startTrackResolution(success, uri: "spotify:track:success")
-            defer { _ = successRemote.failMetadata() }
-            try await requireEventually {
-                successRemote.parkedMetadataURIs.contains("spotify:track:success")
-            }
-            #expect(successRemote.requestedURI == "spotify:track:success", "metadata lookup starts")
-            success.recordPlayed("spotify:track:success")
-            let successfulMetadata = success.effects.settlement(of: .trackMetadata)
-            successRemote.completeMetadata(title: "Resolved")
-            await awaitCapturedEffect(
-                successfulMetadata,
-                registered: "successful metadata effect is captured before its result is released"
-            )
-            #expect(
-                (await waitUntil { success.state.currentTrack?.title == "Resolved" }) == true,
-                "accepted metadata updates the current track")
-            #expect(
-                (success.state.currentTrack?.metadataSource) == (.connect), "accepted metadata uses connect provenance")
-            #expect(
-                (success.history.first?.title) == ("Resolved"),
-                "history enrichment waits for reducer acceptance")
-            await success.shutdownForTermination()
+    func queueAdoptionPublishesOnlyAcceptedMetadata() async {
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
+        _ = player.send(.session(.ready), source: .account)
+        player.withRuntime { $0.accountStore.publishPhase(.ready) }
 
-            let staleEngineRemote = HarnessRemote(metadata: .park)
-            let staleEngine = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: staleEngineRemote))
-            startTrackResolution(staleEngine, uri: "spotify:track:stale-engine")
-            defer { _ = staleEngineRemote.failMetadata() }
-            try await requireEventually {
-                staleEngineRemote.parkedMetadataURIs.contains("spotify:track:stale-engine")
-            }
-            let staleEngineMetadata = staleEngine.effects.settlement(of: .trackMetadata)
-            bumpEngine(staleEngine)
-            staleEngineRemote.completeMetadata(title: "Late engine")
-            await awaitCapturedEffect(
-                staleEngineMetadata,
-                registered: "stale-engine metadata effect is registered before invalidation"
-            )
-            #expect(
-                (staleEngine.state.currentTrack?.title) == nil,
-                "stale-engine metadata does not mutate the current title")
-            #expect((staleEngine.history.isEmpty) == true, "stale-engine metadata does not create history")
-            await staleEngine.shutdownForTermination()
+        let firstURI = "spotify:track:first"
+        player.apply(
+            fixtureQueueSnapshot(accountEpoch: player.accountEpoch, revision: 1, uri: firstURI, title: "First"),
+            engineEpoch: player.engineGeneration
+        )
+        #expect((player.state.queue.entries.first?.uri) == (firstURI), "accepted queue replaces ordering")
+        #expect(
+            (player.catalog.metadata.knownTrack(for: firstURI)?.title) == ("First"),
+            "accepted queue retains catalog metadata")
 
-            let staleAccountRemote = HarnessRemote(metadata: .park)
-            let staleAccount = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: staleAccountRemote))
-            startTrackResolution(staleAccount, uri: "spotify:track:stale-account")
-            defer { _ = staleAccountRemote.failMetadata() }
-            try await requireEventually {
-                staleAccountRemote.parkedMetadataURIs.contains("spotify:track:stale-account")
-            }
-            staleAccount.recordPlayed("spotify:track:stale-account")
-            let staleAccountMetadata = staleAccount.effects.settlement(of: .trackMetadata)
-            staleAccount.accountStore.advanceEpoch()
-            _ = staleAccount.send(
-                .reset(session: .signedOut),
-                source: .account,
-                accountEpoch: staleAccount.accountEpoch
-            )
-            staleAccountRemote.completeMetadata(title: "Late account")
-            await awaitCapturedEffect(
-                staleAccountMetadata,
-                registered: "stale-account metadata effect is registered before invalidation"
-            )
-            #expect((staleAccount.state.currentTrack) == nil, "stale-account metadata cannot revive a reset track")
-            #expect(
-                (staleAccount.history.first?.title) == ("Unknown track"),
-                "stale-account metadata does not enrich history after reset")
-            await staleAccount.shutdownForTermination()
+        let duplicateURI = "spotify:track:duplicate"
+        player.apply(
+            fixtureQueueSnapshot(
+                accountEpoch: player.accountEpoch, revision: 1, uri: duplicateURI, title: "Duplicate"),
+            engineEpoch: player.engineGeneration
+        )
+        #expect((player.state.queue.entries.first?.uri) == (firstURI), "a duplicate queue revision is rejected")
+        #expect(
+            (player.catalog.metadata.knownTrack(for: duplicateURI)) == nil,
+            "rejected queue state does not replace catalog metadata")
+        #expect(
+            (player.catalog.metadata.knownTrack(for: firstURI)?.title) == ("First"),
+            "rejected queue keeps the accepted catalog row")
 
-            let cancelRemote = HarnessRemote(metadata: .park)
-            let cancelled = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: cancelRemote))
-            startTrackResolution(cancelled, uri: "spotify:track:cancelled")
-            defer { _ = cancelRemote.failMetadata() }
-            try await requireEventually {
-                cancelRemote.parkedMetadataURIs.contains("spotify:track:cancelled")
-            }
-            cancelled.recordPlayed("spotify:track:cancelled")
-            let cancelledMetadata = cancelled.effects.settlement(of: .trackMetadata)
-            cancelled.effects.cancel(.trackMetadata)
-            cancelRemote.completeMetadata(title: "Cancelled")
-            await awaitCapturedEffect(
-                cancelledMetadata,
-                registered: "cancelled metadata effect is registered before cancellation"
-            )
-            #expect((cancelled.state.currentTrack?.title) == nil, "cancelled metadata is inert")
-            #expect(
-                (cancelled.history.first?.title) == ("Unknown track"),
-                "cancelled metadata does not enrich history")
-            await cancelled.shutdownForTermination()
+        let capturedEngine = player.engineGeneration
+        bumpEngine(player)
+        let staleEngineURI = "spotify:track:stale-engine"
+        player.apply(
+            fixtureQueueSnapshot(
+                accountEpoch: player.accountEpoch, revision: 2, uri: staleEngineURI, title: "Late engine"),
+            engineEpoch: capturedEngine
+        )
+        #expect((player.state.queue.entries.first?.uri) == (firstURI), "stale-engine queue adoption is inert")
+        #expect(
+            (player.catalog.metadata.knownTrack(for: staleEngineURI)) == nil,
+            "stale-engine queue does not retain catalog metadata")
 
-            let rejectedRemote = HarnessRemote(metadata: .park)
-            let rejected = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(remote: rejectedRemote))
-            startTrackResolution(rejected, uri: "spotify:track:original")
-            defer { _ = rejectedRemote.failMetadata() }
-            try await requireEventually {
-                rejectedRemote.parkedMetadataURIs.contains("spotify:track:original")
-            }
-            rejected.recordPlayed("spotify:track:original")
-            _ = rejected.send(
-                .presentation(
-                    PlaybackPresentationSnapshot(
-                        currentTrack: CurrentTrack(
-                            uri: "spotify:track:other", title: "Other", metadataSource: .catalog),
-                        transport: .paused,
-                        timing: PlaybackTiming(anchoredAt: Date(timeIntervalSince1970: 1_800_000_000))
-                    )),
-                source: .user
-            )
-            let rejectedMetadata = rejected.effects.settlement(of: .trackMetadata)
-            rejectedRemote.completeMetadata(title: "From original")
-            await awaitCapturedEffect(
-                rejectedMetadata,
-                registered: "reducer-rejection metadata effect is registered before completion"
-            )
-            #expect(
-                (rejected.state.currentTrack?.uri) == ("spotify:track:other"),
-                "metadata for a previous track is rejected")
-            #expect(
-                (rejected.history.first?.title) == ("Unknown track"),
-                "rejected metadata does not enrich the prior history row")
-            await rejected.shutdownForTermination()
-        }
+        player.accountStore.advanceEpoch()
+        _ = player.send(
+            .reset(session: .signedOut),
+            source: .account,
+            accountEpoch: player.accountEpoch
+        )
+        let staleAccountURI = "spotify:track:stale-account"
+        player.apply(
+            fixtureQueueSnapshot(accountEpoch: 1, revision: 3, uri: staleAccountURI, title: "Late account"),
+            engineEpoch: player.engineGeneration
+        )
+        #expect((player.state.queue.entries.isEmpty) == true, "stale-account queue adoption is inert")
+        #expect(
+            (player.catalog.metadata.knownTrack(for: staleAccountURI)) == nil,
+            "stale-account queue does not retain catalog metadata")
+        await player.shutdownForTermination()
+    }
 
-        do {
-            let successEngine = HarnessEngine()
-            let successGate = HarnessEngineGate()
-            successEngine.onPositionMilliseconds = { [successGate] in
-                successGate.wait(); return 42_000
-            }
-            let success = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: successEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedReadyLocalPlayback(success, uri: "spotify:track:playing")
-            success.refreshPosition()
-            #expect((await waitUntil { successGate.hasStarted }) == true, "position refresh starts")
-            successGate.release()
-            #expect(
-                (await waitUntil { success.state.timing.position == 42 }) == true,
-                "accepted timing replaces the anchored position")
-            await success.shutdownForTermination()
+    @Test
+    @MainActor
+    func retainedRemoteIdentityPublishesARouteWhenPlaybackArrives() async {
+        let mac = ConnectDevice(id: "mac", name: "Mac", type: "computer", isActive: false)
+        let phone = ConnectDevice(id: "phone", name: "Phone", type: "smartphone", isActive: false)
+        let pausedURI = "spotify:track:paused-remote"
+        let expectedPhone = PlaybackDevice(id: "phone", name: "Phone", type: "smartphone", isActive: false)
 
-            let staleAccountEngine = HarnessEngine()
-            let staleAccountGate = HarnessEngineGate()
-            staleAccountEngine.onPositionMilliseconds = { [staleAccountGate] in
-                staleAccountGate.wait(); return 42_000
-            }
-            let staleAccount = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: staleAccountEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
+        let launchPreferences = HarnessPreferences()
+        launchPreferences.seed(lastRemoteDeviceID: "phone")
+        let launch = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(
+                remote: HarnessRemote(metadataTitle: "Resolved"),
+                preferences: launchPreferences
             )
-            seedReadyLocalPlayback(staleAccount, uri: "spotify:track:playing")
-            staleAccount.refreshPosition()
-            #expect(
-                (await waitUntil { staleAccountGate.hasStarted }) == true, "stale-account position refresh starts")
-            let staleAccountPosition = staleAccount.effects.settlement(of: .positionRefresh)
-            staleAccount.accountStore.advanceEpoch()
-            _ = staleAccount.send(
-                .reset(session: .signedOut),
-                source: .account,
-                accountEpoch: staleAccount.accountEpoch
-            )
-            staleAccountGate.release()
-            await awaitCapturedEffect(
-                staleAccountPosition,
-                registered: "stale-account position refresh is registered before invalidation"
-            )
-            #expect(
-                (staleAccount.state.timing.position) == (0),
-                "stale-account position refresh cannot stamp signed-out timing"
-            )
-            await staleAccount.shutdownForTermination()
+        )
+        _ = launch.send(.session(.ready), source: .account)
+        _ = launch.send(
+            .engineConnection(
+                EngineConnectionSnapshot(
+                    session: .ready,
+                    owner: .none,
+                    localDeviceID: "mac"
+                )),
+            source: .engineConnection,
+            revision: 1,
+            engineEpoch: 1
+        )
+        launch.withRuntime { $0.preferenceState.rememberRemoteDevice("phone", accountEpoch: $0.accountEpoch) }
+        launch.receive([mac, phone], revision: 1, engineEpoch: launch.engineGeneration)
+        #expect((launch.state.owner) == (.none), "cluster devices-first with no track is none")
+        #expect(
+            (launch.state.devices.lastRemoteDeviceID) == ("phone"),
+            "the store stamps last-remote context onto the snapshot")
+        _ = launch.send(
+            .enginePlayback(
+                EnginePlaybackSnapshot(
+                    transport: .paused,
+                    trackURI: pausedURI,
+                    timing: PlaybackTiming(position: 0, duration: 180)
+                )),
+            source: .enginePlayback,
+            revision: 1,
+            engineEpoch: launch.engineGeneration
+        )
+        #expect(
+            (launch.state.owner) == (.uncertain(expectedPhone)),
+            "a later URI adopts the stamped last-remote candidate")
+        #expect(
+            (launch.commandRoute) == (.remote(from: "mac", to: "phone")), "devices-then-track stays remote-routable"
+        )
+        await launch.shutdownForTermination()
+    }
 
-            let staleEngineEngine = HarnessEngine()
-            let staleEngineGate = HarnessEngineGate()
-            staleEngineEngine.onPositionMilliseconds = { [staleEngineGate] in
-                staleEngineGate.wait(); return 42_000
-            }
-            let staleEngine = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: staleEngineEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedReadyLocalPlayback(staleEngine, uri: "spotify:track:playing")
-            staleEngine.refreshPosition()
-            #expect((await waitUntil { staleEngineGate.hasStarted }) == true, "stale-engine position refresh starts")
-            let staleEnginePosition = staleEngine.effects.settlement(of: .positionRefresh)
-            bumpEngine(staleEngine)
-            staleEngineGate.release()
-            await awaitCapturedEffect(
-                staleEnginePosition,
-                registered: "stale-engine position refresh is registered before invalidation"
-            )
-            #expect((staleEngine.state.timing.position) == (5), "stale-engine position refresh is inert")
-            await staleEngine.shutdownForTermination()
+    @Test
+    @MainActor
+    func playbackAndHistoryUseTheirRespectiveClockAnchors() async {
+        let clockNow = HarnessDates.fixed
+        let receipt = clockNow.addingTimeInterval(50)
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
+        )
+        seedReadyLocalPlayback(player, uri: "spotify:track:clocked")
 
-            let cancelEngine = HarnessEngine()
-            let cancelGate = HarnessEngineGate()
-            cancelEngine.onPositionMilliseconds = { [cancelGate] in
-                cancelGate.wait(); return 42_000
-            }
-            let cancelled = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: cancelEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedReadyLocalPlayback(cancelled, uri: "spotify:track:playing")
-            cancelled.refreshPosition()
-            #expect((await waitUntil { cancelGate.hasStarted }) == true, "cancelled position refresh starts")
-            let cancelledPosition = cancelled.effects.settlement(of: .positionRefresh)
-            cancelled.effects.cancel(.positionRefresh)
-            cancelGate.release()
-            await awaitCapturedEffect(
-                cancelledPosition,
-                registered: "cancelled position refresh is registered before cancellation"
-            )
-            #expect((cancelled.state.timing.position) == (5), "cancelled position refresh is inert")
-            await cancelled.shutdownForTermination()
-        }
+        _ = player.setTiming(position: 12)
+        #expect(
+            (player.state.timing.anchoredAt) == (clockNow), "setTiming without an anchor uses the injected clock")
+        #expect((player.state.timing.position) == (12), "setTiming preserves the commanded position")
 
-        do {
-            let player = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            _ = player.send(.session(.ready), source: .account)
-            player.withRuntime { $0.accountStore.publishPhase(.ready) }
+        _ = player.setTiming(position: 40, anchoredAt: receipt)
+        #expect(
+            (player.state.timing.anchoredAt) == (receipt),
+            "an explicit timing anchor is not replaced by clock.now()")
 
-            let firstURI = "spotify:track:first"
-            player.apply(
-                fixtureQueueSnapshot(accountEpoch: player.accountEpoch, revision: 1, uri: firstURI, title: "First"),
-                engineEpoch: player.engineGeneration
-            )
-            #expect((player.state.queue.entries.first?.uri) == (firstURI), "accepted queue replaces ordering")
-            #expect(
-                (player.catalog.metadata.knownTrack(for: firstURI)?.title) == ("First"),
-                "accepted queue retains catalog metadata")
-
-            let duplicateURI = "spotify:track:duplicate"
-            player.apply(
-                fixtureQueueSnapshot(
-                    accountEpoch: player.accountEpoch, revision: 1, uri: duplicateURI, title: "Duplicate"),
-                engineEpoch: player.engineGeneration
-            )
-            #expect((player.state.queue.entries.first?.uri) == (firstURI), "a duplicate queue revision is rejected")
-            #expect(
-                (player.catalog.metadata.knownTrack(for: duplicateURI)) == nil,
-                "rejected queue state does not replace catalog metadata")
-            #expect(
-                (player.catalog.metadata.knownTrack(for: firstURI)?.title) == ("First"),
-                "rejected queue keeps the accepted catalog row")
-
-            let capturedEngine = player.engineGeneration
-            bumpEngine(player)
-            let staleEngineURI = "spotify:track:stale-engine"
-            player.apply(
-                fixtureQueueSnapshot(
-                    accountEpoch: player.accountEpoch, revision: 2, uri: staleEngineURI, title: "Late engine"),
-                engineEpoch: capturedEngine
-            )
-            #expect((player.state.queue.entries.first?.uri) == (firstURI), "stale-engine queue adoption is inert")
-            #expect(
-                (player.catalog.metadata.knownTrack(for: staleEngineURI)) == nil,
-                "stale-engine queue does not retain catalog metadata")
-
-            player.accountStore.advanceEpoch()
-            _ = player.send(
-                .reset(session: .signedOut),
-                source: .account,
-                accountEpoch: player.accountEpoch
-            )
-            let staleAccountURI = "spotify:track:stale-account"
-            player.apply(
-                fixtureQueueSnapshot(accountEpoch: 1, revision: 3, uri: staleAccountURI, title: "Late account"),
-                engineEpoch: player.engineGeneration
-            )
-            #expect((player.state.queue.entries.isEmpty) == true, "stale-account queue adoption is inert")
-            #expect(
-                (player.catalog.metadata.knownTrack(for: staleAccountURI)) == nil,
-                "stale-account queue does not retain catalog metadata")
-            await player.shutdownForTermination()
-
-            let webQueue = HarnessWebQueue(.park)
-            let cancelled = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), webQueue: webQueue)
-            )
-            await cancelled.restore()
-            _ = cancelled.send(.session(.ready), source: .account)
-            cancelled.withRuntime { $0.accountStore.publishPhase(.ready) }
-            cancelled.refreshQueue()
-            #expect((await waitUntil { webQueue.requestCount == 1 }) == true, "queue refresh starts")
-            let cancelledQueueRefresh = cancelled.effects.settlement(of: .queueRefresh)
-            cancelled.cancelQueueRefresh()
-            webQueue.complete(with: [fixtureTrack("spotify:track:cancelled-queue", title: "Cancelled")])
-            await awaitCapturedEffect(
-                cancelledQueueRefresh,
-                registered: "cancelled queue refresh is registered before cancellation"
-            )
-            #expect((cancelled.state.queue.entries.isEmpty) == true, "cancelled queue refresh does not adopt ordering")
-            #expect(
-                (cancelled.catalog.metadata.knownTrack(for: "spotify:track:cancelled-queue")) == nil,
-                "cancelled queue refresh does not retain catalog metadata")
-            await cancelled.shutdownForTermination()
-        }
-
-        do {
-            let namedEngine = HarnessEngine()
-            let namedGate = HarnessEngineGate()
-            namedEngine.onQueueSnapshot = { [namedGate, namedEngine] in
-                namedGate.wait(); return namedEngine.snapshot
-            }
-            let namedRemote = HarnessRemote(metadata: .park)
-            let named = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: namedEngine, remote: namedRemote)
-            )
-            let uri = "spotify:track:same"
-            seedReadyLocalPlayback(named, uri: uri)
-            named.recordPlayed(uri)
-            named.refreshQueueSnapshot()
-            #expect((await waitUntil { namedGate.hasStarted }) == true, "named queue snapshot fetch starts")
-            let namedSnapshot = named.effects.settlement(of: .queueSnapshot)
-            let staleNamedGeneration = named.engineGeneration
-            bumpEngine(named)
-            namedEngine.snapshot = queueSnapshot(uri: uri, sessionGeneration: staleNamedGeneration)
-            namedGate.release()
-            await awaitCapturedEffect(
-                namedSnapshot,
-                registered: "stale named snapshot effect is registered before invalidation"
-            )
-            #expect(
-                (named.state.currentTrack?.title) == ("Now"), "stale named snapshot cannot replace now-playing title")
-            #expect(
-                (named.state.currentTrack?.artist) == ("Artist"),
-                "stale named snapshot cannot replace now-playing artist")
-            #expect(
-                (named.history.first?.title) == ("Unknown track"),
-                "stale named snapshot does not enrich history")
-            #expect((namedRemote.requestedURI) == nil, "stale named snapshot does not start metadata resolution")
-            await named.shutdownForTermination()
-
-            let missingEngine = HarnessEngine()
-            let missingGate = HarnessEngineGate()
-            missingEngine.onQueueSnapshot = { [missingGate, missingEngine] in
-                missingGate.wait()
-                return missingEngine.snapshot
-            }
-            let missingRemote = HarnessRemote(metadata: .park)
-            let missing = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: missingEngine, remote: missingRemote)
-            )
-            seedReadyLocalPlayback(missing, uri: uri, title: nil, metadataSource: .none)
-            missing.recordPlayed(uri)
-            missing.refreshQueueSnapshot()
-            #expect((await waitUntil { missingGate.hasStarted }) == true, "nameless queue snapshot fetch starts")
-            let missingSnapshot = missing.effects.settlement(of: .queueSnapshot)
-            let staleMissingGeneration = missing.engineGeneration
-            bumpEngine(missing)
-            missingEngine.snapshot = queueSnapshot(uri: uri, sessionGeneration: staleMissingGeneration)
-            missingGate.release()
-            await awaitCapturedEffect(
-                missingSnapshot,
-                registered: "stale nameless snapshot effect is registered before invalidation"
-            )
-            #expect((missing.state.currentTrack?.title) == nil, "stale nameless snapshot cannot install a title")
-            #expect((missing.state.currentTrack?.uri) == (uri), "stale nameless snapshot keeps the current URI")
-            #expect(
-                (missing.history.first?.title) == ("Unknown track"),
-                "stale nameless snapshot does not enrich history")
-            #expect(
-                (missingRemote.requestedURI) == nil, "stale nameless snapshot does not launch a metadata resolver"
-            )
-            await missing.shutdownForTermination()
-
-            let watermarkEngine = HarnessEngine()
-            let watermarkGate = HarnessEngineGate()
-            watermarkEngine.onQueueSnapshot = { [watermarkGate, watermarkEngine] in
-                watermarkGate.wait()
-                return watermarkEngine.snapshot
-            }
-            let watermarkStore = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: watermarkEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedReadyLocalPlayback(watermarkStore, uri: uri)
-            let before = watermarkStore.connectQueueCallback
-            watermarkStore.refreshQueueSnapshot()
-            #expect((await waitUntil { watermarkGate.hasStarted }) == true, "watermark snapshot fetch starts")
-            let watermarkSnapshot = watermarkStore.effects.settlement(of: .queueSnapshot)
-            let staleWatermarkGeneration = watermarkStore.engineGeneration
-            bumpEngine(watermarkStore)
-            watermarkEngine.snapshot = queueSnapshot(uri: uri, revision: 9, sessionGeneration: staleWatermarkGeneration)
-            watermarkGate.release()
-            await awaitCapturedEffect(
-                watermarkSnapshot,
-                registered: "stale watermark snapshot effect is registered before invalidation"
-            )
-            #expect(
-                (watermarkStore.connectQueueCallback.generation) == (before.generation),
-                "a stale snapshot does not advance the callback generation")
-            #expect(
-                (watermarkStore.connectQueueCallback.revision) == (before.revision),
-                "a stale snapshot does not advance the callback revision")
-            #expect(
-                (watermarkStore.acceptsConnectQueueCallback(
-                    generation: watermarkStore.engineGeneration,
-                    revision: 1
-                )) == true, "a later live callback can still start a fresh revision namespace")
-            await watermarkStore.shutdownForTermination()
-
-            let payloadEngine = HarnessEngine()
-            let payloadGate = HarnessEngineGate()
-            payloadEngine.onQueueSnapshot = { [payloadGate, payloadEngine] in
-                payloadGate.wait()
-                return payloadEngine.snapshot
-            }
-            let payloadStore = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: payloadEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            await payloadStore.restore()
-            seedReadyLocalPlayback(payloadStore, uri: uri)
-            let mirroredGeneration = payloadStore.engineGeneration
-            let payloadGeneration = mirroredGeneration + 1
-            payloadStore.refreshQueueSnapshot()
-            #expect((await waitUntil { payloadGate.hasStarted }) == true, "payload-generation snapshot fetch starts")
-            let payloadSnapshot = payloadStore.effects.settlement(of: .queueSnapshot)
-            payloadEngine.snapshot = queueSnapshot(
-                uri: uri,
-                revision: 3,
-                sessionGeneration: payloadGeneration
-            )
-            payloadGate.release()
-            await awaitCapturedEffect(
-                payloadSnapshot,
-                registered: "payload-generation snapshot effect is captured before its result is released"
-            )
-            #expect(
-                (await waitUntil { payloadStore.state.engineEpoch == payloadGeneration }) == true,
-                "decoded payload generation stamps reducer state before playback catches up")
-            #expect(
-                (await waitUntil { payloadStore.engineGeneration == payloadGeneration }) == true,
-                "decoded payload generation stamps presentation"
-            )
-            #expect(
-                (payloadStore.state.currentTrack?.title) == ("Now"),
-                "decoded payload generation keeps now-playing title")
-            #expect(
-                (await waitUntil { payloadStore.queueMutation?.engineEpoch == payloadGeneration }) == true,
-                "decoded payload generation stamps the mutation snapshot")
-            #expect(
-                (payloadStore.queueMutation?.engineEpoch == mirroredGeneration) == (false),
-                "decoded payload generation does not stamp the pre-await mirror")
-            await payloadStore.shutdownForTermination()
-
-            let bumpedEngine = HarnessEngine()
-            let bumpedGate = HarnessEngineGate()
-            bumpedEngine.onQueueSnapshot = { [bumpedGate, bumpedEngine] in
-                bumpedGate.wait()
-                return bumpedEngine.snapshot
-            }
-            let bumpedStore = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: bumpedEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            await bumpedStore.restore()
-            seedReadyLocalPlayback(bumpedStore, uri: uri)
-            let beforeBump = bumpedStore.engineGeneration
-            bumpedStore.refreshQueueSnapshot()
-            #expect((await waitUntil { bumpedGate.hasStarted }) == true, "bumped-engine snapshot fetch starts")
-            bumpEngine(bumpedStore)
-            let liveGeneration = bumpedStore.engineGeneration
-            #expect(
-                (liveGeneration > beforeBump) == true, "playback adopted a newer engine epoch during the snapshot await"
-            )
-            bumpedEngine.snapshot = queueSnapshot(
-                uri: uri,
-                revision: 4,
-                sessionGeneration: liveGeneration
-            )
-            bumpedGate.release()
-            #expect(
-                (await waitUntil { bumpedStore.state.engineEpoch == liveGeneration }) == true,
-                "a snapshot decoded after a live engine bump still stamps the payload generation")
-            #expect(
-                (bumpedStore.state.engineEpoch) == (liveGeneration),
-                "a live-generation snapshot keeps reducer epoch aligned")
-            #expect(
-                (await waitUntil { bumpedStore.queueMutation?.engineEpoch == liveGeneration }) == true,
-                "a live-generation snapshot stamps mutation with the payload, not the pre-await mirror")
-            await bumpedStore.shutdownForTermination()
-
-            let stalePayloadEngine = HarnessEngine()
-            let stalePayloadGate = HarnessEngineGate()
-            stalePayloadEngine.onQueueSnapshot = { [stalePayloadGate, stalePayloadEngine] in
-                stalePayloadGate.wait()
-                return stalePayloadEngine.snapshot
-            }
-            let stalePayload = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(engine: stalePayloadEngine, remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedReadyLocalPlayback(stalePayload, uri: uri)
-            let staleBefore = stalePayload.engineGeneration
-            stalePayload.refreshQueueSnapshot()
-            #expect((await waitUntil { stalePayloadGate.hasStarted }) == true, "stale-payload snapshot fetch starts")
-            let stalePayloadSnapshot = stalePayload.effects.settlement(of: .queueSnapshot)
-            bumpEngine(stalePayload)
-            stalePayloadEngine.snapshot = queueSnapshot(
-                uri: uri,
-                revision: 5,
-                sessionGeneration: staleBefore
-            )
-            stalePayloadGate.release()
-            await awaitCapturedEffect(
-                stalePayloadSnapshot,
-                registered: "stale payload snapshot effect is registered before invalidation"
-            )
-            #expect(
-                (stalePayload.state.currentTrack?.title) == ("Now"),
-                "a stale payload generation cannot replace now-playing title")
-            #expect((stalePayload.queueMutation) == nil, "a stale payload generation does not install mutation")
-            await stalePayload.shutdownForTermination()
-        }
-
-        do {
-            let mac = ConnectDevice(id: "mac", name: "Mac", type: "computer", isActive: false)
-            let phone = ConnectDevice(id: "phone", name: "Phone", type: "smartphone", isActive: false)
-            let activePhone = ConnectDevice(id: "phone", name: "Phone", type: "smartphone", isActive: true)
-            let pausedURI = "spotify:track:paused-remote"
-            let expectedPhone = PlaybackDevice(id: "phone", name: "Phone", type: "smartphone", isActive: false)
-
-            @MainActor
-            func seedIdentity(_ player: PlaybackStore) {
-                _ = player.send(.session(.ready), source: .account)
-                _ = player.send(
-                    .engineConnection(
-                        EngineConnectionSnapshot(
-                            session: .ready,
-                            owner: .none,
-                            localDeviceID: "mac"
-                        )),
-                    source: .engineConnection,
-                    revision: 1,
-                    engineEpoch: 1
-                )
-            }
-
-            let launchPreferences = HarnessPreferences()
-            launchPreferences.seed(lastRemoteDeviceID: "phone")
-            let launch = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(
-                    remote: HarnessRemote(metadataTitle: "Resolved"),
-                    preferences: launchPreferences
-                )
-            )
-            seedIdentity(launch)
-            launch.lastRemoteDeviceID = "phone"
-            launch.receive([mac, phone], revision: 1, engineEpoch: launch.engineGeneration)
-            #expect((launch.state.owner) == (.none), "cluster devices-first with no track is none")
-            #expect(
-                (launch.state.devices.lastRemoteDeviceID) == ("phone"),
-                "the store stamps last-remote context onto the snapshot")
-            _ = launch.send(
-                .enginePlayback(
-                    EnginePlaybackSnapshot(
-                        transport: .paused,
-                        trackURI: pausedURI,
-                        timing: PlaybackTiming(position: 0, duration: 180)
-                    )),
-                source: .enginePlayback,
-                revision: 1,
-                engineEpoch: launch.engineGeneration
-            )
-            #expect(
-                (launch.state.owner) == (.uncertain(expectedPhone)),
-                "a later URI adopts the stamped last-remote candidate")
-            #expect(
-                (launch.commandRoute) == (.remote(from: "mac", to: "phone")), "devices-then-track stays remote-routable"
-            )
-            await launch.shutdownForTermination()
-
-            let remotePreferences = HarnessPreferences()
-            let remoteActive = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(
-                    remote: HarnessRemote(metadataTitle: "Resolved"),
-                    preferences: remotePreferences
-                )
-            )
-            seedIdentity(remoteActive)
-            remoteActive.receive([mac, activePhone], revision: 1, engineEpoch: remoteActive.engineGeneration)
-            #expect(
-                (remoteActive.state.owner)
-                    == (.remote(PlaybackDevice(id: "phone", name: "Phone", type: "smartphone", isActive: true))),
-                "an active remote snapshot is remote ownership")
-            #expect(
-                (remoteActive.lastRemoteDeviceID) == ("phone"),
-                "the store records last-remote after an accepted active remote")
-            let preferenceWritten: Bool
-            if remoteActive.lastRemoteDeviceID == "phone" {
-                preferenceWritten = await waitUntil { remotePreferences.storedRemoteDeviceID == "phone" }
-            } else {
-                preferenceWritten = false
-            }
-            #expect((preferenceWritten) == true, "an accepted active remote writes the last-remote preference")
-            await remoteActive.shutdownForTermination()
-
-            let stale = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedIdentity(stale)
-            stale.lastRemoteDeviceID = "phone"
-            stale.receive([mac, phone], revision: 4, engineEpoch: stale.engineGeneration)
-            let afterDevices = stale.state
-            stale.receive([mac, activePhone], revision: 3, engineEpoch: stale.engineGeneration)
-            #expect((stale.state) == (afterDevices), "a stale device revision does not replace owner")
-            stale.receive([mac, activePhone], revision: 5, engineEpoch: 0)
-            #expect((stale.state) == (afterDevices), "a stale engine epoch does not replace owner")
-            let rejected = stale.send(
-                .devices(
-                    PlaybackDeviceSnapshot(
-                        devices: [
-                            PlaybackDevice(id: "mac", name: "Mac", type: "computer"),
-                            PlaybackDevice(id: "phone", name: "Phone", type: "smartphone", isActive: true),
-                        ],
-                        localDeviceID: "mac",
-                        revision: 5,
-                        lastRemoteDeviceID: "phone"
-                    )),
-                source: .engineDevices,
-                revision: 5,
-                engineEpoch: stale.engineGeneration,
-                accountEpoch: 0
-            )
-            #expect((!rejected) == true, "a stale account epoch is rejected")
-            #expect((stale.state) == (afterDevices), "a stale account epoch does not replace owner")
-            await stale.shutdownForTermination()
-
-            let teardown = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedIdentity(teardown)
-            teardown.lastRemoteDeviceID = nil
-            let beforeTeardown = teardown.state
-            teardown.withRuntime { $0.isTearingDown = true }
-            teardown.receive([mac, activePhone], revision: 1, engineEpoch: teardown.engineGeneration)
-            #expect((teardown.state) == (beforeTeardown), "teardown device intake is inert")
-            #expect(
-                (teardown.lastRemoteDeviceID) == nil, "teardown does not record last-remote from a discarded snapshot")
-            await teardown.shutdownForTermination()
-        }
-
-        do {
-            let clockNow = Date(timeIntervalSince1970: 1_800_000_000)
-            let receipt = Date(timeIntervalSince1970: 1_800_000_050)
-            let player = HarnessEnvironment.makePlaybackStore(
-                HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-            )
-            seedReadyLocalPlayback(player, uri: "spotify:track:clocked")
-
-            _ = player.setTiming(position: 12)
-            #expect(
-                (player.state.timing.anchoredAt) == (clockNow), "setTiming without an anchor uses the injected clock")
-            #expect((player.state.timing.position) == (12), "setTiming preserves the commanded position")
-
-            _ = player.setTiming(position: 40, anchoredAt: receipt)
-            #expect(
-                (player.state.timing.anchoredAt) == (receipt),
-                "an explicit timing anchor is not replaced by clock.now()")
-
-            player.hasReceivedPlaybackSnapshot = true
-            player.receive(
-                RustPlaybackState(
-                    revision: 2,
-                    sessionGeneration: player.engineGeneration,
-                    isPlaying: true,
-                    isPaused: false,
-                    trackURI: "spotify:track:clocked",
-                    positionMS: 40_000,
-                    durationMS: 200_000,
-                    timestampMS: 0,
-                    shuffle: false,
-                    repeatTrack: false,
-                    repeatContext: false
-                ),
+        player.hasReceivedPlaybackSnapshot = true
+        player.receive(
+            RustPlaybackState(
                 revision: 2,
-                receivedAt: receipt
-            )
-            #expect(
-                (player.state.timing.anchoredAt) == (receipt),
-                "engine intake anchors from receipt time, not the later orchestration clock")
-            #expect(
-                (player.state.sourceRevisions[.enginePlayback]) == (2),
-                "engine playback records the backend revision, not receipt time")
-            #expect(
-                (player.displayedPosition(at: receipt.addingTimeInterval(0.25))) == (40.25),
-                "playing snapshots still interpolate from receipt time")
+                sessionGeneration: player.engineGeneration,
+                isPlaying: true,
+                isPaused: false,
+                trackURI: "spotify:track:clocked",
+                positionMS: 40_000,
+                durationMS: 200_000,
+                timestampMS: 0,
+                shuffle: false,
+                repeatTrack: false,
+                repeatContext: false
+            ),
+            revision: 2,
+            receivedAt: receipt
+        )
+        #expect(
+            (player.state.timing.anchoredAt) == (receipt),
+            "engine intake anchors from receipt time, not the later orchestration clock")
+        #expect(
+            (player.state.sourceRevisions[.enginePlayback]) == (2),
+            "engine playback records the backend revision, not receipt time")
+        #expect(
+            (player.displayedPosition(at: receipt.addingTimeInterval(0.25))) == (40.25),
+            "playing snapshots still interpolate from receipt time")
 
-            player.recordPlayed("spotify:track:clocked")
-            #expect(
-                (player.history.first?.playedAt) == (clockNow),
-                "played history uses the injected orchestration clock")
-            #expect(
-                (player.shuffleHistoryCache["spotify:track:clocked"]) == (clockNow.timeIntervalSince1970),
-                "shuffle history uses the same orchestration clock instant")
-            await player.shutdownForTermination()
-        }
+        player.recordPlayed("spotify:track:clocked")
+        #expect(
+            (player.history.first?.playedAt) == (clockNow),
+            "played history uses the injected orchestration clock")
+        #expect(
+            (player.shuffleHistoryCache["spotify:track:clocked"]) == (clockNow.timeIntervalSince1970),
+            "shuffle history uses the same orchestration clock instant")
+        await player.shutdownForTermination()
     }
 
     @Test
@@ -1183,80 +632,6 @@ struct PlaybackEventOutcomeTests {
 
         await connectionFirst.shutdownForTermination()
         await playbackFirst.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func testPositionRefreshCannotCrossTrackTransition() async {
-        let engine = HarnessEngine()
-        let gate = HarnessEngineGate()
-        engine.onPositionMilliseconds = { [gate] in
-            gate.wait(); return 42_000
-        }
-        let player = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(engine: engine, remote: HarnessRemote(metadataTitle: "Resolved"))
-        )
-        seedReadyLocalPlayback(player, uri: "spotify:track:old")
-
-        player.refreshPosition()
-        #expect((await waitUntil { gate.hasStarted }) == true, "position refresh starts")
-        let positionRefresh = player.effects.settlement(of: .positionRefresh)
-
-        #expect(
-            (player.send(
-                .presentation(
-                    PlaybackPresentationSnapshot(
-                        currentTrack: CurrentTrack(uri: "spotify:track:new"),
-                        transport: player.state.transport,
-                        timing: player.state.timing
-                    )),
-                source: .user
-            )) == true,
-            "the new track is accepted while the getter is suspended"
-        )
-        #expect((player.state.currentTrack?.uri) == ("spotify:track:new"), "the new track is current")
-        #expect((player.state.timing.position) == (5), "the track transition keeps its existing timing")
-
-        gate.release()
-        await awaitCapturedEffect(
-            positionRefresh,
-            registered: "track-scoped position refresh is registered before completion"
-        )
-        #expect(
-            (player.state.timing.position) == (5),
-            "a position sampled for the old track cannot overwrite the new track"
-        )
-        await player.shutdownForTermination()
-    }
-
-    @Test(arguments: [false, true])
-    @MainActor
-    func testPositionRefreshCannotCrossPlaybackOwnerChange(hasRemoteOwner: Bool) async throws {
-        let engine = HarnessEngine()
-        let gate = HarnessEngineGate()
-        engine.onPositionMilliseconds = { [gate] in
-            gate.wait(); return 42_000
-        }
-        let player = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(engine: engine, remote: HarnessRemote(metadataTitle: "Resolved"))
-        )
-        defer { gate.release() }
-        seedReadyLocalPlayback(player, uri: "spotify:track:transferred")
-        player.refreshPosition()
-        try await requireEventually { gate.hasStarted }
-        let positionRefresh = player.effects.settlement(of: .positionRefresh)
-        let owner: PlaybackOwner =
-            hasRemoteOwner
-            ? .remote(PlaybackDevice(id: "speaker", name: "Speaker", type: "speaker", isActive: true))
-            : .none
-        #expect(player.send(.owner(owner), source: .engineDevices))
-        #expect(player.setTiming(position: 75))
-
-        gate.release()
-        await awaitCapturedEffect(positionRefresh, registered: "local position refresh is suspended")
-        #expect(player.state.currentTrack?.uri == "spotify:track:transferred")
-        #expect(player.state.timing.position == 75, "a local sample cannot overwrite another owner's timing")
-        await player.shutdownForTermination()
     }
 
     @Test(arguments: [false, true])
@@ -1361,353 +736,5 @@ struct PlaybackEventOutcomeTests {
         await local.shutdownForTermination()
         await remote.shutdownForTermination()
         await empty.shutdownForTermination()
-    }
-}
-
-@Suite("Coherent Connect intake")
-struct CoherentConnectIntakeTests {
-    @Test(arguments: [false, true], [false, true])
-    @MainActor
-    func observedListeningHistoryIncludesLocalAndRemoteTrackChanges(local: Bool, aggregated: Bool) async throws {
-        let clock = HarnessClock.sticky()
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), clock: clock))
-        let activeID = local ? "local" : "phone"
-        if !aggregated {
-            let seed = cluster(revision: 1, activeID: activeID, trackURI: "")
-            store.receive(
-                RustConnectClusterState(
-                    revision: 1, sessionGeneration: 1, source: 2, localDeviceID: seed.localDeviceID,
-                    devices: seed.devices, connection: seed.connection, playback: nil, queue: nil),
-                receivedAt: clock.now())
-        }
-        func receive(_ revision: UInt64, _ name: String, playing: Bool = true) throws {
-            let observation = cluster(
-                revision: revision, activeID: activeID, trackURI: "spotify:track:\(name)", isPlaying: playing)
-            if aggregated {
-                store.receive(observation, receivedAt: clock.now())
-            } else {
-                store.receive(try #require(observation.playback), revision: revision, receivedAt: clock.now())
-            }
-        }
-        try receive(1, "startup")
-        #expect(store.history.isEmpty, "Opening the app must not manufacture a listening event")
-        try receive(2, "paused", playing: false)
-        #expect(store.history.isEmpty, "A newly observed paused track is not a play")
-        try receive(3, "heard")
-        #expect(store.history.map(\.uri) == ["spotify:track:heard"])
-        let playedAt = clock.now()
-        #expect(store.history.first?.playedAt == playedAt)
-        #expect(store.shuffleHistoryCache["spotify:track:heard"] == playedAt.timeIntervalSince1970)
-
-        clock.advance(seconds: 60)
-        try receive(4, "heard")
-        try receive(3, "stale")
-        #expect(store.history.first?.playedAt == playedAt, "Timing samples must not rewrite when listening began")
-        #expect(store.history.map(\.uri) == ["spotify:track:heard"])
-        if aggregated {
-            store.receive(
-                cluster(
-                    revision: 5, activeID: activeID, trackURI: "spotify:track:stale-component",
-                    isPlaying: true, playbackRevision: 3),
-                receivedAt: clock.now())
-            #expect(
-                store.history.map(\.uri) == ["spotify:track:heard"], "Aggregate acceptance cannot admit stale playback")
-        }
-
-        let restored = cluster(revision: 6, activeID: activeID, trackURI: "spotify:track:restored", isPlaying: true)
-        store.receive(
-            RustPlaybackEventEnvelope(
-                sequence: 1, receivedAt: clock.now(),
-                event: .resynchronizationRequired(
-                    sessionGeneration: 1,
-                    snapshots: [
-                        RustPlaybackEventEnvelope(sequence: 1, receivedAt: clock.now(), event: .cluster(restored))
-                    ])))
-        #expect(store.history.map(\.uri) == ["spotify:track:heard"], "Recovery replays are not new listening")
-        try receive(7, "later")
-        #expect(store.history.map(\.uri) == ["spotify:track:later", "spotify:track:heard"])
-        #expect(store.history.first?.playedAt == clock.now())
-        await store.shutdownForTermination()
-    }
-
-    @Test(arguments: [false, true], [false, true])
-    @MainActor
-    func observedResumeRecordsTheSameTrackWithoutCommands(local: Bool, aggregated: Bool) async throws {
-        let clock = HarnessClock.sticky()
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), clock: clock))
-        let activeID = local ? "local" : "phone"
-        let uri = "spotify:track:resumed"
-        store.receive(cluster(revision: 1, activeID: activeID, trackURI: uri), receivedAt: clock.now())
-        #expect(store.history.isEmpty, "The initial paused track has not been heard")
-        func receive(_ revision: UInt64, playing: Bool) throws {
-            let observation = cluster(revision: revision, activeID: activeID, trackURI: uri, isPlaying: playing)
-            if aggregated {
-                store.receive(observation, receivedAt: clock.now())
-            } else {
-                store.receive(try #require(observation.playback), revision: revision, receivedAt: clock.now())
-            }
-        }
-
-        clock.advance(seconds: 30)
-        try receive(2, playing: true)
-        let firstPlay = clock.now()
-        #expect(store.history.map(\.uri) == [uri], "An externally started current track belongs in history")
-        #expect(store.history.first?.playedAt == firstPlay)
-        #expect(store.shuffleHistoryCache[uri] == firstPlay.timeIntervalSince1970)
-        clock.advance(seconds: 30)
-        try receive(3, playing: true)
-        try receive(4, playing: false)
-        try receive(3, playing: true)
-        if aggregated {
-            store.receive(
-                cluster(revision: 5, activeID: activeID, trackURI: uri, isPlaying: true, playbackRevision: 3),
-                receivedAt: clock.now())
-        }
-        #expect(store.history.first?.playedAt == firstPlay, "Timing, pause, and stale samples are not new plays")
-        try receive(6, playing: true)
-        let resumedAt = clock.now()
-        #expect(store.history.count == 1, "Resuming updates the existing entry without duplicating it")
-        #expect(store.history.first?.playedAt == resumedAt)
-
-        try receive(7, playing: false)
-        clock.advance(seconds: 30)
-        let restored = cluster(revision: 8, activeID: activeID, trackURI: uri, isPlaying: true)
-        store.receive(
-            RustPlaybackEventEnvelope(
-                sequence: 1, receivedAt: clock.now(),
-                event: .resynchronizationRequired(
-                    sessionGeneration: 1,
-                    snapshots: [
-                        RustPlaybackEventEnvelope(sequence: 1, receivedAt: clock.now(), event: .cluster(restored))
-                    ])))
-        #expect(store.history.first?.playedAt == resumedAt, "The recovery replay itself cannot record listening")
-        try receive(9, playing: true)
-        #expect(
-            store.history.first?.playedAt == (local ? clock.now() : resumedAt),
-            "The first fresh local sample confirms playing after conservative recovery; remote timing stays inert")
-        try receive(10, playing: false)
-        try receive(11, playing: true)
-        #expect(store.history.first?.playedAt == clock.now(), "A fresh resume still records after recovery")
-        await store.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func observedIntentConfirmationWritesListeningHistoryOnce() async {
-        let clock = HarnessClock.sticky()
-        let preferences = HarnessPreferences()
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(send: .succeed), preferences: preferences, clock: clock))
-        store.receive(
-            cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:paused"), receivedAt: clock.now())
-        let target = "spotify:track:confirmed"
-        store.play(uri: target)
-        await expectEventually { store.state.pendingCommands[.transport] == nil }
-        #expect(store.history.isEmpty, "Transport acceptance alone cannot record a play")
-        clock.advance(seconds: 1)
-        store.receive(
-            cluster(revision: 2, activeID: "phone", trackURI: target, isPlaying: true), receivedAt: clock.now())
-        #expect(store.history.map(\.uri) == [target])
-        await store.shutdownForTermination()
-        #expect(preferences.historyWrites.count == 1, "Intent confirmation and its observed transition share one write")
-    }
-
-    @Test
-    @MainActor
-    func settledIntentRevokesOnlyItsUnclaimedPermit() async {
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-        )
-        store.receive(cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a"), receivedAt: Date())
-        let transportID = UUID()
-        let optionsID = UUID()
-        store.send(
-            .commandStarted(
-                PendingPlaybackCommand(id: transportID, kind: .transport, expectedTransport: nil, startedAt: Date())),
-            source: .command
-        )
-        store.send(
-            .commandStarted(
-                PendingPlaybackCommand(id: optionsID, kind: .options, expectedTransport: nil, startedAt: Date())),
-            source: .command
-        )
-        let transport = store.makePlaybackDispatchPermit(commandID: transportID, ifStillWanted: { true })
-        let options = store.makePlaybackDispatchPermit(commandID: optionsID, ifStillWanted: { true })
-        let queue = store.makePlaybackDispatchPermit(ifStillWanted: { true })
-        store.send(.commandFinished(id: transportID, accepted: false, notice: nil), source: .command)
-        #expect(transport?.claim() == false, "an intent settled before dispatch cannot send")
-        #expect(
-            store.makePlaybackDispatchPermit(commandID: transportID, ifStillWanted: { true }) == nil,
-            "a settled intent cannot acquire a fresh permit")
-        #expect(options?.claim() == true, "settling one intent preserves another kind's permit")
-        #expect(queue?.claim() == true, "queue admission is independent of the transport pending slot")
-        store.send(.commandFinished(id: optionsID, accepted: false, notice: nil), source: .command)
-        let queuedAfterSettlement = store.makePlaybackDispatchPermit(ifStillWanted: { true })
-        store.receive(cluster(revision: 2, activeID: "local", trackURI: "spotify:track:a"), receivedAt: Date())
-        #expect(queuedAfterSettlement?.claim() == false, "handoff revokes queue work even without pending transport")
-        await store.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func initializationReturnDoesNotPublishCommandReadiness() async {
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-        )
-        store.accountStore.onPhaseChange?(.connecting)
-        store.accountStore.onPhaseChange?(.ready)
-        #expect(store.phase == .connecting)
-        #expect(!store.canStartPlayback)
-
-        store.receive(
-            RustConnectionState(
-                revision: 1, sessionGeneration: 1, sessionConnected: true, spircReady: true,
-                isActiveDevice: false, resumePending: false, lastError: nil, deviceID: nil
-            ),
-            revision: 1,
-            receivedAt: Date()
-        )
-        #expect(store.phase == .connecting)
-        #expect(!store.canStartPlayback)
-        store.receive(cluster(revision: 2, activeID: "", trackURI: ""), receivedAt: Date())
-        #expect(store.phase == .ready)
-        #expect(store.canStartPlayback)
-        #expect(store.defaultLocalPlaybackDevice?.id == "local")
-        await store.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func aggregateOwnerAndQueueIdentityStayCoherent() async {
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-        )
-        let observation = cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:new")
-        store.receive(observation, receivedAt: Date())
-        #expect(store.trackURI == "spotify:track:new")
-        #expect(store.commandRoute == .remote(from: "local", to: "phone"))
-        #expect(store.state.devices.devices.first(where: \.isActive)?.id == "phone")
-        let (accepted, afterDuplicate) = store.withRuntime { runtime in
-            // Compare the two authoritative states in one intake turn. Unrelated metadata
-            // enrichment may legitimately arrive between separate desktop mailbox entrances.
-            let accepted = runtime.state
-            runtime.receive(
-                cluster(revision: 1, activeID: "local", trackURI: "spotify:track:old"), receivedAt: Date())
-            return (accepted, runtime.state)
-        }
-        #expect(afterDuplicate == accepted)
-        await store.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func staleAggregateDevicesDoNotPersistRemoteIdentity() async {
-        let preferences = HarnessPreferences()
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"), preferences: preferences)
-        )
-        store.receive(cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a"), receivedAt: Date())
-        #expect(await waitUntil { preferences.storedRemoteDeviceID == "phone" })
-
-        let acceptedDevices = store.state.devices
-        store.receive(
-            cluster(
-                revision: 2,
-                activeID: "tablet",
-                trackURI: "spotify:track:b",
-                devicesRevision: 0
-            ),
-            receivedAt: Date()
-        )
-
-        #expect(
-            store.state.devices == acceptedDevices,
-            "a stale devices component does not replace the accepted device snapshot"
-        )
-        #expect(store.lastRemoteDeviceID == "phone", "the rejected component cannot change the saved route")
-        #expect(
-            preferences.storedRemoteDeviceID == "phone",
-            "a stale aggregate devices component does not persist its remote identity"
-        )
-        await store.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func pressureGapReconstructsTruthWithoutRestartingEngine() async {
-        let store = HarnessEnvironment.makePlaybackStore(
-            HarnessEnvironment.make(remote: HarnessRemote(metadataTitle: "Resolved"))
-        )
-        let authoritative = cluster(revision: 1, activeID: "phone", trackURI: "spotify:track:a")
-        store.receive(authoritative, receivedAt: Date())
-        store.send(
-            .commandStarted(
-                PendingPlaybackCommand(
-                    id: UUID(), kind: .transport, expectedTransport: .playing,
-                    expectedTrack: CurrentTrack(uri: "spotify:track:optimistic"), startedAt: Date()
-                )
-            ),
-            source: .command
-        )
-        store.receive(
-            RustPlaybackEventEnvelope(
-                sequence: 2,
-                receivedAt: Date(),
-                event: .resynchronizationRequired(
-                    sessionGeneration: 1,
-                    snapshots: [
-                        RustPlaybackEventEnvelope(sequence: 1, receivedAt: Date(), event: .cluster(authoritative))
-                    ]
-                )
-            )
-        )
-        #expect(store.phase == .ready)
-        #expect(store.state.pendingCommands.isEmpty)
-        #expect(store.engineGeneration == 1)
-        #expect(store.trackURI == "spotify:track:a")
-        #expect(store.commandRoute == .remote(from: "local", to: "phone"))
-        store.receive(cluster(revision: 1, activeID: "local", trackURI: "spotify:track:old"), receivedAt: Date())
-        #expect(store.trackURI == "spotify:track:a")
-        await store.shutdownForTermination()
-    }
-
-    private func cluster(
-        revision: UInt64,
-        activeID: String,
-        trackURI: String,
-        devicesRevision: UInt64? = nil,
-        isPlaying: Bool = false,
-        playbackRevision: UInt64? = nil
-    ) -> RustConnectClusterState {
-        RustConnectClusterState(
-            revision: revision,
-            sessionGeneration: 1,
-            source: 2,
-            localDeviceID: "local",
-            devices: RustDevicesState(
-                revision: devicesRevision ?? revision,
-                sessionGeneration: 1,
-                activeDeviceID: activeID,
-                devices: [
-                    ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer"),
-                    ConnectProtocolDevice(id: "phone", name: "Phone", type: "smartphone"),
-                    ConnectProtocolDevice(id: "tablet", name: "Tablet", type: "tablet"),
-                ]
-            ),
-            connection: RustConnectionState(
-                revision: revision, sessionGeneration: 1, sessionConnected: true, spircReady: true,
-                isActiveDevice: activeID == "local", resumePending: false, lastError: nil, deviceID: "local"
-            ),
-            playback: RustPlaybackState(
-                revision: playbackRevision ?? revision, sessionGeneration: 1, isPlaying: isPlaying,
-                isPaused: !isPlaying,
-                trackURI: trackURI, positionMS: 0, durationMS: 180_000, timestampMS: 0,
-                shuffle: false, repeatTrack: false, repeatContext: false,
-                isActiveDevice: activeID == "local"
-            ),
-            queue: nil
-        )
     }
 }

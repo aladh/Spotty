@@ -26,24 +26,22 @@ public struct ArtworkTint: Equatable, Codable, Sendable {
     }
 }
 
-/// Encoded thumbnails support transport; immutable decoded pixels let native presentation avoid
-/// image decompression on MainActor. The raster is 8-bit premultiplied RGBA in sRGB, tightly packed.
+/// Immutable decoded pixels let native presentation avoid image decompression on MainActor.
+/// The raster is 8-bit premultiplied RGBA in sRGB, tightly packed.
 public struct ArtworkAsset: Codable, Sendable {
-    public let encodedThumbnail: Data
     public let rgbaPixels: Data
     public let pixelWidth: Int
     public let pixelHeight: Int
     public let tint: ArtworkTint?
 
-    public init(encodedThumbnail: Data, rgbaPixels: Data, pixelWidth: Int, pixelHeight: Int, tint: ArtworkTint?) {
-        self.encodedThumbnail = encodedThumbnail
+    public init(rgbaPixels: Data, pixelWidth: Int, pixelHeight: Int, tint: ArtworkTint?) {
         self.rgbaPixels = rgbaPixels
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
         self.tint = tint
     }
 
-    public var byteCount: Int { encodedThumbnail.count + rgbaPixels.count }
+    public var byteCount: Int { rgbaPixels.count }
 }
 
 public enum ArtworkFailure: Error, Equatable, Sendable {

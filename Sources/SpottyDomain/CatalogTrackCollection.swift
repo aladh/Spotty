@@ -27,31 +27,55 @@ public struct CatalogTrackCollection: Sendable {
     /// Enrich matching occurrences without changing membership or collection-owned identity.
     /// A nil result preserves the caller's collection version when no metadata changed.
     public func applyingMetadata(_ entities: [String: CatalogTrackMetadata]) -> CatalogTrackCollection? {
+        guard !entities.isEmpty else { return nil }
         var changed = false
-        let updatedTracks = tracks.map { occurrence in
-            guard let entity = entities[occurrence.uri], entity.uri == occurrence.uri else { return occurrence }
+        // Share the original array until a changed occurrence requires a copy.
+        var updatedTracks = tracks
+        for index in tracks.indices {
+            let occurrence = tracks[index]
+            guard let entity = entities[occurrence.uri], entity.uri == occurrence.uri else { continue }
             let updated = CatalogTrack(
                 id: occurrence.id, uri: occurrence.uri, title: entity.title, artist: entity.artist,
                 album: entity.album, duration: entity.duration, artworkURL: entity.artworkURL,
                 addedAt: occurrence.addedAt, artists: entity.artists, albumItem: entity.albumItem,
                 occurrenceUID: occurrence.occurrenceUID
             ).fillingMissingLinks(from: occurrence)
-            if updated != occurrence { changed = true }
-            return updated
+            if updated != occurrence {
+                updatedTracks[index] = updated
+                changed = true
+            }
         }
-        return changed ? CatalogTrackCollection(tracks: updatedTracks) : nil
+        guard changed else { return nil }
+        // Enrichment preserves collection-owned identity, so it cannot require normalization.
+        var enriched = self
+        enriched.tracks = updatedTracks
+        enriched.version = UUID()
+        return enriched
     }
 
     /// A provider can lack occurrence identity even when its entity URI is known. Keep every
     /// duplicate independently selectable; generated display IDs never create mutation authority.
     /// An ordinal only identifies indistinguishable rows within this source ordering.
     private static func normalizedOccurrences(_ tracks: [CatalogTrack]) -> [CatalogTrack] {
-        let displayCounts = Dictionary(tracks.map { ($0.id, 1) }, uniquingKeysWith: +)
-        let uidCounts = Dictionary(tracks.compactMap(\.occurrenceUID).map { ($0, 1) }, uniquingKeysWith: +)
+        var displayCounts = [String: Int](minimumCapacity: tracks.count)
+        var uidCount = 0
+        for track in tracks {
+            displayCounts[track.id, default: 0] += 1
+            if track.occurrenceUID != nil { uidCount += 1 }
+        }
+        // Count optional UIDs before allocating their table: albums usually have none, while
+        // large playlists avoid repeated growth without constructing temporary row/UID arrays.
+        var uidCounts = [String: Int](minimumCapacity: uidCount)
+        if uidCount > 0 {
+            for track in tracks {
+                if let uid = track.occurrenceUID { uidCounts[uid, default: 0] += 1 }
+            }
+        }
         guard displayCounts.values.contains(where: { $0 > 1 }) || uidCounts.values.contains(where: { $0 > 1 }) else {
             return tracks
         }
-        var usedIDs = Set(tracks.filter { displayCounts[$0.id] == 1 }.map(\.id))
+        var usedIDs = Set<String>(minimumCapacity: tracks.count)
+        for (id, count) in displayCounts where count == 1 { usedIDs.insert(id) }
         var ordinals: [String: Int] = [:]
         return tracks.map { track in
             var displayID = track.id

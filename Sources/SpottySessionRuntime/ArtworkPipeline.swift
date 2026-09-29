@@ -33,6 +33,22 @@ package actor ArtworkPipeline: ArtworkProviding {
         let id: UUID
         let task: Task<Data, any Error>
     }
+    private struct LoaderCleanup {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private enum SourceInput: Sendable {
+        case cached(Data)
+        case loading(Task<Data, any Error>)
+
+        func value() async throws -> Data {
+            switch self {
+            case let .cached(data): return data
+            case let .loading(task): return try await task.value
+            }
+        }
+    }
 
     private let loader: any ArtworkSourceLoading
     private let decoder = ArtworkDecoder()
@@ -47,6 +63,7 @@ package actor ArtworkPipeline: ArtworkProviding {
     private var thumbnails: [Key: Cached<ArtworkAsset>] = [:]
     private var flights: [Key: Flight] = [:]
     private var sourceFlights: [URL: SourceFlight] = [:]
+    private var loaderCleanup: LoaderCleanup?
     private var accessCounter: UInt64 = 0
     private var residentBytes = 0
     private var sourceLoads = 0
@@ -76,6 +93,14 @@ package actor ArtworkPipeline: ArtworkProviding {
         self.maximumPendingRequests = maximumPendingRequests
     }
 
+    deinit {
+        for flight in flights.values {
+            flight.task.cancel()
+            flight.waiters.values.forEach { $0.resume(throwing: CancellationError()) }
+        }
+        sourceFlights.values.forEach { $0.task.cancel() }
+    }
+
     package func activate(accountEpoch: UInt64) {
         guard accountEpoch >= highestEpoch, retiredThrough.map({ accountEpoch > $0 }) ?? true else { return }
         guard activeEpoch != accountEpoch else { return }
@@ -90,7 +115,16 @@ package actor ArtworkPipeline: ArtworkProviding {
         highestEpoch = accountEpoch
         activeEpoch = nil
         clearOwnedBytes()
-        await loader.cancelAll()
+        // A newer account can activate while cleanup is suspended. Record and serialize the
+        // loader boundary before yielding; replacement sources await it outside this actor.
+        let id = UUID()
+        let cleanup = Task { [loader, previous = loaderCleanup?.task] in
+            await previous?.value
+            await loader.cancelAll()
+        }
+        loaderCleanup = LoaderCleanup(id: id, task: cleanup)
+        await cleanup.value
+        if loaderCleanup?.id == id { loaderCleanup = nil }
     }
 
     package func artwork(for request: ArtworkRequest) async throws -> ArtworkAsset {
@@ -122,19 +156,10 @@ package actor ArtworkPipeline: ArtworkProviding {
                     return
                 }
                 let id = UUID()
-                let task = Task { [weak self, limiter] in
-                    guard let self else { return }
-                    let result: Result<ArtworkAsset, any Error>
-                    do {
-                        let asset = try await limiter.withPermit {
-                            try await self.prepare(key, epoch: request.accountEpoch)
-                        }
-                        result = .success(asset)
-                    } catch {
-                        result = .failure(error)
-                    }
-                    await self.complete(key, id: id, epoch: request.accountEpoch, result: result)
-                }
+                let worker = ThumbnailWorker(
+                    owner: self, key: key, flightID: id, epoch: request.accountEpoch, limiter: limiter, decoder: decoder
+                )
+                let task = Task { await worker.run() }
                 flights[key] = Flight(id: id, task: task, waiters: [waiterID: continuation])
             }
         } onCancel: {
@@ -149,45 +174,90 @@ package actor ArtworkPipeline: ArtworkProviding {
             mainThreadDecodes: decoder.mainThreadDecodeCount, cacheHits: cacheHits)
     }
 
-    private func prepare(_ key: Key, epoch: UInt64) async throws -> ArtworkAsset {
-        try Task.checkCancellation()
-        try requireCurrent(epoch)
-        let data = try await source(for: key.url, epoch: epoch)
-        try Task.checkCancellation()
-        try requireCurrent(epoch)
-        thumbnailDecodes += 1
-        let asset = try await decoder.decode(data, maximumPixelDimension: key.pixels)
-        try Task.checkCancellation()
-        try requireCurrent(epoch)
-        return asset
+    private struct ThumbnailWorker: Sendable {
+        weak var owner: ArtworkPipeline?
+        let key: Key
+        let flightID: UUID
+        let epoch: UInt64
+        let limiter: ArtworkWorkLimiter
+        let decoder: ArtworkDecoder
+
+        func run() async {
+            let result: Result<ArtworkAsset, any Error>
+            do {
+                let asset = try await limiter.withPermit {
+                    guard let input = try await owner?.sourceInput(key, flightID: flightID, epoch: epoch) else {
+                        throw CancellationError()
+                    }
+                    // Capacity remains occupied until the real source/decode returns, even if
+                    // callers cancel. Neither wait retains the pipeline or its cached bytes.
+                    let data = try await input.value()
+                    guard try await owner?.admitDecode(key, flightID: flightID, epoch: epoch) == true else {
+                        throw CancellationError()
+                    }
+                    let asset = try await decoder.decode(data, maximumPixelDimension: key.pixels)
+                    try Task.checkCancellation()
+                    return asset
+                }
+                result = .success(asset)
+            } catch {
+                result = .failure(error)
+            }
+            await owner?.complete(key, id: flightID, epoch: epoch, result: result)
+        }
     }
 
-    private func source(for url: URL, epoch: UInt64) async throws -> Data {
+    private func requireFlight(_ key: Key, flightID: UUID, epoch: UInt64) throws {
+        try Task.checkCancellation()
         try requireCurrent(epoch)
+        guard flights[key]?.id == flightID else { throw CancellationError() }
+    }
+
+    private func admitDecode(_ key: Key, flightID: UUID, epoch: UInt64) throws -> Bool {
+        try requireFlight(key, flightID: flightID, epoch: epoch)
+        thumbnailDecodes += 1
+        return true
+    }
+
+    private func sourceInput(_ key: Key, flightID: UUID, epoch: UInt64) throws -> SourceInput {
+        try requireFlight(key, flightID: flightID, epoch: epoch)
+        let url = key.url
         if var cached = sources[url] {
             cached.lastAccess = tick()
             sources[url] = cached
-            return cached.value
+            return .cached(cached.value)
         }
-        if let flight = sourceFlights[url] { return try await flight.task.value }
+        if let flight = sourceFlights[url] { return .loading(flight.task) }
         let id = UUID()
         sourceLoads += 1
-        let task = Task { [loader] in try await loader.load(url) }
-        sourceFlights[url] = SourceFlight(id: id, task: task)
-        do {
-            let data = try await task.value
-            try requireCurrent(epoch)
-            guard sourceFlights[url]?.id == id else { throw CancellationError() }
-            sourceFlights[url] = nil
-            if data.count <= maximumCacheBytes {
-                sources[url] = Cached(value: data, bytes: data.count, lastAccess: tick())
-                residentBytes += data.count
-                trimCache()
+        let task = Task { [weak self, loader, cleanup = loaderCleanup?.task] in
+            let result: Result<Data, any Error>
+            do {
+                await cleanup?.value
+                guard await self?.admitsSource(url, id: id, epoch: epoch) == true else { throw CancellationError() }
+                result = .success(try await loader.load(url))
+            } catch {
+                result = .failure(error)
             }
-            return data
-        } catch {
-            if sourceFlights[url]?.id == id { sourceFlights[url] = nil }
-            throw error
+            await self?.finishSource(url, id: id, epoch: epoch, result: result)
+            return try result.get()
+        }
+        sourceFlights[url] = SourceFlight(id: id, task: task)
+        return .loading(task)
+    }
+
+    private func admitsSource(_ url: URL, id: UUID, epoch: UInt64) -> Bool {
+        !Task.isCancelled && activeEpoch == epoch && sourceFlights[url]?.id == id
+    }
+
+    private func finishSource(_ url: URL, id: UUID, epoch: UInt64, result: Result<Data, any Error>) {
+        guard sourceFlights[url]?.id == id else { return }
+        sourceFlights[url] = nil
+        guard !Task.isCancelled, activeEpoch == epoch else { return }
+        if case let .success(data) = result, data.count <= maximumCacheBytes {
+            sources[url] = Cached(value: data, bytes: data.count, lastAccess: tick())
+            residentBytes += data.count
+            trimCache()
         }
     }
 
@@ -212,6 +282,11 @@ package actor ArtworkPipeline: ArtworkProviding {
         if flight.waiters.isEmpty {
             flights[key] = nil
             flight.task.cancel()
+            // A size variant can leave while another still needs the same source. Once the
+            // last variant leaves, propagate cancellation to the otherwise unstructured fetch.
+            if !flights.keys.contains(where: { $0.url == key.url }) {
+                sourceFlights.removeValue(forKey: key.url)?.task.cancel()
+            }
         } else {
             flights[key] = flight
         }

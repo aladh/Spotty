@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import AppKit
 import SpottyDomain
 import SwiftUI
@@ -155,8 +157,8 @@ struct CatalogSurfaceContractChecks {
                     id: "artist", uri: "spotify:artist:artist", title: "Artist", subtitle: "", artworkURL: nil,
                     kind: .artist)
                 let release = collection
-                provider.onArtistDiscographySnapshot = { _ in .init(name: "Artist", releases: [release]) }
-                provider.onAlbumSnapshot = { _ in .init(tracks: [Self.track], releaseDate: "2026") }
+                provider.onArtistDiscography = { _ in .init(name: "Artist", releases: [release]) }
+                provider.onAlbum = { _ in .init(tracks: [Self.track], releaseDate: "2026") }
                 let albums = player.catalog.discographyStore
                 albums.prepare(artistURI: artist.uri)
                 await albums.artist.load(artist)

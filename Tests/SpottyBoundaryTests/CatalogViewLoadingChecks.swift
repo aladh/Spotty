@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import AppKit
 import SwiftUI
 import Testing
@@ -9,10 +11,53 @@ import SpottyRuntimeContracts
 @Suite("Catalog view loading", .serialized)
 @MainActor
 struct CatalogViewLoadingTests {
+    @Test
+    func coalescedReconnectReadmitsTheVisibleDetailWithoutChangingPlaybackReadiness() async throws {
+        let provider = HarnessCatalog()
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
+        player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+        }
+        let selected = CatalogItem(
+            id: "visible", uri: "spotify:album:visible", title: "Visible", subtitle: "Artist",
+            artworkURL: nil, kind: .album)
+        let store = player.catalog.albumStore
+        let host = NSHostingView(rootView: CatalogDetailLoadProbe(player: player, selected: selected))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.contentView = host
+        defer {
+            window.contentView = nil
+            Task { await player.shutdownForTermination() }
+        }
+        host.layoutSubtreeIfNeeded()
+        try await requireEventually { provider.albumRequestCount == 1 && !store.isLoading }
+        let original = player.catalogSession.snapshot
+
+        // The desktop receives only the final ready publication. Its Boolean did not change,
+        // but the catalog lifetime did, so the visible page needs new read freshness.
+        player.withRuntime {
+            $0.accountStore.publishPhase(.connecting)
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+        }
+        try #require(player.isConnected && player.catalogSession.isAvailable)
+        try #require(player.catalogSession.snapshot != original)
+        host.layoutSubtreeIfNeeded()
+
+        try await requireEventually(description: "visible detail reloads after a coalesced catalog reconnect") {
+            provider.albumRequestCount == 2 && !store.isLoading
+        }
+        #expect(!store.isShowingCachedContent)
+    }
+
     @Test(arguments: [false, true])
     func retainedRetryCannotLoadIntoAReplacementAccountOrDisconnectedSelection(replaceAccount: Bool) async throws {
         let provider = HarnessCatalog()
-        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: [], releaseDate: "2026") }
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
         player.withRuntime {
             $0.accountStore.publishPhase(.ready)
@@ -38,6 +83,9 @@ struct CatalogViewLoadingTests {
         player.withRuntime {
             if replaceAccount {
                 $0.accountStore.advanceEpoch()
+                // The replacement account must establish catalog readiness independently of
+                // the reducer's playback projection before exercising the retained old retry.
+                $0.accountStore.publishPhase(.ready)
                 _ = $0.send(.reset(session: .ready), source: .account)
             } else {
                 $0.accountStore.publishPhase(.failed("offline"))
@@ -182,6 +230,18 @@ struct CatalogViewLoadingTests {
         case .artists: provider.libraryArtistRequestCount
         case .liked: provider.libraryTrackRequestCount
         default: 0
+        }
+    }
+}
+
+/// Keep observation inside a real View body, matching the shipping detail views.
+private struct CatalogDetailLoadProbe: View {
+    let player: PlaybackStore
+    let selected: CatalogItem
+
+    var body: some View {
+        Color.clear.catalogTask(id: selected.uri, playback: CatalogPlaybackAccess(player: player)) {
+            await player.catalog.albumStore.load(selected)
         }
     }
 }

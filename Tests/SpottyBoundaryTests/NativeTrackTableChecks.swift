@@ -1,5 +1,8 @@
+@testable import SpottyRuntimeTestSupport
 import AppKit
+import SpottyTestSupport
 import SpottyDomain
+import SpottyRuntimeContracts
 import SwiftUI
 import Testing
 @testable import SpottyCore
@@ -8,6 +11,150 @@ import Testing
 @Suite("Owned native track table")
 @MainActor
 struct NativeTrackTableChecks {
+    @Test(arguments: [TrackTableVariant.catalog, .playlist, .album, .artist, .search])
+    func metadataLabelsPreserveFormattingAndUpdateWithoutReplacingRows(variant: TrackTableVariant) throws {
+        let fixture = Fixture(variant: variant)
+        func row(duration: TimeInterval) -> CatalogTrack {
+            CatalogTrack(
+                id: "one", uri: "spotify:track:one", title: "One", artist: "Artist", album: "Album",
+                duration: duration, artworkURL: nil, addedAt: nil)
+        }
+        fixture.update([row(duration: 180.6)])
+        let table = fixture.container.table
+        let column = table.column(withIdentifier: NSUserInterfaceItemIdentifier("duration"))
+        let duration = try #require(table.view(atColumn: column, row: 0, makeIfNecessary: true) as? NativeTrackTextCell)
+        let roundsSeconds = variant == .playlist || variant == .search
+        #expect(duration.label.stringValue == (roundsSeconds ? "3:01" : "3:00"))
+        #expect(duration.label.alignment == (variant == .catalog ? .left : .center))
+        #expect(!duration.label.acceptsFirstResponder)
+        #expect(duration.label.accessibilityRole() == .staticText)
+        #expect(duration.label.textColor == NSColor(SpottyPalette.dataText))
+
+        fixture.state.selection = ["one"]
+        fixture.update([row(duration: 241.6)])
+        let updated = try #require(table.view(atColumn: column, row: 0, makeIfNecessary: true) as? NativeTrackTextCell)
+        #expect(updated.label.stringValue == (roundsSeconds ? "4:02" : "4:01"))
+        #expect(table.selectedRowIndexes == [0])
+        #expect(updated.label.textColor == NSColor(SpottyPalette.dataText))
+    }
+
+    @Test func metadataReuseClearsMissingPlayCountsAndUnavailableStyling() throws {
+        let fixture = Fixture(variant: .artist)
+        let row = track(id: "one", title: "One")
+        fixture.artistTracks = [row.uri: CatalogArtistPopularTrack(track: row, playCount: 12_345, isPlayable: false)]
+        fixture.update([row])
+        let table = fixture.container.table
+        let column = table.column(withIdentifier: NSUserInterfaceItemIdentifier("playCount"))
+        let cell = try #require(table.view(atColumn: column, row: 0, makeIfNecessary: true) as? NativeTrackTextCell)
+        #expect(cell.label.stringValue == 12_345.formatted())
+        #expect(cell.label.accessibilityLabel() == "\(12_345.formatted()) plays")
+        #expect(cell.label.alphaValue == 0.45)
+
+        fixture.artistTracks = [:]
+        fixture.update([row])
+        #expect(table.view(atColumn: column, row: 0, makeIfNecessary: false) === cell)
+        #expect(cell.label.stringValue.isEmpty)
+        #expect(cell.label.accessibilityLabel() == nil)
+        #expect(!cell.label.isAccessibilityElement())
+        #expect(cell.label.alphaValue == 1)
+    }
+
+    @Test func retainedRowsReconcileSelectionAndRepairNativeDrift() {
+        let fixture = Fixture()
+        let rows = TrackTableDisplayCache(
+            CatalogTrackCollection(tracks: [
+                track(id: "first", title: "A"), track(id: "second", title: "B"),
+            ])
+        ).rows
+        let table = fixture.container.table
+        fixture.state.selection = ["first"]
+        fixture.updateRows(rows)
+        #expect(table.selectedRowIndexes == [0])
+        fixture.state.selection = ["second"]
+        fixture.updateRows(rows)
+        #expect(table.selectedRowIndexes == [1])
+
+        // A rejected native write leaves the requested value unchanged; it still needs repair.
+        fixture.updateRows(rows, selection: .constant(["second"]))
+        table.deselectAll(nil)
+        #expect(table.selectedRowIndexes.isEmpty)
+        fixture.updateRows(rows, selection: .constant(["second"]))
+        #expect(table.selectedRowIndexes == [1])
+        fixture.updateRows(Array(rows.reversed()), selection: .constant(["second"]))
+        #expect(table.selectedRowIndexes == [0])
+        fixture.updateRows([rows[0]], selection: .constant(["second"]))
+        #expect(table.selectedRowIndexes.isEmpty)
+        fixture.state.selection = []
+        fixture.updateRows(rows)
+        #expect(table.selectedRowIndexes.isEmpty)
+    }
+
+    @Test func retainedRowsRepairNativeRowCount() {
+        let fixture = Fixture()
+        let rows = TrackTableDisplayCache(
+            CatalogTrackCollection(tracks: [
+                track(id: "first", title: "A"), track(id: "second", title: "B"),
+            ])
+        ).rows
+        fixture.state.selection = ["second"]
+        fixture.updateRows(rows)
+        let table = fixture.container.table
+        table.dataSource = nil
+        table.reloadData()
+        #expect(table.numberOfRows == 0)
+        table.dataSource = fixture.coordinator
+        fixture.updateRows(rows)
+        #expect(table.numberOfRows == 2)
+        #expect(table.selectedRowIndexes == [1])
+    }
+
+    @Test func retainedAlbumRowsRefreshPlayCountOverrides() throws {
+        let fixture = Fixture(variant: .album)
+        let track = track(id: "one", title: "One")
+        let rows = TrackTableDisplayCache(CatalogTrackCollection(tracks: [track])).rows
+        fixture.artistTracks = [track.uri: CatalogArtistPopularTrack(track: track, playCount: 123, isPlayable: true)]
+        fixture.playCounts = [track.uri: 456]
+        fixture.updateRows(rows)
+        let table = fixture.container.table
+        let column = table.column(withIdentifier: NSUserInterfaceItemIdentifier("playCount"))
+        let cell = try #require(table.view(atColumn: column, row: 0, makeIfNecessary: true) as? NativeTrackTextCell)
+        #expect(cell.label.stringValue == "456")
+        fixture.playCounts = [:]
+        fixture.updateRows(rows)
+        #expect(table.view(atColumn: column, row: 0, makeIfNecessary: false) === cell)
+        #expect(cell.label.stringValue == "123")
+        fixture.artistTracks = [:]
+        fixture.updateRows(rows)
+        #expect(cell.label.stringValue.isEmpty)
+        #expect(cell.label.accessibilityLabel() == nil)
+    }
+
+    @Test func removingAuxiliaryContentReleasesItsCapturedState() async throws {
+        let fixture = Fixture(variant: .artist)
+        var lifetime: NSObject? = NSObject()
+        weak let released = lifetime
+        fixture.hero = AnyView(RetainedContent(lifetime: lifetime!))
+        fixture.compact = AnyView(RetainedContent(lifetime: lifetime!))
+        fixture.footer = AnyView(RetainedContent(lifetime: lifetime!))
+        lifetime = nil
+        fixture.update([])
+        #expect(released != nil)
+
+        fixture.hero = nil
+        fixture.compact = nil
+        fixture.footer = nil
+        fixture.update([])
+
+        try await requireEventually(description: "removed headers and footer release their view state") {
+            released == nil
+        }
+    }
+
+    private struct RetainedContent: View {
+        let lifetime: NSObject
+        var body: some View { Color.clear.id(ObjectIdentifier(lifetime)).frame(height: 200) }
+    }
+
     @Test(arguments: [TrackTableVariant.playlist, .album, .artist, .search])
     func selectionFollowsDuplicateOccurrenceAcrossSortAndMetadataUpdates(variant: TrackTableVariant) {
         let fixture = Fixture(variant: variant)
@@ -232,6 +379,8 @@ struct NativeTrackTableChecks {
         var hero: AnyView?
         var compact: AnyView?
         var footer: AnyView?
+        var artistTracks: [String: CatalogArtistPopularTrack] = [:]
+        var playCounts: [String: Int64] = [:]
 
         init(variant: TrackTableVariant = .playlist) {
             self.variant = variant
@@ -242,20 +391,27 @@ struct NativeTrackTableChecks {
         }
 
         func update(_ tracks: [CatalogTrack]) {
-            coordinator.update(content(tracks), in: container)
+            updateRows(TrackTableDisplayCache(CatalogTrackCollection(tracks: tracks)).rows)
         }
 
-        private func content(_ tracks: [CatalogTrack]) -> NativeTrackTable {
+        func updateRows(_ rows: [TrackTableRow], selection: Binding<Set<CatalogTrack.ID>>? = nil) {
+            coordinator.update(content(rows, selection: selection), in: container)
+        }
+
+        private func content(_ rows: [TrackTableRow], selection: Binding<Set<CatalogTrack.ID>>? = nil)
+            -> NativeTrackTable
+        {
             NativeTrackTable(
-                rows: TrackTableDisplayCache(CatalogTrackCollection(tracks: tracks)).rows,
+                rows: rows,
                 variant: variant, playback: CatalogPlaybackAccess(player: player),
                 searchQuery: "",
-                selection: Binding(get: { [state] in state.selection }, set: { [state] in state.selection = $0 }),
+                selection: selection
+                    ?? Binding(get: { [state] in state.selection }, set: { [state] in state.selection = $0 }),
                 sortOrder: Binding(get: { [state] in state.sortOrder }, set: { [state] in state.sortOrder = $0 }),
                 scrollOffset: Binding(
                     get: { [state] in state.scrollOffset }, set: { [state] in state.scrollOffset = $0 }),
                 playlistActions: actions, onSelect: nil, detailHeader: hero, compactDetailHeader: compact,
-                detailFooter: footer
+                detailFooter: footer, artistTracks: artistTracks, playCounts: playCounts
             )
         }
     }

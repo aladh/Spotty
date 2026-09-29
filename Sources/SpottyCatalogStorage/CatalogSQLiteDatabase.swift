@@ -148,6 +148,16 @@ final class CatalogSQLiteDatabase {
     }
 
     func rows(_ sql: String, _ values: [CatalogSQLiteValue] = []) throws -> [[CatalogSQLiteValue]] {
+        try statement(for: sql).rows(values)
+    }
+
+    func forEachRow(
+        _ sql: String, _ values: [CatalogSQLiteValue], _ consume: ([CatalogSQLiteValue]) throws -> Void
+    ) throws {
+        try statement(for: sql).forEachRow(values, consume)
+    }
+
+    private func statement(for sql: String) throws -> CatalogSQLiteStatement {
         guard let connection else { throw CatalogStorageError.retired }
         let statement: CatalogSQLiteStatement
         if let cached = statements[sql] {
@@ -158,7 +168,7 @@ final class CatalogSQLiteDatabase {
             // cannot turn dynamically generated SQL into an unbounded connection cache.
             if statements.count < 64 { statements[sql] = statement }
         }
-        return try statement.rows(values)
+        return statement
     }
 
     private func closeConnection() {

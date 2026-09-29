@@ -1,0 +1,11 @@
+---
+id: test-support-privileged-import
+valid:
+- import SpottySessionRuntime
+- import SpottyRuntimeContracts
+- import Testing
+- "// @testable import SpottySessionRuntime"
+invalid:
+- '@testable import SpottySessionRuntime'
+- '@testable import SpottyGateway'
+- '@testable import SpottyTestSupport'

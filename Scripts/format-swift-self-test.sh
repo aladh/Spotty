@@ -146,7 +146,10 @@ EOF
     print '# ignored' > "$tmp/ignored.md"
     print 'echo ignored' > "$tmp/ignored.sh"
     print 'int ignored;' > "$tmp/ignored.h"
-    print 'let skipped = UNFORMATTED' > "$tmp/untracked.swift"
+    print 'let newSource = UNFORMATTED' > "$tmp/untracked.swift"
+    print 'let deleted = UNFORMATTED' > "$tmp/deleted.swift"
+    print 'let skipped = UNFORMATTED' > "$tmp/scratch.ignored.swift"
+    print '.build/\n*.ignored.swift' > "$tmp/.gitignore"
     mkdir -p "$tmp/.build/generated"
     print 'let generated = UNFORMATTED' > "$tmp/.build/generated/Generated.swift"
 
@@ -155,9 +158,11 @@ EOF
         Sources/App.swift \
         Scripts/tool.swift \
         "file with spaces.swift" \
+        deleted.swift .gitignore \
         ignored.rs ignored.json ignored.md ignored.sh ignored.h \
         .swift-format \
         Scripts/format-swift.sh
+    rm "$tmp/deleted.swift"
 
     export SPOTTY_FAKE_FORMAT_LOG="$log"
     export PATH="$fake_bin:$PATH"
@@ -180,17 +185,22 @@ EOF
     fi
 
     "$script" --write >/dev/null
-    if grep -q UNFORMATTED "$tmp/Package.swift" "$tmp/Sources/App.swift" "$tmp/Scripts/tool.swift" "$tmp/file with spaces.swift"; then
-        print -u2 "write mode did not format tracked Swift sources"
+    if grep -q UNFORMATTED "$tmp/Package.swift" "$tmp/Sources/App.swift" "$tmp/Scripts/tool.swift" "$tmp/file with spaces.swift" "$tmp/untracked.swift"; then
+        print -u2 "write mode did not format repository Swift sources"
         exit 1
     fi
-    for protected in "$tmp/untracked.swift" "$tmp/.build/generated/Generated.swift"; do
+    for protected in "$tmp/scratch.ignored.swift" "$tmp/.build/generated/Generated.swift"; do
         if ! grep -q UNFORMATTED "$protected"; then
-            print -u2 "write mode mutated an untracked or generated Swift file: $protected"
+            print -u2 "write mode mutated an ignored Swift file: $protected"
             exit 1
         fi
     done
     "$script" --check >/dev/null
+    print 'let newSource = UNFORMATTED' > "$tmp/untracked.swift"
+    if "$script" --check >/dev/null 2> "$tmp/untracked.err"; then
+        print -u2 "expected --check to reject formatting drift in a new file before staging"
+        exit 1
+    fi
 
     if ! grep -F -q 'Package.swift' "$log"; then
         print -u2 "tracked Package.swift was not passed to the formatter"
@@ -208,7 +218,7 @@ EOF
         print -u2 "tracked Swift path with spaces was not passed to the formatter"
         exit 1
     fi
-    if grep -E -q 'untracked\.swift|\.build/|ignored\.(rs|json|md|sh|h)' "$log"; then
+    if grep -E -q 'deleted\.swift|scratch\.ignored\.swift|\.build/|ignored\.(rs|json|md|sh|h)' "$log"; then
         print -u2 "formatter received an excluded path:"
         cat "$log" >&2
         exit 1
@@ -222,11 +232,11 @@ EOF
     git -C "$empty" add .swift-format Scripts/format-swift.sh
     if PATH="$fake_bin:$PATH" SPOTTY_FAKE_FORMAT_LOG="$log" "$empty/Scripts/format-swift.sh" --check \
         >/dev/null 2> "$tmp/empty.err"; then
-        print -u2 "expected --check to fail when no tracked Swift files exist"
+        print -u2 "expected --check to fail when no repository Swift files exist"
         exit 1
     fi
-    if ! grep -q 'No Git-tracked Swift sources were found' "$tmp/empty.err"; then
-        print -u2 "empty tracked set did not fail clearly:"
+    if ! grep -q 'No repository Swift sources were found' "$tmp/empty.err"; then
+        print -u2 "empty source set did not fail clearly:"
         cat "$tmp/empty.err" >&2
         exit 1
     fi

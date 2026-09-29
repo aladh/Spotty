@@ -280,6 +280,13 @@ public nonisolated final class EngineEventFanout: Sendable {
         state = Mutex(State(clock: clock))
     }
 
+    deinit {
+        // Streams hold their mailboxes independently of this source. Dropping the source must
+        // wake suspended readers and discard observations that no longer have a live owner.
+        let mailboxes = state.withLock { Array($0.subscribers.values) }
+        for mailbox in mailboxes { mailbox.finish() }
+    }
+
     /// Install the mailbox before registration can publish synchronous snapshots. Lifecycle
     /// callbacks, continuations, and delivery always run outside the fan-out lock.
     public func events(
@@ -684,7 +691,9 @@ private final class SubscriberLease: Sendable {
     }
 
     func next() async -> RustPlaybackEventEnvelope? {
-        await mailbox.next()
+        let envelope = await mailbox.next()
+        if envelope == nil { cancel() }
+        return envelope
     }
 
     func cancel() {

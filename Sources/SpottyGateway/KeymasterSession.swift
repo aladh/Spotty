@@ -24,7 +24,8 @@ actor KeymasterSession {
 
     /// Async listeners waiting for a terminal grant revocation. The stream is instance-scoped:
     /// tests can construct an isolated session without ever notifying the live application.
-    private nonisolated let revocationContinuations = Mutex<[UUID: AsyncStream<Void>.Continuation]>([:])
+    private nonisolated let revocationContinuations = Mutex<[UUID: AsyncStream<AccountGrantRevocation>.Continuation]>(
+        [:])
 
     /// Injected so the rotation policy can be tested without a network. The real one is
     /// `KeymasterAuth.refresh`.
@@ -72,8 +73,11 @@ actor KeymasterSession {
     /// A replacement grant is kept private until its durable save succeeds. Reads that could
     /// refresh or expose credentials wait for this bounded worker operation rather than racing a
     /// newer sign-in with the previous grant.
-    private var adoptionInFlight: Int?
-    private var adoptionCompletion: KeymasterPersistenceReceipt<Void>?
+    private struct Adoption: Sendable {
+        let generation: Int
+        let completion = KeymasterPersistenceReceipt<Void>()
+    }
+    private var adoption: Adoption?
     private var hasLoadedStore = false
     /// Concurrent first callers join this rather than observing `hasLoadedStore` before the
     /// owned worker read has assigned `tokens`. The task includes the generation-guarded
@@ -84,6 +88,9 @@ actor KeymasterSession {
     /// cleared or replaced must not write what it eventually returns — that would put the
     /// signed-out account's refresh token straight back into the session file.
     private var generation = 0
+    private var pendingRevocation: AccountGrantRevocation?
+
+    func isCurrent(_ revocation: AccountGrantRevocation) -> Bool { pendingRevocation == revocation }
 
     var credentialGeneration: Int { generation }
 
@@ -113,11 +120,16 @@ actor KeymasterSession {
         self.cookieCleanup = cookieCleanup
     }
 
+    deinit {
+        let continuations = revocationContinuations.withLock { Array($0.values) }
+        for continuation in continuations { continuation.finish() }
+    }
+
     /// Fires once when a refresh comes back `invalid_grant`. AsyncSequence keeps account
     /// lifecycle on the same structured-concurrency model as the rest of the application.
-    nonisolated func grantRevocations() -> AsyncStream<Void> {
+    nonisolated func grantRevocations() -> AsyncStream<AccountGrantRevocation> {
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             revocationContinuations.withLock { $0[id] = continuation }
             continuation.onTermination = { [weak self] _ in
                 self?.revocationContinuations.withLock { $0[id] = nil }
@@ -126,8 +138,10 @@ actor KeymasterSession {
     }
 
     private func announceRevocation() {
+        let revocation = AccountGrantRevocation()
+        pendingRevocation = revocation
         let continuations = revocationContinuations.withLock { Array($0.values) }
-        for continuation in continuations { continuation.yield(()) }
+        for continuation in continuations { continuation.yield(revocation) }
     }
 
     /// Whether a grant has been completed on this machine.
@@ -276,14 +290,13 @@ actor KeymasterSession {
     func adopt(_ newTokens: KeymasterTokens) async throws {
         hasLoadedStore = true
         supersedeRefresh()
-        let startedAt = generation
-        adoptionInFlight = startedAt
-        let completion = KeymasterPersistenceReceipt<Void>()
-        adoptionCompletion = completion
+        let pending = Adoption(generation: generation)
+        adoption = pending
         var committed = newTokens
         committed.requiresReauthentication = false
         defer {
-            completion.resolve(())
+            // Resolve this attempt even if a later adoption now occupies the slot.
+            pending.completion.resolve(())
         }
         do {
             let receipt = persistence.submitSave(committed)
@@ -292,29 +305,30 @@ actor KeymasterSession {
         } catch {
             // A newer grant or sign-out owns persistence now. The worker serializes those writes
             // after this one, so this stale failure must not replace their outcome or reach UI.
-            guard generation == startedAt, adoptionInFlight == startedAt else { return }
-            adoptionInFlight = nil
-            adoptionCompletion = nil
+            guard generation == pending.generation, adoption?.generation == pending.generation else { return }
+            adoption = nil
             throw error
         }
-        guard generation == startedAt, adoptionInFlight == startedAt else { return }
+        guard generation == pending.generation, adoption?.generation == pending.generation else { return }
         // Replace the previous grant only after the durable save. Failed adoption also preserves
         // a completed rotation awaiting persistence, so rollback cannot resurrect a spent token.
         grant = .usable(committed)
+        // Starting a replacement is not enough: if its save failed, the earlier refusal must
+        // still reach the runtime. Accepted adoption is joined before notification validation.
+        pendingRevocation = nil
         loadFailure = nil
         pendingRemovalGeneration = nil
-        adoptionInFlight = nil
-        adoptionCompletion = nil
+        adoption = nil
     }
 
     /// Fences the grant immediately and reports whether its durable removal succeeded.
     func clear() async -> Bool {
         hasLoadedStore = true
+        pendingRevocation = nil
         supersedeRefresh()
-        adoptionInFlight = nil
-        let supersededAdoption = adoptionCompletion
-        adoptionCompletion = nil
-        supersededAdoption?.resolve(())
+        let supersededAdoption = adoption
+        adoption = nil
+        supersededAdoption?.completion.resolve(())
         let expectedGeneration = generation
         grant = nil
         loadFailure = nil
@@ -413,6 +427,10 @@ actor KeymasterSession {
     }
 
     private func refreshed(from current: KeymasterTokens) async throws -> KeymasterTokens {
+        // Check at the owner after grant visibility/adoption waits, not only at HTTP callers.
+        // Once admitted, the shared task must still persist any returned rotation even if
+        // this caller later cancels; cancelling it could lose the only usable refresh token.
+        try Task.checkCancellation()
         // A second caller during a refresh joins the one already running. Two concurrent
         // refreshes would each spend the same rotating token, and the loser's replacement
         // would be the one Spotify has already invalidated. The in-flight task is the
@@ -530,8 +548,8 @@ actor KeymasterSession {
     /// worker operation before its first await, so this only waits for the receipt already owned
     /// by the actor and cannot let a token refresh race an unpersisted grant.
     private func waitForAdoption() async {
-        while let completion = adoptionCompletion {
-            await completion.value()
+        while let pending = adoption {
+            await pending.completion.value()
         }
     }
 }

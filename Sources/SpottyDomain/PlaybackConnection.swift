@@ -74,19 +74,3 @@ public func connectionPlaybackOwner(
         }
     return .uncertain(candidate)
 }
-
-/// Process-lifetime gate shared by termination handling and command admission.
-public struct PlaybackTerminationGate: Sendable {
-    public private(set) var hasBegun = false
-
-    public init() {}
-
-    @discardableResult
-    public mutating func begin() -> Bool {
-        guard !hasBegun else { return false }
-        hasBegun = true
-        return true
-    }
-
-    public var allowsCommands: Bool { !hasBegun }
-}

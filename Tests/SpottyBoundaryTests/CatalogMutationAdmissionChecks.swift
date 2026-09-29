@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import SpottyRuntimeContracts
 import Testing
@@ -32,7 +34,7 @@ struct CatalogMutationAdmissionTests {
             runtime.accountStore.publishPhase(.ready)
             return runtime
         }
-        let context = PlaylistMutationContext(accountEpoch: 1)
+        let context = PlaylistMutationContext(session: SessionRuntimeActor.sync { runtime.catalogSession })
         let mutation = Task {
             do {
                 if removal {
@@ -69,6 +71,81 @@ struct CatalogMutationAdmissionTests {
             #expect(error is CancellationError)
         }
         #expect(await transport.operations.count == readsBefore)
+    }
+
+    @Test(arguments: [false, true])
+    func reconnectFencesAValidatedMutationBeforeDispatch(removal: Bool) async throws {
+        let transport = PlaylistAdmissionTransport()
+        let accesses = HarnessCounters()
+        let credentials = HarnessClock.parked()
+        defer { credentials.releaseAll() }
+        let api = mutationAdmissionAPI(transport: transport.send) {
+            accesses.record("token")
+            if accesses.count("token") == 3 { try await credentials.sleep(seconds: 1) }
+            return "still-valid-original-grant"
+        }
+        let environment = HarnessEnvironment.make(playlistMutations: SpotifyCatalogGateway(api: api))
+        let runtime = SessionRuntimeActor.sync {
+            let runtime = PlaybackSessionRuntime(environment: environment)
+            runtime.accountStore.publishPhase(.ready)
+            return runtime
+        }
+        let context = PlaylistMutationContext(session: SessionRuntimeActor.sync { runtime.catalogSession })
+        let mutation = Task {
+            do {
+                if removal {
+                    try await environment.playlistMutations.removeFromPlaylist(
+                        playlistId: "owned", uids: ["known"], context: context)
+                } else {
+                    try await environment.playlistMutations.addToPlaylist(
+                        playlistId: "owned", trackUris: ["spotify:track:new"], context: context)
+                }
+                Issue.record("A reconnect must retire validation performed before the unavailable interval")
+            } catch {
+                #expect(error is CancellationError)
+            }
+        }
+        try await requireEventually { credentials.waiterCount == 1 }
+        SessionRuntimeActor.sync {
+            runtime.accountStore.publishPhase(.connecting)
+            runtime.accountStore.publishPhase(.ready)
+        }
+        credentials.releaseAll()
+        await mutation.value
+        #expect(await transport.mutations.isEmpty)
+        let readsBefore = await transport.operations.count
+        await #expect(throws: CancellationError.self) {
+            try await environment.playlistMutations.addToPlaylist(
+                playlistId: "owned", trackUris: ["spotify:track:old-menu"], context: context)
+        }
+        #expect(await transport.operations.count == readsBefore, "A deferred stale action fails before any wire read")
+        let current = PlaylistMutationContext(session: SessionRuntimeActor.sync { runtime.catalogSession })
+        try await environment.playlistMutations.addToPlaylist(
+            playlistId: "owned", trackUris: ["spotify:track:current-menu"], context: current)
+        #expect(await transport.mutations == ["addToPlaylist"], "New-session work can obtain fresh validation")
+        await runtime.shutdownForTermination()
+    }
+
+    @Test
+    func lateReadinessCannotReopenCatalogAfterCredentialRejection() async throws {
+        let mutations = HarnessPlaylistMutations()
+        let environment = HarnessEnvironment.make(playlistMutations: mutations)
+        let runtime = SessionRuntimeActor.sync {
+            let runtime = PlaybackSessionRuntime(environment: environment)
+            runtime.accountStore.publishPhase(.ready)
+            return runtime
+        }
+        let context = PlaylistMutationContext(session: SessionRuntimeActor.sync { runtime.catalogSession })
+        SessionRuntimeActor.sync {
+            runtime.accountStore.markCredentialRejection()
+            runtime.accountStore.receiveEngineConnection(.ready)
+        }
+        #expect(!SessionRuntimeActor.sync { runtime.catalogSession.isAvailable })
+        await #expect(throws: CancellationError.self) {
+            try await environment.playlistMutations.addToPlaylist(
+                playlistId: "owned", trackUris: ["spotify:track:new"], context: context)
+        }
+        await runtime.shutdownForTermination()
     }
 
     @Test
@@ -182,7 +259,7 @@ struct CatalogMutationAdmissionTests {
     @Test
     func replacementCredentialsCannotAuthorizeAPreviouslyValidatedMutation() async throws {
         let session = KeymasterSession(
-            store: MutationGrantStore(),
+            store: HarnessGrantStore(),
             refresher: { _ in throw HarnessFailure.unavailable },
             cookieCleanup: {}
         )
@@ -221,7 +298,7 @@ struct CatalogMutationAdmissionTests {
     @Test
     func generationScopedCredentialsRejectAReplacementGrant() async throws {
         let session = KeymasterSession(
-            store: MutationGrantStore(),
+            store: HarnessGrantStore(),
             refresher: { _ in throw HarnessFailure.unavailable },
             cookieCleanup: {}
         )
@@ -251,9 +328,9 @@ struct CatalogMutationAdmissionTests {
 
 /// Direct gateway tests use an isolated, admitted account; retirement tests use the real runtime port.
 private func mutationAuthorization() throws -> PlaylistMutationAuthorization {
-    let admission = PlaylistMutationAdmission()
-    admission.activate(accountEpoch: 1)
-    return try admission.authorize(PlaylistMutationContext(accountEpoch: 1))
+    let admission = CatalogSessionAdmission()
+    admission.updateAvailability(accountEpoch: 1, isAvailable: true)
+    return try admission.authorize(PlaylistMutationContext(session: admission.snapshot))
 }
 
 @MainActor
@@ -376,14 +453,3 @@ private actor PlaylistAdmissionTransport {
 }
 
 /// Isolated credential persistence for the generation fence; no account or catalog fake owns this port.
-private final class MutationGrantStore: KeymasterTokenStoring, @unchecked Sendable {
-    private let lock = NSLock()
-    private var tokens: KeymasterTokens?
-
-    func loadResult() -> KeymasterGrantLoadResult {
-        lock.withLock { tokens.map(KeymasterGrantLoadResult.found) ?? .absent }
-    }
-
-    func save(_ tokens: KeymasterTokens) throws { lock.withLock { self.tokens = tokens } }
-    func clear() { lock.withLock { tokens = nil } }
-}

@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Testing
 import SpottyDomain
 import Foundation
@@ -5,20 +7,6 @@ import Foundation
 @testable import SpottyEngineAdapter
 @testable import SpottySessionRuntime
 import SpottyRuntimeContracts
-
-private func isolatedQueueService(
-    hook: (any QueueServiceHook)? = nil
-) -> QueueService {
-    QueueService(
-        webQueue: HarnessWebQueue(),
-        metadata: TrackMetadataService(remote: HarnessRemote(send: .succeed)),
-        hook: hook
-    )
-}
-
-private func connectEntry(_ uri: String, occurrence: Int = 0) -> QueueEntry {
-    QueueEntry(uri: uri, provider: "connect", occurrence: occurrence)
-}
 
 @MainActor
 private func seedReady(_ player: PlaybackStore) {
@@ -80,21 +68,21 @@ private func seedAuthoritativeQueue(_ player: PlaybackStore, revision: UInt64 = 
     let prev = [QueueProtocolTrack(uri: "spotify:track:prev", uid: "p0", provider: "context")]
     await player.queueService.reset(accountEpoch: player.accountEpoch)
     if let accepted = await player.queueService.acceptConnect(
-        entries,
-        accountEpoch: player.accountEpoch,
-        sourceRevision: revision,
-        contextURI: "spotify:track:now",
-        engineEpoch: player.engineGeneration,
-        protocolNext: next,
-        protocolPrev: prev,
-        queueRevision: "rev-\(revision)"
-    ) {
+        HarnessFixtures.queueState(
+            revision: revision,
+            generation: player.engineGeneration,
+            trackURI: "spotify:track:now",
+            next: next,
+            prev: prev,
+            queueRevision: "rev-\(revision)"),
+        accountEpoch: player.accountEpoch, fallbackTrackURI: nil)
+    {
         player.queueMutation = accepted.mutation
     }
     _ = player.send(
         .queue(
             PlaybackQueueSnapshot(
-                entries: entries.map { PlaybackQueueItem($0) },
+                entries: entries,
                 source: .connect,
                 completeness: .complete,
                 revision: revision,
@@ -167,8 +155,8 @@ private func connectQueueState(revision: UInt64, sessionGeneration: UInt64) -> R
 }
 
 private final class SplitQueueDeadlineClock: PlaybackClock, @unchecked Sendable {
-    let first = CooperativeParkedClock()
-    let later = CooperativeParkedClock()
+    let first = HarnessClock.parked()
+    let later = HarnessClock.parked()
     private let lock = NSLock()
     private var firstDeadlineAvailable = true
 
@@ -223,7 +211,7 @@ struct QueueManagementTests {
 
     @Test @MainActor
     func ambiguousEarlierAppendCannotDonateItsOccurrenceToAnOverlappingRequest() async throws {
-        let clock = CooperativeParkedClock()
+        let clock = HarnessClock.parked()
         let remote = HarnessRemote(send: .park)
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(remote: remote, clock: clock),
@@ -243,7 +231,7 @@ struct QueueManagementTests {
         remote.completePark(success: false)
         try await requireEventually { remote.sendCount == 2 && remote.parkedSendCount == 1 }
         var observed = player.state.queue
-        observed.entries.append(PlaybackQueueItem(uri: uri, provider: "queue", uid: "ambiguous"))
+        observed.entries.append(QueueEntry(uri: uri, provider: "queue", uid: "ambiguous"))
         observed.revision += 1
         observed.receivedAt = clock.now()
         #expect(player.send(.queue(observed), source: .engineQueue, revision: observed.revision))
@@ -256,7 +244,7 @@ struct QueueManagementTests {
 
     @Test(arguments: [false, true]) @MainActor
     func confirmedRemovalCannotHoldAdmissionAfterItsDeadline(retireHistory: Bool) async throws {
-        let clock = CooperativeParkedClock()
+        let clock = HarnessClock.parked()
         let remote = HarnessRemote(send: .park)
         let player = PlaybackStore(
             environment: HarnessEnvironment.make(remote: remote, clock: clock),
@@ -292,7 +280,7 @@ struct QueueManagementTests {
 
     @Test(arguments: [false, true], HistoryRetirement.allCases) @MainActor
     func observedQueueChangeSurvivesLateTransportFailure(removal: Bool, retirement: HistoryRetirement) async throws {
-        let clock = CooperativeParkedClock()
+        let clock = HarnessClock.parked()
         let remote = HarnessRemote(send: .park)
         let feedback = TransientFeedbackPresenter(clock: clock)
         let player = PlaybackStore(
@@ -312,7 +300,7 @@ struct QueueManagementTests {
             observed.entries.removeFirst()
         } else {
             player.addToQueue(uris: [addedURI])
-            observed.entries.append(PlaybackQueueItem(uri: addedURI, provider: "queue", uid: "added"))
+            observed.entries.append(QueueEntry(uri: addedURI, provider: "queue", uid: "added"))
         }
         try await requireEventually { remote.sendCount == 1 && remote.parkedSendCount == 1 }
         let id = try #require(player.state.intents.last?.command.id)
@@ -714,307 +702,6 @@ struct QueueManagementTests {
 
     @Test
     @MainActor
-    func anAppliedWebQueueSnapshotKeepsTheCallbackDedupeWatermark() async {
-        let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
-            feedback: feedback)
-        seedRemoteOwner(player)
-        await seedAuthoritativeQueue(player)
-        let before = player.queueNextEntries
-        let mutationBefore = player.queueMutation
-        player.apply(
-            ProvenanceQueueSnapshot(
-                accountEpoch: player.accountEpoch,
-                revision: 80,
-                source: .webAPI,
-                completeness: .complete,
-                receivedAt: Date(timeIntervalSince1970: 1_800_000_080),
-                contextURI: "spotify:track:now",
-                entries: [
-                    QueueEntry(uri: "spotify:track:reordered", provider: "web-api", occurrence: 0),
-                    QueueEntry(uri: "spotify:track:dup", provider: "web-api", occurrence: 1),
-                ],
-                tracks: [
-                    CatalogTrack(
-                        id: "spotify:track:dup",
-                        uri: "spotify:track:dup",
-                        title: "Web Title",
-                        artist: "Web Artist",
-                        album: "",
-                        duration: 180,
-                        artworkURL: nil,
-                        addedAt: nil
-                    )
-                ]
-            ),
-            engineEpoch: player.engineGeneration
-        )
-        #expect(
-            (player.queueNextEntries.map(\.uri)) == (before.map(\.uri)),
-            "Web refresh does not reorder Connect upcoming entries")
-        #expect(
-            (player.queueNextEntries.map(\.uid)) == (before.map(\.uid)),
-            "Web refresh does not replace Connect occurrence uids")
-        #expect(
-            (player.queueMutation) == (mutationBefore), "Web refresh does not replace the Connect mutation snapshot"
-        )
-        #expect(
-            (player.canRemoveUpcomingQueue(selectedIDs: [before[0].id])) == true,
-            "Connect mutation still matches the visible upcoming list")
-        await player.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func aParkedConnectAcceptStillRecordsTheCallbackDedupeWatermark() async {
-        let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let hook = QueueServiceTestHook()
-        let player = PlaybackStore(
-            environment: HarnessEnvironment.make(
-                remote: remote, clock: HarnessClock.parked(),
-                queueServiceHook: hook),
-            feedback: feedback
-        )
-        seedRemoteOwner(player)
-        await player.queueService.reset(accountEpoch: player.accountEpoch)
-        await hook.parkNextConnectAccept()
-        player.receive(
-            connectQueueEnvelope(
-                sequence: 1,
-                revision: 2,
-                sessionGeneration: player.engineGeneration
-            )
-        )
-        #expect(
-            (await waitUntil { await hook.connectAcceptIsParked() }) == true,
-            "Connect accept is parked after callback admission")
-        #expect((player.connectQueueCallback.revision) == (2), "callback admission records its dedupe watermark")
-        #expect(
-            (player.queueInspectorOrderingVersion) == (0), "callback admission does not restart inspector hydration"
-        )
-
-        let staleEntry = QueueEntry(uri: "spotify:track:stale", provider: "queue", occurrence: 0)
-        let staleTrack = CatalogTrack(
-            id: staleEntry.uri,
-            uri: staleEntry.uri,
-            title: "Stale",
-            artist: "Artist",
-            album: "",
-            duration: 180,
-            artworkURL: nil,
-            addedAt: nil
-        )
-        let fallback = await player.queueService.refresh(
-            fallbackEntries: [staleEntry],
-            cachedTracks: [staleTrack],
-            currentTrackURI: player.trackURI,
-            accountEpoch: player.accountEpoch
-        )
-        if let fallback {
-            player.apply(fallback, engineEpoch: player.engineGeneration)
-        }
-        #expect(
-            (player.queueNextEntries.map(\.uri)) == ([staleEntry.uri]),
-            "parked fallback publishes its stale ordering")
-        #expect(
-            (player.queueInspectorOrderingVersion) == (0),
-            "fallback projection does not restart inspector hydration")
-
-        await hook.resumeConnectAccept()
-        #expect(
-            (await waitUntil { player.queueInspectorOrderingVersion == 1 }) == true,
-            "accepted Connect ordering advances the inspector token")
-        #expect(
-            (player.queueNextEntries.map(\.uri)) == (["spotify:track:dup", "spotify:track:other"]),
-            "accepted Connect ordering replaces the earlier fallback")
-
-        let acceptedVersion = player.queueInspectorOrderingVersion
-        player.receive(
-            connectQueueEnvelope(
-                sequence: 2,
-                revision: 3,
-                sessionGeneration: player.engineGeneration
-            )
-        )
-        #expect(
-            (await waitUntil { player.queueMutation?.sourceRevision == 3 }) == true,
-            "same-ordering Connect redelivery is applied")
-        #expect(
-            (player.queueInspectorOrderingVersion) == (acceptedVersion),
-            "same accepted ordering does not restart inspector hydration")
-        await player.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func teardownQueueIntakeRecordsTheWatermarkWithoutInstallingMutation() async {
-        let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let player = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
-            feedback: feedback)
-        await player.restore()
-        seedRemoteOwner(player)
-        let mirroredGeneration = player.engineGeneration
-        let payloadGeneration = mirroredGeneration + 1
-        #expect(
-            (payloadGeneration > mirroredGeneration) == true,
-            "queue can arrive before playback has adopted the payload generation")
-
-        player.receive(
-            connectQueueEnvelope(
-                sequence: 1,
-                revision: 1,
-                sessionGeneration: payloadGeneration
-            )
-        )
-        #expect(
-            (await waitUntil { player.state.engineEpoch == payloadGeneration }) == true,
-            "G+1 queue adopts reducer engine epoch from the payload")
-        #expect(
-            (player.engineGeneration) == (payloadGeneration), "G+1 queue presentation stamps the payload generation"
-        )
-        #expect(
-            (player.state.currentTrack?.uri) == ("spotify:track:now"),
-            "G+1 queue presentation keeps the payload track URI")
-        #expect(
-            (await waitUntil { player.state.currentTrack?.title == "Metadata" }) == true,
-            "G+1 queue hydrates catalog names after URI-only identity")
-        #expect(
-            (await waitUntil { player.queueMutation?.engineEpoch == payloadGeneration }) == true,
-            "G+1 queue mutation snapshot uses the payload generation")
-        #expect(
-            (player.queueMutation?.engineEpoch == mirroredGeneration) == (false),
-            "G+1 queue does not leave mutation on the stale mirror")
-        #expect(
-            (player.connectQueueCallback.generation) == (payloadGeneration),
-            "callback watermark records the payload generation")
-        #expect((player.connectQueueCallback.revision) == (1), "callback watermark records the payload revision")
-
-        let afterFirst = player.connectQueueCallback
-        let mutationAfterFirst = player.queueMutation
-        let trackAfterFirst = player.state.currentTrack
-        player.receive(
-            connectQueueEnvelope(
-                sequence: 2,
-                revision: 1,
-                sessionGeneration: payloadGeneration
-            )
-        )
-        await yieldPasses()
-        #expect(
-            (player.connectQueueCallback) == (afterFirst),
-            "identical redelivery does not advance the callback watermark")
-        #expect(
-            (player.queueMutation) == (mutationAfterFirst),
-            "identical redelivery does not replace mutation identity")
-        #expect(
-            (player.state.currentTrack) == (trackAfterFirst),
-            "identical redelivery does not replace now-playing identity")
-
-        player.receive(
-            connectQueueEnvelope(
-                sequence: 3,
-                revision: 2,
-                sessionGeneration: mirroredGeneration
-            )
-        )
-        await yieldPasses()
-        #expect(
-            (player.connectQueueCallback) == (afterFirst),
-            "a stale generation does not advance the callback watermark")
-        #expect(
-            (player.queueMutation) == (mutationAfterFirst), "a stale generation does not replace mutation identity")
-        #expect(
-            (player.state.currentTrack) == (trackAfterFirst),
-            "a stale generation does not replace now-playing identity"
-        )
-        await player.shutdownForTermination()
-
-        let teardownFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let teardown = PlaybackStore(
-            environment: HarnessEnvironment.make(remote: remote, clock: HarnessClock.parked()),
-            feedback: teardownFeedback)
-        await teardown.restore()
-        seedRemoteOwner(teardown)
-        let teardownMirror = teardown.engineGeneration
-        teardown.withRuntime { $0.isTearingDown = true }
-        teardown.receive(
-            connectQueueEnvelope(
-                sequence: 1,
-                revision: 1,
-                sessionGeneration: teardownMirror + 1
-            )
-        )
-        await yieldPasses()
-        #expect(
-            (teardown.state.engineEpoch) == (0), "teardown queue intake does not adopt the payload engine epoch")
-        #expect((teardown.queueMutation) == nil, "teardown queue intake does not install mutation")
-        #expect((teardown.state.currentTrack) == nil, "teardown queue intake does not install now-playing")
-        #expect(
-            (teardown.connectQueueCallback.generation) == (0),
-            "teardown queue intake does not record callback identity"
-        )
-        await teardown.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
-    func anInvalidatedAcceptDoesNotPopulatePresentation() async {
-        let remote = HarnessRemote(send: .succeed)
-        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let hook = QueueServiceTestHook()
-        let player = PlaybackStore(
-            environment: HarnessEnvironment.make(
-                remote: remote, clock: HarnessClock.parked(),
-                queueServiceHook: hook),
-            feedback: feedback
-        )
-        seedRemoteOwner(player)
-        await player.queueService.reset(accountEpoch: player.accountEpoch)
-        await hook.parkNextConnectAccept()
-        player.receive(
-            connectQueueEnvelope(
-                sequence: 1,
-                revision: 1,
-                sessionGeneration: player.engineGeneration
-            )
-        )
-        #expect(
-            (await waitUntil { await hook.connectAcceptIsParked() }) == true,
-            "connect accept parked after actor hop")
-        player.accountStore.advanceEpoch()
-        player.withRuntime { $0.engineGeneration &+= 1 }
-        player.queueMutation = nil
-        await hook.resumeConnectAccept()
-        await yieldPasses()
-        #expect(
-            (player.queueMutation) == nil, "account and engine invalidation after accept does not restore mutation")
-        #expect((player.queueNextEntries.isEmpty) == true, "invalidated accept does not populate presentation")
-
-        await player.queueService.reset(accountEpoch: player.accountEpoch)
-        await hook.parkNextConnectAccept()
-        player.receive(
-            connectQueueEnvelope(
-                sequence: 2,
-                revision: 2,
-                sessionGeneration: player.engineGeneration
-            )
-        )
-        #expect((await waitUntil { await hook.connectAcceptIsParked() }) == true, "teardown accept parked")
-        player.withRuntime { $0.isTearingDown = true }
-        player.queueMutation = nil
-        player.effects.cancelAccountScoped()
-        await yieldPasses(20)
-        #expect((player.queueMutation) == nil, "cancelled teardown accept does not restore mutation")
-        await player.shutdownForTermination()
-    }
-
-    @Test
-    @MainActor
     func closingTheInspectorDoesNotCancelSetQueue() async throws {
         let parked = HarnessRemote(send: .park)
         let replacementFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
@@ -1044,132 +731,157 @@ struct QueueManagementTests {
             "inspector close did not drop the committed mutation")
         await replacement.shutdownForTermination()
 
-        let acceptFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let acceptHook = QueueServiceTestHook()
-        let accept = PlaybackStore(
-            environment: HarnessEnvironment.make(
-                remote: HarnessRemote(send: .succeed), clock: HarnessClock.parked(), queueServiceHook: acceptHook),
-            feedback: acceptFeedback
-        )
-        seedRemoteOwner(accept)
-        await accept.queueService.reset(accountEpoch: accept.accountEpoch)
-        await acceptHook.parkNextConnectAccept()
-        accept.receive(
-            connectQueueEnvelope(
-                sequence: 1,
-                revision: 1,
-                sessionGeneration: accept.engineGeneration
-            )
-        )
-        #expect(
-            (await waitUntil { await acceptHook.connectAcceptIsParked() }) == true,
-            "connect accept parked before inspector close")
-        accept.cancelQueueRefresh()
-        await yieldPasses()
-        #expect(
-            (await acceptHook.connectAcceptIsParked()) == true,
-            "closing the inspector does not cancel Connect intake")
-        await acceptHook.resumeConnectAccept()
-        #expect(
-            (await waitUntil { accept.queueMutation?.next.map(\.uid) == ["q0", "q2"] }) == true,
-            "Connect accept still applies after inspector close")
-        await accept.shutdownForTermination()
+    }
 
-        let teardownRemote = HarnessRemote(send: .park)
-        let teardownFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let teardownHook = QueueServiceTestHook()
-        let teardown = PlaybackStore(
-            environment: HarnessEnvironment.make(
-                remote: teardownRemote, clock: HarnessClock.parked(),
-                queueServiceHook: teardownHook),
-            feedback: teardownFeedback
-        )
-        defer {
+    #if DEBUG
+        @Test
+        @MainActor
+        func closingTheInspectorDoesNotCancelConnectIntake() async throws {
+            let acceptFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
+            let acceptHook = QueueServiceTestHook()
+            defer { acceptHook.close() }
+            let accept = PlaybackStore(
+                environment: HarnessEnvironment.make(
+                    remote: HarnessRemote(send: .succeed), clock: HarnessClock.parked(), queueServiceHook: acceptHook),
+                feedback: acceptFeedback
+            )
+            seedRemoteOwner(accept)
+            await accept.queueService.reset(accountEpoch: accept.accountEpoch)
+            await acceptHook.parkNextConnectAccept()
+            accept.receive(
+                connectQueueEnvelope(
+                    sequence: 1,
+                    revision: 1,
+                    sessionGeneration: accept.engineGeneration
+                )
+            )
+            try await requireEventually(description: "connect accept parked before inspector close") {
+                await acceptHook.connectAcceptIsParked()
+            }
+            accept.cancelQueueRefresh()
+            await yieldPasses()
+            #expect(
+                (await acceptHook.connectAcceptIsParked()) == true,
+                "closing the inspector does not cancel Connect intake")
+            await acceptHook.resumeConnectAccept()
+            #expect(
+                (await waitUntil { accept.queueMutation?.next.map(\.uid) == ["q0", "q2"] }) == true,
+                "Connect accept still applies after inspector close")
+            await accept.shutdownForTermination()
+
+        }
+    #endif
+
+    #if DEBUG
+        @Test
+        @MainActor
+        func accountTeardownCancelsReplacementAndConnectIntake() async throws {
+            let teardownRemote = HarnessRemote(send: .park)
+            let teardownFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
+            let teardownHook = QueueServiceTestHook()
+            defer { teardownHook.close() }
+            let teardown = PlaybackStore(
+                environment: HarnessEnvironment.make(
+                    remote: teardownRemote, clock: HarnessClock.parked(),
+                    queueServiceHook: teardownHook),
+                feedback: teardownFeedback
+            )
+            defer {
+                teardown.effects.cancelAccountScoped()
+                _ = teardownRemote.completePark(success: false)
+            }
+            seedRemoteOwner(teardown)
+            await seedAuthoritativeQueue(teardown)
+            teardown.removeUpcomingQueueOccurrences(selectedIDs: [teardown.queueNextEntries[0].id])
+            try await requireEventually {
+                teardownRemote.sendCount == 1 && teardownRemote.parkedSendCount == 1
+            }
+            await teardownHook.parkNextConnectAccept()
+            teardown.receive(
+                connectQueueEnvelope(
+                    sequence: 1,
+                    revision: 8,
+                    sessionGeneration: teardown.engineGeneration
+                )
+            )
+            try await requireEventually(description: "teardown accept parked") {
+                await teardownHook.connectAcceptIsParked()
+            }
+            teardown.queueMutation = nil
             teardown.effects.cancelAccountScoped()
-            _ = teardownRemote.completePark(success: false)
+            await yieldPasses(20)
+            #expect((teardownFeedback.message) == nil, "account teardown cancels replacement feedback")
+            teardownRemote.completePark(success: true)
+            await yieldPasses()
+            #expect(
+                (teardown.queueMutation) == nil,
+                "account teardown does not restore replacement mutation from a cancelled task")
+            await teardown.shutdownForTermination()
         }
-        seedRemoteOwner(teardown)
-        await seedAuthoritativeQueue(teardown)
-        teardown.removeUpcomingQueueOccurrences(selectedIDs: [teardown.queueNextEntries[0].id])
-        try await requireEventually {
-            teardownRemote.sendCount == 1 && teardownRemote.parkedSendCount == 1
-        }
-        await teardownHook.parkNextConnectAccept()
-        teardown.receive(
-            connectQueueEnvelope(
-                sequence: 1,
-                revision: 8,
-                sessionGeneration: teardown.engineGeneration
+    #endif
+
+    #if DEBUG
+        @Test
+        @MainActor
+        func epochInvalidationAfterTheCommitHopDoesNotRestoreMutation() async throws {
+            let remote = HarnessRemote(send: .succeed)
+            let epochFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
+            let epochHook = QueueServiceTestHook()
+            defer { epochHook.close() }
+            let epochPlayer = PlaybackStore(
+                environment: HarnessEnvironment.make(
+                    remote: remote, clock: HarnessClock.parked(),
+                    queueServiceHook: epochHook),
+                feedback: epochFeedback
             )
-        )
-        #expect((await waitUntil { await teardownHook.connectAcceptIsParked() }) == true, "teardown accept parked")
-        teardown.queueMutation = nil
-        teardown.effects.cancelAccountScoped()
-        await yieldPasses(20)
-        #expect((teardownFeedback.message) == nil, "account teardown cancels replacement feedback")
-        teardownRemote.completePark(success: true)
-        await yieldPasses()
-        #expect(
-            (teardown.queueMutation) == nil,
-            "account teardown does not restore replacement mutation from a cancelled task")
-        await teardown.shutdownForTermination()
-    }
+            seedRemoteOwner(epochPlayer)
+            await seedAuthoritativeQueue(epochPlayer)
+            await epochHook.parkNextCommittedReplacement()
+            epochPlayer.removeUpcomingQueueOccurrences(selectedIDs: [epochPlayer.queueNextEntries[0].id])
+            #expect((await waitUntil { remote.sendCount == 1 }) == true, "set_queue reached the remote")
+            try await requireEventually(description: "committed replacement parked after the actor hop") {
+                await epochHook.committedReplacementIsParked()
+            }
+            epochPlayer.accountStore.advanceEpoch()
+            epochPlayer.withRuntime { runtime in
+                runtime.send(
+                    .session(runtime.state.session), source: .account, engineEpoch: runtime.engineGeneration &+ 1)
+            }
+            epochPlayer.queueMutation = nil
+            await epochHook.resumeCommittedReplacement()
+            await yieldPasses()
+            #expect((epochPlayer.queueMutation) == nil, "epoch invalidation after commit hop does not restore mutation")
+            #expect((epochFeedback.message) == nil, "epoch invalidation after commit hop does not toast success")
+            await epochPlayer.shutdownForTermination()
 
-    @Test
-    @MainActor
-    func epochInvalidationAfterTheCommitHopDoesNotRestoreMutation() async {
-        let remote = HarnessRemote(send: .succeed)
-        let epochFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let epochHook = QueueServiceTestHook()
-        let epochPlayer = PlaybackStore(
-            environment: HarnessEnvironment.make(
-                remote: remote, clock: HarnessClock.parked(),
-                queueServiceHook: epochHook),
-            feedback: epochFeedback
-        )
-        seedRemoteOwner(epochPlayer)
-        await seedAuthoritativeQueue(epochPlayer)
-        await epochHook.parkNextCommittedReplacement()
-        epochPlayer.removeUpcomingQueueOccurrences(selectedIDs: [epochPlayer.queueNextEntries[0].id])
-        #expect((await waitUntil { remote.sendCount == 1 }) == true, "set_queue reached the remote")
-        #expect(
-            (await waitUntil { await epochHook.committedReplacementIsParked() }) == true,
-            "committed replacement parked after the actor hop")
-        epochPlayer.accountStore.advanceEpoch()
-        epochPlayer.withRuntime { $0.engineGeneration &+= 1 }
-        epochPlayer.queueMutation = nil
-        await epochHook.resumeCommittedReplacement()
-        await yieldPasses()
-        #expect((epochPlayer.queueMutation) == nil, "epoch invalidation after commit hop does not restore mutation")
-        #expect((epochFeedback.message) == nil, "epoch invalidation after commit hop does not toast success")
-        await epochPlayer.shutdownForTermination()
-
-        let cancelRemote = HarnessRemote(send: .succeed)
-        let cancelFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
-        let cancelHook = QueueServiceTestHook()
-        let cancelPlayer = PlaybackStore(
-            environment: HarnessEnvironment.make(
-                remote: cancelRemote, clock: HarnessClock.parked(),
-                queueServiceHook: cancelHook),
-            feedback: cancelFeedback
-        )
-        seedRemoteOwner(cancelPlayer)
-        await seedAuthoritativeQueue(cancelPlayer)
-        await cancelHook.parkNextCommittedReplacement()
-        cancelPlayer.removeUpcomingQueueOccurrences(selectedIDs: [cancelPlayer.queueNextEntries[0].id])
-        #expect(
-            (await waitUntil { await cancelHook.committedReplacementIsParked() }) == true,
-            "cancelled committed replacement parked")
-        cancelPlayer.queueMutation = nil
-        cancelPlayer.effects.cancelAccountScoped()
-        await yieldPasses(20)
-        #expect((cancelPlayer.queueMutation) == nil, "cancelled committed replacement does not restore mutation")
-        #expect((cancelFeedback.message) == nil, "cancelled committed replacement does not toast")
-        #expect(
-            (cancelPlayer.queueReplacementToken) == nil,
-            "cancelled committed replacement releases the in-flight gate")
-        await cancelPlayer.shutdownForTermination()
-    }
+            let cancelRemote = HarnessRemote(send: .succeed)
+            let cancelFeedback = TransientFeedbackPresenter(clock: HarnessClock.parked(), duration: 4)
+            let cancelHook = QueueServiceTestHook()
+            defer { cancelHook.close() }
+            let cancelPlayer = PlaybackStore(
+                environment: HarnessEnvironment.make(
+                    remote: cancelRemote, clock: HarnessClock.parked(),
+                    queueServiceHook: cancelHook),
+                feedback: cancelFeedback
+            )
+            seedRemoteOwner(cancelPlayer)
+            await seedAuthoritativeQueue(cancelPlayer)
+            await cancelHook.parkNextCommittedReplacement()
+            cancelPlayer.removeUpcomingQueueOccurrences(selectedIDs: [cancelPlayer.queueNextEntries[0].id])
+            try await requireEventually(description: "cancelled committed replacement parked") {
+                await cancelHook.committedReplacementIsParked()
+            }
+            cancelPlayer.queueMutation = nil
+            cancelPlayer.effects.cancelAccountScoped()
+            await yieldPasses(20)
+            #expect((cancelPlayer.queueMutation) == nil, "cancelled committed replacement does not restore mutation")
+            #expect((cancelFeedback.message) == nil, "cancelled committed replacement does not toast")
+            #expect(
+                (cancelPlayer.queueReplacementToken) == nil,
+                "cancelled committed replacement releases the in-flight gate")
+            await cancelPlayer.shutdownForTermination()
+        }
+    #endif
 
     @Test
     @MainActor
@@ -1208,107 +920,17 @@ struct QueueManagementTests {
         await local.shutdownForTermination()
     }
 
-    @Test
-    @MainActor
-    func aNilHookLeavesQueueServiceBehaviourUnchanged() async {
-        let service = isolatedQueueService()
-        await service.reset(accountEpoch: 1)
-        let accepted = await service.acceptConnect(
-            [connectEntry("spotify:track:a")],
-            accountEpoch: 1,
-            sourceRevision: 1,
-            contextURI: "spotify:track:now",
-            engineEpoch: 7,
-            protocolNext: [QueueProtocolTrack(uri: "spotify:track:a", uid: "q0", provider: "queue")],
-            queueRevision: "rev-1"
-        )
-        #expect((accepted?.snapshot.revision) == (1), "nil hook acceptConnect returns the Connect revision")
-        let committed = await service.recordCommittedReplacement(
-            QueueReplacement(
-                next: [QueueProtocolTrack(uri: "spotify:track:b", uid: "q1", provider: "queue")],
-                prev: [],
-                queueRevision: "rev-2",
-                removedCount: 1
-            ),
-            accountEpoch: 1,
-            engineEpoch: 7
-        )
-        #expect((committed?.next.first?.uid) == ("q1"), "nil hook recordCommittedReplacement updates protocol next")
+}
 
-        let acceptHook = QueueServiceTestHook()
-        let acceptService = isolatedQueueService(hook: acceptHook)
-        await acceptService.reset(accountEpoch: 1)
-        await acceptHook.parkNextConnectAccept()
-        let acceptTask = Task {
-            await acceptService.acceptConnect(
-                [connectEntry("spotify:track:parked")],
-                accountEpoch: 1,
-                sourceRevision: 4,
-                contextURI: "spotify:track:now"
-            )
-        }
-        let acceptParked = await waitUntil { await acceptHook.connectAcceptIsParked() }
-        #expect((acceptParked) == true, "acceptConnect parks")
-        if acceptParked {
-            await acceptHook.resumeConnectAccept()
-            await acceptHook.resumeConnectAccept()
-            #expect(((await acceptTask.value)?.snapshot.revision) == (4), "acceptConnect applies after one resume")
-            #expect((await acceptHook.connectAcceptIsParked()) == (false), "a second acceptConnect resume is inert")
-        }
-
-        await acceptHook.parkNextConnectAccept()
-        let cancelledTask = Task {
-            await acceptService.acceptConnect(
-                [connectEntry("spotify:track:cancel")],
-                accountEpoch: 1,
-                sourceRevision: 5,
-                contextURI: nil
-            )
-        }
+/// Advance the diagnostic history through real admissions without starting unrelated I/O.
+@SessionRuntimeActor
+private func fillPlaybackIntentHistory(_ runtime: PlaybackSessionRuntime) {
+    for _ in 0..<128 {
+        let command = PendingPlaybackCommand(
+            id: UUID(), kind: .queue, expectedTransport: nil, startedAt: HarnessDates.fixed)
         #expect(
-            (await waitUntil { await acceptHook.connectAcceptIsParked() }) == true,
-            "cancellable acceptConnect parks")
-        cancelledTask.cancel()
-        let acceptReleased = await waitUntil { await acceptHook.connectAcceptIsParked() == false }
-        #expect((acceptReleased) == true, "cancellation does not leak an acceptConnect continuation")
-        if acceptReleased {
-            #expect((await cancelledTask.value) == nil, "cancelled parked acceptConnect does not apply")
-        }
-
-        let replaceHook = QueueServiceTestHook()
-        let replaceService = isolatedQueueService(hook: replaceHook)
-        await replaceService.reset(accountEpoch: 1)
-        _ = await replaceService.acceptConnect(
-            [connectEntry("spotify:track:a")],
-            accountEpoch: 1,
-            sourceRevision: 1,
-            contextURI: nil,
-            engineEpoch: 3,
-            protocolNext: [QueueProtocolTrack(uri: "spotify:track:a", uid: "q0", provider: "queue")],
-            queueRevision: "rev-1"
+            runtime.send(.queueIntentStarted(PlaybackIntent(command: command, baselineTrackURI: nil)), source: .command)
         )
-        await replaceHook.parkNextCommittedReplacement()
-        let replaceTask = Task {
-            await replaceService.recordCommittedReplacement(
-                QueueReplacement(
-                    next: [QueueProtocolTrack(uri: "spotify:track:b", uid: "q1", provider: "queue")],
-                    prev: [],
-                    queueRevision: "rev-2",
-                    removedCount: 1
-                ),
-                accountEpoch: 1,
-                engineEpoch: 3
-            )
-        }
-        #expect(
-            (await waitUntil { await replaceHook.committedReplacementIsParked() }) == true,
-            "recordCommittedReplacement parks")
-        await replaceHook.resumeCommittedReplacement()
-        await replaceHook.resumeCommittedReplacement()
-        #expect(
-            ((await replaceTask.value)?.next.first?.uid) == ("q1"),
-            "recordCommittedReplacement commits after one resume")
-        #expect(
-            (await replaceHook.committedReplacementIsParked()) == (false), "a second replacement resume is inert")
+        #expect(runtime.send(.queueIntentFinished(id: command.id, accepted: false), source: .command))
     }
 }

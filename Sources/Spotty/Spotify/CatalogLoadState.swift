@@ -1,7 +1,8 @@
+import SpottyDomain
 import SpottyRuntimeContracts
 
 /// Presentation transitions shared by catalog stores. Request identity and cancellation remain
-/// AccountScopedSingleFlight-owned; stores apply these transitions only after its publish gate.
+/// CatalogReadFlights-owned; stores apply these transitions only after its publish gate.
 nonisolated struct CatalogLoadState {
     struct Content {
         let session: CatalogSessionSnapshot?

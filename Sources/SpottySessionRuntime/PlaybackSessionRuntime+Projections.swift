@@ -35,7 +35,7 @@ package extension PlaybackSessionRuntime {
     var isConnected: Bool { catalogPlaybackAvailability.isConnected }
     var catalogCurrentTrack: CatalogTrack? {
         guard !trackURI.isEmpty else { return nil }
-        return catalog.metadata.knownTrack(for: trackURI)
+        return catalogMetadata.knownTrack(for: trackURI)
     }
     var hasCurrentTrack: Bool {
         !trackURI.isEmpty && (hasCurrentTrackMetadata || catalogCurrentTrack != nil)
@@ -43,7 +43,7 @@ package extension PlaybackSessionRuntime {
     /// Connect is account-wide: another device playing is still live playback Spotty can control.
     var showsPauseControl: Bool { hasCurrentTrack && isPlaying }
     var canStartPlayback: Bool {
-        isConnected && !isTearingDown && terminationGate.allowsCommands && !isPlaybackCommandPending
+        isConnected && lifecycle.acceptsWork && !isPlaybackCommandPending
     }
     var canTogglePlayback: Bool {
         canStartPlayback && hasCurrentTrack && (isPlaying || semantic.blockedResumeTarget == nil)

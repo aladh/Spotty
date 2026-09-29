@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 
-# Git-tracked Swift formatting using swift-format from the selected Xcode/Swift toolchain.
+# Repository Swift formatting using swift-format from the selected Xcode/Swift toolchain.
 # Modes: --check (lint --strict) and --write (format --in-place).
 
 project_root="${0:A:h:h}"
@@ -12,13 +12,15 @@ usage() {
     exit 2
 }
 
-collect_tracked_swift() {
+collect_swift_sources() {
     swift_files=()
     while IFS= read -r -d '' file; do
-        swift_files+=("$file")
-    done < <(git -C "$project_root" ls-files -z -- '*.swift')
+        # New files need verification before staging; deleted and ignored outputs do not.
+        [[ -f "$project_root/$file" ]] && swift_files+=("$file")
+    done < <(git -C "$project_root" ls-files -z --cached --others --exclude-standard -- '*.swift')
+    swift_files=("${(@u)swift_files}")
     if (( ${#swift_files} == 0 )); then
-        print -u2 "No Git-tracked Swift sources were found."
+        print -u2 "No repository Swift sources were found."
         exit 1
     fi
 }
@@ -88,12 +90,12 @@ case "$1" in
 esac
 
 if ! git -C "$project_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    print -u2 "Swift formatting requires a Git checkout so the tracked source set is exact."
+    print -u2 "Swift formatting requires a Git checkout to exclude ignored outputs."
     exit 1
 fi
 
 resolve_formatter
-collect_tracked_swift
+collect_swift_sources
 
 if [[ "$1" == --check ]]; then
     run_formatter check

@@ -1,5 +1,3 @@
-import SpottyDomain
-
 /// A successful envelope and an explicitly present item list. Missing content never means an
 /// authoritative empty collection, even when HTTP and JSON decoding both succeeded.
 struct ValidatedCatalogPage<Header: Sendable, Item: Sendable>: Sendable {
@@ -34,19 +32,16 @@ struct CompleteCatalogCollection<Header: Sendable, Item: Sendable>: Sendable {
     static func collect(
         fetchPage: @Sendable (Int) async throws -> ValidatedCatalogPage<Header, Item>
     ) async throws -> Self {
+        try Task.checkCancellation()
         let first = try await fetchPage(0)
-        do {
-            let items = try await Pagination.collect(
-                firstPage: Pagination.Page(
-                    items: first.items, pageEntryCount: first.items.count, totalCount: first.totalCount)
-            ) { offset in
-                let page = try await fetchPage(offset)
-                return Pagination.Page(items: page.items, pageEntryCount: page.items.count, totalCount: page.totalCount)
-            }
-            return Self(header: first.header, items: items)
-        } catch let failure as Pagination.Failure {
-            throw PartnerAPIError.pagination(failure)
+        let items = try await Pagination.collect(
+            firstPage: Pagination.Page(
+                items: first.items, pageEntryCount: first.items.count, totalCount: first.totalCount)
+        ) { offset in
+            let page = try await fetchPage(offset)
+            return Pagination.Page(items: page.items, pageEntryCount: page.items.count, totalCount: page.totalCount)
         }
+        return Self(header: first.header, items: items)
     }
 }
 

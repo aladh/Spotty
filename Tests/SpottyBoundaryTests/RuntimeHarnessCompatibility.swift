@@ -1,3 +1,4 @@
+import SpottyTestSupport
 import Foundation
 import SpottyDomain
 import SpottyEngineAdapter
@@ -28,7 +29,6 @@ extension PlaybackStore {
     var queueService: QueueService { withRuntime { $0.queueService } }
     var lastRemoteDeviceID: String? {
         get { withRuntime { $0.lastRemoteDeviceID } }
-        set { withRuntime { $0.lastRemoteDeviceID = newValue } }
     }
     var shuffleHistoryCache: [String: TimeInterval] { withRuntime { $0.shuffleHistoryCache } }
     var rehydratedSessionGeneration: UInt64? { withRuntime { $0.rehydratedSessionGeneration } }
@@ -72,16 +72,6 @@ extension PlaybackStore {
     func receive(_ devices: [ConnectDevice], revision: UInt64, engineEpoch: UInt64) {
         withRuntime { $0.receive(devices, revision: revision, engineEpoch: engineEpoch) }
     }
-    func receive(
-        _ state: RustQueueState, revision: UInt64, mayAdoptPlaybackIdentity: Bool = true,
-        accountEpoch: UInt64? = nil, engineEpoch: UInt64? = nil
-    ) {
-        withRuntime {
-            $0.receive(
-                state, revision: revision, mayAdoptPlaybackIdentity: mayAdoptPlaybackIdentity,
-                accountEpoch: accountEpoch, engineEpoch: engineEpoch)
-        }
-    }
     func acceptsConnectQueueCallback(generation: UInt64?, revision: UInt64?) -> Bool {
         withRuntime { $0.acceptsConnectQueueCallback(generation: generation, revision: revision) }
     }
@@ -100,96 +90,43 @@ extension PlaybackStore {
                 accountEpoch: accountEpoch, engineEpoch: engineEpoch)
         }
     }
-    func setRepeatMode(_ mode: RepeatMode) { setRepeat(mode: mode, flags: mode.flags) }
-    func setRepeat(mode: RepeatMode, flags: RepeatFlags) { withRuntime { $0.setRepeat(mode: mode, flags: flags) } }
     func recordPlayed(_ uri: String) { withRuntime { $0.recordPlayed(uri) } }
     func showTransientCommandError(_ message: String) { withRuntime { $0.showTransientCommandError(message) } }
-    func handleGrantRevocation() async {
-        await runtime.handleGrantRevocation()
-        withRuntime { _ in }
-    }
     func endSession(clearGrant: Bool, finalPhase: PlaybackSessionPhase) async {
         await runtime.endSession(clearGrant: clearGrant, finalPhase: finalPhase)
         withRuntime { _ in }
     }
-    func makePlaybackDispatchPermit(
-        commandID: UUID? = nil, intentID: UUID? = nil,
-        ifStillWanted: @escaping @SessionRuntimeActor @Sendable () -> Bool
-    ) -> PlaybackDispatchPermit? {
-        withRuntime {
-            $0.makePlaybackDispatchPermit(commandID: commandID, intentID: intentID, ifStillWanted: ifStillWanted)
+    /// Queue tests use real reducer admission rather than an ownerless dispatch capability.
+    func makeQueueDispatchPermit() -> PlaybackDispatchPermit? {
+        withRuntime { runtime in
+            let command = PendingPlaybackCommand(
+                id: UUID(), kind: .queue, expectedTransport: nil, startedAt: HarnessDates.fixed)
+            guard
+                runtime.send(
+                    .queueIntentStarted(PlaybackIntent(command: command, baselineTrackURI: nil)), source: .command)
+            else { return nil }
+            return runtime.makePlaybackDispatchPermit(intentID: command.id, ifStillWanted: { true })
         }
     }
 
-    func performCommand(
-        _ action: String, expecting expectedPlaybackState: Bool? = nil,
-        expectedTiming: PlaybackTiming? = nil, expectedTrack: CurrentTrack? = nil,
-        expectedShuffle: Bool? = nil, expectedRepeatFlags: RepeatFlags? = nil,
-        expectedOwner: PlaybackOwner? = nil, operation: LocalPlaybackOperation,
-        kind: PlaybackCommandKind = .transport,
-        completion: @escaping @MainActor (Bool) -> Void = { _ in }
-    ) {
-        withRuntime {
-            $0.performCommand(
-                action, expecting: expectedPlaybackState, expectedTiming: expectedTiming,
-                expectedTrack: expectedTrack, expectedShuffle: expectedShuffle,
-                expectedRepeatFlags: expectedRepeatFlags, expectedOwner: expectedOwner,
-                operation: operation, kind: kind
-            ) { [weak self] accepted in
-                Task { @MainActor [weak self] in
-                    self?.withRuntime { _ in }
-                    completion(accepted)
-                }
-            }
-        }
-    }
-    func performRoutedCommand(
-        _ action: String, kind: PlaybackCommandKind = .transport,
-        expecting expectedPlaybackState: Bool? = nil, expectedTiming: PlaybackTiming? = nil,
-        expectedTrack: CurrentTrack? = nil, expectedShuffle: Bool? = nil,
-        expectedRepeatFlags: RepeatFlags? = nil, expectedOwner: PlaybackOwner? = nil,
-        local: LocalPlaybackOperation, remote command: SpotifyConnectCommand,
+    func submitCommand(
+        _ request: PlaybackSessionRuntime.CommandRequest,
+        failureMessage: String,
         dispatchGuard: PlaybackSessionRuntime.DispatchGuard? = nil,
         completion: @escaping @MainActor (Bool) -> Void = { _ in }
     ) {
         withRuntime {
-            $0.performRoutedCommand(
-                action, kind: kind, expecting: expectedPlaybackState,
-                expectedTiming: expectedTiming, expectedTrack: expectedTrack,
-                expectedShuffle: expectedShuffle, expectedRepeatFlags: expectedRepeatFlags,
-                expectedOwner: expectedOwner, local: local, remote: command,
-                dispatchGuard: dispatchGuard
-            ) { [weak self] accepted in
-                Task { @MainActor [weak self] in
-                    self?.withRuntime { _ in }
-                    completion(accepted)
-                }
-            }
+            $0.submitCommand(
+                request, failureMessage: failureMessage, dispatchGuard: dispatchGuard,
+                completion: { [weak self] accepted in
+                    Task { @MainActor [weak self] in
+                        self?.withRuntime { _ in }
+                        completion(accepted)
+                    }
+                })
         }
     }
-    func performRoutedOperation(
-        _ action: String, kind: PlaybackCommandKind = .transport,
-        expecting expectedPlaybackState: Bool? = nil, expectedTiming: PlaybackTiming? = nil,
-        expectedTrack: CurrentTrack? = nil, expectedShuffle: Bool? = nil,
-        expectedRepeatFlags: RepeatFlags? = nil, expectedOwner: PlaybackOwner? = nil,
-        local: LocalPlaybackOperation,
-        remote: @escaping @Sendable (any RemotePlaybackClient, String, String) async throws -> Void,
-        completion: @escaping @MainActor (Bool) -> Void = { _ in }
-    ) {
-        withRuntime {
-            $0.performRoutedOperation(
-                action, kind: kind, expecting: expectedPlaybackState,
-                expectedTiming: expectedTiming, expectedTrack: expectedTrack,
-                expectedShuffle: expectedShuffle, expectedRepeatFlags: expectedRepeatFlags,
-                expectedOwner: expectedOwner, local: local, remote: remote
-            ) { [weak self] accepted in
-                Task { @MainActor [weak self] in
-                    self?.withRuntime { _ in }
-                    completion(accepted)
-                }
-            }
-        }
-    }
+
 }
 
 @MainActor
@@ -200,12 +137,6 @@ final class AccountStore {
     init(raw: SpottySessionRuntime.AccountStore, didMutate: @escaping @MainActor () -> Void = {}) {
         self.raw = raw
         self.didMutate = didMutate
-    }
-    convenience init(environment: PlaybackEnvironment, coordinator: PlaybackCoordinator) {
-        self.init(
-            raw: SessionRuntimeActor.sync {
-                SpottySessionRuntime.AccountStore(environment: environment, coordinator: coordinator)
-            })
     }
     var phase: PlaybackSessionPhase { SessionRuntimeActor.sync { raw.phase } }
     var requiresReauthentication: Bool { SessionRuntimeActor.sync { raw.requiresReauthentication } }
@@ -220,13 +151,10 @@ final class AccountStore {
         SessionRuntimeActor.sync { raw.advanceEpoch() }
         didMutate()
     }
-    func restore() async { await raw.restore(); didMutate() }
 }
 
 @MainActor
 final class PlaybackEffectRegistry {
-    nonisolated static let accountDrainTimeoutNanoseconds = SpottySessionRuntime.PlaybackEffectRegistry
-        .accountDrainTimeoutNanoseconds
     let raw: SpottySessionRuntime.PlaybackEffectRegistry
     private let didMutate: @MainActor () -> Void
 
@@ -234,7 +162,6 @@ final class PlaybackEffectRegistry {
         self.raw = raw
         self.didMutate = didMutate
     }
-    convenience init() { self.init(raw: SessionRuntimeActor.sync { SpottySessionRuntime.PlaybackEffectRegistry() }) }
     func settlement(of id: PlaybackEffectID) -> PlaybackEffectSettlement? {
         SessionRuntimeActor.sync { raw.settlement(of: id) }.map {
             PlaybackEffectSettlement(raw: $0, didSettle: didMutate)
@@ -244,13 +171,6 @@ final class PlaybackEffectRegistry {
         SessionRuntimeActor.sync { raw.settlements() }.mapValues {
             PlaybackEffectSettlement(raw: $0, didSettle: didMutate)
         }
-    }
-    func run(
-        _ id: PlaybackEffectID, onCancel: (@SessionRuntimeActor () -> Void)? = nil,
-        operation: @escaping @MainActor @Sendable () async -> Void
-    ) {
-        SessionRuntimeActor.sync { raw.run(id, onCancel: onCancel) { await operation() } }
-        didMutate()
     }
     @discardableResult
     func cancel(_ id: PlaybackEffectID) -> PlaybackEffectSettlement? {
@@ -264,34 +184,7 @@ final class PlaybackEffectRegistry {
         didMutate()
         return result.mapValues { PlaybackEffectSettlement(raw: $0, didSettle: didMutate) }
     }
-    func cancelAccountScopedAndDrain(timeoutNanoseconds: UInt64 = accountDrainTimeoutNanoseconds) async
-        -> PlaybackEffectDrainReport
-    {
-        let captured = cancelAccountScoped()
-        let result = await drain(captured, timeoutNanoseconds: timeoutNanoseconds)
-        didMutate()
-        return result
-    }
-    func drain(
-        _ settlements: [PlaybackEffectID: PlaybackEffectSettlement],
-        timeoutNanoseconds: UInt64 = accountDrainTimeoutNanoseconds
-    ) async -> PlaybackEffectDrainReport {
-        await raw.drain(settlements.mapValues(\.raw), timeoutNanoseconds: timeoutNanoseconds)
-    }
-}
 
-@MainActor
-final class PlaybackPreferenceWriter {
-    private let raw: SpottySessionRuntime.PlaybackPreferenceWriter
-    init(preferences: any PlaybackPreferences) {
-        raw = SessionRuntimeActor.sync { SpottySessionRuntime.PlaybackPreferenceWriter(preferences: preferences) }
-    }
-    @discardableResult
-    func submit(epoch: UInt64, _ write: @escaping @Sendable (any PlaybackPreferences) async -> Void) -> Task<
-        Void, Never
-    > {
-        SessionRuntimeActor.sync { raw.submit(epoch: epoch, write) }
-    }
 }
 
 /// Waiting a runtime task also consumes its final value publication on the test's UI actor.

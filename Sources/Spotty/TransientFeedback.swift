@@ -42,6 +42,8 @@ final class TransientFeedbackPresenter {
         self.duration = duration
     }
 
+    deinit { dismissal?.cancel() }
+
     func success(_ text: String) {
         present(.success, text)
     }
@@ -69,17 +71,16 @@ final class TransientFeedbackPresenter {
         let token = generation
         dismissal?.cancel()
         message = TransientFeedbackMessage(id: token, kind: kind, text: trimmed)
-        dismissal = Task { [weak self] in
-            guard let self else { return }
+        dismissal = Task { [weak self, clock, duration] in
             do {
-                try await self.clock.sleep(seconds: self.duration)
+                try await clock.sleep(seconds: duration)
             } catch {
                 // Cooperative cancellation leaves the current message. A
                 // replacement already installed a newer token, so this path
                 // must not clear it.
                 return
             }
-            self.clearIfCurrent(token)
+            self?.clearIfCurrent(token)
         }
     }
 

@@ -64,6 +64,28 @@ class SourceTimestampTests(unittest.TestCase):
             self.assertEqual((backend / "lib.rs").stat().st_mtime_ns, 1_700_000_000_000_000_000)
             self.assertEqual((backend / "changed.rs").stat().st_mtime_ns, new)
 
+    def test_non_utf8_index_entry_preserves_regular_input_timestamps(self):
+        for scope, name in (("swift", "Sources/new\nfile.swift"),
+                            ("rust", "Backend/spotty-playback/src/new\nfile.rs")):
+            with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                subprocess.run(["git", "init", "-q", str(root)], check=True)
+                path = root / name
+                path.parent.mkdir(parents=True)
+                path.write_text("fixture")
+                subprocess.run(["git", "add", "."], cwd=root, check=True)
+                blob = subprocess.check_output(["git", "hash-object", "-w", "--stdin"], cwd=root, input=b"fixture").strip()
+                subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=root, check=True,
+                               input=b"100644 " + blob + b"\t" + name.encode() + b"-\xff\0")
+                old = 1_700_000_000_000_000_000
+                new = old + 10_000_000_000
+                os.utime(path, ns=(old, old))
+                saved = snapshot(root, scope)
+                self.assertEqual(saved, {name: {"sha256": hashlib.sha256(b"fixture").hexdigest(), "mtime_ns": old}})
+                os.utime(path, ns=(new, new))
+                self.assertEqual(restore(root, saved, scope), 1)
+                self.assertEqual(path.stat().st_mtime_ns, old)
+
     def test_invalid_or_future_timestamp_is_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

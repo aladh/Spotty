@@ -1,8 +1,10 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Testing
+import Observation
 import SpottyDomain
 import Foundation
 @testable import SpottyCore
-@testable import SpottyGateway
 import SpottyRuntimeContracts
 
 private enum PlaylistMutationCheckFailure: Error {
@@ -12,9 +14,9 @@ private enum PlaylistMutationCheckFailure: Error {
 private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
     // Bespoke on purpose: a check exercises reads and writes through a single collaborator, so it
     // must conform to both protocols at once, which the shared harness fakes do not do.
-    var profile = PathfinderProfile(username: "me", name: "Me", uri: "spotify:user:me", avatar: nil)
-    var library: [PathfinderPlaylist] = []
-    var playlistsByID: [String: PathfinderPlaylistUnion] = [:]
+    var profile = CatalogProfileSnapshot(name: "Me", uri: "spotify:user:me")
+    var library: [PlaylistLibraryNode] = []
+    var playlistsByID: [String: CatalogPlaylistSnapshot] = [:]
     var playlistLoadCount = 0
     var libraryLoadCount = 0
     var addCalls: [(playlistId: String, uris: [String])] = []
@@ -23,15 +25,15 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
     var removeError: (any Error)?
     var playlistError: (any Error)?
     var parkPlaylistLoads = false
-    private var waiters: [CheckedContinuation<Void, any Error>] = []
-    private var playlistWaiters: [CheckedContinuation<Void, any Error>] = []
+    private nonisolated let writes = HarnessResponseGate<Void>(cancellation: .ignored)
+    private nonisolated let playlistReads = HarnessResponseGate<Void>(cancellation: .ignored)
 
-    var isParked: Bool { !waiters.isEmpty }
-    var parkedCount: Int { waiters.count }
-    var isPlaylistLoadParked: Bool { !playlistWaiters.isEmpty }
+    var isParked: Bool { writes.waiterCount > 0 }
+    var parkedCount: Int { writes.waiterCount }
+    var isPlaylistLoadParked: Bool { playlistReads.waiterCount > 0 }
 
     func hasParkedAdds(_ count: Int) -> Bool {
-        addCalls.count == count && waiters.count == count
+        addCalls.count == count && writes.waiterCount == count
     }
 
     func searchTracks(_: String, limit _: Int) async throws -> [CatalogTrack] {
@@ -39,112 +41,83 @@ private actor ScriptedPlaylistServices: CatalogProviding, PlaylistMutating {
     }
     func home() async throws -> CatalogHomeSnapshot { throw PlaylistMutationCheckFailure.unavailable }
     func playlistLibrary() async throws -> [PlaylistLibraryNode] {
-        try await libraryPlaylists().compactMap(CatalogMapping.item(from:)).map(PlaylistLibraryNode.init(playlist:))
-    }
-
-    func libraryPlaylists() async throws -> [PathfinderPlaylist] {
         libraryLoadCount += 1
         return library
     }
     func libraryAlbums() async throws -> [CatalogItem] { throw PlaylistMutationCheckFailure.unavailable }
     func libraryArtists() async throws -> [CatalogItem] { throw PlaylistMutationCheckFailure.unavailable }
     func libraryTracks() async throws -> [CatalogTrack] { throw PlaylistMutationCheckFailure.unavailable }
-    func profile() async throws -> CatalogProfileSnapshot { CatalogMapping.profile(profile) }
+    func profile() async throws -> CatalogProfileSnapshot { profile }
     func playlist(id: String) async throws -> CatalogPlaylistSnapshot {
         playlistLoadCount += 1
         if parkPlaylistLoads {
-            try await parkPlaylistLoad()
+            try await playlistReads.wait()
         }
         if let playlistError { throw playlistError }
         guard let playlist = playlistsByID[id] else { throw PlaylistMutationCheckFailure.unavailable }
-        return try await HarnessFixtures.playlistSnapshot(playlist)
+        return playlist
     }
 
     func addToPlaylist(playlistId: String, trackUris: [String], context _: PlaylistMutationContext) async throws {
         addCalls.append((playlistId, trackUris))
         if let addError { throw addError }
-        try await park()
+        try await writes.wait()
     }
 
     func removeFromPlaylist(playlistId: String, uids: [String], context _: PlaylistMutationContext) async throws {
         removeCalls.append((playlistId, uids))
         if let removeError { throw removeError }
-        try await park()
+        try await writes.wait()
     }
 
-    func completePark() {
-        guard !waiters.isEmpty else { return }
-        waiters.removeFirst().resume()
-    }
+    func completePark() { writes.finish(()) }
+    func failPark(_ error: any Error = CancellationError()) { writes.resolve(.failure(error)) }
+    func completePlaylistPark() { playlistReads.finish(()) }
+    func failPlaylistPark() { playlistReads.resolve(.failure(CancellationError())) }
 
-    func failPark(_ error: any Error = CancellationError()) {
-        guard !waiters.isEmpty else { return }
-        waiters.removeFirst().resume(throwing: error)
-    }
-
-    func completePlaylistPark() {
-        guard !playlistWaiters.isEmpty else { return }
-        playlistWaiters.removeFirst().resume()
-    }
-
-    func failPlaylistPark() {
-        guard !playlistWaiters.isEmpty else { return }
-        playlistWaiters.removeFirst().resume(throwing: CancellationError())
+    nonisolated func cancelPending() {
+        writes.close()
+        playlistReads.close()
     }
 
     func setAddError(_ error: (any Error)?) { addError = error }
     func setRemoveError(_ error: (any Error)?) { removeError = error }
     func setPlaylistError(_ error: (any Error)?) { playlistError = error }
     func setParkPlaylistLoads(_ enabled: Bool) { parkPlaylistLoads = enabled }
-    func setLibrary(_ items: [PathfinderPlaylist]) { library = items }
-    func setPlaylist(_ playlist: PathfinderPlaylistUnion) {
-        if let id = playlist.id {
-            playlistsByID[id] = playlist
-        }
+    func setLibrary(_ items: [PlaylistLibraryNode]) { library = items }
+    func setPlaylist(_ playlist: CatalogPlaylistSnapshot, id: String) {
+        playlistsByID[id] = playlist
     }
 
-    private func park() async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    private func parkPlaylistLoad() async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            playlistWaiters.append(continuation)
-        }
-    }
 }
 
-private func decodePlaylist(_ json: String) throws -> PathfinderPlaylist {
-    try JSONDecoder().decode(PathfinderPlaylist.self, from: Data(json.utf8))
+private func libraryItem(_ id: String, title: String, owner: String) -> CatalogItem {
+    CatalogItem(
+        id: id, uri: "spotify:playlist:\(id)", title: title, subtitle: owner == "me" ? "Me" : "Them",
+        artworkURL: nil, kind: .playlist, ownerURI: "spotify:user:\(owner)")
 }
 
-private func decodePlaylistUnion(_ json: String) throws -> PathfinderPlaylistUnion {
-    try JSONDecoder().decode(PathfinderPlaylistUnion.self, from: Data(json.utf8))
+private let ownedItem = libraryItem("owned", title: "Owned Mix", owner: "me")
+private let foreignItem = libraryItem("foreign", title: "Foreign Mix", owner: "them")
+private let ownedLibrary = PlaylistLibraryNode(playlist: ownedItem)
+private let foreignLibrary = PlaylistLibraryNode(playlist: foreignItem)
+
+private func occurrence(_ uid: String, track: String) -> CatalogTrack {
+    CatalogTrack(
+        id: uid, uri: "spotify:track:\(track)", title: track, artist: "", album: "", duration: 1,
+        artworkURL: nil, addedAt: nil, occurrenceUID: uid)
 }
 
-private let ownedLibraryJSON = """
-    {"uri":"spotify:playlist:owned","name":"Owned Mix","ownerV2":{"data":{"name":"Me","username":"me","uri":"spotify:user:me"}}}
-    """
-private let foreignLibraryJSON = """
-    {"uri":"spotify:playlist:foreign","name":"Foreign Mix","ownerV2":{"data":{"name":"Them","username":"them","uri":"spotify:user:them"}}}
-    """
-private let ownedContentsJSON = """
-    {"uri":"spotify:playlist:owned","name":"Owned Mix","description":null,"ownerV2":{"data":{"username":"me","name":"Me","uri":"spotify:user:me"}},"content":{"totalCount":2,"items":[{"uid":"uid-a","itemV2":{"data":{"uri":"spotify:track:dup","name":"Dup","trackDuration":{"totalMilliseconds":1000}}}},{"uid":"uid-b","itemV2":{"data":{"uri":"spotify:track:dup","name":"Dup","trackDuration":{"totalMilliseconds":1000}}}}]}}
-    """
-private let ownedAfterRemovalJSON = """
-    {"uri":"spotify:playlist:owned","name":"Owned Mix","description":null,"ownerV2":{"data":{"username":"me","name":"Me","uri":"spotify:user:me"}},"content":{"totalCount":1,"items":[{"uid":"uid-b","itemV2":{"data":{"uri":"spotify:track:dup","name":"Dup","trackDuration":{"totalMilliseconds":1000}}}}]}}
-    """
-private let ownedAfterAddJSON = """
-    {"uri":"spotify:playlist:owned","name":"Owned Mix","description":null,"ownerV2":{"data":{"username":"me","name":"Me","uri":"spotify:user:me"}},"content":{"totalCount":3,"items":[{"uid":"uid-a","itemV2":{"data":{"uri":"spotify:track:dup","name":"Dup","trackDuration":{"totalMilliseconds":1000}}}},{"uid":"uid-b","itemV2":{"data":{"uri":"spotify:track:dup","name":"Dup","trackDuration":{"totalMilliseconds":1000}}}},{"uid":"uid-c","itemV2":{"data":{"uri":"spotify:track:new","name":"New","trackDuration":{"totalMilliseconds":1000}}}}]}}
-    """
-private let foreignContentsJSON = """
-    {"uri":"spotify:playlist:foreign","name":"Foreign Mix","description":null,"ownerV2":{"data":{"username":"them","name":"Them","uri":"spotify:user:them"}},"content":{"totalCount":1,"items":[{"uid":"uid-f","itemV2":{"data":{"uri":"spotify:track:other","name":"Other","trackDuration":{"totalMilliseconds":1000}}}}]}}
-    """
-private let emptyContentsJSON = """
-    {"uri":"spotify:playlist:empty","name":"Empty Mix","description":null,"ownerV2":{"data":{"username":"me","name":"Me","uri":"spotify:user:me"}},"content":{"totalCount":0,"items":[]}}
-    """
+private let ownedContents = CatalogPlaylistSnapshot(
+    description: "", ownerURI: "spotify:user:me",
+    tracks: [occurrence("uid-a", track: "dup"), occurrence("uid-b", track: "dup")], item: ownedItem)
+private let ownedAfterRemoval = CatalogPlaylistSnapshot(
+    description: "", ownerURI: "spotify:user:me", tracks: [occurrence("uid-b", track: "dup")], item: ownedItem)
+private let ownedAfterAdd = CatalogPlaylistSnapshot(
+    description: "", ownerURI: "spotify:user:me",
+    tracks: ownedContents.tracks + [occurrence("uid-c", track: "new")], item: ownedItem)
+private let foreignContents = CatalogPlaylistSnapshot(
+    description: "", ownerURI: "spotify:user:them", tracks: [occurrence("uid-f", track: "other")], item: foreignItem)
 
 @MainActor
 private func makeCatalog(
@@ -159,6 +132,26 @@ private func makeCatalog(
         clock: SystemPlaybackClock(),
         feedback: feedback
     )
+}
+
+@MainActor
+private func loadedOwnedPlaylist(includeForeign: Bool = false) async throws -> (
+    services: ScriptedPlaylistServices, session: CatalogSessionAvailability,
+    feedback: TransientFeedbackPresenter, catalog: CatalogStore, item: CatalogItem
+) {
+    let services = ScriptedPlaylistServices()
+    var library = [ownedLibrary]
+    if includeForeign { library.append(foreignLibrary) }
+    await services.setLibrary(library)
+    await services.setPlaylist(ownedContents, id: "owned")
+    let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+    let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
+    let catalog = makeCatalog(services: services, session: session, feedback: feedback)
+    await catalog.homeLibrary.loadProfile()
+    await catalog.homeLibrary.loadPlaylists()
+    let item = try #require(catalog.homeLibrary.playlists.first { $0.uri == "spotify:playlist:owned" })
+    await catalog.playlistStore.load(item)
+    return (services, session, feedback, catalog, item)
 }
 
 @MainActor
@@ -183,13 +176,70 @@ private func fixtureTrack(id: String, uri: String, duration: TimeInterval = 1) -
 
 @Suite("Playlist Mutation")
 struct PlaylistMutationTests {
+    @Test
+    @MainActor
+    func missingFreshOwnerCannotInheritEditAuthorityFromSelection() async throws {
+        let services = ScriptedPlaylistServices()
+        await services.setLibrary([ownedLibrary])
+        let withoutOwner = CatalogPlaylistSnapshot(description: "", ownerURI: nil, tracks: ownedContents.tracks)
+        await services.setPlaylist(withoutOwner, id: "owned")
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let catalog = makeCatalog(
+            services: services, session: session, feedback: TransientFeedbackPresenter(clock: HarnessClock.sticky()))
+        await catalog.homeLibrary.load()
+        let selected = try #require(catalog.homeLibrary.playlists.first)
+        await catalog.playlistStore.load(selected)
+        #expect(catalog.playlistStore.tracks.count == 2)
+        #expect(catalog.playlistStore.ownerURI == nil)
+        #expect(!catalog.playlistMutations.isOpenPlaylistEditable(selected))
+        catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a"], from: selected)
+        await yieldPasses()
+        #expect(await services.removeCalls.isEmpty)
+        catalog.playlistMutations.reset()
+        if await services.isParked { await services.failPark() }
+    }
+
+    @Test
+    @MainActor
+    func reconnectRequiresCurrentLibraryAndProfileBeforeAdvertisingEdits() async throws {
+        let services = ScriptedPlaylistServices()
+        await services.setLibrary([ownedLibrary])
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let catalog = makeCatalog(
+            services: services, session: session, feedback: TransientFeedbackPresenter(clock: HarnessClock.sticky()))
+        await catalog.homeLibrary.load()
+        let oldItem = try #require(catalog.homeLibrary.playlists.first)
+        #expect(catalog.playlistMutations.isLibraryPlaylistEditable(oldItem))
+        let observation = HarnessCounters()
+        withObservationTracking {
+            _ = catalog.playlistMutations.editableLibraryPlaylists
+        } onChange: {
+            observation.record("changed")
+        }
+
+        session.update(accountEpoch: 1, isAvailable: false)
+        #expect(observation.count("changed") == 1, "Session changes must invalidate advertised menu capabilities")
+        session.update(accountEpoch: 1, isAvailable: true)
+        #expect(catalog.playlistMutations.editableLibraryPlaylists.isEmpty)
+        #expect(!catalog.playlistMutations.isLibraryPlaylistEditable(oldItem))
+        await catalog.homeLibrary.loadProfile()
+        #expect(!catalog.playlistMutations.isLibraryPlaylistEditable(oldItem), "The library proof is still old")
+        await services.setLibrary([])
+        await catalog.homeLibrary.loadPlaylists()
+        #expect(
+            !catalog.playlistMutations.isLibraryPlaylistEditable(oldItem), "A retained menu cannot supply ownership")
+        await services.setLibrary([ownedLibrary])
+        await catalog.homeLibrary.loadPlaylists(force: true)
+        #expect(catalog.playlistMutations.isLibraryPlaylistEditable(oldItem))
+    }
+
     @Test(arguments: [0, 1, 2])
     @MainActor
     func uncertainWritesRetireRouteAuthorityWithoutReplayingTheMutation(outcome: Int) async throws {
         let services = ScriptedPlaylistServices()
-        await services.setLibrary([try decodePlaylist(ownedLibraryJSON), try decodePlaylist(foreignLibraryJSON)])
-        await services.setPlaylist(try decodePlaylistUnion(ownedContentsJSON))
-        await services.setPlaylist(try decodePlaylistUnion(foreignContentsJSON))
+        await services.setLibrary([ownedLibrary, foreignLibrary])
+        await services.setPlaylist(ownedContents, id: "owned")
+        await services.setPlaylist(foreignContents, id: "foreign")
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
         let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked())
         defer { feedback.dismiss() }
@@ -231,533 +281,383 @@ struct PlaylistMutationTests {
 
     @Test
     @MainActor
-    func testPlaylistMutation() async {
-        do {
-            let services = ScriptedPlaylistServices()
-            let emptyPlaylist: PathfinderPlaylistUnion
-            do {
-                emptyPlaylist = try decodePlaylistUnion(emptyContentsJSON)
-                await services.setPlaylist(emptyPlaylist)
-            } catch {
-                #expect((false) == true, "empty playlist fixture decodes")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked))
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            let item = CatalogItem(
-                id: "empty",
-                uri: "spotify:playlist:empty",
-                title: "Empty Mix",
-                subtitle: "Me",
-                artworkURL: nil,
-                kind: .playlist,
-                ownerURI: "spotify:user:me"
-            )
+    func emptyPlaylistReusesCompleteResultsButRetriesFailedRefreshes() async throws {
+        let services = ScriptedPlaylistServices()
+        let emptyPlaylist = CatalogPlaylistSnapshot(description: "", ownerURI: "spotify:user:me", tracks: [])
+        await services.setPlaylist(emptyPlaylist, id: "empty")
+        let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked))
+        defer { feedback.dismiss() }
+        let catalog = makeCatalog(services: services, session: session, feedback: feedback)
+        let item = CatalogItem(
+            id: "empty",
+            uri: "spotify:playlist:empty",
+            title: "Empty Mix",
+            subtitle: "Me",
+            artworkURL: nil,
+            kind: .playlist,
+            ownerURI: "spotify:user:me"
+        )
 
-            await catalog.playlistStore.load(item)
-            await catalog.playlistStore.load(item)
+        await catalog.playlistStore.load(item)
+        await catalog.playlistStore.load(item)
 
-            #expect((catalog.playlistStore.tracks) == ([]), "an empty playlist remains authoritatively empty")
-            #expect(
-                (await services.playlistLoadCount) == (1),
-                "an empty playlist opened twice in one session fetches once"
-            )
+        #expect((catalog.playlistStore.tracks) == ([]), "an empty playlist remains authoritatively empty")
+        #expect(
+            (await services.playlistLoadCount) == (1),
+            "an empty playlist opened twice in one session fetches once"
+        )
 
-            await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
-            await catalog.playlistStore.load(item, force: true)
-            #expect((catalog.playlistStore.error) != nil, "a failed forced refresh keeps the empty cached result stale")
-            #expect((await services.playlistLoadCount) == (2), "the forced refresh attempts one playlist read")
+        await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
+        await catalog.playlistStore.load(item, force: true)
+        #expect((catalog.playlistStore.error) != nil, "a failed forced refresh keeps the empty cached result stale")
+        #expect((await services.playlistLoadCount) == (2), "the forced refresh attempts one playlist read")
 
-            await services.setPlaylistError(nil)
-            await catalog.playlistStore.load(item)
-            #expect((catalog.playlistStore.error) == nil, "a later non-forced retry clears the refresh error")
-            #expect((catalog.playlistStore.tracks) == ([]), "the successful retry remains authoritatively empty")
-            #expect(
-                (await services.playlistLoadCount) == (3),
-                "a refresh error prevents the cached empty result from masking a later retry"
-            )
+        await services.setPlaylistError(nil)
+        await catalog.playlistStore.load(item)
+        #expect((catalog.playlistStore.error) == nil, "a later non-forced retry clears the refresh error")
+        #expect((catalog.playlistStore.tracks) == ([]), "the successful retry remains authoritatively empty")
+        #expect(
+            (await services.playlistLoadCount) == (3),
+            "a refresh error prevents the cached empty result from masking a later retry"
+        )
 
-            session.update(accountEpoch: 2, isAvailable: true)
-            await catalog.playlistStore.load(item)
-            #expect(
-                (await services.playlistLoadCount) == (4),
-                "an empty result from an earlier account session is fetched again"
-            )
-        }
+        session.update(accountEpoch: 2, isAvailable: true)
+        await catalog.playlistStore.load(item)
+        #expect(
+            (await services.playlistLoadCount) == (4),
+            "an empty result from an earlier account session is fetched again"
+        )
+    }
 
-        do {
-            do {
-                do {
-                    let owned = try decodePlaylist(ownedLibraryJSON)
-                    let mapped = CatalogMapping.item(from: owned)
-                    #expect((mapped?.ownerURI) == ("spotify:user:me"), "library playlist keeps owner URI")
-                    #expect((mapped?.subtitle) == ("Me"), "library playlist keeps the owner subtitle")
-
-                    let foreign = try decodePlaylist(foreignLibraryJSON)
-                    #expect(
-                        (CatalogMapping.item(from: foreign)?.ownerURI) == ("spotify:user:them"),
-                        "foreign playlist owner is preserved")
-
-                    let union = try decodePlaylistUnion(ownedContentsJSON)
-                    #expect(
-                        (CatalogMapping.ownerURI(from: union)) == ("spotify:user:me"),
-                        "open playlist owner URI is mapped from ownerV2")
-                    let tracks = union.content?.items?.compactMap(CatalogMapping.playlistTrack(from:)) ?? []
-                    #expect(
-                        (tracks.map(\.id)) == (["uid-a", "uid-b"]),
-                        "playlist rows use occurrence UIDs as CatalogTrack.id")
-                    #expect(
-                        (tracks.map(\.uri)) == (["spotify:track:dup", "spotify:track:dup"]),
-                        "duplicate rows keep the same track URI")
-
-                } catch {
-                    Issue.record("\("library and detail playlist JSON decode"): unexpected error \(error)")
-                }
-            }
-        }
-
-        do {
-            let services = ScriptedPlaylistServices()
-            do {
-                try await services.setLibrary([
-                    decodePlaylist(ownedLibraryJSON),
-                    decodePlaylist(foreignLibraryJSON),
-                ])
-                try await services.setPlaylist(decodePlaylistUnion(ownedContentsJSON))
-            } catch {
-                #expect((false) == true, "owned library fixtures decode")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-
-            await catalog.homeLibrary.loadProfile()
-            await catalog.homeLibrary.loadPlaylists()
-            #expect(
-                (catalog.homeLibrary.profileURI) == ("spotify:user:me"), "profile URI is retained for write advertising"
-            )
-            #expect(
-                (catalog.playlistMutations.editableLibraryPlaylists.map(\.uri)) == (["spotify:playlist:owned"]),
-                "only owned library playlists are editable targets")
-
-            let owned = catalog.homeLibrary.playlists.first { $0.uri == "spotify:playlist:owned" }
-            #expect((owned) != nil, "owned playlist is in the library")
-            guard let owned else {
-                feedback.dismiss()
-                return
-            }
-            await catalog.playlistStore.load(owned)
-            let playlistLoadsBeforeAdd = await services.playlistLoadCount
-            let duplicateURI = "spotify:track:dup"
-            catalog.playlistMutations.addTracks(
-                [
-                    fixtureTrack(id: "row-1", uri: duplicateURI),
-                    fixtureTrack(id: "row-2", uri: duplicateURI),
-                ],
-                to: owned
-            )
-            await expectEventually { await services.isParked }
-            let addCall = await services.addCalls.first
-            #expect((addCall?.playlistId) == ("owned"), "add uses the playlist id, not the URI")
-            #expect((addCall?.uris) == ([duplicateURI, duplicateURI]), "one mutation carries every selected URI")
-
-            do {
-                try await services.setPlaylist(decodePlaylistUnion(ownedAfterAddJSON))
-            } catch {
-                #expect((false) == true, "post-add playlist fixture decodes")
-            }
-            await services.completePark()
-            await expectEventually {
-                catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]
-                    && feedback.message?.kind == .success
-                    && feedback.message?.text == "Added 2 songs to Owned Mix"
-            }
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (["uid-a", "uid-b", "uid-c"]),
-                "successful add refreshes the open playlist")
-            #expect((feedback.message?.kind) == (.success), "successful add reports through the shared presenter")
-            #expect((feedback.message?.text) == ("Added 2 songs to Owned Mix"), "successful add names the playlist")
-            #expect(
-                (await services.playlistLoadCount) == (playlistLoadsBeforeAdd + 1),
-                "reconcile reloads only the open playlist")
-            #expect((await services.libraryLoadCount) == (1), "library list is not reloaded after add")
+    @Test
+    @MainActor
+    func addingTracksBatchesDuplicatesAndReconcilesOnlyOpenPlaylist() async throws {
+        let (services, _, feedback, catalog, owned) = try await loadedOwnedPlaylist(includeForeign: true)
+        defer {
+            catalog.reset()
             feedback.dismiss()
+            services.cancelPending()
         }
+        #expect(
+            (catalog.homeLibrary.profileURI) == ("spotify:user:me"), "profile URI is retained for write advertising"
+        )
+        #expect(
+            (catalog.playlistMutations.editableLibraryPlaylists.map(\.uri)) == (["spotify:playlist:owned"]),
+            "only owned library playlists are editable targets")
 
-        do {
-            let services = ScriptedPlaylistServices()
-            do {
-                try await services.setLibrary([decodePlaylist(ownedLibraryJSON)])
-                try await services.setPlaylist(decodePlaylistUnion(ownedContentsJSON))
-            } catch {
-                #expect((false) == true, "removal fixtures decode")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            await catalog.homeLibrary.loadProfile()
-            await catalog.homeLibrary.loadPlaylists()
-            let owned = catalog.homeLibrary.playlists[0]
-            await catalog.playlistStore.load(owned)
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (["uid-a", "uid-b"]),
-                "open playlist loads both duplicate occurrences")
-            #expect(
-                (catalog.playlistMutations.isOpenPlaylistEditable(owned)) == true,
-                "owned open playlist is editable after load")
+        let playlistLoadsBeforeAdd = await services.playlistLoadCount
+        let duplicateURI = "spotify:track:dup"
+        catalog.playlistMutations.addTracks(
+            [
+                fixtureTrack(id: "row-1", uri: duplicateURI),
+                fixtureTrack(id: "row-2", uri: duplicateURI),
+            ],
+            to: owned
+        )
+        await expectEventually { await services.isParked }
+        let addCall = await services.addCalls.first
+        #expect((addCall?.playlistId) == ("owned"), "add uses the playlist id, not the URI")
+        #expect((addCall?.uris) == ([duplicateURI, duplicateURI]), "one mutation carries every selected URI")
 
-            let foreignPlaylist: CatalogItem?
-            do {
-                foreignPlaylist = CatalogMapping.item(from: try decodePlaylist(foreignLibraryJSON))
-            } catch {
-                foreignPlaylist = nil
-                #expect((false) == true, "foreign playlist fixture decodes")
-            }
-            if let foreignPlaylist {
-                #expect(
-                    (!catalog.playlistMutations.isLibraryPlaylistEditable(foreignPlaylist)) == true,
-                    "a foreign playlist is not an editable library target")
-                catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a"], from: foreignPlaylist)
-            }
-            #expect((await services.removeCalls.count) == (0), "read-only playlists do not start a removal")
+        await services.setPlaylist(ownedAfterAdd, id: "owned")
+        await services.completePark()
+        await expectEventually {
+            catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]
+                && feedback.message?.kind == .success
+                && feedback.message?.text == "Added 2 songs to Owned Mix"
+        }
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (["uid-a", "uid-b", "uid-c"]),
+            "successful add refreshes the open playlist")
+        #expect((feedback.message?.kind) == (.success), "successful add reports through the shared presenter")
+        #expect((feedback.message?.text) == ("Added 2 songs to Owned Mix"), "successful add names the playlist")
+        #expect(
+            (await services.playlistLoadCount) == (playlistLoadsBeforeAdd + 1),
+            "reconcile reloads only the open playlist")
+        #expect((await services.libraryLoadCount) == (1), "library list is not reloaded after add")
+    }
 
-            catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a", "uid-a"], from: owned)
-            await expectEventually { await services.isParked }
-            let removal = await services.removeCalls.first
-            #expect((await services.removeCalls.count) == (1), "removal is one batched request")
-            #expect((removal?.uids) == (["uid-a"]), "removal uses the selected Pathfinder UID")
-            #expect(
-                (removal?.uids.contains("spotify:track:dup") == false) == true,
-                "removal does not send the duplicated track URI")
-
-            do {
-                try await services.setPlaylist(decodePlaylistUnion(ownedAfterRemovalJSON))
-            } catch {
-                #expect((false) == true, "post-remove playlist fixture decodes")
-            }
-            await services.completePark()
-            await expectEventually {
-                catalog.playlistStore.tracks.map(\.id) == ["uid-b"]
-                    && feedback.message?.text == "Removed from Owned Mix"
-            }
-            #expect((catalog.playlistStore.tracks.map(\.id)) == (["uid-b"]), "success refreshes only the open playlist")
-            #expect(
-                (catalog.playlistStore.tracks.first?.id) == ("uid-b"), "selection-stable remaining occurrence is uid-b")
-            #expect(
-                (feedback.message?.text) == ("Removed from Owned Mix"),
-                "successful remove reports through the presenter")
-            #expect((await services.libraryLoadCount) == (1), "library is not fully reloaded after remove")
+    @Test
+    @MainActor
+    func removingOccurrencePreservesOtherDuplicateAndRefusesForeignPlaylist() async throws {
+        let (services, _, feedback, catalog, owned) = try await loadedOwnedPlaylist()
+        defer {
+            catalog.reset()
             feedback.dismiss()
+            services.cancelPending()
         }
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (["uid-a", "uid-b"]),
+            "open playlist loads both duplicate occurrences")
+        #expect(
+            (catalog.playlistMutations.isOpenPlaylistEditable(owned)) == true,
+            "owned open playlist is editable after load")
 
-        do {
-            let services = ScriptedPlaylistServices()
-            do {
-                try await services.setLibrary([decodePlaylist(ownedLibraryJSON)])
-                try await services.setPlaylist(decodePlaylistUnion(ownedContentsJSON))
-            } catch {
-                #expect((false) == true, "rejection fixtures decode")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            await catalog.homeLibrary.loadProfile()
-            await catalog.homeLibrary.loadPlaylists()
-            let owned = catalog.homeLibrary.playlists[0]
-            await catalog.playlistStore.load(owned)
-            let loadedIDs = catalog.playlistStore.tracks.map(\.id)
+        let foreignPlaylist = foreignItem
+        #expect(
+            !catalog.playlistMutations.isLibraryPlaylistEditable(foreignPlaylist),
+            "a foreign playlist is not an editable library target")
+        catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a"], from: foreignPlaylist)
+        #expect((await services.removeCalls.count) == (0), "read-only playlists do not start a removal")
 
-            await services.setAddError(PlaylistMutationFailure.rejected)
-            catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:new")], to: owned)
-            await expectEventually { feedback.message?.kind == .failure }
-            #expect(
-                (feedback.message?.text) == ("Spotify couldn’t change that playlist."),
-                "typed rejection is a privacy-safe failure")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "rejection leaves the open playlist untouched")
-            #expect(
-                (feedback.message?.text.contains("spotify:") == false) == true,
-                "rejection text does not include Spotify identifiers")
+        catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a", "uid-a"], from: owned)
+        await expectEventually { await services.isParked }
+        let removal = await services.removeCalls.first
+        #expect((await services.removeCalls.count) == (1), "removal is one batched request")
+        #expect((removal?.uids) == (["uid-a"]), "removal uses the selected Pathfinder UID")
+        #expect(
+            (removal?.uids.contains("spotify:track:dup") == false) == true,
+            "removal does not send the duplicated track URI")
 
-            await services.setAddError(nil)
-            catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:new")], to: owned)
-            await expectEventually { await services.isParked }
-            catalog.playlistMutations.reset()
-            await services.failPark()
-            await yieldPasses()
-            #expect(
-                (feedback.message?.kind) == (.failure),
-                "cancelled mutation does not replace the rejection message with success")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "cancelled mutation leaves tracks unchanged")
+        await services.setPlaylist(ownedAfterRemoval, id: "owned")
+        await services.completePark()
+        await expectEventually {
+            catalog.playlistStore.tracks.map(\.id) == ["uid-b"]
+                && feedback.message?.text == "Removed from Owned Mix"
+        }
+        #expect((catalog.playlistStore.tracks.map(\.id)) == (["uid-b"]), "success refreshes only the open playlist")
+        #expect(
+            (catalog.playlistStore.tracks.first?.id) == ("uid-b"), "selection-stable remaining occurrence is uid-b")
+        #expect(
+            (feedback.message?.text) == ("Removed from Owned Mix"),
+            "successful remove reports through the presenter")
+        #expect((await services.libraryLoadCount) == (1), "library is not fully reloaded after remove")
+    }
 
-            catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:stale")], to: owned)
-            await expectEventually { await services.isParked }
-            session.update(accountEpoch: 2, isAvailable: true)
-            await services.completePark()
-            await yieldPasses()
-            #expect((feedback.message?.kind) == (.failure), "stale-account success does not present mutation feedback")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs),
-                "stale-account success does not apply playlist rows")
-
-            session.update(accountEpoch: 2, isAvailable: false)
-            catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:offline")], to: owned)
-            #expect(
-                (feedback.message?.text) == ("Connect Spotify before changing playlists."),
-                "unavailable session reports a connect failure")
-            #expect((await services.addCalls.count) == (3), "unavailable session does not send another write")
+    @Test
+    @MainActor
+    func rejectionCancellationAndAccountChangeCannotPublishSuccess() async throws {
+        let (services, session, feedback, catalog, owned) = try await loadedOwnedPlaylist()
+        defer {
+            catalog.reset()
             feedback.dismiss()
+            services.cancelPending()
         }
+        let loadedIDs = catalog.playlistStore.tracks.map(\.id)
 
-        do {
-            let services = ScriptedPlaylistServices()
-            do {
-                try await services.setLibrary([decodePlaylist(ownedLibraryJSON)])
-                try await services.setPlaylist(decodePlaylistUnion(ownedContentsJSON))
-            } catch {
-                #expect((false) == true, "overlapping fixtures decode")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            await catalog.homeLibrary.loadProfile()
-            await catalog.homeLibrary.loadPlaylists()
-            let owned = catalog.homeLibrary.playlists[0]
-            await catalog.playlistStore.load(owned)
-            let loadsBefore = await services.playlistLoadCount
+        await services.setAddError(PlaylistMutationFailure.rejected)
+        catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:new")], to: owned)
+        await expectEventually { feedback.message?.kind == .failure }
+        #expect(
+            (feedback.message?.text) == ("Spotify couldn’t change that playlist."),
+            "typed rejection is a privacy-safe failure")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "rejection leaves the open playlist untouched")
+        #expect(
+            (feedback.message?.text.contains("spotify:") == false) == true,
+            "rejection text does not include Spotify identifiers")
 
-            catalog.playlistMutations.addTracks(
-                [fixtureTrack(id: "row-1", uri: "spotify:track:first")],
-                to: owned
-            )
-            await expectEventually { await services.parkedCount == 1 }
-            catalog.playlistMutations.addTracks(
-                [fixtureTrack(id: "row-2", uri: "spotify:track:second")],
-                to: owned
-            )
-            await expectEventually { await services.hasParkedAdds(2) }
-            let sentAdds = await services.addCalls
-            #expect((sentAdds.count) == (2), "both overlapping writes are sent")
-            #expect(
-                (sentAdds.map(\.uris)) == ([["spotify:track:first"], ["spotify:track:second"]]),
-                "first overlapping write keeps its batch")
+        await services.setAddError(nil)
+        catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:new")], to: owned)
+        await expectEventually { await services.isParked }
+        catalog.playlistMutations.reset()
+        await services.failPark()
+        await yieldPasses()
+        #expect(
+            (feedback.message?.kind) == (.failure),
+            "cancelled mutation does not replace the rejection message with success")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "cancelled mutation leaves tracks unchanged")
 
-            do {
-                try await services.setPlaylist(decodePlaylistUnion(ownedAfterAddJSON))
-            } catch {
-                #expect((false) == true, "overlapping post-add fixture decodes")
-            }
-            await services.completePark()
-            await expectEventually { await services.playlistLoadCount == loadsBefore + 1 }
-            await services.completePark()
-            await expectEventually {
-                await services.playlistLoadCount == loadsBefore + 2
-                    && feedback.message?.kind == .success
-                    && catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]
-            }
-            #expect(
-                (await services.playlistLoadCount) == (loadsBefore + 2),
-                "each completed overlapping write reloads the open playlist once")
-            #expect((feedback.message?.kind) == (.success), "later overlapping success reports through the presenter")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]) == true,
-                "stale account/session still blocked overlapping apply")
+        catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:stale")], to: owned)
+        await expectEventually { await services.isParked }
+        session.update(accountEpoch: 2, isAvailable: true)
+        await services.completePark()
+        await yieldPasses()
+        #expect((feedback.message?.kind) == (.failure), "stale-account success does not present mutation feedback")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs),
+            "stale-account success does not apply playlist rows")
+
+        session.update(accountEpoch: 2, isAvailable: false)
+        catalog.playlistMutations.addTracks([fixtureTrack(id: "row", uri: "spotify:track:offline")], to: owned)
+        #expect(
+            (feedback.message?.text) == ("Connect Spotify before changing playlists."),
+            "unavailable session reports a connect failure")
+        #expect((await services.addCalls.count) == (3), "unavailable session does not send another write")
+    }
+
+    @Test
+    @MainActor
+    func overlappingWritesEachReconcileOnce() async throws {
+        let (services, _, feedback, catalog, owned) = try await loadedOwnedPlaylist()
+        defer {
+            catalog.reset()
             feedback.dismiss()
+            services.cancelPending()
         }
+        let loadsBefore = await services.playlistLoadCount
 
-        do {
-            let services = ScriptedPlaylistServices()
-            do {
-                try await services.setLibrary([decodePlaylist(ownedLibraryJSON)])
-                try await services.setPlaylist(decodePlaylistUnion(ownedContentsJSON))
-            } catch {
-                #expect((false) == true, "add-reload fixtures decode")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            await catalog.homeLibrary.loadProfile()
-            await catalog.homeLibrary.loadPlaylists()
-            let owned = catalog.homeLibrary.playlists[0]
-            await catalog.playlistStore.load(owned)
-            let loadedIDs = catalog.playlistStore.tracks.map(\.id)
-            let loadsBefore = await services.playlistLoadCount
-            #expect((loadedIDs) == (["uid-a", "uid-b"]), "open playlist has nonempty rows before add")
+        catalog.playlistMutations.addTracks(
+            [fixtureTrack(id: "row-1", uri: "spotify:track:first")],
+            to: owned
+        )
+        await expectEventually { await services.parkedCount == 1 }
+        catalog.playlistMutations.addTracks(
+            [fixtureTrack(id: "row-2", uri: "spotify:track:second")],
+            to: owned
+        )
+        await expectEventually { await services.hasParkedAdds(2) }
+        let sentAdds = await services.addCalls
+        #expect((sentAdds.count) == (2), "both overlapping writes are sent")
+        #expect(
+            (sentAdds.map(\.uris)) == ([["spotify:track:first"], ["spotify:track:second"]]),
+            "first overlapping write keeps its batch")
 
-            catalog.playlistMutations.addTracks(
-                [fixtureTrack(id: "row", uri: "spotify:track:new")],
-                to: owned
-            )
-            await expectEventually { await services.isParked }
-            await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
-            await services.completePark()
-            await expectEventually {
-                catalog.playlistStore.error != nil
-                    && feedback.message?.kind == .success
-                    && feedback.message?.text == "Added to Owned Mix"
-            }
-            #expect((feedback.message?.kind) == (.success), "committed add still reports mutation success")
-            #expect((feedback.message?.text) == ("Added to Owned Mix"), "committed add still names the playlist")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs),
-                "failed reload keeps the previous nonempty rows")
-            #expect((catalog.playlistStore.error) != nil, "failed reload records a refresh error beside those rows")
-            #expect((await services.addCalls.count) == (1), "failed reload does not send another add")
-            #expect(
-                (await services.playlistLoadCount) == (loadsBefore + 1), "forced reconcile attempted one playlist read")
+        await services.setPlaylist(ownedAfterAdd, id: "owned")
+        await services.completePark()
+        await expectEventually { await services.playlistLoadCount == loadsBefore + 1 }
+        await services.completePark()
+        await expectEventually {
+            await services.playlistLoadCount == loadsBefore + 2
+                && feedback.message?.kind == .success
+                && catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]
+        }
+        #expect(
+            (await services.playlistLoadCount) == (loadsBefore + 2),
+            "each completed overlapping write reloads the open playlist once")
+        #expect((feedback.message?.kind) == (.success), "later overlapping success reports through the presenter")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id) == ["uid-a", "uid-b", "uid-c"]) == true,
+            "stale account/session still blocked overlapping apply")
+    }
 
-            await catalog.playlistStore.load(owned, force: true)
-            #expect((catalog.playlistStore.error) != nil, "retry failure keeps the stale-refresh error")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "retry failure still keeps the previous rows")
-            #expect((await services.addCalls.count) == (1), "retry does not repeat the add")
-            #expect(
-                (await services.playlistLoadCount) == (loadsBefore + 2),
-                "retry failure loads the open playlist once more")
-
-            await services.setPlaylistError(nil)
-            do {
-                try await services.setPlaylist(decodePlaylistUnion(ownedAfterAddJSON))
-            } catch {
-                #expect((false) == true, "retry-success playlist fixture decodes")
-            }
-            await catalog.playlistStore.load(owned, force: true)
-            #expect((catalog.playlistStore.error) == nil, "successful retry clears the stale-refresh error")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (["uid-a", "uid-b", "uid-c"]),
-                "successful retry replaces rows with the authoritative playlist")
-            #expect((await services.addCalls.count) == (1), "successful retry still does not repeat the add")
-            #expect((feedback.message?.kind) == (.success), "success toast is unchanged by retry")
+    @Test
+    @MainActor
+    func committedAddSurvivesFailedReconciliationAndReadOnlyRetry() async throws {
+        let (services, _, feedback, catalog, owned) = try await loadedOwnedPlaylist()
+        defer {
+            catalog.reset()
             feedback.dismiss()
+            services.cancelPending()
         }
+        let loadedIDs = catalog.playlistStore.tracks.map(\.id)
+        let loadsBefore = await services.playlistLoadCount
+        #expect((loadedIDs) == (["uid-a", "uid-b"]), "open playlist has nonempty rows before add")
 
-        do {
-            let services = ScriptedPlaylistServices()
-            do {
-                try await services.setLibrary([decodePlaylist(ownedLibraryJSON)])
-                try await services.setPlaylist(decodePlaylistUnion(ownedContentsJSON))
-            } catch {
-                #expect((false) == true, "remove-reload fixtures decode")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            await catalog.homeLibrary.loadProfile()
-            await catalog.homeLibrary.loadPlaylists()
-            let owned = catalog.homeLibrary.playlists[0]
-            await catalog.playlistStore.load(owned)
-            let loadedIDs = catalog.playlistStore.tracks.map(\.id)
+        catalog.playlistMutations.addTracks(
+            [fixtureTrack(id: "row", uri: "spotify:track:new")],
+            to: owned
+        )
+        await expectEventually { await services.isParked }
+        await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
+        await services.completePark()
+        await expectEventually {
+            catalog.playlistStore.error != nil
+                && feedback.message?.kind == .success
+                && feedback.message?.text == "Added to Owned Mix"
+        }
+        #expect((feedback.message?.kind) == (.success), "committed add still reports mutation success")
+        #expect((feedback.message?.text) == ("Added to Owned Mix"), "committed add still names the playlist")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs),
+            "failed reload keeps the previous nonempty rows")
+        #expect((catalog.playlistStore.error) != nil, "failed reload records a refresh error beside those rows")
+        #expect((await services.addCalls.count) == (1), "failed reload does not send another add")
+        #expect(
+            (await services.playlistLoadCount) == (loadsBefore + 1), "forced reconcile attempted one playlist read")
 
-            catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a"], from: owned)
-            await expectEventually { await services.isParked }
-            await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
-            await services.completePark()
-            await expectEventually {
-                catalog.playlistStore.error != nil
-                    && feedback.message?.text == "Removed from Owned Mix"
-            }
-            #expect((feedback.message?.kind) == (.success), "committed remove still reports mutation success")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs),
-                "failed remove reload keeps previous nonempty rows"
-            )
-            #expect((catalog.playlistStore.error) != nil, "failed remove reload records a refresh error")
-            #expect((await services.removeCalls.count) == (1), "failed remove reload does not send another removal")
+        await catalog.playlistStore.load(owned, force: true)
+        #expect((catalog.playlistStore.error) != nil, "retry failure keeps the stale-refresh error")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "retry failure still keeps the previous rows")
+        #expect((await services.addCalls.count) == (1), "retry does not repeat the add")
+        #expect(
+            (await services.playlistLoadCount) == (loadsBefore + 2),
+            "retry failure loads the open playlist once more")
+
+        await services.setPlaylistError(nil)
+        await services.setPlaylist(ownedAfterAdd, id: "owned")
+        await catalog.playlistStore.load(owned, force: true)
+        #expect((catalog.playlistStore.error) == nil, "successful retry clears the stale-refresh error")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (["uid-a", "uid-b", "uid-c"]),
+            "successful retry replaces rows with the authoritative playlist")
+        #expect((await services.addCalls.count) == (1), "successful retry still does not repeat the add")
+        #expect((feedback.message?.kind) == (.success), "success toast is unchanged by retry")
+    }
+
+    @Test
+    @MainActor
+    func committedRemovalSurvivesFailedReconciliation() async throws {
+        let (services, _, feedback, catalog, owned) = try await loadedOwnedPlaylist()
+        defer {
+            catalog.reset()
             feedback.dismiss()
+            services.cancelPending()
         }
+        let loadedIDs = catalog.playlistStore.tracks.map(\.id)
 
-        do {
-            let services = ScriptedPlaylistServices()
-            do {
-                try await services.setLibrary([
-                    decodePlaylist(ownedLibraryJSON),
-                    decodePlaylist(foreignLibraryJSON),
-                ])
-                try await services.setPlaylist(decodePlaylistUnion(ownedContentsJSON))
-            } catch {
-                #expect((false) == true, "stale-refresh fixtures decode")
-                return
-            }
-            let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-            let feedback = TransientFeedbackPresenter(clock: HarnessClock(sleep: .parked), duration: 4)
-            let catalog = makeCatalog(services: services, session: session, feedback: feedback)
-            await catalog.homeLibrary.loadProfile()
-            await catalog.homeLibrary.loadPlaylists()
-            let owned = catalog.homeLibrary.playlists.first { $0.uri == "spotify:playlist:owned" }
-            #expect((owned) != nil, "owned playlist is in the library for stale-refresh checks")
-            guard let owned else {
-                feedback.dismiss()
-                return
-            }
-            await catalog.playlistStore.load(owned)
-            let loadedIDs = catalog.playlistStore.tracks.map(\.id)
+        catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-a"], from: owned)
+        await expectEventually { await services.isParked }
+        await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
+        await services.completePark()
+        await expectEventually {
+            catalog.playlistStore.error != nil
+                && feedback.message?.text == "Removed from Owned Mix"
+        }
+        #expect((feedback.message?.kind) == (.success), "committed remove still reports mutation success")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs),
+            "failed remove reload keeps previous nonempty rows"
+        )
+        #expect((catalog.playlistStore.error) != nil, "failed remove reload records a refresh error")
+        #expect((await services.removeCalls.count) == (1), "failed remove reload does not send another removal")
+    }
 
-            catalog.playlistMutations.addTracks(
-                [fixtureTrack(id: "row", uri: "spotify:track:new")],
-                to: owned
-            )
-            await expectEventually { await services.isParked }
-            await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
-            await services.completePark()
-            await expectEventually { catalog.playlistStore.error != nil }
-            #expect((catalog.playlistStore.error) != nil, "reconciliation failure plants the stale-refresh error")
-
-            await services.setParkPlaylistLoads(true)
-            let cancelledRetry = Task { await catalog.playlistStore.load(owned, force: true) }
-            await expectEventually { await services.isPlaylistLoadParked }
-            #expect((catalog.playlistStore.error) != nil, "force reload start keeps the stale-refresh error")
-            cancelledRetry.cancel()
-            await services.failPlaylistPark()
-            await cancelledRetry.value
-            #expect((catalog.playlistStore.error) != nil, "cancelled retry does not clear the stale-refresh error")
-            #expect((catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "cancelled retry keeps previous rows")
-            #expect((await services.addCalls.count) == (1), "cancelled retry does not repeat the add")
-
-            do {
-                try await services.setPlaylist(decodePlaylistUnion(ownedAfterAddJSON))
-            } catch {
-                #expect((false) == true, "stale-identity playlist fixture decodes")
-            }
-            await services.setPlaylistError(nil)
-            let staleRetry = Task { await catalog.playlistStore.load(owned, force: true) }
-            await expectEventually { await services.isPlaylistLoadParked }
-            session.update(accountEpoch: 2, isAvailable: true)
-            await services.completePlaylistPark()
-            await staleRetry.value
-            #expect((catalog.playlistStore.error) != nil, "stale-account retry does not clear the stale-refresh error")
-            #expect(
-                (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "stale-account retry does not apply newer rows"
-            )
-            #expect((await services.addCalls.count) == (1), "stale-account retry does not repeat the add")
-
-            await services.setParkPlaylistLoads(false)
-            let foreign = catalog.homeLibrary.playlists.first { $0.uri == "spotify:playlist:foreign" }
-            #expect((foreign) != nil, "foreign playlist is in the library for switch coverage")
-            if let foreign {
-                do {
-                    try await services.setPlaylist(decodePlaylistUnion(foreignContentsJSON))
-                } catch {
-                    #expect((false) == true, "foreign playlist fixture decodes")
-                }
-                await catalog.playlistStore.load(foreign)
-                #expect(
-                    (catalog.playlistStore.error) == nil, "switching playlists clears the previous stale-refresh error")
-                #expect(
-                    (catalog.playlistStore.tracks.map(\.id)) == (["uid-f"]),
-                    "switching playlists loads the new playlist rows")
-            }
-            #expect((await services.addCalls.count) == (1), "playlist switch does not send another add")
+    @Test
+    @MainActor
+    func cancelledOrStaleReconciliationKeepsRowsUntilNavigation() async throws {
+        let (services, session, feedback, catalog, owned) = try await loadedOwnedPlaylist(includeForeign: true)
+        defer {
+            catalog.reset()
             feedback.dismiss()
+            services.cancelPending()
         }
+        let loadedIDs = catalog.playlistStore.tracks.map(\.id)
 
+        catalog.playlistMutations.addTracks(
+            [fixtureTrack(id: "row", uri: "spotify:track:new")],
+            to: owned
+        )
+        await expectEventually { await services.isParked }
+        await services.setPlaylistError(PlaylistMutationCheckFailure.unavailable)
+        await services.completePark()
+        await expectEventually { catalog.playlistStore.error != nil }
+        #expect((catalog.playlistStore.error) != nil, "reconciliation failure plants the stale-refresh error")
+
+        await services.setParkPlaylistLoads(true)
+        let cancelledRetry = Task { await catalog.playlistStore.load(owned, force: true) }
+        await expectEventually { await services.isPlaylistLoadParked }
+        #expect((catalog.playlistStore.error) != nil, "force reload start keeps the stale-refresh error")
+        cancelledRetry.cancel()
+        await services.failPlaylistPark()
+        await cancelledRetry.value
+        #expect((catalog.playlistStore.error) != nil, "cancelled retry does not clear the stale-refresh error")
+        #expect((catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "cancelled retry keeps previous rows")
+        #expect((await services.addCalls.count) == (1), "cancelled retry does not repeat the add")
+
+        await services.setPlaylist(ownedAfterAdd, id: "owned")
+        await services.setPlaylistError(nil)
+        let staleRetry = Task { await catalog.playlistStore.load(owned, force: true) }
+        await expectEventually { await services.isPlaylistLoadParked }
+        session.update(accountEpoch: 2, isAvailable: true)
+        await services.completePlaylistPark()
+        await staleRetry.value
+        #expect((catalog.playlistStore.error) != nil, "stale-account retry does not clear the stale-refresh error")
+        #expect(
+            (catalog.playlistStore.tracks.map(\.id)) == (loadedIDs), "stale-account retry does not apply newer rows"
+        )
+        #expect((await services.addCalls.count) == (1), "stale-account retry does not repeat the add")
+
+        await services.setParkPlaylistLoads(false)
+        let foreign = try #require(catalog.homeLibrary.playlists.first { $0.uri == "spotify:playlist:foreign" })
+        await services.setPlaylist(foreignContents, id: "foreign")
+        await catalog.playlistStore.load(foreign)
+        #expect(catalog.playlistStore.error == nil, "switching playlists clears the previous stale-refresh error")
+        #expect(catalog.playlistStore.tracks.map(\.id) == ["uid-f"], "switching playlists loads the new playlist rows")
+        #expect((await services.addCalls.count) == (1), "playlist switch does not send another add")
     }
 
     @Test
@@ -772,13 +672,13 @@ struct PlaylistMutationTests {
             kind: .playlist)
         let first = fixtureTrack(id: "uid-a", uri: "spotify:track:a", duration: 1.49)
         let second = fixtureTrack(id: "uid-b", uri: "spotify:track:b", duration: 2.5)
-        provider.onPlaylistSnapshot = { _ in
+        provider.onPlaylist = { _ in
             CatalogPlaylistSnapshot(description: "", ownerURI: nil, tracks: [first, second])
         }
         await store.load(item)
         #expect(store.totalDuration == 4, "playlist store caches rounded track durations")
         let loadedVersion = store.trackCollection.version
-        provider.onPlaylistSnapshot = { _ in
+        provider.onPlaylist = { _ in
             CatalogPlaylistSnapshot(
                 description: "", ownerURI: nil,
                 tracks: [first, fixtureTrack(id: "uid-mid", uri: "spotify:track:mid", duration: 3.6)])

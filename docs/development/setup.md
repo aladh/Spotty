@@ -19,31 +19,19 @@ Development requires:
 - Spotify Premium only for live integration testing authorized under the
   [product contract](../product/safe-testing.md#safe-acceptance-testing).
 
-Then clone the public repository:
+Clone the repository and discover the tools:
 
 ```bash
 git clone https://github.com/aladh/Spotty.git
 cd Spotty
-```
-
-Confirm the local toolchains before a long first build:
-
-```bash
+python3 Scripts/verify.py preflight
 xcode-select -p
 swift --version
-rg --version
 ```
 
-Build directly with SwiftPM, or run the Swift verification scope:
-
-```bash
-swift build --product Spotty
-python3 Scripts/verify.py swift
-```
-
-Run [source policies](verification.md#normal-verification) separately for complete app/source
-coverage. Verification does not sign in or start playback. `verify.py preflight` inventories all
-gate tools without running them; missing Rust tools do not prevent app-only work.
+Preflight inventories every gate's tools; missing Rust tools do not block app-only work.
+Run `python3 Scripts/verify.py swift` to build and check the app, then `python3 Scripts/verify.py source`
+for source policies. [Verification](verification.md#normal-verification) owns prerequisites and focused commands.
 
 Follow [development signing](signing.md) for authenticated launches and credential recovery, and
 [local state](local-state.md) for build outputs and artwork regeneration.

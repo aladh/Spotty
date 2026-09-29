@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
@@ -7,7 +9,7 @@ import Testing
 @Suite("Retained Catalog Entity Observation")
 @MainActor
 struct CatalogEntityObservationTests {
-    @Test func albumEnrichmentUpdatesRetainedPlaylistWithoutReplacingItsOccurrencesOrUnrelatedRows() async {
+    @Test func albumEnrichmentUpdatesRetainedPlaylistWithoutReplacingItsOccurrencesOrUnrelatedRows() async throws {
         let queries = HarnessCatalogQueries()
         let provider = HarnessCatalog()
         provider.entityQueries = queries
@@ -18,11 +20,11 @@ struct CatalogEntityObservationTests {
         let other = track("spotify:track:other", title: "Other")
         let enriched = track(
             uri, title: "Enriched", id: "entity", uid: "notOccurrence", addedAt: Date(timeIntervalSince1970: 99))
-        provider.onPlaylistSnapshot = { id in
+        provider.onPlaylist = { id in
             CatalogPlaylistSnapshot(
                 description: id, ownerURI: "spotify:user:owner", tracks: id == "first" ? [first, duplicate] : [other])
         }
-        provider.onAlbumSnapshot = { _ in
+        provider.onAlbum = { _ in
             await queries.publish([enriched])
             return CatalogAlbumSnapshot(tracks: [enriched], releaseDate: "2026")
         }
@@ -30,12 +32,13 @@ struct CatalogEntityObservationTests {
         let metadata = CatalogMetadataRepository(session: session)
         let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
         let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+        defer { playlist.reset(); album.reset() }
         await playlist.load(item("first", kind: .playlist))
         await playlist.load(item("other", kind: .playlist))
-        #expect(await waitUntil { await queries.activeQueryCount == 1 })
+        try await requireEventually { await queries.activeQueryCount == 1 }
         let unrelatedVersion = playlist.trackCollection.version
         await album.load(item("album", kind: .album))
-        #expect(await waitUntil { await queries.acknowledgementCount >= 2 })
+        try await requireEventually { await queries.acknowledgementCount >= 2 }
         #expect(playlist.trackCollection.version == unrelatedVersion)
         playlist.prepare(item("first", kind: .playlist))
         #expect(playlist.tracks.map(\.title) == ["Enriched", "Enriched"])
@@ -48,79 +51,86 @@ struct CatalogEntityObservationTests {
         #expect(provider.playlistRequestCount == 2)
         playlist.reset()
         album.reset()
-        #expect(await waitUntil { await queries.activeQueryCount == 0 })
+        try await requireEventually { await queries.activeQueryCount == 0 }
     }
 
-    @Test func identicalEntityMetadataKeepsCollectionVersionAndCachedAuthority() async {
+    @Test func identicalEntityMetadataKeepsCollectionVersionAndCachedAuthority() async throws {
         let queries = HarnessCatalogQueries()
         let provider = HarnessCatalog()
         provider.entityQueries = queries
         let row = track(
             "spotify:track:first", title: "First", id: "display", uid: "server", addedAt: HarnessDates.fixed)
-        provider.onPlaylistSnapshot = { _ in
+        provider.onPlaylist = { _ in
             CatalogPlaylistSnapshot(
                 description: "Saved", ownerURI: "spotify:user:owner", tracks: [row],
                 freshness: .cached(fetchedAt: HarnessDates.fixed))
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let store = makePlaylist(provider, session: session)
+        defer { store.reset() }
         await store.load(item("first", kind: .playlist))
-        #expect(await waitUntil { await queries.activeQueryCount == 1 })
+        try await requireEventually { await queries.activeQueryCount == 1 }
         let originalVersion = store.trackCollection.version
         await queries.publish([
             track(row.uri, title: "First", id: "different", uid: "irrelevant", addedAt: Date(timeIntervalSince1970: 99))
         ])
-        #expect(await waitUntil { await queries.acknowledgementCount == 1 })
+        try await requireEventually { await queries.acknowledgementCount == 1 }
         #expect(store.trackCollection.version == originalVersion)
         #expect(store.isShowingCachedContent)
         #expect(!store.canEditLoadedContent)
         store.reset()
     }
 
-    @Test func pagedChangesPublishOnlyAfterTheCompleteRevision() async {
+    @Test func entityChangesPublishOnlyAfterTheCompleteRead() async throws {
         let queries = HarnessCatalogQueries()
         let provider = HarnessCatalog()
         provider.entityQueries = queries
         let original = (0...500).map { track("spotify:track:\($0)", title: "Original") }
         let changed = original.map { track($0.uri, title: "Changed") }
-        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: original, releaseDate: "2026") }
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: original, releaseDate: "2026") }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let store = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+        defer { store.reset() }
         await store.load(item("album", kind: .album))
-        #expect(await waitUntil { await queries.activeQueryCount == 1 })
+        try await requireEventually { await queries.activeQueryCount == 1 }
         let originalVersion = store.trackCollection.version
-        await queries.holdPage(at: 500)
+        let completion = HarnessResponseGate<Void>(cancellation: .ignored)
+        defer { completion.close() }
+        await queries.delayNextRead(until: completion)
         await queries.publish(changed)
-        #expect(await waitUntil { await queries.parkedPageCount == 1 })
+        try await requireEventually { completion.waiterCount == 1 }
         #expect(store.trackCollection.version == originalVersion)
         #expect(store.tracks.allSatisfy { $0.title == "Original" })
-        await queries.releasePages()
-        #expect(await waitUntil { await queries.acknowledgementCount == 1 })
+        completion.finish(())
+        try await requireEventually { await queries.acknowledgementCount == 1 }
         #expect(store.tracks.allSatisfy { $0.title == "Changed" })
         #expect(store.tracks.map(\.uri) == original.map(\.uri))
         store.reset()
     }
 
-    @Test func accountReplacementRejectsAnUncooperativeEntityPageAndRetiresItsQuery() async {
+    @Test func accountReplacementRejectsAnUncooperativeEntityReadAndRetiresItsQuery() async throws {
         let queries = HarnessCatalogQueries()
         let provider = HarnessCatalog()
         provider.entityQueries = queries
         let original = track("spotify:track:first", title: "Original")
-        provider.onPlaylistSnapshot = { _ in
+        provider.onPlaylist = { _ in
             CatalogPlaylistSnapshot(description: "First", ownerURI: nil, tracks: [original])
         }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
         let store = makePlaylist(provider, session: session)
+        defer { store.reset() }
         await store.load(item("first", kind: .playlist))
-        #expect(await waitUntil { await queries.activeQueryCount == 1 })
-        await queries.holdPage(at: 0)
+        try await requireEventually { await queries.activeQueryCount == 1 }
+        let completion = HarnessResponseGate<Void>(cancellation: .ignored)
+        defer { completion.close() }
+        await queries.delayNextRead(until: completion)
         await queries.publish([track(original.uri, title: "Retired")])
-        #expect(await waitUntil { await queries.parkedPageCount == 1 })
+        try await requireEventually { completion.waiterCount == 1 }
         session.update(accountEpoch: 2, isAvailable: true)
         store.prepare(item("first", kind: .playlist))
-        await queries.releasePages()
-        #expect(await waitUntil { await queries.unsubscribeCount == 1 })
+        completion.finish(())
+        try await requireEventually { await queries.unsubscribeCount == 1 }
         #expect(await queries.acknowledgementCount == 0)
         #expect(store.tracks.isEmpty)
         #expect(store.description.isEmpty)
@@ -130,20 +140,21 @@ struct CatalogEntityObservationTests {
     }
 
     @Test(arguments: [CatalogItem.Kind.playlist, .album])
-    func completeResultRetiresAnAlreadyReturnedPageFromThePreviousQuery(kind: CatalogItem.Kind) async {
+    func completeResultRetiresAnAlreadyReturnedReadFromThePreviousQuery(kind: CatalogItem.Kind) async throws {
         let queries = HarnessCatalogQueries()
         let provider = HarnessCatalog()
         provider.entityQueries = queries
         let original = track("spotify:track:first", title: "Original")
         let fresh = track(original.uri, title: "Fresh server result")
-        provider.onPlaylistSnapshot = { _ in
+        provider.onPlaylist = { _ in
             CatalogPlaylistSnapshot(description: "First", ownerURI: nil, tracks: [original])
         }
-        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [original], releaseDate: "2026") }
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: [original], releaseDate: "2026") }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
         let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+        defer { playlist.reset(); album.reset() }
         let selected = item("first", kind: kind)
         let load: @MainActor (Bool) async -> Void = { force in
             if kind == .playlist {
@@ -154,24 +165,26 @@ struct CatalogEntityObservationTests {
         }
         let rows: @MainActor () -> [CatalogTrack] = { kind == .playlist ? playlist.tracks : album.tracks }
         await load(false)
-        #expect(await waitUntil { await queries.activeQueryCount == 1 })
-        await queries.holdPage(at: 0)
+        try await requireEventually { await queries.activeQueryCount == 1 }
+        let completion = HarnessResponseGate<Void>(cancellation: .ignored)
+        defer { completion.close() }
+        await queries.delayNextRead(until: completion)
         await queries.publish([track(original.uri, title: "Old retained metadata")])
-        #expect(await waitUntil { await queries.parkedPageCount == 1 })
+        try await requireEventually { completion.waiterCount == 1 }
 
         // The new live read succeeds while its storage write disables query admission. Finishing
-        // the stream alone cannot revoke the old page already suspended in the presentation path.
+        // the stream alone cannot revoke the old read already suspended in the presentation path.
         await queries.finishStreams()
         await queries.failNextSubscription()
-        provider.onPlaylistSnapshot = { _ in
+        provider.onPlaylist = { _ in
             CatalogPlaylistSnapshot(description: "Fresh", ownerURI: nil, tracks: [fresh])
         }
-        provider.onAlbumSnapshot = { _ in CatalogAlbumSnapshot(tracks: [fresh], releaseDate: "2026") }
+        provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: [fresh], releaseDate: "2026") }
         await load(true)
         #expect(rows() == [fresh])
-        #expect(await waitUntil { await queries.subscriptionAttemptCount == 2 })
-        await queries.releasePages()
-        #expect(await waitUntil { await queries.unsubscribeCount == 1 })
+        try await requireEventually { await queries.subscriptionAttemptCount == 2 }
+        completion.finish(())
+        try await requireEventually { await queries.unsubscribeCount == 1 }
         #expect(await queries.acknowledgementCount == 0)
         #expect(rows() == [fresh])
         if kind == .playlist {
@@ -181,41 +194,40 @@ struct CatalogEntityObservationTests {
             album.prepare(item("other", kind: kind))
             album.prepare(selected)
         }
-        #expect(rows() == [fresh], "the rejected page must not overwrite the retained full result")
+        #expect(rows() == [fresh], "the rejected read must not overwrite the retained full result")
         playlist.reset()
         album.reset()
     }
 
     @Test(arguments: [false, true])
-    func unavailableEntityQueryCanRetryOnTheSameRouteAndSession(failAtPage: Bool) async {
+    func unavailableEntityQueryCanRetryOnTheSameRouteAndSession(failAtRead: Bool) async throws {
         let queries = HarnessCatalogQueries()
-        if failAtPage { await queries.failNextPage() } else { await queries.failNextSubscription() }
+        if failAtRead { await queries.failNextRead() } else { await queries.failNextSubscription() }
         let provider = HarnessCatalog()
         provider.entityQueries = queries
         let row = track("spotify:track:first", title: "Original")
         await queries.publish([row])
-        provider.onPlaylistSnapshot = { _ in CatalogPlaylistSnapshot(description: "First", ownerURI: nil, tracks: [row])
+        provider.onPlaylist = { _ in CatalogPlaylistSnapshot(description: "First", ownerURI: nil, tracks: [row])
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let store = makePlaylist(provider, session: session)
+        defer { store.reset() }
         let selected = item("first", kind: .playlist)
         await store.load(selected)
-        #expect(await waitUntil { await queries.subscriptionAttemptCount == 1 })
-        if failAtPage {
-            #expect(
-                await waitUntil {
-                    let failed = await queries.failedPageCount
-                    let active = await queries.activeQueryCount
-                    return failed == 1 && active == 0
-                })
+        try await requireEventually { await queries.subscriptionAttemptCount == 1 }
+        if failAtRead {
+            try await requireEventually {
+                let failed = await queries.failedReadCount
+                let active = await queries.activeQueryCount
+                return failed == 1 && active == 0
+            }
         }
-        #expect(
-            await waitUntil {
-                store.prepare(selected)
-                return await queries.activeQueryCount == 1
-            })
+        try await requireEventually {
+            store.prepare(selected)
+            return await queries.activeQueryCount == 1
+        }
         await queries.publish([track(row.uri, title: "Recovered")])
-        #expect(await waitUntil { store.tracks.first?.title == "Recovered" })
+        try await requireEventually { store.tracks.first?.title == "Recovered" }
         #expect(provider.playlistRequestCount == 1)
         store.reset()
     }

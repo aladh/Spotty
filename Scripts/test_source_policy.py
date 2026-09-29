@@ -39,25 +39,32 @@ class SourcePolicyRoutingTests(unittest.TestCase):
                     patterns = rule.get(field, [])
                     self.assertEqual(len(patterns), len(set(patterns)), patterns)
 
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="spotty-source-policy-")
+        self.addCleanup(directory.cleanup)
+        self.scan_root = Path(directory.name)
+        shutil.copy(ROOT / "sgconfig.yml", self.scan_root)
+        shutil.copytree(ROOT / "Scripts/ast-grep/rules", self.scan_root / "Scripts/ast-grep/rules")
+        shutil.copytree(ROOT / "Scripts/ast-grep/utils", self.scan_root / "Scripts/ast-grep/utils")
+
     def scan(self, path, source):
         self.assertIsNotNone(AST_GREP, "ast-grep must be installed")
-        with tempfile.TemporaryDirectory(prefix="spotty-source-policy-") as directory:
-            root = Path(directory)
-            shutil.copy(ROOT / "sgconfig.yml", root)
-            shutil.copytree(ROOT / "Scripts/ast-grep/rules", root / "Scripts/ast-grep/rules")
-            shutil.copytree(ROOT / "Scripts/ast-grep/utils", root / "Scripts/ast-grep/utils")
-            target = root / path
-            target.parent.mkdir(parents=True, exist_ok=True)
+        target = self.scan_root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
             target.write_text(source)
             result = subprocess.run(
                 [AST_GREP, "scan", "--config", "sgconfig.yml", "--json=compact",
-                 ".github/workflows" if path.startswith(".github/workflows/") else "."],
-                cwd=root, capture_output=True, text=True, check=False,
+                 path],
+                cwd=self.scan_root, capture_output=True, text=True, check=False,
             )
             self.assertIn(result.returncode, (0, 1), result.stderr)
             findings = json.loads(result.stdout)
             self.assertEqual(result.returncode, 1 if findings else 0, result.stderr)
             return {finding["ruleId"] for finding in findings}
+        finally:
+            # Reuse immutable rules, but never let an earlier sample affect a later scan.
+            target.unlink(missing_ok=True)
 
     def test_engine_boundary_is_owned_by_the_package_graph(self):
         # The package graph owns imports between targets. The adapter source rules only
@@ -123,7 +130,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("docs/example.yml", "uses: actions/checkout@main", set()),
             (".github/workflows/ci.yml", "env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}", {"ci-published-engine"}),
             ("Scripts/compile-release-spotty.sh", "cargo build", {"app-script-rust-free"}),
-            ("Scripts/check-session-scenarios.sh", "cargo build", {"app-script-rust-free"}),
+            ("Scripts/browse-synthetic.sh", "cargo build", {"app-script-rust-free"}),
             ("Scripts/package-app.sh", "tool='cbindgen'", {"app-script-rust-free", "development-signing-input"}),
             ("Backend/spotty-playback/build-xcframework.sh", "cargo build", set()),
             ("Sources/Spotty/Example.swift", "let catalog = MockCatalog()", {"retired-mock-symbols"}),
@@ -151,7 +158,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/Spotty/Spotify/CatalogStore.swift", "let catalog: any CatalogProviding", set()),
             ("Sources/SpottyDomain/NewPolicy.swift", "UserDefaults.standard", {"domain-no-io"}),
             ("Sources/SpottyDomain/NewPolicy.swift", "Task { await work() }", {"domain-no-io"}),
-            ("Sources/SpottyGateway/SpotifyRetryTiming.swift", "try await Task.sleep(for: .seconds(1))", set()),
+            ("Sources/SpottyGateway/SpotifyTransientRetry.swift", "try await Task.sleep(for: .seconds(1))", set()),
             ("Sources/SpottyGateway/KeymasterFileStore.swift", "SecItemDelete(query)", {"retired-keychain-api"}),
             ("Tests/SpottyBoundaryTests/NewChecks.swift", "Security.SecItemDelete(query)", {"retired-keychain-api"}),
             ("Sources/Spotty/New.swift", "Swift.print(token)", {"logging-owner"}),
@@ -160,6 +167,21 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/SpottyDiagnostics/DebugLog.swift", "FileHandle.standardError.write(Data())", set()),
             ("Tests/SpottyBoundaryTests/NewChecks.swift", "print(result)", set()),
             ("Sources/Spotty/New.swift", "import Testing", {"production-test-code"}),
+            ("Sources/SpottySessionRuntime/New.swift", "import SpottyTestSupport", {"production-test-code"}),
+            ("Sources/SpottySessionRuntime/New.swift", "import SpottyRuntimeTestSupport", {"production-test-code"}),
+            ("Tests/SpottySessionRuntimeTests/New.swift", "@testable import SpottyRuntimeTestSupport", set()),
+            ("Tests/SpottyRuntimeTestSupport/New.swift", "import Testing", set()),
+            ("Tests/SpottyRuntimeTestSupport/New.swift", "import SpottySessionRuntime", {"test-support-runtime-import"}),
+            ("Tests/SpottyRuntimeTestSupport/Nested/New.swift", "import SpottySessionRuntime", {"test-support-runtime-import"}),
+            ("Tests/SpottySessionRuntimeTests/New.swift", "import SpottySessionRuntime", set()),
+            ("Tests/SpottyRuntimeTestSupport/New.swift", "import SpottyCore", {"headless-runtime-import"}),
+            ("Tests/SpottyRuntimeTestSupport/New.swift", "import AppKit", {"headless-runtime-import"}),
+            ("Tests/SpottyRuntimeTestSupport/New.swift", "import SpottyRuntimeContracts", set()),
+            ("Tests/SpottyRuntimeTestSupport/New.swift", "@testable import SpottySessionRuntime", {"test-support-privileged-import", "test-support-runtime-import"}),
+            ("Tests/SpottyTestSupport/New.swift", "@testable import SpottyDomain", {"test-support-privileged-import"}),
+            ("Tests/SpottySessionRuntimeTests/New.swift", "@testable import SpottySessionRuntime", set()),
+            ("Tests/SpottySessionRuntimeTests/New.swift", "import SpottyTestSupport", set()),
+            ("Tests/SpottyTestSupport/New.swift", "import Testing", set()),
             ("Tests/SpottyDomainTests/NewChecks.swift", "import Testing", set()),
             ("Sources/SpottyDomain/New.swift", "struct Effect<Action> {}", {"no-generic-effects"}),
             ("Package.swift", '.package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "1.0.0")', {"no-generic-effects"}),
@@ -172,6 +194,10 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             ("Sources/SpottyEngineAdapter/RustPlaybackEngine.swift", "spotty_playback_pause()", {"adapter-c-import"}),
             ("Tests/SpottyBoundaryTests/Harness/New.swift", "try await Task.sleep(for: .seconds(1))", {"test-no-wall-sleep"}),
             ("Tests/SpottyDomainTests/NewChecks.swift", "Thread.sleep(forTimeInterval: 1)", {"test-no-wall-sleep"}),
+            ("Tests/SpottyTestSupport/New.swift", "try await Task.sleep(for: .seconds(1))", {"test-no-wall-sleep"}),
+            ("Tests/SpottyTestSupport/WaitUntil.swift", "try await Task.sleep(for: .milliseconds(1))", set()),
+            ("Tests/SpottyTestSupport/Nested/WaitUntil.swift", "try await Task.sleep(for: .milliseconds(1))", {"test-no-wall-sleep"}),
+            ("Tests/SpottyRuntimeTestSupport/New.swift", "try await Task.sleep(for: .seconds(1))", {"test-no-wall-sleep"}),
             ("Tests/BrowsingHarness/Checks/New.swift", "try await Task.sleep(for: .seconds(1))", {"test-no-wall-sleep"}),
             ("Tests/BrowsingHarness/Support/Measurement.swift", "try await Task.sleep(for: .seconds(1))", set()),
             ("Tests/BrowsingHarness/Support/New.swift", "RustPlaybackEngine.shared", {"test-live-dependencies"}),
@@ -243,7 +269,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
     def test_headless_targets_cannot_import_presentation_frameworks(self):
         for target in ("SpottyRuntimeContracts", "SpottySessionRuntime", "SpottyGateway",
                        "SpottyCatalogStorage"):
-            for module in ("AppKit", "SwiftUI", "Observation", "UIKit"):
+            for module in ("AppKit", "SwiftUI", "Observation", "UIKit", "SpottyCore"):
                 with self.subTest(target=target, module=module):
                     self.assertEqual(self.scan(f"Sources/{target}/Nested/New.swift", f"import {module}"),
                                      {"headless-runtime-import"})

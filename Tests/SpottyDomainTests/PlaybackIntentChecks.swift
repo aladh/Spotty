@@ -71,7 +71,7 @@ struct PlaybackIntentChecks {
             receivedAt: now,
             event: .queue(
                 PlaybackQueueSnapshot(
-                    entries: [PlaybackQueueItem(uri: "spotify:track:a", provider: "queue", uid: "one")],
+                    entries: [QueueEntry(uri: "spotify:track:a", provider: "queue", uid: "one")],
                     source: .connect, completeness: .complete, revision: 1, receivedAt: now)))
         first.observe(observation)
         second.observe(observation)

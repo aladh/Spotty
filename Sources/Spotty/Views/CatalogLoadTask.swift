@@ -1,3 +1,4 @@
+import SpottyDomain
 import SwiftUI
 
 extension View {
@@ -9,10 +10,9 @@ extension View {
         playback: CatalogPlaybackAccess,
         action: @escaping @MainActor @Sendable () async -> Void
     ) -> some View {
-        task(
-            id: CatalogLoadIdentity(
-                resource: id, accountEpoch: playback.accountEpoch, isConnected: playback.isConnected)
-        ) {
+        let session = playback.catalogSessionSnapshot
+        return task(id: CatalogLoadIdentity(resource: id, session: session)) {
+            guard let session, playback.catalogSessionSnapshot == session else { return }
             await action()
         }
     }
@@ -20,6 +20,5 @@ extension View {
 
 private struct CatalogLoadIdentity<Resource: Equatable>: Equatable {
     let resource: Resource
-    let accountEpoch: UInt64
-    let isConnected: Bool
+    let session: CatalogSessionSnapshot?
 }

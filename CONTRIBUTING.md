@@ -5,25 +5,9 @@ Start with [AGENTS.md](AGENTS.md) for repository rules and the
 
 ## Verification commands
 
-Run from the repository root. `python3 Scripts/verify.py --help` explains the focused command surface;
-it delegates to SwiftPM and existing gates. See [verification](docs/development/verification.md)
-for prerequisites, diagnostics, and choosing a normal or clean rebuild.
-
-| Command | Purpose |
-| --- | --- |
-| `python3 Scripts/verify.py preflight` | Read-only tool discovery; gates validate versions and dependencies |
-| `python3 Scripts/verify.py list` | Discover Swift Testing tests, including the synthetic harness |
-| `python3 Scripts/verify.py test --filter ProtobufTests` | Run focused tests with the existing timeout watchdog and native result artifacts |
-| `python3 Scripts/verify.py swift` | Swift gate against the selected engine artifact, including synthetic helper checks |
-| `python3 Scripts/verify.py rust` | Python playback/harness checks and compiled Rust/header checks |
-| `python3 Scripts/verify.py harness` | Synthetic browsing, measurement, and trace helper checks |
-| `./Scripts/check-source-policy.sh` | Source, topology, documentation, and script policy checks |
-| `./Scripts/check.sh` | Complete normal verification gate |
-| `./Scripts/check-clean.sh` | Clean engine rebuild and complete Debug/Release verification |
-
-Focused filters optimize local iteration and do not replace the complete gate. The wrapper's
-`source`, `check`, and `clean` commands delegate to the same scripts above. `list` and `test` forward
-remaining arguments to SwiftPM; the watchdog collects native Swift Testing event streams when supported.
+Use the [verification guide](docs/development/verification.md#normal-verification) to choose a
+focused test, language gate, or complete check. It owns commands, prerequisites, and diagnostics.
+Run `python3 Scripts/verify.py --help` for the command surface.
 
 ## Pull-request execution
 

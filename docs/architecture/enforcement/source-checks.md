@@ -38,7 +38,8 @@ Additional owners:
   [artifact hygiene](../../../Scripts/check.sh), the
   [notices preamble prefix check](../../../Scripts/test_notices_policy.py), gitignore, and privacy review.
 - Script-test coverage: [shared discovery](../../../Scripts/script_tests.py) rejects unowned test
-  files and empty suites. [Workflow checks](../../../Scripts/check-ci-workflow.rb) require its
+  files and empty suites. [Workflow policy](../../../Scripts/workflow_policy.rb), run by its
+  [CLI](../../../Scripts/check-ci-workflow.rb), requires the
   Python/Node entry points in unconditional, failing CI lanes; mutation fixtures cover omitted,
   skipped, relocated, and failure-masking steps. The independent
   [source-gate rule](../../../Scripts/ast-grep/rules/shell/source-gate-tests.yml) requires shell

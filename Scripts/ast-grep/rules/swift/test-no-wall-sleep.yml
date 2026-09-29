@@ -2,11 +2,17 @@
 id: test-no-wall-sleep
 language: Swift
 severity: error
-message: Use HarnessClock or cooperative synchronization in deterministic tests; real
-  sleeps belong in the interactive measurement harness.
+message: Use HarnessClock or cooperative synchronization in deterministic tests; wall
+  timers belong only to the bounded polling owner or interactive measurement harness.
 files:
 - Tests/Spotty*Tests/**/*.swift
+- Tests/SpottyTestSupport/**/*.swift
+- Tests/SpottyRuntimeTestSupport/**/*.swift
 - Tests/BrowsingHarness/Checks/**/*.swift
+# This owner uses a cancellable timer only to back off observation polling, never to
+# advance a scenario's clock or delay an assertion by an assumed settling interval.
+ignores:
+- Tests/SpottyTestSupport/WaitUntil.swift
 rule:
   any:
   - matches: swift-wall-sleep

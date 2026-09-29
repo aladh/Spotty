@@ -16,6 +16,11 @@ struct CatalogPlaybackAccess {
     private var isCurrentAccount: Bool { player.accountEpoch == renderedAccountEpoch }
     var isConnected: Bool { isCurrentAccount && player.isConnected }
     var accountEpoch: UInt64 { player.accountEpoch }
+    /// Catalog readiness has its own revision: a coalesced reconnect can leave playback's
+    /// visible Boolean unchanged. An old account's retained view has no load admission.
+    var catalogSessionSnapshot: CatalogSessionSnapshot? {
+        isCurrentAccount ? player.catalogSession.snapshot : nil
+    }
     var isShuffleEnabled: Bool { player.isShuffleEnabled }
 
     func toggleShuffle() { if isCurrentAccount { player.toggleShuffle() } }

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import resource
@@ -18,16 +19,17 @@ class SwiftTestWatchdogTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         return Path(temporary.name)
 
-    def arguments(self, command, diagnostics, timeout=2):
+    def arguments(self, command, diagnostics, timeout=2, require_tests=False):
         return [
             sys.executable, str(SCRIPT), "--lane", "fixture", "--repetition", "1",
-            f"--timeout-seconds={timeout}", "--log-dir", str(diagnostics), "--", *command,
+            f"--timeout-seconds={timeout}", "--log-dir", str(diagnostics),
+            *(["--require-tests"] if require_tests else []), "--", *command,
         ]
 
-    def run_watchdog(self, command, timeout=2, env=None, diagnostics=None, preexec_fn=None):
+    def run_watchdog(self, command, timeout=2, env=None, diagnostics=None, preexec_fn=None, require_tests=False):
         diagnostics = diagnostics or self.diagnostics()
         result = subprocess.run(
-            self.arguments(command, diagnostics, timeout),
+            self.arguments(command, diagnostics, timeout, require_tests),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -36,6 +38,70 @@ class SwiftTestWatchdogTests(unittest.TestCase):
             preexec_fn=preexec_fn,
         )
         return result, diagnostics
+
+    def test_required_execution_uses_completed_cases_across_all_products(self):
+        positive = "✔ Test example() passed after 0.001 seconds."
+        empty = "✔ Test run with 0 tests in 0 suites passed after 0.001 seconds."
+        cases = [
+            ("", 1),
+            ("warning: No matching test cases were run", 1),
+            (empty, 1),
+            ("➜ Test example() skipped.\n✔ Test run with 1 test in 1 suite passed after 0.001 seconds.", 1),
+            ("✔ Suite Examples passed after 0.001 seconds.", 1),
+            ("◇ Test example() started.", 1),
+            ("Executed 0 tests, with 0 failures (0 unexpected)", 1),
+            (positive, 0),
+            (positive + "\n" + empty, 0),
+            (empty + "\n" + positive, 0),
+            ("\x1b[32m" + positive + "\x1b[0m", 0),
+            ("Executed 2 tests, with 0 failures (0 unexpected)", 1),
+            ("Test Case '-[ExampleTests example]' skipped (0.001 seconds).", 1),
+            ("Test Case '-[ExampleTests example]' passed (0.001 seconds).", 0),
+            ("✔ Test example(value:) with 2 test cases passed after 0.001 seconds.", 0),
+        ]
+        for output, expected in cases:
+            with self.subTest(output=output):
+                result, _ = self.run_watchdog(
+                    [sys.executable, "-c", f"print({output!r})"], require_tests=True)
+                self.assertEqual(result.returncode, expected, result.stdout)
+                if expected:
+                    self.assertIn("no executed tests reported", result.stdout)
+
+    def test_required_execution_preserves_command_failures(self):
+        result, _ = self.run_watchdog(
+            [sys.executable, "-c", "raise SystemExit(7)"], require_tests=True)
+        self.assertEqual(result.returncode, 7, result.stdout)
+        self.assertNotIn("no executed tests reported", result.stdout)
+
+    def test_quiet_execution_requires_current_function_completion_events(self):
+        function = {"kind": "test", "payload": {"kind": "function", "id": "example"}}
+        suite = {"kind": "test", "payload": {"kind": "suite", "id": "suite"}}
+        ended = {"kind": "event", "payload": {"kind": "testEnded", "testID": "example"}}
+        suite_ended = {"kind": "event", "payload": {"kind": "testEnded", "testID": "suite"}}
+        skipped = {"kind": "event", "payload": {"kind": "testSkipped", "testID": "example"}}
+        for records, expected in (([function, ended], 0), ([suite, suite_ended], 1),
+                                  ([function, skipped, suite, suite_ended], 1), ([ended], 1),
+                                  ([suite, suite_ended, function, ended, suite_ended], 0), (None, 1)):
+            with self.subTest(records=records):
+                diagnostics = self.diagnostics()
+                event_path = diagnostics / "fixture-repeat-1-events.jsonl"
+                event_path.write_text("\n".join(json.dumps(item) for item in (function, ended)) + "\n")
+                swift = diagnostics / "swift"
+                data = None if records is None else "\n".join(json.dumps(item) for item in records) + "\n"
+                swift.write_text(
+                    f"#!{sys.executable}\nimport sys\nfrom pathlib import Path\n"
+                    "if sys.argv[1:] == ['test', '--help-hidden']:\n"
+                    "    print('--event-stream-output-path'); raise SystemExit(0)\n"
+                    "path = Path(sys.argv[sys.argv.index('--event-stream-output-path') + 1])\n"
+                    "assert not path.exists(), 'stale events must be removed before launching'\n"
+                    f"data = {data!r}\n"
+                    "if data is not None: path.write_text(data)\n"
+                    "print('✔ Test run with 1 test passed after 0.001 seconds.')\n"
+                )
+                swift.chmod(0o755)
+                result, _ = self.run_watchdog([str(swift), "test"], diagnostics=diagnostics, require_tests=True)
+                self.assertEqual(result.returncode, expected, result.stdout)
+                self.assertIn("event-stream=enabled", result.stdout)
 
     def sleeping_command(self, diagnostics, *, output=False, ignore_term=False):
         pid_path = diagnostics / "command.pid"

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 from pathlib import Path
 import platform
+import re
 import selectors
 import shlex
 import signal
@@ -32,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", required=True, type=float)
     parser.add_argument("--log-dir", required=True, type=Path)
     parser.add_argument("--event-stream-path", type=Path)
+    parser.add_argument("--require-tests", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command[:1] == ["--"]:
@@ -66,7 +69,46 @@ def command_with_event_stream(command: list[str], path: Path | None) -> tuple[li
     if path is None or not swiftpm_supports_event_stream(command):
         return command, False
     path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
     return command + ["--event-stream-output-path", str(path)], True
+
+
+def event_stream_reports_execution(path: Path) -> bool:
+    functions: set[str] = set()
+    try:
+        with path.open(encoding="utf-8") as events:
+            for line in events:
+                record = json.loads(line)
+                if not isinstance(record, dict) or not isinstance(record.get("payload"), dict):
+                    continue
+                payload = record["payload"]
+                if record.get("kind") == "test" and payload.get("kind") == "function":
+                    if isinstance(payload.get("id"), str):
+                        functions.add(payload["id"])
+                elif (record.get("kind") == "event" and payload.get("kind") == "testEnded"
+                      and isinstance(payload.get("testID"), str) and payload["testID"] in functions):
+                    return True
+    except (OSError, UnicodeError, ValueError):
+        return False
+    return False
+
+
+def reported_test_execution(log_path: Path, event_path: Path | None = None) -> bool:
+    # Summaries count skipped tests too. Structured function completions support quiet output;
+    # case reports also cover XCTest and toolchains without event streaming. Command status
+    # still owns the overall outcome, including failures after an earlier test passed.
+    if event_path is not None and event_stream_reports_execution(event_path):
+        return True
+    ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+    passed = re.compile(
+        r"^(?:✔ Test (?!run with [0-9]+ tests?\b).+\bpassed\b"
+        r"|Test Case .+\bpassed\b)"
+    )
+    with log_path.open(encoding="utf-8", errors="replace") as log:
+        for line in log:
+            if passed.match(ansi.sub("", line).strip()):
+                return True
+    return False
 
 
 def process_tree(process_group: int) -> tuple[str, list[int]]:
@@ -185,6 +227,8 @@ def run(args: argparse.Namespace) -> int:
     log_path = args.log_dir / f"{stem}.log"
     tree_path = args.log_dir / f"{stem}-process-tree.txt"
     sample_path = args.log_dir / f"{stem}-sample.txt"
+    if args.require_tests and args.event_stream_path is None:
+        args.event_stream_path = args.log_dir / f"{stem}-events.jsonl"
     command, event_enabled = command_with_event_stream(args.command, args.event_stream_path)
     started = time.monotonic()
 
@@ -278,6 +322,11 @@ def run_logged(
                 return TIMEOUT_EXIT
             status = process.wait()
             command_finished = True
+            if status == 0 and args.require_tests and not reported_test_execution(
+                log_path, args.event_stream_path if event_enabled else None,
+            ):
+                emit("swift-test-watchdog: no executed tests reported; check the filter and skipped tests", log_file)
+                status = 1
             emit(
                 f"swift-test-watchdog lane={args.lane} repetition={args.repetition} "
                 f"pid={process.pid} elapsed={time.monotonic() - started:.2f}s status={status}",

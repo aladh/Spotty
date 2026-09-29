@@ -1,0 +1,687 @@
+import SpottyTestSupport
+import Testing
+import Synchronization
+import SpottyDomain
+import Foundation
+import SpottyRuntimeContracts
+@testable import SpottyEngineAdapter
+
+/// Barrier-controlled checks for process-local engine event delivery order.
+///
+/// Timeouts are hang watchdogs only. Thread A/B ordering is forced with semaphores, not sleeps.
+@Suite("Engine Event Fanout")
+struct EngineEventFanoutTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    func releasingFanoutFinishesRetainedStreams(consuming: Bool) async throws {
+        var fanout: EngineEventFanout? = EngineEventFanout(clock: HarnessClock.sticky())
+        weak let released = fanout
+        let terminations = HarnessCounters()
+        let stream = fanout!.events(onTermination: { terminations.record("finished") })
+        let progress = HarnessCounters()
+        let reader =
+            consuming
+            ? Task {
+                for await _ in stream { progress.record("event") }
+                progress.record("finished")
+            } : nil
+        defer { reader?.cancel() }
+        fanout!.emit(playbackEvent())
+        if consuming { try await requireEventually { progress.count("event") == 1 } }
+        fanout = nil
+        #expect(released == nil, "a retained stream does not own the event source")
+        if let reader {
+            try await requireEventually(description: "disposed event source closes its reader") {
+                progress.count("finished") == 1
+            }
+            await reader.value
+        } else {
+            let lateReader = Task { () -> Bool in
+                var iterator = stream.makeAsyncIterator()
+                let ended = await iterator.next() == nil
+                progress.record("finished")
+                return ended
+            }
+            defer { lateReader.cancel() }
+            try await requireEventually { progress.count("finished") == 1 }
+            #expect(await lateReader.value, "disposed sources discard queued observations")
+        }
+        #expect(terminations.count("finished") == 1, "termination runs even while the stream value is retained")
+        withExtendedLifetime(stream) {}
+    }
+
+    @Test(arguments: [1, 2])
+    @MainActor
+    func concurrentEmissionPreservesAssignmentOrder(subscriberCount: Int) {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let received = collectInversionSchedule(fanout, subscriberCount: subscriberCount)
+        #expect(received == Array(repeating: [1, 2], count: subscriberCount))
+    }
+
+    @Test
+    @MainActor
+    func mixedEventKindsPreserveAssignmentOrder() {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let received = collectSequential(
+            fanout, events: [playbackEvent(), queueEvent(), connectionEvent(), devicesEvent()])
+        #expect(received.map(\.sequence) == [1, 2, 3, 4])
+    }
+
+    @Test @MainActor func terminationBeforeDeliveryPreservesSurvivors() { runTerminationAroundDelivery() }
+    @Test @MainActor func terminationDuringDeliveryPreservesSurvivors() { runTerminationDuringDelivery() }
+    @Test @MainActor func emittingAfterTheLastSubscriberIsSafe() { runEmitAfterLastSubscriber() }
+    @Test @MainActor func receiptTimestampsUseTheInjectedClock() { runFixedClockReceiptTimestamps() }
+    @Test @MainActor func pressureRequiresExplicitRecovery() { runPressureRecovery() }
+    @Test @MainActor func semanticChangesPreventTimingCoalescing() { runCoalescingBarriers() }
+
+    @Test
+    @MainActor
+    func droppingAnUnconsumedStreamReleasesItsRegistration() {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let terminations = Mutex(0)
+        var stream: AsyncStream<RustPlaybackEventEnvelope>? = fanout.events(onTermination: {
+            #expect(fanout.diagnostics().subscriberCount == 0)
+            fanout.emit(playbackEvent())
+            terminations.withLock { $0 += 1 }
+        })
+        withExtendedLifetime(stream) { #expect(fanout.diagnostics().subscriberCount == 1) }
+        stream = nil
+        #expect(fanout.diagnostics().subscriberCount == 0)
+        #expect(terminations.withLock { $0 } == 1)
+    }
+
+    @Test
+    @MainActor
+    func staleAdjacentSamplesKeepTheNewestRevision() async {
+        for heldDrain in [false, true] {
+            let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+            let stream = fanout.events()
+            let newer = playbackEvent(revision: 20)
+            let stale = playbackEvent(revision: 19)
+            if heldDrain {
+                fanout.emit(newer, afterPrepare: { fanout.emit(stale) })
+            } else {
+                fanout.emit(newer)
+                fanout.emit(stale)
+            }
+            #expect(fanout.diagnostics().queuedEnvelopeCount == 1)
+            var iterator = stream.makeAsyncIterator()
+            let retained = await iterator.next()
+            #expect(retained?.event.sourceRevision == 20)
+            #expect(fanout.diagnostics().coalescedCount == 1)
+        }
+    }
+
+    @Test
+    @MainActor
+    func generationTransitionSeedsConnectionLifecycle() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(connectionEvent())
+        fanout.emit(connectionEvent(generation: 2, revision: 2))
+        fanout.emit(connectionEvent(generation: 2, revision: 3))
+        fanout.emit(connectionEvent(generation: 2, revision: 4))
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 3)
+        #expect(fanout.diagnostics().coalescedCount == 1)
+        var iterator = stream.makeAsyncIterator()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        let latest = await iterator.next()
+        #expect(latest?.event.sourceRevision == 4)
+    }
+
+    @Test
+    @MainActor
+    func distinctQueueFactsAreNotCoalesced() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(queueEvent(nextURI: "spotify:track:first"))
+        fanout.emit(queueEvent(revision: 2, nextURI: "spotify:track:second"))
+
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 2)
+        var iterator = stream.makeAsyncIterator()
+        let first = await iterator.next()
+        let second = await iterator.next()
+        if case let .queue(state) = first?.event {
+            #expect(state.protocolNextTracks.first?.uri == "spotify:track:first")
+        } else {
+            #expect(Bool(false), "first queue fact is delivered")
+        }
+        if case let .queue(state) = second?.event {
+            #expect(state.protocolNextTracks.first?.uri == "spotify:track:second")
+        } else {
+            #expect(Bool(false), "second queue fact is delivered")
+        }
+    }
+
+    @Test
+    @MainActor
+    func distinctDeviceFactsAreNotCoalesced() async {
+        let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+        let stream = fanout.events()
+        fanout.emit(devicesEvent(activeDeviceID: "local"))
+        fanout.emit(devicesEvent(activeDeviceID: "local", deviceIDs: ["local", "remote"]))
+        fanout.emit(devicesEvent(activeDeviceID: "remote", deviceIDs: ["local", "remote"]))
+
+        #expect(fanout.diagnostics().queuedEnvelopeCount == 3)
+        var iterator = stream.makeAsyncIterator()
+        let first = await iterator.next()
+        let second = await iterator.next()
+        let third = await iterator.next()
+        if case let .devices(state) = first?.event {
+            #expect(state.activeDeviceID == "local")
+        } else {
+            #expect(Bool(false), "first device fact is delivered")
+        }
+        if case let .devices(state) = second?.event {
+            #expect(state.activeDeviceID == "local")
+            #expect(state.devices.map(\.id) == ["local", "remote"])
+        } else {
+            #expect(Bool(false), "second device fact is delivered")
+        }
+        if case let .devices(state) = third?.event {
+            #expect(state.activeDeviceID == "remote")
+        } else {
+            #expect(Bool(false), "third device fact is delivered")
+        }
+    }
+
+}
+
+private func collectInversionSchedule(
+    _ fanout: EngineEventFanout,
+    subscriberCount: Int
+) -> [[UInt64]] {
+    let expectedCount = 2
+    var recorders: [FanoutRecorder<UInt64>] = []
+    var subscribed: [DispatchSemaphore] = []
+    var collected: [DispatchSemaphore] = []
+    for _ in 0..<subscriberCount {
+        let recorder = FanoutRecorder<UInt64>()
+        let start = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+        recorders.append(recorder)
+        subscribed.append(start)
+        collected.append(done)
+        let stream = fanout.events(onStart: { start.signal() }, onTermination: nil)
+        Task.detached {
+            var values: [UInt64] = []
+            for await envelope in stream {
+                values.append(envelope.sequence)
+                if values.count == expectedCount { break }
+            }
+            recorder.store(values)
+            done.signal()
+        }
+    }
+    guard subscribed.allSatisfy({ wait($0) }) else {
+        return Array(repeating: [], count: subscriberCount)
+    }
+
+    let preparedA = DispatchSemaphore(value: 0)
+    let releaseA = DispatchSemaphore(value: 0)
+    let finishedA = DispatchSemaphore(value: 0)
+    let finishedB = DispatchSemaphore(value: 0)
+
+    Thread.detachNewThread {
+        fanout.emit(playbackEvent()) {
+            preparedA.signal()
+            _ = wait(releaseA)
+        }
+        finishedA.signal()
+    }
+    guard wait(preparedA) else {
+        return Array(repeating: [], count: subscriberCount)
+    }
+
+    Thread.detachNewThread {
+        fanout.emit(queueEvent(), afterPrepare: nil)
+        finishedB.signal()
+    }
+    guard wait(finishedB) else {
+        return Array(repeating: [], count: subscriberCount)
+    }
+    releaseA.signal()
+    guard wait(finishedA) else {
+        return Array(repeating: [], count: subscriberCount)
+    }
+
+    var results: [[UInt64]] = []
+    for (index, gate) in collected.enumerated() {
+        if wait(gate) {
+            results.append(recorders[index].load())
+        } else {
+            results.append([])
+        }
+    }
+    return results
+}
+
+private func collectSequential(
+    _ fanout: EngineEventFanout,
+    events: [RustPlaybackEvent]
+) -> [RustPlaybackEventEnvelope] {
+    collectSequential(fanout, events: events, subscriberCount: 1)[0]
+}
+
+private func collectSequential(
+    _ fanout: EngineEventFanout,
+    events: [RustPlaybackEvent],
+    subscriberCount: Int
+) -> [[RustPlaybackEventEnvelope]] {
+    let expected = events.count
+    var recorders: [FanoutRecorder<RustPlaybackEventEnvelope>] = []
+    var subscribed: [DispatchSemaphore] = []
+    var collected: [DispatchSemaphore] = []
+    for _ in 0..<subscriberCount {
+        let recorder = FanoutRecorder<RustPlaybackEventEnvelope>()
+        let start = DispatchSemaphore(value: 0)
+        let done = DispatchSemaphore(value: 0)
+        recorders.append(recorder)
+        subscribed.append(start)
+        collected.append(done)
+        let stream = fanout.events(onStart: { start.signal() }, onTermination: nil)
+        Task.detached {
+            var values: [RustPlaybackEventEnvelope] = []
+            for await envelope in stream {
+                values.append(envelope)
+                if values.count == expected { break }
+            }
+            recorder.store(values)
+            done.signal()
+        }
+    }
+    guard subscribed.allSatisfy({ wait($0) }) else {
+        return Array(repeating: [], count: subscriberCount)
+    }
+    for event in events {
+        fanout.emit(event)
+    }
+    var results: [[RustPlaybackEventEnvelope]] = []
+    for (index, gate) in collected.enumerated() {
+        if wait(gate) {
+            results.append(recorders[index].load())
+        } else {
+            results.append([])
+        }
+    }
+    return results
+}
+
+@MainActor
+private func runTerminationAroundDelivery() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let surviving = FanoutRecorder<UInt64>()
+    let survivingStart = DispatchSemaphore(value: 0)
+    let survivingDone = DispatchSemaphore(value: 0)
+    let cancelledStart = DispatchSemaphore(value: 0)
+    let cancelledTerminated = DispatchSemaphore(value: 0)
+    let cancelledDone = DispatchSemaphore(value: 0)
+
+    let survivingStream = fanout.events(onStart: { survivingStart.signal() }, onTermination: nil)
+    Task.detached {
+        var values: [UInt64] = []
+        for await envelope in survivingStream {
+            values.append(envelope.sequence)
+            if values.count == 2 { break }
+        }
+        surviving.store(values)
+        survivingDone.signal()
+    }
+
+    let cancelledStream = fanout.events(
+        onStart: { cancelledStart.signal() },
+        onTermination: { cancelledTerminated.signal() }
+    )
+    let cancelledTask = Task.detached {
+        for await _ in cancelledStream {}
+        cancelledDone.signal()
+    }
+
+    guard wait(survivingStart), wait(cancelledStart) else {
+        #expect((false) == true, "termination-around subscribers started")
+        return
+    }
+
+    let preparedA = DispatchSemaphore(value: 0)
+    let releaseA = DispatchSemaphore(value: 0)
+    let finishedA = DispatchSemaphore(value: 0)
+    Thread.detachNewThread {
+        fanout.emit(playbackEvent()) {
+            preparedA.signal()
+            _ = wait(releaseA)
+        }
+        finishedA.signal()
+    }
+    guard wait(preparedA) else {
+        #expect((false) == true, "A paused before yield")
+        return
+    }
+    cancelledTask.cancel()
+    #expect(
+        (wait(cancelledTerminated) && wait(cancelledDone)) == true,
+        "cancelled subscriber terminates while A is paused before yield")
+
+    Thread.detachNewThread {
+        fanout.emit(queueEvent())
+    }
+    releaseA.signal()
+    #expect((wait(finishedA) && wait(survivingDone)) == true, "delivery after cancel completes")
+    #expect((surviving.load()) == ([1, 2]), "surviving subscriber still receives both assigned sequences")
+}
+
+@MainActor
+private func runTerminationDuringDelivery() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let surviving = FanoutRecorder<UInt64>()
+    let partial = FanoutRecorder<UInt64>()
+    let survivingStart = DispatchSemaphore(value: 0)
+    let partialStart = DispatchSemaphore(value: 0)
+    let survivingDone = DispatchSemaphore(value: 0)
+    let partialDone = DispatchSemaphore(value: 0)
+    let sawFirst = DispatchSemaphore(value: 0)
+
+    let survivingStream = fanout.events(onStart: { survivingStart.signal() }, onTermination: nil)
+    Task.detached {
+        var values: [UInt64] = []
+        for await envelope in survivingStream {
+            values.append(envelope.sequence)
+            if values.count == 2 { break }
+        }
+        surviving.store(values)
+        survivingDone.signal()
+    }
+
+    let partialStream = fanout.events(onStart: { partialStart.signal() }, onTermination: nil)
+    Task.detached {
+        var values: [UInt64] = []
+        for await envelope in partialStream {
+            values.append(envelope.sequence)
+            sawFirst.signal()
+            break
+        }
+        partial.store(values)
+        partialDone.signal()
+    }
+
+    guard wait(survivingStart), wait(partialStart) else {
+        #expect((false) == true, "termination-during subscribers started")
+        return
+    }
+    fanout.emit(playbackEvent())
+    #expect((wait(sawFirst)) == true, "partial subscriber observed the first envelope")
+    fanout.emit(queueEvent())
+    #expect((wait(survivingDone) && wait(partialDone)) == true, "both consumers finished after the second emit")
+    #expect((partial.load()) == ([1]), "partial subscriber received the first envelope once")
+    #expect((surviving.load()) == ([1, 2]), "surviving subscriber received both envelopes once")
+}
+
+@MainActor
+private func runEmitAfterLastSubscriber() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let terminated = DispatchSemaphore(value: 0)
+    let start = DispatchSemaphore(value: 0)
+    let stream = fanout.events(
+        onStart: { start.signal() },
+        onTermination: { terminated.signal() }
+    )
+    let task = Task.detached {
+        for await _ in stream {}
+    }
+    guard wait(start) else {
+        #expect((false) == true, "last-subscriber start")
+        return
+    }
+    task.cancel()
+    #expect((wait(terminated)) == true, "last subscriber termination is observed")
+    fanout.emit(playbackEvent())
+    fanout.emit(queueEvent())
+    let after = collectSequential(fanout, events: [connectionEvent(), devicesEvent()]).map(\.sequence)
+    #expect((after) == ([3, 4]), "later subscriber observes later sequences without duplicates or a rewind")
+}
+
+@MainActor
+private func runFixedClockReceiptTimestamps() {
+    let origin = Date(timeIntervalSince1970: 2_000_000)
+    let frozen = EngineEventFanout(clock: HarnessClock(now: origin, sleep: .immediate))
+    let events = [
+        playbackEvent(),
+        queueEvent(),
+        connectionEvent(),
+        devicesEvent(),
+    ]
+    let both = collectSequential(frozen, events: events, subscriberCount: 2)
+    let sequences = both.map { $0.map(\.sequence) }
+    let receipts = both.map { $0.map(\.receivedAt) }
+    #expect((sequences[0]) == ([1, 2, 3, 4]), "first subscriber sees increasing sequences under a frozen clock")
+    #expect((sequences[1]) == ([1, 2, 3, 4]), "second subscriber sees the same sequences")
+    #expect(
+        (receipts[0]) == (Array(repeating: origin, count: events.count)),
+        "every event kind is stamped with the injected receipt time")
+    #expect((receipts[1]) == (receipts[0]), "both subscribers observe the same receipt timestamps")
+}
+
+@MainActor
+private func runPressureRecovery() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let started = DispatchSemaphore(value: 0)
+    let stream = fanout.events(onStart: { started.signal() }, onTermination: nil)
+    guard wait(started) else {
+        #expect((false) == true, "pressure subscriber started")
+        return
+    }
+
+    // The consumer remains stalled while distinct track identities fill the fixed mailbox. A
+    // timing-only flood for one identity is then allowed to coalesce rather than creating work.
+    fanout.emit(queueEvent())
+    for index in 0..<192 {
+        fanout.emit(
+            playbackEvent(
+                trackURI: "spotify:track:pressure-\(index)",
+                revision: UInt64(index + 1)
+            ))
+    }
+    for index in 0..<192 {
+        fanout.emit(playbackEvent(trackURI: "spotify:track:steady", positionMS: Int64(index)))
+    }
+
+    let pressure = fanout.diagnostics()
+    #expect((pressure.subscriberCount) == (1), "stalled subscriber remains registered")
+    #expect((pressure.queuedEnvelopeCount) <= (64), "stalled mailbox remains bounded")
+    #expect((pressure.resynchronizationCount > 0) == true, "overflow exposes explicit recovery")
+    #expect((pressure.overflowCount > 0) == true, "overflow is counted")
+    #expect((pressure.coalescedCount > 0) == true, "equivalent timing samples coalesce")
+
+    let sawMarker = DispatchSemaphore(value: 0)
+    let markerSnapshots = FanoutRecorder<RustPlaybackEventEnvelope>()
+    let markerTask = Task.detached {
+        for await envelope in stream {
+            if case let .resynchronizationRequired(_, snapshots) = envelope.event {
+                markerSnapshots.store(snapshots)
+                sawMarker.signal()
+                break
+            }
+        }
+    }
+    #expect((wait(sawMarker)) == true, "stalled consumer receives a resynchronization marker")
+    let snapshots = markerSnapshots.load()
+    #expect(
+        (snapshots.contains { envelope in
+            if case .queue = envelope.event { return true }
+            return false
+        }) == true,
+        "resynchronization retains the latest queue source fact")
+    #expect(
+        (snapshots.contains { envelope in
+            if case let .playback(state) = envelope.event {
+                return state.trackURI == "spotify:track:pressure-191"
+            }
+            return false
+        }) == true,
+        "resynchronization retains the newest playback source fact")
+    markerTask.cancel()
+
+    let failureFanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let failureStart = DispatchSemaphore(value: 0)
+    let failureStream = failureFanout.events(onStart: { failureStart.signal() }, onTermination: nil)
+    guard wait(failureStart) else {
+        #expect((false) == true, "failure subscriber started")
+        return
+    }
+    failureFanout.emit(playbackEvent(trackURI: "spotify:track:failure", trackUnavailable: true))
+    for index in 0..<192 {
+        failureFanout.emit(playbackEvent(trackURI: "spotify:track:failure", positionMS: Int64(index)))
+    }
+    let failure = failureFanout.diagnostics()
+    #expect((failure.queuedEnvelopeCount) <= (64), "critical failure flood remains bounded")
+    #expect((failure.resynchronizationCount) == (0), "equivalent timing pressure needs no recovery marker")
+    let failureSeen = DispatchSemaphore(value: 0)
+    let failureTask = Task.detached {
+        var sawFailure = false
+        for await envelope in failureStream {
+            if case let .playback(state) = envelope.event, state.trackUnavailable {
+                sawFailure = true
+            }
+            if sawFailure { break }
+        }
+        if sawFailure { failureSeen.signal() }
+    }
+    #expect((wait(failureSeen)) == true, "critical playback failure stays ahead of coalesced timing")
+    failureTask.cancel()
+}
+
+@MainActor
+private func runCoalescingBarriers() {
+    let fanout = EngineEventFanout(clock: SystemPlaybackClock())
+    let playbackA = playbackEvent(trackURI: "spotify:track:barrier")
+    let playbackAAfterQueue = playbackEvent(trackURI: "spotify:track:barrier", positionMS: 1)
+    let values = collectSequential(
+        fanout,
+        events: [playbackA, queueEvent(), playbackAAfterQueue]
+    )
+    #expect(
+        (values.map(\.sequence)) == ([1, 2, 3]),
+        "a queue observation fences playback timing coalescing")
+
+    let clusters = EngineEventFanout(clock: SystemPlaybackClock())
+    let clusterValues = collectSequential(
+        clusters,
+        events: [clusterEvent(activeDeviceID: "remote-a"), clusterEvent(activeDeviceID: "remote-b")]
+    )
+    #expect(
+        (clusterValues.map(\.sequence)) == ([1, 2]),
+        "active-device changes remain distinct atomic cluster facts")
+}
+
+private func wait(_ semaphore: DispatchSemaphore) -> Bool {
+    semaphore.wait(timeout: .now() + .seconds(5)) == .success
+}
+
+private final class FanoutRecorder<Value: Sendable>: Sendable {
+    private let values = Mutex<[Value]>([])
+
+    func store(_ values: [Value]) { self.values.withLock { $0 = values } }
+    func load() -> [Value] { values.withLock { $0 } }
+}
+
+private func playbackEvent(
+    trackURI: String = "spotify:track:a",
+    positionMS: Int64 = 0,
+    trackUnavailable: Bool = false,
+    revision: UInt64 = 1
+) -> RustPlaybackEvent {
+    .playback(
+        RustPlaybackState(
+            revision: revision,
+            sessionGeneration: 1,
+            isPlaying: false,
+            isPaused: true,
+            trackURI: trackURI,
+            positionMS: positionMS,
+            durationMS: 1,
+            timestampMS: 0,
+            shuffle: false,
+            repeatTrack: false,
+            repeatContext: false,
+            trackUnavailable: trackUnavailable
+        )
+    )
+}
+
+private func queueEvent(
+    revision: UInt64 = 1,
+    nextURI: String? = nil
+) -> RustPlaybackEvent {
+    .queue(
+        RustQueueState(
+            revision: revision,
+            sessionGeneration: 1,
+            track: nil,
+            protocolNextTracks: nextURI.map {
+                [QueueProtocolTrack(uri: $0, uid: "uid-\($0)", provider: "queue")]
+            } ?? [],
+            protocolPrevTracks: [],
+            queueRevision: "",
+            disallowSetQueue: false,
+            disallowRemovingFromNextTracks: false
+        )
+    )
+}
+
+private func connectionEvent(generation: UInt64 = 1, revision: UInt64 = 1) -> RustPlaybackEvent {
+    .connection(
+        RustConnectionState(
+            revision: revision,
+            sessionGeneration: generation,
+            sessionConnected: true,
+            spircReady: true,
+            isActiveDevice: false,
+            resumePending: false,
+            lastError: nil,
+            deviceID: "local"
+        )
+    )
+}
+
+private func devicesEvent(
+    activeDeviceID: String = "local",
+    deviceIDs: [String] = ["local"]
+) -> RustPlaybackEvent {
+    .devices(
+        RustDevicesState(
+            revision: 1,
+            sessionGeneration: 1,
+            activeDeviceID: activeDeviceID,
+            devices: deviceIDs.map {
+                ConnectProtocolDevice(
+                    id: $0,
+                    name: $0 == "local" ? "Spotty" : "Remote",
+                    type: $0 == "local" ? "computer" : "speaker"
+                )
+            }
+        )
+    )
+}
+
+private func clusterEvent(activeDeviceID: String) -> RustPlaybackEvent {
+    .cluster(
+        RustConnectClusterState(
+            revision: 1,
+            sessionGeneration: 1,
+            source: 2,
+            localDeviceID: "local",
+            devices: RustDevicesState(
+                revision: 1,
+                sessionGeneration: 1,
+                activeDeviceID: activeDeviceID,
+                devices: [
+                    ConnectProtocolDevice(id: "local", name: "Spotty", type: "computer"),
+                    ConnectProtocolDevice(id: activeDeviceID, name: "Remote", type: "speaker"),
+                ]
+            ),
+            connection: nil,
+            playback: nil,
+            queue: nil
+        )
+    )
+}

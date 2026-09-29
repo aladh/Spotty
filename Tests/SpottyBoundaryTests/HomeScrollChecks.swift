@@ -1,30 +1,17 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import AppKit
 import SwiftUI
 import Testing
 @testable import SpottyCore
-@testable import SpottyGateway
 @testable import SpottySessionRuntime
 
 @Suite("Home scroll lifetime")
 @MainActor
 struct HomeScrollChecks {
     @Test func refreshesPreserveTheClampedScrollPositionThroughFailureAndRecovery() async throws {
-        func snapshot(sectionCount: Int) throws -> PathfinderHome {
-            let sections = (0..<sectionCount).map { index in
-                """
-                {"uri":"section:\(index)","sectionItems":{"items":[
-                  {"content":{"__typename":"PlaylistResponseWrapper","data":{
-                    "uri":"spotify:playlist:mix\(index)","name":"Mix \(index)"}}}]}}
-                """
-            }.joined(separator: ",")
-            return try JSONDecoder().decode(
-                PathfinderHome.self,
-                from: Data(
-                    "{\"__typename\":\"HomeResponsePayload\",\"sectionContainer\":{\"sections\":{\"items\":[\(sections)]}}}"
-                        .utf8))
-        }
-        let shorter = try snapshot(sectionCount: 3)
-        let longer = try snapshot(sectionCount: 12)
+        let shorter = HarnessFixtures.home(sectionIDs: Array(0..<3))
+        let longer = HarnessFixtures.home(sectionIDs: Array(0..<12))
         let provider = HarnessCatalog()
         provider.onHome = { shorter }
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
@@ -95,24 +82,8 @@ struct HomeScrollChecks {
     }
 
     @Test func shelfPositionSurvivesTemporaryQuickAccessPresentation() async throws {
-        func snapshot(_ ids: [Int]) throws -> PathfinderHome {
-            let sections = ids.map { index in
-                let items = (0..<6).map { item in
-                    """
-                    {"content":{"__typename":"PlaylistResponseWrapper","data":{
-                      "uri":"spotify:playlist:mix\(index)-\(item)","name":"Mix"}}}
-                    """
-                }.joined(separator: ",")
-                return "{\"uri\":\"section:\(index)\",\"sectionItems\":{\"items\":[\(items)]}}"
-            }.joined(separator: ",")
-            return try JSONDecoder().decode(
-                PathfinderHome.self,
-                from: Data(
-                    "{\"__typename\":\"HomeResponsePayload\",\"sectionContainer\":{\"sections\":{\"items\":[\(sections)]}}}"
-                        .utf8))
-        }
-        let original = try snapshot([0, 1, 2])
-        let promoted = try snapshot([1, 2])
+        let original = HarnessFixtures.home(sectionIDs: [0, 1, 2], itemsPerSection: 6)
+        let promoted = HarnessFixtures.home(sectionIDs: [1, 2], itemsPerSection: 6)
         let provider = HarnessCatalog()
         provider.onHome = { original }
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
@@ -172,18 +143,7 @@ struct HomeScrollChecks {
 
     @Test(arguments: [CGFloat(320), 2200])
     func reconnectPlaceholdersDoNotReplaceTheRetainedPagePosition(offset: CGFloat) async throws {
-        let sections = (0..<12).map { index in
-            """
-            {"uri":"section:\(index)","sectionItems":{"items":[
-              {"content":{"__typename":"PlaylistResponseWrapper","data":{
-                "uri":"spotify:playlist:mix\(index)","name":"Mix \(index)"}}}]}}
-            """
-        }.joined(separator: ",")
-        let home = try JSONDecoder().decode(
-            PathfinderHome.self,
-            from: Data(
-                "{\"__typename\":\"HomeResponsePayload\",\"sectionContainer\":{\"sections\":{\"items\":[\(sections)]}}}"
-                    .utf8))
+        let home = HarnessFixtures.home(sectionIDs: Array(0..<12))
         let provider = HarnessCatalog()
         provider.onHome = { home }
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))

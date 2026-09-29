@@ -1,40 +1,11 @@
-"""Prove discovery, suite ownership, and failure propagation with disposable repositories."""
+"""Prove discovery, suite ownership, and isolated dispatch with disposable repositories."""
 
-import contextlib
-from pathlib import Path, PurePosixPath
-import shutil
+from pathlib import PurePosixPath
 import subprocess
-import sys
-import tempfile
 import unittest
 
+from script_test_fixtures import ROOT, PASSING_PYTHON, PASSING_NODE, repository, execute
 from script_tests import inventory, is_test
-
-
-ROOT = Path(__file__).resolve().parents[1]
-PASSING_PYTHON = "import unittest\nclass Example(unittest.TestCase):\n    def test_example(self):\n        self.assertTrue(True)\n"
-PASSING_NODE = "const {test} = require('node:test'); test('example', () => {});\n"
-
-
-@contextlib.contextmanager
-def repository():
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        subprocess.run(["git", "init", "-q", str(root)], check=True)
-        for name in ("Scripts/test_existing_policy.py", "Scripts/test_playback_existing.py",
-                     "Scripts/test_harness_existing.py",
-                     "Scripts/test_swift_test_watchdog.py", "Scripts/agent-review-tests/publication_test.py"):
-            path = root / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(PASSING_PYTHON)
-        (root / "Scripts/agent-review-tests/review.test.cjs").write_text(PASSING_NODE)
-        shutil.copy(ROOT / "Scripts/script_tests.py", root / "Scripts/script_tests.py")
-        yield root
-
-
-def execute(root, group):
-    return subprocess.run([sys.executable, "-B", str(root / "Scripts/script_tests.py"), group],
-                          cwd=root, capture_output=True, text=True)
 
 
 class ScriptTestCoverageTests(unittest.TestCase):
@@ -51,6 +22,9 @@ class ScriptTestCoverageTests(unittest.TestCase):
         files = [path for paths in groups.values() for path in paths]
         self.assertEqual(len(files), len(set(files)))
         self.assertIn(ROOT / "Scripts/test_documentation_policy.py", groups["policy"])
+        self.assertIn(ROOT / "Scripts/test_verify.py", groups["policy"])
+        # Executing the clean/pin shell entry points requires the playback lane's zsh setup.
+        self.assertIn(ROOT / "Scripts/test_playback_pin.py", groups["playback"])
         for name in ("profile_synthetic", "trace_summary", "browsing_provenance"):
             self.assertIn(ROOT / f"Scripts/test_harness_{name}.py", groups["harness"])
         self.assertIn(ROOT / "Scripts/agent-review-tests/publication_test.py", groups["review"])
@@ -62,12 +36,60 @@ class ScriptTestCoverageTests(unittest.TestCase):
                 (root / "Scripts" / name).write_text(PASSING_PYTHON)
             result = execute(root, "policy")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("Ran 4 tests", result.stderr)
+            self.assertEqual(result.stderr.count("Ran 1 test"), 4)
             self.assertIn("Scripts/test_new_feature.py", result.stdout)
             (root / "Scripts/test_new_feature.py").write_text(PASSING_PYTHON.replace("assertTrue(True)", "fail('new test ran')"))
             result = execute(root, "policy")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("new test ran", result.stderr)
+
+    def test_python_files_do_not_share_process_globals_even_when_run_serially(self):
+        with repository() as root:
+            (root / "Scripts/a_test.py").write_text(
+                "import builtins, os, unittest\nfrom pathlib import Path\n"
+                "class Example(unittest.TestCase):\n"
+                "    def test_example(self):\n"
+                "        builtins.spotty_test_leak = True\n"
+                "        Path('a.pid').write_text(str(os.getpid()))\n")
+            (root / "Scripts/b_test.py").write_text(
+                "import builtins, os, unittest\nfrom pathlib import Path\n"
+                "class Example(unittest.TestCase):\n"
+                "    def test_example(self):\n"
+                "        self.assertFalse(hasattr(builtins, 'spotty_test_leak'))\n"
+                "        Path('b.pid').write_text(str(os.getpid()))\n")
+            result = execute(root, "policy", "--jobs", "1")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual((root / "a.pid").read_text(), (root / "b.pid").read_text())
+
+    def test_independent_files_can_make_progress_together(self):
+        with repository() as root:
+            for name, peer in (("a", "b"), ("b", "a")):
+                (root / f"Scripts/{name}_test.py").write_text(
+                    "import time, unittest\nfrom pathlib import Path\n"
+                    "class Example(unittest.TestCase):\n"
+                    "    def test_example(self):\n"
+                    f"        Path('{name}.ready').touch()\n"
+                    "        deadline = time.monotonic() + 5\n"
+                    f"        while not Path('{peer}.ready').exists() and time.monotonic() < deadline:\n"
+                    "            time.sleep(0.01)\n"
+                    f"        self.assertTrue(Path('{peer}.ready').exists(), 'peer worker was starved')\n")
+            result = execute(root, "policy", "--jobs", "2")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_worker_crash_fails_the_lane_and_other_discovered_files_still_run(self):
+        for status in (0, 17):
+            with self.subTest(status=status), repository() as root:
+                (root / "Scripts/a_test.py").write_text(f"import os\nos._exit({status})\n")
+                result = execute(root, "policy")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("did not complete its tests" if status == 0 else "exited 17", result.stderr)
+                self.assertIn("test_example", result.stderr)
+
+    def test_worker_cannot_select_a_file_outside_its_lane(self):
+        with repository() as root:
+            result = execute(root, "policy", "--test-file", str(root / "Scripts/test_playback_existing.py"))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must belong", result.stderr)
 
     def test_new_node_tests_run_and_fail_the_review_suite(self):
         with repository() as root:
@@ -118,6 +140,21 @@ class ScriptTestCoverageTests(unittest.TestCase):
             result = execute(root, "policy")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("No Python tests discovered in Scripts/test_existing_policy.py", result.stderr)
+
+    def test_non_utf8_index_entry_preserves_discovery_and_test_failures(self):
+        with repository() as root:
+            blob = subprocess.check_output(["git", "hash-object", "-w", "--stdin"], cwd=root, input=b"fixture\n").strip()
+            subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=root, check=True,
+                           input=b"100644 " + blob + b"\tunknown-\xff\0")
+            test = root / "Scripts/test_new\nfeature.py"
+            test.write_text(PASSING_PYTHON.replace("assertTrue(True)", "fail('newline test ran')"))
+            groups = inventory(root)
+            self.assertEqual(sum(map(len, groups.values())), 7)
+            self.assertIn(test, groups["policy"])
+            result = execute(root, "policy")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("newline test ran", result.stderr)
+            self.assertIn("Scripts/test_existing_policy.py", result.stdout)
 
     def test_tracked_and_new_tests_are_checked_but_ignored_scratch_and_vendor_are_not(self):
         with repository() as root:

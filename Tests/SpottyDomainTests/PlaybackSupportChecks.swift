@@ -200,10 +200,9 @@ struct PlaybackSupportTests {
         let uidBacked = QueueEntry(
             uri: "spotify:track:a", provider: "queue", occurrence: 7, uid: "occurrence-uid"
         )
-        let queueItem = PlaybackQueueItem(uidBacked)
-        #expect((queueItem.occurrence) == (7), "queue-item conversion keeps the typed occurrence")
-        #expect((queueItem.id) == (uidBacked.id), "queue-item conversion keeps UID-aware identity")
-        #expect((queueItem.uid) == ("occurrence-uid"), "queue-item conversion keeps the occurrence uid")
+        #expect(uidBacked.occurrence == 7)
+        #expect(uidBacked.uid == "occurrence-uid")
+        #expect(uidBacked.id == "uid-occurrence-uid-queue-spotify:track:a")
         #expect(
             (repeated[1].id)
                 == (QueueEntry.identity(
@@ -325,113 +324,6 @@ struct PlaybackSupportTests {
                 snapshotTrackURI: "spotify:track:new",
                 currentTrackURI: "spotify:track:new"
             )) == ("spotify:track:new"), "a cached queue may enrich only the matching current track")
-    }
-
-    @Test
-    func terminationGateAdmitsCommandsOnlyBeforeShutdownBegins() {
-        var gate = PlaybackTerminationGate()
-        #expect((gate.allowsCommands) == true, "commands are admitted before termination")
-        #expect((gate.begin()) == true, "the first termination request owns shutdown")
-        #expect((!gate.allowsCommands) == true, "commands are rejected once termination begins")
-        #expect((!gate.begin()) == true, "a second termination request cannot start another shutdown")
-    }
-
-    @Test
-    func pcmBufferCursorNormalizesIndicesAndCountsFreeSpace() {
-        var cursor = PCMBufferCursor(capacity: 8)
-        #expect((cursor.available) == (0), "an empty cursor has no available samples")
-        #expect((cursor.free) == (7), "one slot distinguishes full from empty")
-
-        let normalized = PCMBufferCursor(capacity: 8, readIndex: -1, writeIndex: -9)
-        #expect((normalized.readIndex) == (7), "a negative read index wraps into the ring")
-        #expect((normalized.writeIndex) == (7), "a negative write index wraps into the ring")
-
-        cursor.advanceWrite(by: 6)
-        cursor.advanceRead(by: 5)
-        cursor.advanceWrite(by: 1)
-        #expect((cursor.available) == (2), "wrapped writes preserve the available count")
-        #expect((cursor.writeIndex) == (7), "write index wraps at capacity")
-
-        cursor.advanceRead(by: 2)
-        cursor.advanceWrite(by: 7)
-        #expect((cursor.available) == (7), "the cursor can represent a full ring")
-        #expect((cursor.free) == (0), "a full ring has no writable slots")
-
-        cursor.reset()
-        #expect((cursor.readIndex) == (0), "reset clears the read index")
-        #expect((cursor.writeIndex) == (0), "reset clears the write index")
-        #expect((cursor.free) == (7), "reset restores full writable capacity")
-    }
-
-    @Test
-    func pcmWriteBackpressureAdmitsOnlyWhatFits() {
-        var policy = PCMWriteBackpressure()
-        policy.beginWrite()
-        #expect(
-            (policy.admit(freeSpace: 8, remaining: 3, isRendering: true)) == (.write(3)),
-            "free space admits a partial write")
-        #expect(
-            (policy.admit(freeSpace: 2, remaining: 9, isRendering: true)) == (.write(2)),
-            "admission never copies more than free space")
-
-        var stopped = PCMWriteBackpressure()
-        stopped.beginWrite()
-        #expect(
-            (stopped.admit(freeSpace: 0, remaining: 4, isRendering: false)) == (.dropRemaining),
-            "a stopped renderer drops a full buffer instead of waiting")
-
-        var full = PCMWriteBackpressure()
-        full.beginWrite()
-        var waitCount = 0
-        let remaining = 16
-        var controlRan = false
-        writeLoop: while true {
-            switch full.admit(freeSpace: 0, remaining: remaining, isRendering: true) {
-            case .write(_):
-                #expect((false) == true, "a full rendering buffer cannot admit a write")
-                break writeLoop
-            case .waitForSpace:
-                waitCount += 1
-                if waitCount > 1 {
-                    #expect((false) == true, "wait admission is spent after one park")
-                    break writeLoop
-                }
-            case .dropRemaining:
-                controlRan = true
-                break writeLoop
-            }
-        }
-        #expect((waitCount) == (1), "a full buffer waits once then drops instead of looping")
-        #expect((controlRan) == true, "control can run on the writer thread after the drop")
-        #expect((full.hasSpentWait) == true, "the wait budget stays spent after the drop")
-
-        var trickle = PCMWriteBackpressure()
-        trickle.beginWrite()
-        #expect(
-            (trickle.admit(freeSpace: 0, remaining: 10, isRendering: true)) == (.waitForSpace),
-            "the first full buffer spends the wait")
-        #expect(
-            (trickle.admit(freeSpace: 1, remaining: 10, isRendering: true)) == (.write(1)),
-            "a small consumer release still copies")
-        #expect(
-            (trickle.admit(freeSpace: 0, remaining: 9, isRendering: true)) == (.dropRemaining),
-            "a second full buffer in the same write drops instead of waiting again")
-        #expect(
-            (trickle.admit(freeSpace: 1, remaining: 8, isRendering: true)) == (.write(1)),
-            "further trickle releases cannot buy another wait")
-        #expect(
-            (trickle.admit(freeSpace: 0, remaining: 7, isRendering: true)) == (.dropRemaining),
-            "the same write still drops when full after another trickle")
-
-        trickle.beginWrite()
-        #expect(
-            (trickle.admit(freeSpace: 0, remaining: 7, isRendering: true)) == (.waitForSpace),
-            "the next write call restores a single wait")
-
-        full.beginWrite()
-        #expect(
-            (full.admit(freeSpace: 0, remaining: 1, isRendering: true)) == (.waitForSpace),
-            "ring reset allows a later full buffer to wait again")
     }
 
     @Test

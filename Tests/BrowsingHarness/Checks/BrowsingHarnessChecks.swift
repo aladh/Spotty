@@ -266,7 +266,7 @@ struct BrowsingHarnessTests {
         }
         let player = PlaybackStore(environment: environment, feedback: TransientFeedbackPresenter(clock: world))
         await player.restore()
-        await player.effects.settlement(of: .catalogLoad)?.wait()
+        await player.catalogLoadTask?.value
         #expect(player.accountStore.phase == .ready)
         #expect(player.catalog.homeLibrary.homeSections.count == 1)
         let items = player.catalog.homeLibrary.playlists

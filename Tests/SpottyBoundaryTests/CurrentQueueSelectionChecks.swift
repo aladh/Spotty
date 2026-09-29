@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import AppKit
 import SpottyDomain
 import SwiftUI
@@ -150,15 +152,18 @@ struct CurrentQueueSelectionChecks {
             await player.queueService.reset(accountEpoch: player.accountEpoch)
             let accepted = try #require(
                 await player.queueService.acceptConnect(
-                    entries, accountEpoch: player.accountEpoch, sourceRevision: 2,
-                    contextURI: player.trackURI, engineEpoch: player.engineGeneration,
-                    protocolNext: entries.map { QueueProtocolTrack(uri: $0.uri, uid: $0.uid, provider: "queue") },
-                    protocolPrev: [], queueRevision: "fixture-queue"))
+                    HarnessFixtures.queueState(
+                        revision: 2,
+                        generation: player.engineGeneration,
+                        trackURI: player.trackURI,
+                        next: entries.map { QueueProtocolTrack(uri: $0.uri, uid: $0.uid, provider: "queue") },
+                        queueRevision: "fixture-queue"),
+                    accountEpoch: player.accountEpoch, fallbackTrackURI: nil))
             player.queueMutation = accepted.mutation
             _ = player.send(
                 .queue(
                     PlaybackQueueSnapshot(
-                        entries: entries.map { PlaybackQueueItem($0) }, source: .connect, completeness: .complete,
+                        entries: entries, source: .connect, completeness: .complete,
                         revision: 2, receivedAt: HarnessDates.fixed, contextURI: player.trackURI)),
                 source: .engineQueue, revision: 2, engineEpoch: player.engineGeneration,
                 accountEpoch: player.accountEpoch)

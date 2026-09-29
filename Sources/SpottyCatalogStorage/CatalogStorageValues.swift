@@ -53,7 +53,7 @@ public struct CatalogPlaylistLibraryRecord: Equatable, Codable, Sendable {
     public let nodes: [PlaylistLibraryNode]
     public let fetchedAt: Date
     public static let maximumBytes = 4 * 1_024 * 1_024
-    public static let maximumNodes = 10_000
+    public static let maximumNodes = PlaylistLibraryLimits.maximumNodes
 
     public init(nodes: [PlaylistLibraryNode], fetchedAt: Date) {
         self.nodes = nodes
@@ -66,9 +66,10 @@ public struct CatalogPlaylistLibraryRecord: Equatable, Codable, Sendable {
         }
         var pending = nodes.map { ($0, 0) }
         var count = 0
+        var folders: Set<String> = []
         while let (node, depth) = pending.popLast() {
             count += 1
-            guard count <= Self.maximumNodes, depth <= 32, !node.id.isEmpty,
+            guard count <= Self.maximumNodes, depth <= PlaylistLibraryLimits.maximumDepth, !node.id.isEmpty,
                 node.id.utf8.count <= 8_192, !node.id.contains("\0")
             else { throw CatalogStorageError.invalidInput }
             if let playlist = node.playlist {
@@ -76,7 +77,9 @@ public struct CatalogPlaylistLibraryRecord: Equatable, Codable, Sendable {
                     throw CatalogStorageError.invalidInput
                 }
             } else {
-                guard let children = node.children, children.count <= Self.maximumNodes - count else {
+                guard let children = node.children, children.count <= Self.maximumNodes - count,
+                    folders.insert(node.id).inserted
+                else {
                     throw CatalogStorageError.invalidInput
                 }
                 pending.append(contentsOf: children.map { ($0, depth + 1) })
@@ -166,6 +169,9 @@ public struct CatalogCollectionWrite: Sendable {
     public let revision: String?
     public let fetchedAt: Date
     public let metadata: CatalogCollectionMetadata
+    /// Strictly increasing read admission order within this storage owner. Equal-date metadata
+    /// uses this tie-breaker; nil preserves date-only writes. Never persisted.
+    public let admissionOrdinal: UInt64?
 
     public init(
         key: String,
@@ -173,7 +179,8 @@ public struct CatalogCollectionWrite: Sendable {
         completeness: CatalogCollectionCompleteness,
         revision: String? = nil,
         fetchedAt: Date,
-        metadata: CatalogCollectionMetadata = CatalogCollectionMetadata()
+        metadata: CatalogCollectionMetadata = CatalogCollectionMetadata(),
+        admissionOrdinal: UInt64? = nil
     ) {
         self.key = key
         self.occurrences = occurrences
@@ -181,20 +188,17 @@ public struct CatalogCollectionWrite: Sendable {
         self.revision = revision
         self.fetchedAt = fetchedAt
         self.metadata = metadata
+        self.admissionOrdinal = admissionOrdinal
     }
 }
 
-public struct CatalogCollectionPage: Sendable {
+/// One complete, bounded collection assembled without suspending the storage owner.
+public struct CatalogCollectionSnapshot: Sendable {
     public let key: String
     public let occurrences: [CatalogOccurrence]
-    public let offset: Int
-    public let totalCount: Int
-    public let completeness: CatalogCollectionCompleteness
     public let revision: String?
     public let fetchedAt: Date
     public let metadata: CatalogCollectionMetadata
-
-    public var hasMore: Bool { offset + occurrences.count < totalCount }
 }
 
 /// IDs of effective changes from one transaction, including retention evictions.

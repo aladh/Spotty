@@ -53,7 +53,7 @@ spotty_playback_resolve_xcframework() {
     # package pin cannot leave an old workspace-state path selected; do not guess from the
     # ignored local producer directory.
     local_workspace_state="$project_root/.build/workspace-state.json"
-    if ! swift package resolve --package-path "$project_root" >&2; then
+    if ! SPOTTY_PACKAGE_GRAPH=full swift package resolve --package-path "$project_root" >&2; then
         echo "SwiftPM could not resolve the pinned SpottyPlaybackCore artifact" >&2
         return 1
     fi

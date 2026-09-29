@@ -22,6 +22,14 @@ distinct outcomes.
 Completed token rotations remain private until saved. A failed save retains the returned grant for
 persistence retry so the spent refresh token cannot be reused.
 
+Revocation notifications carry an opaque identity that the credential owner invalidates on durable
+grant replacement or explicit clearing; failed adoption preserves the pending refusal. The runtime
+joins accepted grant adoption before validating a notification,
+and rechecks when account, connection, or adoption ownership changes during validation. Queued
+notifications cannot retire a replacement grant; a current refusal still tears down its session.
+The live account adapter takes its credential owner explicitly so isolated checks use the same
+adapter without touching the process-wide grant.
+
 Do not read, migrate, or modify old Keychain entries. Upgrading requires one browser authorization;
 subsequent launches restore the file. Sign Out fences the grant immediately and reports failed file
 removal. A failed removal stays fenced in this process until deletion succeeds or a new grant is
@@ -35,7 +43,7 @@ The file is not encrypted and can be read by other processes running as the same
 The [privacy contract](../../../PRIVACY.md#local-storage) makes that limitation explicit. This changes
 OAuth storage only; streaming credentials retain their existing engine-owned cache lifecycle.
 
-[Boundary checks](../../../Tests/SpottyBoundaryTests/KeymasterFileStoreChecks.swift) exercise fresh
+[Gateway checks](../../../Tests/SpottyGatewayTests/KeymasterFileStoreChecks.swift) exercise fresh
 session restoration, durable replacement, logout, permissions, and invalid-file handling without
 real credentials. Operational diagnostics remain in system-managed Unified Logging; no app-owned
 log file is introduced.

@@ -124,7 +124,9 @@ struct AcceptanceCorpusTests {
             player: player, world: world, navigation: CatalogNavigation())
         #expect(report.passed)
         #expect(world.snapshot().requests["account.synthetic-replacement"] == 1)
-        #expect(world.snapshot().requests["library"] == 2)
+        #expect(
+            world.snapshot().requests["library"] == 3,
+            "Startup, reconnect, and account replacement each refresh catalog freshness")
         #expect(player.catalog.homeLibrary.playlists.count == world.fixtures.playlists.count)
         #expect(player.catalog.homeLibrary.homeSections.count == (expanded ? 4 : 1))
         #expect(report.checkpoints.contains { $0.name == "account.replacement-catalog-ready" && $0.passed })

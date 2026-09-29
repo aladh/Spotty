@@ -112,11 +112,11 @@ struct PrivacySanitizationTests {
                 PartnerAPIError.pagination(.pageLimitReached).errorDescription
             )
             #expect(
-                (PartnerAPIError.pagination(.offsetDidNotAdvance).errorDescription ?? "")
-                    == ("Spotify pagination did not advance"), "pagination non-progress failures omit payloads")
+                (PartnerAPIError.pagination(.incompleteCollection).errorDescription ?? "")
+                    == ("Spotify returned an incomplete collection"), "pagination completeness failures omit payloads")
             omitSentinel(
-                "pagination non-progress LocalizedError",
-                PartnerAPIError.pagination(.offsetDidNotAdvance).errorDescription
+                "pagination completeness LocalizedError",
+                PartnerAPIError.pagination(.incompleteCollection).errorDescription
             )
 
             let connect = SpotifyConnectAPI(

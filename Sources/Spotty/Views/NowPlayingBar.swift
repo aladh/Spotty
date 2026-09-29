@@ -23,7 +23,7 @@ struct NowPlayingBar: View {
                     VStack(spacing: 8) {
                         NowPlayingTransportControls(player: player)
 
-                        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                        TimelineView(.animation(minimumInterval: 1, paused: !player.showsPauseControl)) { timeline in
                             HStack(spacing: 8) {
                                 playerTimeLabel(
                                     player.hasCurrentTrack

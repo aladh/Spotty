@@ -13,7 +13,7 @@ import OSLog
 @MainActor
 @Observable
 final class HomeLibraryStore {
-    private typealias Flight = AccountScopedSingleFlight<Request>
+    private typealias Flight = CatalogReadFlights<Request>
 
     /// Independent request lifetimes: the launch-critical aggregate load and each section.
     private enum Request: Hashable, Sendable {
@@ -37,6 +37,10 @@ final class HomeLibraryStore {
     private(set) var playlists: [CatalogItem] = []
     private(set) var playlistLibrary: [PlaylistLibraryNode] = []
     var playlistLibraryIsCached: Bool { state(for: .playlists).isShowingSavedContent(in: session.snapshot) }
+
+    /// Retained rows remain displayable, but mutation advertising needs proof from this session.
+    var currentProfileURI: String? { state(for: .profile).isCurrent(in: session.snapshot) ? profileURI : nil }
+    var currentPlaylists: [CatalogItem] { state(for: .playlists).isCurrent(in: session.snapshot) ? playlists : [] }
     private(set) var albums: [CatalogItem] = []
     private(set) var artists: [CatalogItem] = []
     private(set) var likedTrackCollection = CatalogTrackCollection()
@@ -76,7 +80,7 @@ final class HomeLibraryStore {
         self.metadata = metadata
         self.session = session
         // Sections publish independently, so each request key owns its own lifetime.
-        flight = Flight(session: session, join: .joinMatchingKey, scope: .perKey, publish: .strict)
+        flight = Flight(session: session, scope: .perKey)
     }
 
     func reset() {
@@ -98,19 +102,12 @@ final class HomeLibraryStore {
     func load() async {
         let interval = SpottyLog.catalogSignposter.beginInterval("Initial catalog load")
         defer { SpottyLog.catalogSignposter.endInterval("Initial catalog load", interval) }
-        switch flight.admit(.initialLoad) {
-        case .skip:
-            return
-        case let .join(claim):
-            await flight.awaitFlight(claim)
-        case let .start(handle):
-            await flight.run(handle) { [weak self] in
-                guard let self else { return }
-                async let home: Void = self.loadHome()
-                async let profile: Void = self.loadProfile()
-                async let playlists: Void = self.loadPlaylists()
-                _ = await (home, profile, playlists)
-            }
+        await flight.read(.initialLoad) { [weak self] _ in
+            guard let self else { return }
+            async let home: Void = self.loadHome()
+            async let profile: Void = self.loadProfile()
+            async let playlists: Void = self.loadPlaylists()
+            _ = await (home, profile, playlists)
         }
     }
 
@@ -175,40 +172,30 @@ final class HomeLibraryStore {
         operation: @escaping @Sendable () async throws -> SectionPayload
     ) async {
         if !force, state(for: section).isCurrent(in: session.snapshot) { return }
-        let handle: Flight.Handle
-        switch flight.admit(.section(section), force: force) {
-        case .skip:
-            return
-        case let .join(claim):
-            await flight.awaitFlight(claim)
-            return
-        case let .start(started):
-            handle = started
-        }
-
-        begin(section)
-        defer { finish(section, handle: handle) }
-        await flight.run(handle) { [weak self] in
-            guard let self else { return }
+        await flight.read(
+            .section(section), force: force,
+            started: { [weak self] _ in self?.begin(section) },
+            settled: { [weak self] in self?.sectionStates[section, default: CatalogLoadState()].finish() }
+        ) { [weak self, provider] handle in
             do {
                 if section == .playlists {
                     // The live profile opens the matching disk partition. Joining the profile
                     // flight keeps account proof shared with startup and explicit library retries.
-                    await self.loadProfile()
-                    guard self.flight.isCurrent(handle) else { return }
-                    if !self.loadedSections.contains(.playlists),
-                        let cached = try await self.provider.cachedPlaylistLibrary()
+                    await self?.loadProfile()
+                    guard self?.flight.isCurrent(handle) == true else { return }
+                    if self?.loadedSections.contains(.playlists) == false,
+                        let cached = try await provider.cachedPlaylistLibrary()
                     {
-                        guard self.flight.isCurrent(handle) else { return }
+                        guard let self, flight.isCurrent(handle) else { return }
                         self.applyPlaylistLibrary(cached.nodes, cached: true)
                         self.sectionStates[.playlists, default: CatalogLoadState()].receive(
                             session: handle.sessionSnapshot, freshness: .cached(fetchedAt: cached.fetchedAt))
                         SpottyLog.catalog.info("Saved playlist library restored")
                     }
                 }
-                guard self.flight.isCurrent(handle) else { return }
+                guard self?.flight.isCurrent(handle) == true else { return }
                 let payload = try await operation()
-                guard self.flight.isCurrent(handle) else { return }
+                guard let self, flight.isCurrent(handle) else { return }
                 switch payload {
                 case let .home(greeting, sections):
                     self.greeting = greeting
@@ -229,7 +216,7 @@ final class HomeLibraryStore {
                 }
                 self.succeed(section, handle: handle)
             } catch {
-                self.record(error, for: section, handle: handle)
+                self?.record(error, for: section, handle: handle)
             }
         }
     }
@@ -245,11 +232,6 @@ final class HomeLibraryStore {
     private func succeed(_ section: Section, handle: Flight.Handle) {
         SpottyLog.catalog.info("Catalog section finished: \(section.rawValue, privacy: .public)")
         sectionStates[section, default: CatalogLoadState()].receive(session: handle.sessionSnapshot)
-    }
-
-    private func finish(_ section: Section, handle: Flight.Handle) {
-        guard flight.owns(handle) else { return }
-        sectionStates[section, default: CatalogLoadState()].finish()
     }
 
     private func record(

@@ -1,3 +1,5 @@
+@testable import SpottyRuntimeTestSupport
+import SpottyTestSupport
 import Testing
 import SpottyDomain
 import SpottyRuntimeContracts
@@ -18,7 +20,7 @@ struct CatalogRequestOwnershipTests {
             let previous = CatalogItem(
                 id: "previous", uri: "spotify:playlist:previous", title: "Previous",
                 subtitle: "", artworkURL: nil, kind: .playlist)
-            provider.onPlaylistSnapshot = { _ in
+            provider.onPlaylist = { _ in
                 CatalogPlaylistSnapshot(
                     description: "", ownerURI: nil,
                     tracks: [HarnessFixtures.track(uri: "spotify:track:previous")],
@@ -84,94 +86,78 @@ struct CatalogRequestOwnershipTests {
         #expect(provider.searchTrackRequestCount == 1)
     }
 
-    enum Retirement: CaseIterable, Sendable {
-        case reset, superseded, accountChanged, disconnected, reconnected, abandoned
-    }
-
-    @Test(arguments: Retirement.allCases)
-    func retiredAdmissionCannotStartWork(retirement: Retirement) async {
+    @Test(arguments: [CatalogReadFlights<String>.Scope.singleSelection, .perKey])
+    func completedReadsDoNotOwnContentFreshness(scope: CatalogReadFlights<String>.Scope) async {
         let session = CatalogSessionAvailability(isAvailable: true)
-        let flight = AccountScopedSingleFlight<String>(session: session)
-        let handle = flight.begin("route")
-        switch retirement {
-        case .reset:
-            flight.reset()
-        case .superseded:
-            flight.begin("replacement")
-        case .accountChanged:
-            session.update(accountEpoch: 2, isAvailable: true)
-        case .disconnected:
-            session.update(accountEpoch: 1, isAvailable: false)
-        case .reconnected:
-            session.update(accountEpoch: 1, isAvailable: false)
-            session.update(accountEpoch: 1, isAvailable: true)
-        case .abandoned:
-            flight.abandonUnstarted(handle)
-        }
+        let reads = CatalogReadFlights<String>(session: session, scope: scope)
         var calls = 0
-        await flight.run(handle) { calls += 1 }
-        #expect(calls == 0)
-        #expect(!flight.isCurrent(handle))
-    }
-
-    @Test(arguments: [false, true])
-    func duplicateOrStaleRegistrationCannotDisplaceALiveTask(stale: Bool) async {
-        let session = CatalogSessionAvailability(isAvailable: true)
-        let flight = AccountScopedSingleFlight<String>(session: session)
-        let old = flight.begin("route")
-        let current = stale ? flight.begin("route") : old
-        let clock = HarnessClock.parked()
-        var originalWasCancelled = false
-        let original = Task {
-            await flight.run(current) {
-                try? await clock.sleep(seconds: 10)
-                originalWasCancelled = Task.isCancelled
-            }
-        }
-        #expect(await waitUntil { clock.waiterCount == 1 })
-        var unexpectedCalls = 0
-        await flight.run(old) { unexpectedCalls += 1 }
-        flight.reset()
-        clock.releaseAll()
-        await original.value
-        #expect(unexpectedCalls == 0)
-        #expect(originalWasCancelled, "reset must still own and cancel the original task")
-    }
-
-    @Test func completedAdmissionCannotStartAgain() async {
-        let session = CatalogSessionAvailability(isAvailable: true)
-        let flight = AccountScopedSingleFlight<String>(session: session)
-        let handle = flight.begin("route")
-        var calls = 0
-        await flight.run(handle) { calls += 1 }
-        await flight.run(handle) { calls += 1 }
-        #expect(calls == 1)
-    }
-
-    @Test(arguments: [SingleFlightScopePolicy.singleSelection, .perKey])
-    func completedFlightsDoNotCacheFreshness(scope: SingleFlightScopePolicy) async {
-        let session = CatalogSessionAvailability(isAvailable: true)
-        let flight = AccountScopedSingleFlight<String>(session: session, scope: scope)
-        var calls = 0
+        var starts = 0
+        var settlements = 0
         for _ in 0..<2 {
-            guard case let .start(handle) = flight.admit("route") else {
-                Issue.record("A finished flight must allow a fresh read when its caller requests one")
-                return
+            await reads.read("route", started: { _ in starts += 1 }, settled: { settlements += 1 }) { _ in
+                calls += 1
             }
-            await flight.run(handle) { calls += 1 }
         }
-        #expect(calls == 2)
+        #expect(calls == 2 && starts == 2 && settlements == 2)
     }
 
-    @Test func cancellationBeforeRegistrationCannotStartWork() async {
+    @Test func resetSettlesEveryReadBeforeItsProviderAndAllowsReplacement() async throws {
+        let responses = HarnessResponseGate<Void>(cancellation: .ignored)
+        defer { responses.close() }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let flight = AccountScopedSingleFlight<String>(session: session)
-        let handle = flight.begin("route")
-        var calls = 0
-        let caller = Task { await flight.run(handle) { calls += 1 } }
-        // MainActor has not yielded since creating the caller, so cancellation precedes run.
+        let reads = CatalogReadFlights<String>(session: session, scope: .perKey)
+        let completed = HarnessCounters()
+        var settled: [String] = []
+        var published: [String] = []
+        func load(_ key: String) -> Task<Void, Never> {
+            Task.immediate {
+                defer { completed.record(key) }
+                await reads.read(key, settled: { settled.append(key) }) { handle in
+                    try? await responses.wait()
+                    if reads.isCurrent(handle) { published.append(key) }
+                }
+            }
+        }
+        let first = load("first")
+        let second = load("second")
+        defer { first.cancel(); second.cancel() }
+        try await requireEventually { responses.waiterCount == 2 }
+        reads.reset()
+        #expect(Set(settled) == ["first", "second"])
+        try await requireEventually { completed.count("first") == 1 && completed.count("second") == 1 }
+        let replacement = load("first")
+        defer { replacement.cancel() }
+        try await requireEventually { responses.waiterCount == 3 }
+        responses.finish(())
+        responses.finish(())
+        responses.finish(())
+        try await requireEventually { completed.count("first") == 2 }
+        #expect(published == ["first"])
+        #expect(settled.filter { $0 == "first" }.count == 2 && settled.filter { $0 == "second" }.count == 1)
+    }
+
+    @Test func finalConsumerCancellationImmediatelyRevokesReadPublication() async throws {
+        let responses = HarnessResponseGate<Void>(cancellation: .ignored)
+        defer { responses.close() }
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let reads = CatalogReadFlights<String>(session: session)
+        let completed = HarnessCounters()
+        var handle: CatalogReadFlights<String>.Handle?
+        var settled = false
+        let caller = Task.immediate {
+            defer { completed.record("caller") }
+            await reads.read("route", started: { handle = $0 }, settled: { settled = true }) { _ in
+                try? await responses.wait()
+            }
+        }
+        defer { caller.cancel() }
+        try await requireEventually { responses.waiterCount == 1 }
+        let admitted = try #require(handle)
+        #expect(reads.isCurrent(admitted))
         caller.cancel()
-        await caller.value
-        #expect(calls == 0)
+        #expect(!reads.isCurrent(admitted), "the cancellation handler revokes publication before a MainActor hop")
+        try await requireEventually { completed.count("caller") == 1 }
+        #expect(settled)
+        #expect(responses.waiterCount == 1)
     }
 }

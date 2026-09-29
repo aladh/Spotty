@@ -482,10 +482,14 @@ public enum PlaybackReducer {
             acceptedObservation = true
         }
         if acceptedObservation {
-            for index in candidate.intents.indices {
-                let previous = candidate.intents[index].outcome
-                candidate.intents[index].observe(envelope)
-                let intent = candidate.intents[index]
+            for index in candidate.intents.indices where !candidate.intents[index].outcome.isTerminal {
+                // Most observations do not change a pending intent. Observe one value first so
+                // unchanged timing samples do not copy the entire retained history buffer.
+                var intent = candidate.intents[index]
+                let previous = intent.outcome
+                intent.observe(envelope)
+                guard intent != candidate.intents[index] else { continue }
+                candidate.intents[index] = intent
                 guard previous != intent.outcome else { continue }
                 if intent.command.resumeTarget != nil, intent.outcome == .superseded || intent.outcome == .rejected {
                     candidate.blockedResumeTarget = intent.command.resumeTarget
@@ -530,19 +534,7 @@ public enum PlaybackReducer {
         var acceptedSources = componentSources
         // Only a recorded revision means this source's ordering advanced here.
         if envelope.revision != nil { acceptedSources.insert(envelope.source) }
-        let settledIntents = candidate.intents.compactMap { intent -> SettledIntent? in
-            guard intent.outcome.isTerminal,
-                preState.intents.first(where: { $0.command.id == intent.command.id })?.outcome.isTerminal != true
-            else { return nil }
-            return SettledIntent(id: intent.command.id, outcome: intent.outcome, dispatchedAt: intent.dispatchedAt)
-        }
-        let confirmedPlayTrackURIs = candidate.intents.compactMap { intent -> String? in
-            guard intent.outcome == .observedConfirmed, intent.command.expectedTransport == .playing,
-                intent.command.resumeTarget == nil,
-                preState.intents.first(where: { $0.command.id == intent.command.id })?.outcome != .observedConfirmed
-            else { return nil }
-            return intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
-        }
+        let (settledIntents, confirmedPlayTrackURIs) = intentChanges(from: preState.intents, to: candidate.intents)
         return PlaybackReduction(
             accepted: true,
             acceptedSources: acceptedSources,
@@ -555,6 +547,33 @@ public enum PlaybackReducer {
             settledIntents: settledIntents,
             confirmedPlayTrackURIs: confirmedPlayTrackURIs
         )
+    }
+
+    /// Report terminal transitions before the outer reduction prunes history. Unchanged histories
+    /// retain their shared buffer; changed histories need one index, not a search for every receipt.
+    private static func intentChanges(from previous: [PlaybackIntent], to current: [PlaybackIntent])
+        -> (settled: [SettledIntent], confirmedPlayTrackURIs: [String])
+    {
+        guard previous != current else { return ([], []) }
+        let previousOutcomes = Dictionary(
+            previous.map { ($0.command.id, $0.outcome) }, uniquingKeysWith: { first, _ in first })
+        var settled: [SettledIntent] = []
+        var confirmed: [String] = []
+        for intent in current where intent.outcome.isTerminal {
+            let prior = previousOutcomes[intent.command.id]
+            if prior?.isTerminal != true {
+                settled.append(
+                    SettledIntent(id: intent.command.id, outcome: intent.outcome, dispatchedAt: intent.dispatchedAt))
+            }
+            if intent.outcome == .observedConfirmed, prior != .observedConfirmed,
+                intent.command.expectedTransport == .playing,
+                intent.command.resumeTarget == nil,
+                let uri = intent.command.expectedTrack?.uri ?? intent.command.expectedTrackURI
+            {
+                confirmed.append(uri)
+            }
+        }
+        return (settled, confirmed)
     }
 
     /// Account epoch, engine epoch, and per-source revision gates shared by `accepts` and `reduce`.

@@ -15,20 +15,26 @@ final class CatalogSQLiteStatement {
     deinit { sqlite3_finalize(handle) }
 
     func rows(_ values: [CatalogSQLiteValue]) throws -> [[CatalogSQLiteValue]] {
+        var result: [[CatalogSQLiteValue]] = []
+        try forEachRow(values) { result.append($0) }
+        return result
+    }
+
+    /// The callback consumes one copied row synchronously; no SQLite-backed values escape.
+    func forEachRow(_ values: [CatalogSQLiteValue], _ consume: ([CatalogSQLiteValue]) throws -> Void) throws {
         defer { sqlite3_clear_bindings(handle) }
         do {
-            let result = try execute(values)
+            try execute(values, consume)
             let reset = sqlite3_reset(handle)
             guard reset == SQLITE_OK else { throw CatalogStorageError.database(reset) }
-            return result
         } catch {
-            // A failed bind or step must not poison the next use; preserve the original error.
+            // A failed bind, step, or consumer must not poison the next use.
             sqlite3_reset(handle)
             throw error
         }
     }
 
-    private func execute(_ values: [CatalogSQLiteValue]) throws -> [[CatalogSQLiteValue]] {
+    private func execute(_ values: [CatalogSQLiteValue], _ consume: ([CatalogSQLiteValue]) throws -> Void) throws {
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         for (offset, value) in values.enumerated() {
             let index = Int32(offset + 1)
@@ -47,10 +53,9 @@ final class CatalogSQLiteStatement {
             }
             guard result == SQLITE_OK else { throw CatalogStorageError.database(result) }
         }
-        var result: [[CatalogSQLiteValue]] = []
         while true {
             let step = sqlite3_step(handle)
-            if step == SQLITE_DONE { return result }
+            if step == SQLITE_DONE { return }
             guard step == SQLITE_ROW else { throw CatalogStorageError.database(step) }
             var row: [CatalogSQLiteValue] = []
             for column in 0..<sqlite3_column_count(handle) {
@@ -72,7 +77,7 @@ final class CatalogSQLiteStatement {
                 default: row.append(.null)
                 }
             }
-            result.append(row)
+            try consume(row)
         }
     }
 }

@@ -13,7 +13,7 @@ import SpottyRuntimeContracts
 @MainActor
 @Observable
 final class PlaylistMutationController {
-    private typealias Flight = AccountScopedSingleFlight<SingleFlightUnitKey>
+    private typealias Flight = PlaylistMutationRuns
 
     @ObservationIgnored private let mutations: any PlaylistMutating
     @ObservationIgnored private let session: CatalogSessionAvailability
@@ -34,13 +34,11 @@ final class PlaylistMutationController {
         self.feedback = feedback
         self.playlistStore = playlistStore
         self.homeLibrary = homeLibrary
-        // A superseded or cancelled write may still have completed on the server, so the default
-        // publish gate is session validity; the failure path opts into the strict gate.
-        flight = Flight(session: session, join: .alwaysSupersede, scope: .singleSelection, publish: .sessionOnly)
+        flight = Flight(session: session)
     }
 
     var editableLibraryPlaylists: [CatalogItem] {
-        PlaylistEditability.editablePlaylists(homeLibrary.playlists, profileURI: homeLibrary.profileURI)
+        PlaylistEditability.editablePlaylists(homeLibrary.currentPlaylists, profileURI: homeLibrary.currentProfileURI)
     }
 
     func reset() {
@@ -48,26 +46,27 @@ final class PlaylistMutationController {
     }
 
     func isLibraryPlaylistEditable(_ item: CatalogItem) -> Bool {
-        PlaylistEditability.canJustifyEdit(
-            playlistOwnerURI: item.ownerURI,
-            profileURI: homeLibrary.profileURI
+        guard let current = homeLibrary.currentPlaylists.first(where: { $0.uri == item.uri }) else { return false }
+        return PlaylistEditability.canJustifyEdit(
+            playlistOwnerURI: current.ownerURI,
+            profileURI: homeLibrary.currentProfileURI
         )
     }
 
     func isOpenPlaylistEditable(_ item: CatalogItem) -> Bool {
-        guard playlistStore.canEditLoadedContent else { return false }
-        let ownerURI =
-            playlistStore.loadedURI == item.uri
-            ? (playlistStore.ownerURI ?? item.ownerURI)
-            : item.ownerURI
+        guard playlistStore.loadedURI == item.uri, playlistStore.canEditLoadedContent else { return false }
         return PlaylistEditability.canJustifyEdit(
-            playlistOwnerURI: ownerURI,
-            profileURI: homeLibrary.profileURI
+            playlistOwnerURI: playlistStore.ownerURI,
+            profileURI: homeLibrary.currentProfileURI
         )
     }
 
     func addTracks(_ tracks: [CatalogTrack], to playlist: CatalogItem, accountEpoch: UInt64? = nil) {
         guard accountEpoch == nil || accountEpoch == session.accountEpoch else { return }
+        guard session.isAvailable else {
+            feedback.failure("Connect Spotify before changing playlists.")
+            return
+        }
         let uris = PlaylistMutationSelection.addURIs(from: tracks)
         guard
             PlaylistMutationSelection.canAdd(
@@ -75,10 +74,6 @@ final class PlaylistMutationController {
                 uris: uris
             )
         else { return }
-        guard session.isAvailable else {
-            feedback.failure("Connect Spotify before changing playlists.")
-            return
-        }
         guard let playlistID = SpotifyURI.id(from: playlist.uri, kind: "playlist") else {
             feedback.failure("That playlist can’t be updated.")
             return
@@ -87,7 +82,7 @@ final class PlaylistMutationController {
         startMutation(playlist: playlist) { handle in
             try await self.mutations.addToPlaylist(
                 playlistId: playlistID, trackUris: uris,
-                context: PlaylistMutationContext(accountEpoch: handle.sessionSnapshot.accountEpoch))
+                context: PlaylistMutationContext(session: handle.sessionSnapshot))
             await self.finishSuccessfulWrite(
                 handle,
                 playlist: playlist,
@@ -98,6 +93,10 @@ final class PlaylistMutationController {
 
     func removeOccurrences(selectedIDs: Set<String>, from playlist: CatalogItem, accountEpoch: UInt64? = nil) {
         guard accountEpoch == nil || accountEpoch == session.accountEpoch else { return }
+        guard session.isAvailable else {
+            feedback.failure("Connect Spotify before changing playlists.")
+            return
+        }
         guard isOpenPlaylistEditable(playlist) else { return }
         let selected = PlaylistMutationSelection.orderedTracks(
             selectedIDs: selectedIDs,
@@ -110,10 +109,6 @@ final class PlaylistMutationController {
                 occurrenceIDs: uids
             )
         else { return }
-        guard session.isAvailable else {
-            feedback.failure("Connect Spotify before changing playlists.")
-            return
-        }
         guard playlistStore.loadedURI == playlist.uri,
             let playlistID = SpotifyURI.id(from: playlist.uri, kind: "playlist")
         else {
@@ -124,7 +119,7 @@ final class PlaylistMutationController {
         startMutation(playlist: playlist) { handle in
             try await self.mutations.removeFromPlaylist(
                 playlistId: playlistID, uids: uids,
-                context: PlaylistMutationContext(accountEpoch: handle.sessionSnapshot.accountEpoch))
+                context: PlaylistMutationContext(session: handle.sessionSnapshot))
             await self.finishSuccessfulWrite(
                 handle,
                 playlist: playlist,
@@ -136,8 +131,7 @@ final class PlaylistMutationController {
     private func startMutation(
         playlist: CatalogItem, _ work: @escaping @MainActor (Flight.Handle) async throws -> Void
     ) {
-        let handle = flight.begin(.unit)
-        flight.start(handle) { [weak self] in
+        flight.start { [weak self] handle in
             guard let self else { return }
             do {
                 try await work(handle)
@@ -145,12 +139,12 @@ final class PlaylistMutationController {
                 // A lost response or cancellation can follow a committed write. Retire the
                 // previous route authority even when a newer intent owns error presentation.
                 if error as? PlaylistMutationFailure != .rejected,
-                    self.flight.isCurrent(handle, policy: .sessionOnly)
+                    self.flight.sessionIsCurrent(handle)
                 {
                     self.playlistStore.invalidateRetainedPlaylist(playlist.uri)
                 }
                 // Reporting a failure is a latest-intent decision, so it uses the strict gate.
-                guard self.flight.isCurrent(handle, policy: .strict) else { return }
+                guard self.flight.isLatest(handle) else { return }
                 self.reportFailure(error)
             }
         }
@@ -163,12 +157,11 @@ final class PlaylistMutationController {
     ) async {
         // A superseded or cancelled task may still observe a completed server write.
         // Refresh once for that write whenever the captured account/session is current.
-        // requestID and Task.isCancelled are latest-intent gates, not session validity, so this
-        // uses the flight's `.sessionOnly` publish policy.
-        guard flight.isCurrent(handle) else { return }
+        // Latest intent and cancellation do not establish whether an admitted write committed.
+        guard flight.sessionIsCurrent(handle) else { return }
         playlistStore.invalidateRetainedPlaylist(playlist.uri)
         await reconcileIfOpen(playlist, for: handle)
-        guard flight.isCurrent(handle) else { return }
+        guard flight.sessionIsCurrent(handle) else { return }
         feedback.success(message)
     }
 
@@ -176,7 +169,7 @@ final class PlaylistMutationController {
         // A sent write can finish after its caller is cancelled. Its reconciling read has a
         // fresh task lifetime; recheck the captured account and route before read admission.
         await Task {
-            guard flight.isCurrent(handle, policy: .sessionOnly), playlistStore.loadedURI == playlist.uri else {
+            guard flight.sessionIsCurrent(handle), playlistStore.loadedURI == playlist.uri else {
                 return
             }
             await playlistStore.load(playlist, force: true)
@@ -204,5 +197,51 @@ final class PlaylistMutationController {
             return "Removed from \(playlistTitle)"
         }
         return "Removed \(count) songs from \(playlistTitle)"
+    }
+}
+
+/// Writes never join readers. Session-valid outcomes reconcile even after a newer intent wins;
+/// only the latest uncancelled intent may present an error.
+@MainActor
+private final class PlaylistMutationRuns {
+    struct Handle {
+        let id: UInt64
+        let sessionSnapshot: CatalogSessionSnapshot
+    }
+
+    private let session: CatalogSessionAvailability
+    private var nextID: UInt64 = 0
+    private var task: Task<Void, Never>?
+
+    init(session: CatalogSessionAvailability) { self.session = session }
+    deinit { task?.cancel() }
+
+    func reset() {
+        nextID &+= 1
+        task?.cancel()
+        task = nil
+    }
+
+    func start(_ operation: @escaping @MainActor (Handle) async -> Void) {
+        guard !Task.isCancelled, session.isAvailable else { return }
+        reset()
+        let handle = Handle(id: nextID, sessionSnapshot: session.snapshot)
+        task = Task { [weak self] in
+            defer { self?.complete(handle) }
+            guard self?.isLatest(handle) == true else { return }
+            await operation(handle)
+        }
+    }
+
+    func sessionIsCurrent(_ handle: Handle) -> Bool {
+        session.isAvailable && session.snapshot == handle.sessionSnapshot
+    }
+
+    func isLatest(_ handle: Handle) -> Bool {
+        handle.id == nextID && !Task.isCancelled && sessionIsCurrent(handle)
+    }
+
+    private func complete(_ handle: Handle) {
+        if handle.id == nextID { task = nil }
     }
 }

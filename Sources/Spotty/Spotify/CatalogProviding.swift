@@ -1,24 +1,19 @@
 import SpottyDomain
 import SpottyRuntimeContracts
 import Foundation
-
-nonisolated struct CatalogSessionSnapshot: Equatable, Sendable {
-    let accountEpoch: UInt64
-    let isAvailable: Bool
-    let revision: UInt64
-}
+import Observation
 
 /// Account-scoped catalog work captures this value before suspension and revalidates it before
 /// every write. A Boolean alone is insufficient because two different accounts can both be ready.
 @MainActor
+@Observable
 final class CatalogSessionAvailability {
     private(set) var snapshot: CatalogSessionSnapshot
 
     init(accountEpoch: UInt64 = 1, isAvailable: Bool = false) {
         snapshot = CatalogSessionSnapshot(
             accountEpoch: accountEpoch,
-            isAvailable: isAvailable,
-            revision: 0
+            isAvailable: isAvailable
         )
     }
 
@@ -26,12 +21,13 @@ final class CatalogSessionAvailability {
     var accountEpoch: UInt64 { snapshot.accountEpoch }
 
     func update(accountEpoch: UInt64, isAvailable: Bool) {
-        guard snapshot.accountEpoch != accountEpoch || snapshot.isAvailable != isAvailable else { return }
-        snapshot = CatalogSessionSnapshot(
-            accountEpoch: accountEpoch,
-            isAvailable: isAvailable,
-            revision: snapshot.revision &+ 1
-        )
+        snapshot.update(accountEpoch: accountEpoch, isAvailable: isAvailable)
+    }
+
+    /// Desktop observation preserves the runtime's revision, including transitions skipped by
+    /// the bounded publication stream. It must not reconstruct lifetime from visible Booleans.
+    func apply(_ value: CatalogSessionSnapshot) {
+        snapshot = value
     }
 
     func requestIdentity(requestID: UInt64) -> AccountScopedRequestIdentity {

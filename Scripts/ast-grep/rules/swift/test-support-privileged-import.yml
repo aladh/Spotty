@@ -1,0 +1,12 @@
+---
+id: test-support-privileged-import
+language: Swift
+severity: error
+message: Shared fixture libraries must build against ordinary Release modules. Keep privileged
+  construction and assertions in the consuming test target.
+files:
+- Tests/SpottyTestSupport/**/*.swift
+- Tests/SpottyRuntimeTestSupport/**/*.swift
+rule:
+  kind: attribute
+  regex: "^@testable\\b"

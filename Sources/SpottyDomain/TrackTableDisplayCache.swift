@@ -58,11 +58,20 @@ public struct TrackTableDisplayCache: Sendable {
             TrackTableRow(track: track, sourceIndex: index)
         }
         guard !sortOrder.isEmpty else { return rows }
-        // The standard library does not promise a stable sort. Source offset is the final
-        // tie-breaker so duplicate occurrences and equal or missing values retain playlist order.
-        return rows.sorted { lhs, rhs in
-            for comparator in sortOrder {
-                switch compare(lhs, rhs, using: comparator) {
+        // Classify each sort field once, not once per row comparison. Date ordering keeps
+        // missing values last in either direction; other fields retain their supplied comparator.
+        let comparisons = sortOrder.map { (comparator: $0, isDateAdded: $0.isDateAdded) }
+        // Move small indexes while sorting, then materialize the ordered records once.
+        // Source offset is the final tie-breaker for equal values and duplicate occurrences.
+        let sortedIndices = rows.indices.sorted { left, right in
+            let lhs = rows[left]
+            let rhs = rows[right]
+            for (comparator, isDateAdded) in comparisons {
+                let result =
+                    isDateAdded
+                    ? compareOptional(lhs.track.addedAt, rhs.track.addedAt, order: comparator.order)
+                    : comparator.compare(lhs, rhs)
+                switch result {
                 case .orderedAscending: return true
                 case .orderedDescending: return false
                 case .orderedSame: continue
@@ -70,17 +79,7 @@ public struct TrackTableDisplayCache: Sendable {
             }
             return lhs.sourceIndex < rhs.sourceIndex
         }
-    }
-
-    private static func compare(
-        _ lhs: TrackTableRow,
-        _ rhs: TrackTableRow,
-        using comparator: KeyPathComparator<TrackTableRow>
-    ) -> ComparisonResult {
-        if comparator.isDateAdded {
-            return compareOptional(lhs.track.addedAt, rhs.track.addedAt, order: comparator.order)
-        }
-        return comparator.compare(lhs, rhs)
+        return sortedIndices.map { rows[$0] }
     }
 
     private static func compareOptional<Value: Comparable>(

@@ -105,6 +105,11 @@ final class NativeTrackTableContainer: NSView {
         sortOrder: [KeyPathComparator<TrackTableRow>],
         sort: @escaping (NativeTrackColumn) -> Void
     ) {
+        // Zero-sized or hidden hosting views still own their previous SwiftUI trees, including
+        // artwork and tasks. Removing a section must remove its content as well as its geometry.
+        if heroContent != nil, hero == nil { self.hero.rootView = AnyView(EmptyView()) }
+        if compactContent != nil, compact == nil { compactHeader.rootView = AnyView(EmptyView()) }
+        if footerContent != nil, footer == nil { self.footer.rootView = AnyView(EmptyView()) }
         heroContent = hero
         compactContent = compact
         footerContent = footer

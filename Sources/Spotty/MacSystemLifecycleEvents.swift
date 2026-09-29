@@ -1,6 +1,6 @@
 @preconcurrency import AppKit
 import Foundation
-import SpottySessionRuntime
+import SpottyRuntimeContracts
 
 /// Adapts AppKit notifications once at the infrastructure edge. Product stores consume a typed
 /// AsyncSequence and do not own NotificationCenter tokens.

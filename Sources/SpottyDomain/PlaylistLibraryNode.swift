@@ -1,3 +1,10 @@
+/// Structural bounds shared by live playlist libraries and retained snapshots. Root nodes have
+/// depth zero. Network work and encoded storage bytes have separate owner-specific limits.
+public enum PlaylistLibraryLimits {
+    public static let maximumNodes = 10_000
+    public static let maximumDepth = 32
+}
+
 /// Server-ordered playlist library, retaining folders separately from playable catalog items.
 public struct PlaylistLibraryNode: Identifiable, Equatable, Codable, Sendable {
     public let id: String

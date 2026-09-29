@@ -16,7 +16,7 @@ extension PlaybackSessionRuntime {
 
     /// Appends tracks to the play queue, as the official client's context menu does.
     ///
-    /// Deliberately not routed through `performCommand`: queue adds are independent of
+    /// Queue adds have separate admission because they are independent of
     /// transport state, and serializing them behind the pending flag would silently
     /// drop a second quick add. Multiple URIs are sent in visible order as sequential
     /// `add_to_queue` commands; presentation is not edited locally.
@@ -120,10 +120,9 @@ extension PlaybackSessionRuntime {
         }
         send(.queueIntentStarted(intent), source: .command, playbackLifetime: lifetime)
         let deadlineID = PlaybackEffectID.commandDeadline(id)
-        effects.run(deadlineID) { [weak self] in
-            guard let self else { return }
-            do { try await self.environment.clock.sleep(seconds: 8) } catch { return }
-            guard self.stillCurrent(lifetime) else { return }
+        effects.run(deadlineID) { [weak self, clock = environment.clock] in
+            do { try await clock.sleep(seconds: 8) } catch { return }
+            guard let self, self.stillCurrent(lifetime) else { return }
             if self.state.intents.first(where: { $0.command.id == id })?.outcome.isTerminal != false {
                 // Observation already settled the request, but an unreturned transport must
                 // not hold the replacement admission slot forever.
@@ -352,25 +351,22 @@ extension PlaybackSessionRuntime {
             else { return }
             self.receive(
                 state,
-                revision: state.revision,
                 mayAdoptPlaybackIdentity: false,
-                accountEpoch: lifetime.accountEpoch,
-                engineEpoch: state.sessionGeneration
+                accountEpoch: lifetime.accountEpoch
             )
         }
     }
 
     /// Refreshes the cross-device queue without changing playback.
     ///
-    /// The documented Web API response is preferred because it carries both exact ordering and
-    /// metadata. Spotify currently rate-limits its desktop client grant at api.spotify.com, so a
-    /// failed attempt falls back to the already-synchronized Connect queue and hydrates its uris
-    /// through spclient in small batches.
+    /// Web responses supply labels and ordering when complete Connect order is unavailable.
+    /// A failed Web attempt falls back to the synchronized Connect queue and hydrates its URIs
+    /// in small batches; metadata cannot replace accepted Connect occurrence order.
     package func refreshQueue() {
         guard isConnected else { return }
         refreshQueueSnapshot()
-        catalog.metadata.retainTracks(from: .queue, for: Set(queueNextEntries.map(\.uri) + [trackURI]))
-        let cachedTracks = queueNextEntries.compactMap { catalog.metadata.knownTrack(for: $0.uri) }
+        catalogMetadata.retainTracks(from: .queue, for: Set(queueNextEntries.map(\.uri) + [trackURI]))
+        let cachedTracks = queueNextEntries.compactMap { catalogMetadata.knownTrack(for: $0.uri) }
         let lifetime = playbackLifetime
         effects.run(.queueRefresh) { [weak self] in
             guard let self else { return }
@@ -400,9 +396,7 @@ extension PlaybackSessionRuntime {
         let accepted = send(
             .queue(
                 PlaybackQueueSnapshot(
-                    entries: snapshot.entries.map {
-                        PlaybackQueueItem($0)
-                    },
+                    entries: snapshot.entries,
                     source: snapshot.source,
                     completeness: snapshot.completeness,
                     revision: snapshot.revision,
@@ -418,8 +412,8 @@ extension PlaybackSessionRuntime {
         guard accepted else { return false }
         var retainedURIs = Set(snapshot.entries.map(\.uri))
         if let contextURI = snapshot.contextURI { retainedURIs.insert(contextURI) }
-        catalog.metadata.retainTracks(from: .queue, for: retainedURIs)
-        catalog.metadata.replaceTracks(snapshot.tracks, from: .queue)
+        catalogMetadata.retainTracks(from: .queue, for: retainedURIs)
+        catalogMetadata.replaceTracks(snapshot.tracks, from: .queue)
         return true
     }
 

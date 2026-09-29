@@ -10,15 +10,14 @@ import OSLog
 /// Every suspended operation is tied to both a generation and account epoch, so logout/revocation
 /// wins even when authorization or engine startup returns late.
 ///
-/// Session teardown is *not* owned here. `SessionTeardownController` on `PlaybackSessionRuntime` coalesces
-/// requests and drives the narrow primitives below (`invalidateAccountIdentity`, `publishPhase`,
-/// `performAccountTeardown`, `applyStrongerIntent`) in order, and sets `isTearingDown` at the
-/// boundaries so connection work refuses to start against a session being torn down.
+/// PlaybackSessionRuntime orchestrates teardown through the narrow account primitives below.
+/// Both owners consult SessionLifecycle for admission; connection work cannot start against a
+/// closing session, and account completion cannot reopen a terminating process.
 @SessionRuntimeActor
 final class AccountStore {
     private(set) var phase: PlaybackSessionPhase = .connecting {
         didSet {
-            if phase == .ready { environment.playlistMutationAdmission.activate(accountEpoch: epoch) }
+            updateCatalogAvailability()
             guard oldValue != phase else { return }
             let from = sessionPhaseLogLabel(oldValue)
             let to = sessionPhaseLogLabel(phase)
@@ -41,24 +40,24 @@ final class AccountStore {
     private let coordinator: PlaybackCoordinator
     private var connectionTask: Task<Void, Never>?
     private var connectionGeneration: UInt64 = 0
+    private var grantAdoptionRevision: UInt64 = 0
+    private var grantAdoptionTask: Task<Void, any Error>?
     private var retiredAccountEpoch: UInt64 = 1
-    /// Set by the teardown owner at the boundaries of one session teardown. Connection work
-    /// refuses to start while it is true.
-    var isTearingDown = false
+    private let lifecycle: SessionLifecycle
     var onPhaseChange: ((PlaybackSessionPhase) -> Void)?
     var onReauthenticationChange: ((Bool) -> Void)?
-    var onReady: (() -> Void)?
     var onCacheRetirementFailure: (() -> Void)?
     var onGrantRemovalFailure: (() -> Void)?
     static let grantRemovalFailureMessage =
         "The session ended, but Spotty could not remove the saved login. It may return when Spotty restarts."
 
-    init(environment: PlaybackEnvironment, coordinator: PlaybackCoordinator) {
+    init(environment: PlaybackEnvironment, coordinator: PlaybackCoordinator, lifecycle: SessionLifecycle) {
+        self.lifecycle = lifecycle
         self.environment = environment
         self.coordinator = coordinator
     }
 
-    private var canStartConnection: Bool { !isTearingDown && phase != .ready && connectionTask == nil }
+    private var canStartConnection: Bool { lifecycle.acceptsWork && phase != .ready && connectionTask == nil }
 
     func restore() async {
         guard canStartConnection else { return }
@@ -90,7 +89,7 @@ final class AccountStore {
     }
 
     func receiveEngineConnection(_ session: PlaybackSessionPhase?) {
-        guard !isTearingDown, connectionTask == nil else { return }
+        guard lifecycle.acceptsWork, connectionTask == nil else { return }
         if let session {
             phase = session
         }
@@ -100,8 +99,24 @@ final class AccountStore {
     /// asynchronous engine teardown; this synchronous marker makes a subsequent explicit Connect
     /// action choose the interactive path even if the old grant remains valid for Web APIs.
     func markCredentialRejection() {
-        guard !isTearingDown else { return }
+        guard lifecycle.acceptsWork else { return }
         setRequiresReauthentication(true)
+    }
+
+    /// A credential actor can finish its validation while this executor starts adopting a new
+    /// grant. Wait for accepted adoption and revalidate if the handoff changed during suspension.
+    func acceptsGrantRevocation(_ revocation: AccountGrantRevocation) async -> Bool {
+        while lifecycle.acceptsWork, !Task.isCancelled {
+            let epoch = epoch
+            let generation = connectionGeneration
+            let adoption = grantAdoptionRevision
+            if let grantAdoptionTask { _ = try? await grantAdoptionTask.value }
+            let current = await environment.account.isCurrent(revocation)
+            guard current, self.epoch == epoch, lifecycle.acceptsWork, !Task.isCancelled else { return false }
+            if grantAdoptionRevision != adoption || connectionGeneration != generation { continue }
+            return true
+        }
+        return false
     }
 
     /// Publishes a session phase decided by the teardown owner. Ordinary connection work assigns
@@ -110,8 +125,8 @@ final class AccountStore {
         self.phase = phase
     }
 
-    /// The account-side body of one teardown: drain the cancelled connection work, persist the
-    /// reauthentication marker when the grant survives, shut the engine down, and clear the
+    /// The account-side body of one teardown: retire cached account data, drain cancelled connection
+    /// work, persist reauthentication when the grant survives, shut the engine down, and clear the
     /// streaming credential — plus the persisted grant when the intent says so.
     ///
     /// Coalescing, phase publication, and presentation cleanup belong to the teardown owner. This
@@ -125,15 +140,19 @@ final class AccountStore {
         let interval = SpottyLog.accountSignposter.beginInterval("Teardown")
         defer { SpottyLog.accountSignposter.endInterval("Teardown", interval) }
         let artworkEpoch = retiredAccountEpoch
-        if let staleConnectionTask { await staleConnectionTask.value }
         await environment.artwork.retire(accountEpoch: artworkEpoch)
         // Retire catalog admission before credentials can be cleared or replaced. Failure leaves
         // the provider fenced and is reported without reopening access to the old account cache.
-        let cacheRetired = await environment.catalogCacheLifecycle?.retire(purge: true) ?? true
+        let cacheRetired =
+            await environment.catalogCacheLifecycle?.retire(accountEpoch: artworkEpoch, purge: true) ?? true
         if !cacheRetired {
             SpottyLog.account.error("Catalog cache retirement failed; cache access remains fenced")
             onCacheRetirementFailure?()
         }
+
+        // Cache owners reject activation from this retired epoch. Fence their reads now,
+        // while durable grant adoption still drains before credentials may be removed.
+        if let staleConnectionTask { await staleConnectionTask.value }
 
         if requiresReauthentication, !intent.clearGrant {
             await environment.account.markReauthenticationRequired()
@@ -177,7 +196,7 @@ final class AccountStore {
     /// stamped with the previous value is rejected.
     func advanceEpoch() {
         epoch &+= 1
-        environment.playlistMutationAdmission.retire(nextAccountEpoch: epoch)
+        environment.catalogSessionAdmission.retire(nextAccountEpoch: epoch)
     }
 
     /// Advances account identity and cancels in-flight connection work. Returns the cancelled
@@ -205,7 +224,7 @@ final class AccountStore {
         await coordinator.cleanupEngine()
         SpottyLog.lifecycle.info("Process termination finished draining playback")
         await environment.artwork.retire(accountEpoch: artworkEpoch)
-        _ = await environment.catalogCacheLifecycle?.retire(purge: false)
+        _ = await environment.catalogCacheLifecycle?.retire(accountEpoch: artworkEpoch, purge: false)
         phase = .signedOut
     }
 
@@ -330,6 +349,17 @@ final class AccountStore {
         return .transientFailure
     }
 
+    /// Register ownership before hopping to the credential actor. Teardown already drains the
+    /// connection task, which in turn joins this durable adoption even after caller cancellation.
+    private func adoptGrant(_ tokens: KeymasterTokens) async throws {
+        grantAdoptionRevision &+= 1
+        let revision = grantAdoptionRevision
+        let task = Task { [account = environment.account] in try await account.adopt(tokens) }
+        grantAdoptionTask = task
+        defer { if grantAdoptionRevision == revision { grantAdoptionTask = nil } }
+        try await task.value
+    }
+
     private func performInteractiveConnect(generation: UInt64, epoch: UInt64) async {
         phase = .authorizing
         do {
@@ -338,7 +368,7 @@ final class AccountStore {
             // The OAuth response is now accepted. From this commit point onward cancellation is
             // owned by the session teardown path, which drains persistence before clearing it.
             phase = .connecting
-            try await environment.account.adopt(tokens)
+            try await adoptGrant(tokens)
             guard isCurrent(generation: generation, epoch: epoch) else { return }
             setRequiresReauthentication(false)
 
@@ -396,10 +426,9 @@ final class AccountStore {
         if result.isOK {
             await environment.artwork.activate(accountEpoch: epoch)
             guard isCurrent(generation: generation, epoch: epoch) else { return .failed }
-            await environment.catalogCacheLifecycle?.activate()
+            await environment.catalogCacheLifecycle?.activate(accountEpoch: epoch)
             guard isCurrent(generation: generation, epoch: epoch) else { return .failed }
             phase = .ready
-            onReady?()
             return .ready
         }
         if reportFailure {
@@ -420,9 +449,16 @@ final class AccountStore {
         !Task.isCancelled && connectionGeneration == generation && self.epoch == epoch
     }
 
+    private func updateCatalogAvailability() {
+        environment.catalogSessionAdmission.updateAvailability(
+            accountEpoch: epoch,
+            isAvailable: phase == .ready && !requiresReauthentication && lifecycle.acceptsWork)
+    }
+
     private func setRequiresReauthentication(_ required: Bool) {
         guard requiresReauthentication != required else { return }
         requiresReauthentication = required
+        updateCatalogAvailability()
         onReauthenticationChange?(required)
     }
 }

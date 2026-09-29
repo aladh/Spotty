@@ -1,14 +1,11 @@
 import Foundation
-import SpottyRuntimeContracts
-import SpottyDomain
 
 /// The credentials every request to Spotify's own APIs carries, and the retry that keeps them
 /// fresh.
 ///
 /// `api-partner` and `spclient` are separate hosts with separate request shapes, but they are
 /// authorized identically — a keymaster bearer identifying the user and a client token
-/// identifying the application, both from the single grant this app now performs (see
-/// `plans/single-grant-partner-api.md`) — and they refuse identically. Held in one place so the
+/// identifying the application — and they refuse identically. Held in one place so the
 /// 401 rule and the bounded transient-read retry are written once rather than per client.
 nonisolated struct SpotifyCredentials: Sendable {
     /// Injected so request construction and decoding can be tested without a network.
@@ -143,20 +140,18 @@ nonisolated struct SpotifyCredentials: Sendable {
                 sent = try await send(request)
             } catch let error as URLError {
                 if replay == .safe,
-                    completedAttempts < SpotifyTransientRetry.maximumAttempts,
-                    SpotifyTransientRetry.isRetryableURLError(error)
+                    try await SpotifyTransientRetry.wait(
+                        after: error, completedAttempts: completedAttempts, timing: retryTiming)
                 {
-                    let delay = SpotifyTransientRetry.backoffDelay(
-                        completedAttempts: completedAttempts,
-                        unitJitter: retryTiming.unitJitter()
-                    )
-                    try await retryTiming.sleep(delay)
                     continue
                 }
                 throw error
             }
 
             if sent.status == 401 {
+                // Transport can finish after cancellation. A retired request must not start
+                // credential invalidation or spend a rotating refresh token on its way out.
+                try Task.checkCancellation()
                 // Name the sent pair even on the final attempt. Drop the client token first
                 // so a failed bearer refresh cannot leave a known-dead client token cached.
                 // Refresh errors propagate; only the credential owner may decide to retry.
@@ -164,6 +159,7 @@ nonisolated struct SpotifyCredentials: Sendable {
                     await invalidateClientToken?(rejected)
                 }
                 if let rejected = sent.accessToken {
+                    try Task.checkCancellation()
                     try await invalidateAccessToken(rejected)
                 }
                 if didInvalidateCredentials || completedAttempts >= SpotifyTransientRetry.maximumAttempts {
@@ -174,16 +170,13 @@ nonisolated struct SpotifyCredentials: Sendable {
             }
 
             if replay == .safe,
-                completedAttempts < SpotifyTransientRetry.maximumAttempts,
-                let delay = SpotifyTransientRetry.delay(
-                    status: sent.status,
+                try await SpotifyTransientRetry.wait(
+                    afterStatus: sent.status,
                     retryAfterHeader: sent.retryAfter,
                     completedAttempts: completedAttempts,
-                    now: retryTiming.now(),
-                    unitJitter: retryTiming.unitJitter()
+                    timing: retryTiming
                 )
             {
-                try await retryTiming.sleep(delay)
                 continue
             }
 

@@ -168,7 +168,7 @@ enum AcceptanceScenarioRuntime {
             try world.scenario.validate()
             recorder.event("action", "account.restore")
             await player.restore()
-            await player.effects.settlement(of: .catalogLoad)?.wait()
+            await player.catalogLoadTask?.value
             let signedOut = world.scenario.mode == .signedOut
             try recorder.check(
                 signedOut ? "signed-out.ready" : "home.ready",
@@ -214,7 +214,7 @@ enum AcceptanceScenarioRuntime {
     }
 
     /// Account replacement in the trace starts a new catalog load independently of playback
-    /// readiness. Join that production effect before returning the same player to the GUI loop.
+    /// readiness. Join the desktop's load before returning the same player to the GUI loop.
     private static func replacementCatalog(
         player: PlaybackStore, world: BrowsingWorld, recorder: AcceptanceRecorder
     ) async throws {
@@ -231,7 +231,8 @@ enum AcceptanceScenarioRuntime {
             ]
         }
         recorder.event("action", "catalog.await-account-replacement")
-        await player.effects.settlement(of: .catalogLoad)?.wait()
+        player.withRuntime { _ in }
+        await player.catalogLoadTask?.value
         do {
             try await PlaybackTrace.until(name) { observed() == expected }
         } catch {

@@ -249,11 +249,13 @@ def run_corpus(args):
     environment = dict(os.environ, SPOTTY_BUILD_BROWSING_HARNESS="1", SPOTTY_ACCEPTANCE_INPUT=str(input_path),
                        SPOTTY_ACCEPTANCE_OUTPUT=str(output))
     # Match the Debug gate's build settings so SwiftPM can reuse its fresh harness products.
+    # Select by suite: Swift 6.3 bundles test targets into one product, while 6.4 separates them.
     # Standalone runs still build normally; the watchdog owns the single attempt.
     command = ["zsh", "-eu", "-c", 'project_root="$PWD"; source Scripts/swiftpm-env.sh; '
                'exec python3 Scripts/swift_test_watchdog.py --lane acceptance --repetition 1 '
-               '--timeout-seconds "$1" --log-dir "$2" -- swift test --disable-sandbox --no-parallel '
-               '--package-path "$project_root" --configuration debug --filter AcceptanceCorpusTests '
+               '--timeout-seconds "$1" --log-dir "$2" --require-tests -- swift test --disable-sandbox --no-parallel '
+               '--package-path "$project_root" --configuration debug '
+               '--filter SpottyBrowsingHarnessTests.AcceptanceCorpusTests '
                '"${spotty_swiftc_warnings_as_errors[@]}"',
                "acceptance", str(args.timeout_seconds), str(output / "diagnostics")]
     host_failure = None

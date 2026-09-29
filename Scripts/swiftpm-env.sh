@@ -16,6 +16,10 @@ export SDKROOT="$sdk_path"
 export CLANG_MODULE_CACHE_PATH="$project_root/.build/module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$project_root/.build/module-cache"
 
+# Every app/gate entry point starts with the complete package graph. Isolated tests
+# opt in only on their own Swift invocation, never through an inherited shell setting.
+export SPOTTY_PACKAGE_GRAPH=full
+
 # Spotty-owned `swift build` invocations treat compiler warnings as errors.
 # Command-line -Xswiftc only; do not put this in Package.swift unsafeFlags.
 spotty_swiftc_warnings_as_errors=(-Xswiftc -warnings-as-errors)

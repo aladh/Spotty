@@ -60,39 +60,15 @@ nonisolated func mergeQueueSnapshots(
         completeness: ordering.completeness,
         receivedAt: ordering.receivedAt,
         contextURI: ordering.contextURI,
-        entries: ordering.entries.enumerated().map { index, item in
-            QueueEntry(
-                uri: item.uri,
-                provider: item.provider,
-                occurrence: item.occurrence,
-                uid: preservedQueueOccurrenceUID(incoming: item, index: index, current: current)
-            )
-        },
+        entries: ordering.entries,
         tracks: Array(metadata.values)
     )
-}
-
-/// Web/metadata snapshots often arrive without Connect uids. When the URI at the same
-/// upcoming index still matches, keep the authoritative occurrence uid so selection
-/// identity does not fall back to a lossy index/URI id.
-private nonisolated func preservedQueueOccurrenceUID(
-    incoming: PlaybackQueueItem,
-    index: Int,
-    current: ProvenanceQueueSnapshot
-) -> String {
-    if !incoming.uid.isEmpty { return incoming.uid }
-    guard current.entries.indices.contains(index),
-        current.entries[index].uri == incoming.uri
-    else {
-        return ""
-    }
-    return current.entries[index].uid
 }
 
 private extension ProvenanceQueueSnapshot {
     var domainSnapshot: PlaybackQueueSnapshot {
         PlaybackQueueSnapshot(
-            entries: entries.map { PlaybackQueueItem($0) },
+            entries: entries,
             source: source,
             completeness: completeness,
             revision: revision,
@@ -209,10 +185,25 @@ actor QueueService {
     private var webRetryNotBefore: Date?
     private var snapshot: ProvenanceQueueSnapshot?
     private var mutation: QueueMutationSnapshot?
-    private var refreshFlightID: UUID?
-    private var refreshFlightKey: RefreshKey?
-    private var refreshTask: Task<Void, Never>?
-    private var refreshSubscribers: [UUID: RefreshSubscriber] = [:]
+    /// Identity, input, worker and callers enter and leave ownership together. An empty
+    /// subscriber set is still useful work that a matching caller can rejoin.
+    private struct RefreshFlight: Sendable {
+        let id: UUID
+        let key: RefreshKey
+        let task: Task<Void, Never>
+        var subscribers: [UUID: RefreshSubscriber] = [:]
+
+        func complete(_ result: ProvenanceQueueSnapshot?) {
+            subscribers.values.forEach { $0.complete(result) }
+        }
+
+        func cancel() {
+            task.cancel()
+            complete(nil)
+        }
+    }
+
+    private var refreshFlight: RefreshFlight?
 
     init(
         webQueue: any WebQueueClient,
@@ -226,16 +217,22 @@ actor QueueService {
         self.hook = hook
     }
 
-    func reset(accountEpoch: UInt64) async {
+    deinit {
+        refreshFlight?.cancel()
+    }
+
+    func reset(accountEpoch requestedEpoch: UInt64) async {
+        // A retired or already-cancelled caller cannot disturb the current account's flight.
+        guard !Task.isCancelled, requestedEpoch >= accountEpoch else { return }
         cancelRefreshFlight()
         #if DEBUG
             if let hook {
                 await hook.beforeReset()
             }
         #endif
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, requestedEpoch >= accountEpoch else { return }
         cancelRefreshFlight()
-        self.accountEpoch = accountEpoch
+        accountEpoch = requestedEpoch
         revision = 0
         lastConnectSourceRevision = 0
         contextURI = nil
@@ -268,18 +265,12 @@ actor QueueService {
         return mutation
     }
 
+    /// Derive presentation and mutation provenance from one decoded observation. Callers cannot
+    /// pair visible rows with another protocol ordering or substitute its revision/generation.
     func acceptConnect(
-        _ entries: [QueueEntry],
+        _ observation: RustQueueState,
         accountEpoch requestedEpoch: UInt64,
-        sourceRevision: UInt64? = nil,
-        contextURI incomingContextURI: String?,
-        provisional: Bool = false,
-        engineEpoch: UInt64 = 0,
-        protocolNext: [QueueProtocolTrack] = [],
-        protocolPrev: [QueueProtocolTrack] = [],
-        queueRevision: String = "",
-        disallowSetQueue: Bool = false,
-        disallowRemovingFromNextTracks: Bool = false
+        fallbackTrackURI: String?
     ) async -> AcceptedConnectQueue? {
         #if DEBUG
             if let hook {
@@ -288,22 +279,21 @@ actor QueueService {
         #endif
         guard !Task.isCancelled else { return nil }
         guard requestedEpoch == accountEpoch else { return nil }
-        if let sourceRevision {
-            guard sourceRevision > lastConnectSourceRevision else { return acceptedQueue() }
-            lastConnectSourceRevision = sourceRevision
-            // Metadata publications advance the presentation counter independently of the
-            // engine's wire revision. Fresh ordering still needs a strictly newer presentation
-            // revision or PlaybackStore will reject it as a duplicate after enrichment.
-            revision = max(revision &+ 1, sourceRevision)
-        } else {
-            revision &+= 1
-        }
+        guard observation.revision > lastConnectSourceRevision else { return acceptedQueue() }
+        lastConnectSourceRevision = observation.revision
+        // Metadata publications advance the presentation counter independently of the
+        // engine's wire revision. Fresh ordering still needs a strictly newer presentation
+        // revision or PlaybackStore will reject it as a duplicate after enrichment.
+        revision = max(revision &+ 1, observation.revision)
+        let entries = QueueProtocolProjection.upcomingEntries(from: observation.protocolNextTracks)
+        let provisional = observation.track == nil && entries.isEmpty
+        let incomingContextURI = observation.track?.uri ?? fallbackTrackURI
         contextURI = incomingContextURI
         let incoming = ProvenanceQueueSnapshot(
             accountEpoch: accountEpoch,
             revision: revision,
             source: provisional ? .provisional : .connect,
-            completeness: entries.isEmpty && provisional ? .partial : .complete,
+            completeness: provisional ? .partial : .complete,
             receivedAt: clock.now(),
             contextURI: incomingContextURI,
             entries: entries,
@@ -312,16 +302,16 @@ actor QueueService {
         snapshot = mergeQueueSnapshots(current: snapshot, incoming: incoming)
         mutation = QueueMutationSnapshot(
             accountEpoch: accountEpoch,
-            engineEpoch: engineEpoch,
-            sourceRevision: sourceRevision ?? revision,
+            engineEpoch: observation.sessionGeneration,
+            sourceRevision: observation.revision,
             source: provisional ? .provisional : .connect,
-            completeness: protocolNext.isEmpty && !entries.isEmpty ? .partial : (provisional ? .partial : .complete),
+            completeness: provisional ? .partial : .complete,
             provisional: provisional,
-            next: protocolNext,
-            prev: protocolPrev,
-            queueRevision: queueRevision,
-            disallowSetQueue: disallowSetQueue,
-            disallowRemovingFromNextTracks: disallowRemovingFromNextTracks
+            next: observation.protocolNextTracks,
+            prev: observation.protocolPrevTracks,
+            queueRevision: observation.queueRevision,
+            disallowSetQueue: observation.disallowSetQueue,
+            disallowRemovingFromNextTracks: observation.disallowRemovingFromNextTracks
         )
         return acceptedQueue()
     }
@@ -333,42 +323,31 @@ actor QueueService {
         accountEpoch requestedEpoch: UInt64,
         onUpdate: @escaping @SessionRuntimeActor @Sendable (ProvenanceQueueSnapshot) async -> Void = { _ in }
     ) async -> ProvenanceQueueSnapshot? {
-        guard requestedEpoch == accountEpoch else { return nil }
+        guard !Task.isCancelled, requestedEpoch == accountEpoch else { return nil }
         let key = RefreshKey(
             accountEpoch: requestedEpoch,
             contextURI: currentTrackURI,
             fallbackEntries: fallbackEntries,
             cachedTracks: cachedTracks
         )
-        if refreshFlightKey != key {
+        if refreshFlight?.key != key {
             cancelRefreshFlight()
         }
 
-        if refreshFlightID != nil {
+        if refreshFlight != nil {
             refreshDiagnostics.joins += 1
         } else {
             refreshDiagnostics.starts += 1
             let createdID = UUID()
-            refreshFlightID = createdID
-            refreshFlightKey = key
-            refreshTask = Task { [weak self, flightID = createdID] in
-                guard let self else { return }
-                let result = await self.performRefresh(
-                    fallbackEntries: fallbackEntries,
-                    cachedTracks: cachedTracks,
-                    currentTrackURI: currentTrackURI,
-                    accountEpoch: requestedEpoch,
-                    onUpdate: { [weak self] update in
-                        await self?.publishRefreshUpdate(update, flightID: flightID)
-                    }
-                )
-                await self.finishRefreshFlight(flightID, result: result)
-            }
+            let worker = RefreshWorker(
+                owner: self, flightID: createdID, key: key, webQueue: webQueue, metadata: metadata, clock: clock)
+            // Installation cannot suspend; the worker's actor entrance sees the whole flight.
+            refreshFlight = RefreshFlight(id: createdID, key: key, task: Task { await worker.run() })
         }
 
         let subscriberID = UUID()
         let subscriber = RefreshSubscriber(callback: onUpdate)
-        refreshSubscribers[subscriberID] = subscriber
+        refreshFlight?.subscribers[subscriberID] = subscriber
         return await withTaskCancellationHandler {
             let result = await subscriber.wait()
             removeRefreshSubscriber(subscriberID)
@@ -383,247 +362,285 @@ actor QueueService {
         }
     }
 
-    private func performRefresh(
-        fallbackEntries: [QueueEntry],
-        cachedTracks: [CatalogTrack] = [],
-        currentTrackURI: String?,
-        accountEpoch requestedEpoch: UInt64,
-        onUpdate: @escaping @SessionRuntimeActor @Sendable (ProvenanceQueueSnapshot) async -> Void = { _ in }
-    ) async -> ProvenanceQueueSnapshot? {
-        let interval = SpottyLog.queueSignposter.beginInterval("Queue refresh")
-        defer { SpottyLog.queueSignposter.endInterval("Queue refresh", interval) }
-        guard requestedEpoch == accountEpoch else { return nil }
-        contextURI = currentTrackURI
-        let requestedContext = currentTrackURI
+    /// Only the worker waits on dependencies. Actor entrances commit or read current authority
+    /// without suspension, so an ignored dependency cannot keep a discarded service alive.
+    private struct RefreshWorker: Sendable {
+        weak var owner: QueueService?
+        let flightID: UUID
+        let key: RefreshKey
+        let webQueue: any WebQueueClient
+        let metadata: TrackMetadataService
+        let clock: any PlaybackClock
 
-        if shouldRequestWebQueue {
-            do {
-                let tracks = try await webQueue.queue()
-                guard !Task.isCancelled,
-                    requestedEpoch == accountEpoch,
-                    requestedContext == contextURI
-                else { return nil }
-                var fallbackCachedTracks = (snapshot?.tracks ?? []) + cachedTracks
-                webCapability = .available
-                webRetryNotBefore = nil
-                revision &+= 1
-                let incoming = ProvenanceQueueSnapshot(
-                    accountEpoch: accountEpoch,
-                    revision: revision,
-                    source: .webAPI,
-                    completeness: .complete,
-                    receivedAt: clock.now(),
-                    contextURI: requestedContext,
-                    entries: tracks.enumerated().map {
-                        QueueEntry(uri: $0.element.uri, provider: "web-api", occurrence: $0.offset)
-                    },
-                    tracks: tracks
-                )
-                snapshot = mergeQueueSnapshots(current: snapshot, incoming: incoming)
-                SpottyLog.queue.info(
-                    "Queue refreshed from Web API; entries=\(tracks.count, privacy: .public); epoch=\(requestedEpoch, privacy: .public)"
-                )
-                if let snapshot { await onUpdate(snapshot) }
-                guard let ordering = acceptedConnectOrdering(for: requestedContext) else {
-                    return snapshot
-                }
-                fallbackCachedTracks.append(contentsOf: tracks)
-                let knownURIs = Set(snapshot?.tracks.map(\.uri) ?? [])
-                guard !uniqueTrackURIs(in: ordering.entries).allSatisfy(knownURIs.contains) else {
-                    return snapshot
-                }
-                return await performFallbackRefresh(
-                    fallbackEntries: fallbackEntries,
-                    cachedTracks: fallbackCachedTracks,
-                    currentTrackURI: currentTrackURI,
-                    requestedEpoch: requestedEpoch,
-                    requestedContext: requestedContext,
-                    onUpdate: onUpdate
-                )
-            } catch let error as WebQueueFailure {
-                guard !Task.isCancelled,
-                    requestedEpoch == accountEpoch,
-                    requestedContext == contextURI
-                else { return nil }
-                let status = error.statusCode
-                if [401, 403].contains(status ?? 0) {
-                    webCapability = .unavailable
-                } else if status == 429 {
-                    // The desktop-client grant is commonly rate-limited at this documented Web
-                    // endpoint. Fall back immediately, then avoid hammering it every time the
-                    // inspector opens; a new account resets the cooldown.
-                    webRetryNotBefore = clock.now().addingTimeInterval(5 * 60)
-                }
-                debugLog(
-                    "QueueService",
-                    "Web queue unavailable; HTTP=\(status.map(String.init) ?? "unknown"); using Connect fallback"
-                )
-            } catch {
-                guard !Task.isCancelled,
-                    requestedEpoch == accountEpoch,
-                    requestedContext == contextURI
-                else { return nil }
-                debugLog(
-                    "QueueService",
-                    "Web queue unavailable; error=\(String(describing: type(of: error))); using Connect fallback"
-                )
+        func run() async {
+            let interval = SpottyLog.queueSignposter.beginInterval("Queue refresh")
+            defer { SpottyLog.queueSignposter.endInterval("Queue refresh", interval) }
+            let result = await refresh()
+            await owner?.finishRefreshFlight(flightID, key: key, result: result)
+        }
+
+        private func refresh() async -> ProvenanceQueueSnapshot? {
+            guard let requestsWeb = await owner?.beginRefresh(flightID, key: key) else { return nil }
+            var webResult: Result<[CatalogTrack], any Error>?
+            if requestsWeb {
+                do { webResult = .success(try await webQueue.queue()) } catch { webResult = .failure(error) }
+            }
+            guard let webPhase = await owner?.acceptWebResult(webResult, flightID: flightID, key: key) else {
+                return nil
+            }
+            if let publication = webPhase.publication { await publish(publication) }
+            // Publication can suspend while Connect changes. Decide hydration only afterwards.
+            guard let plan = await owner?.prepareHydration(webPhase, flightID: flightID, key: key) else {
+                return nil
+            }
+            switch plan {
+            case let .finished(snapshot): return snapshot
+            case let .hydrate(seed):
+                await publish(seed.initial)
+                await hydrate(seed)
+                return await owner?.currentRefreshSnapshot(flightID, key: key)
             }
         }
 
-        return await performFallbackRefresh(
-            fallbackEntries: fallbackEntries,
-            cachedTracks: cachedTracks,
-            currentTrackURI: currentTrackURI,
-            requestedEpoch: requestedEpoch,
-            requestedContext: requestedContext,
-            onUpdate: onUpdate
-        )
-    }
-
-    private func performFallbackRefresh(
-        fallbackEntries: [QueueEntry],
-        cachedTracks: [CatalogTrack],
-        currentTrackURI: String?,
-        requestedEpoch: UInt64,
-        requestedContext: String?,
-        onUpdate: @escaping @SessionRuntimeActor @Sendable (ProvenanceQueueSnapshot) async -> Void
-    ) async -> ProvenanceQueueSnapshot? {
-        guard !Task.isCancelled, requestedEpoch == accountEpoch, requestedContext == contextURI else { return nil }
-        let fallbackEntries = acceptedConnectOrdering(for: requestedContext)?.entries ?? fallbackEntries
-        let wantedURIs = uniqueTrackURIs(in: fallbackEntries)
-        let wantedSet = Set(wantedURIs)
-        var hydrated = Dictionary(
-            cachedTracks.lazy.filter { wantedSet.contains($0.uri) }.map { ($0.uri, $0) },
-            uniquingKeysWith: { _, newer in newer }
-        )
-        guard
-            let initial = updateFallbackSnapshot(
-                entries: fallbackEntries,
-                tracks: Array(hydrated.values),
-                requestedEpoch: requestedEpoch,
-                requestedContext: requestedContext
-            )
-        else { return nil }
-        SpottyLog.queue.info(
-            "Queue fallback started; entries=\(fallbackEntries.count, privacy: .public); cached=\(hydrated.count, privacy: .public); epoch=\(requestedEpoch, privacy: .public)"
-        )
-        await onUpdate(initial)
-
-        let missing = wantedURIs.filter { hydrated[$0] == nil }
-        guard !missing.isEmpty else { return snapshot }
-        let hydrationInterval = SpottyLog.queueSignposter.beginInterval("Queue metadata hydration")
-        defer { SpottyLog.queueSignposter.endInterval("Queue metadata hydration", hydrationInterval) }
-        let maximumConcurrentRequests = 8
-        await withTaskGroup(of: HydrationResult.self) { group in
-            var pending = missing
-            var scheduled = Set(missing)
-            var nextRequest = 0
-            var activeRequests = 0
-            var needsPublication = false
-            var flushScheduled = false
-            for _ in 0..<min(maximumConcurrentRequests, missing.count) {
-                let uri = pending[nextRequest]
-                nextRequest += 1
-                activeRequests += 1
-                group.addTask { [metadata] in .metadata(try? await metadata.metadata(for: uri)) }
+        private func publish(_ snapshot: ProvenanceQueueSnapshot) async {
+            guard let subscribers = await owner?.subscribersForPublication(flightID, key: key) else { return }
+            // An entered callback finishes normally; removed subscribers skip invocation even
+            // when an earlier callback suspended. No actor instance waits for either case.
+            for subscriber in subscribers {
+                guard await owner?.isCurrentRefresh(flightID, key: key) == true else { return }
+                await subscriber.invoke(snapshot)
             }
+        }
 
-            while let result = await group.next() {
-                guard !Task.isCancelled,
-                    requestedEpoch == accountEpoch,
-                    requestedContext == contextURI
-                else {
-                    group.cancelAll()
-                    return
-                }
-                switch result {
-                case let .metadata(value):
-                    activeRequests -= 1
-                    if let value {
-                        refreshDiagnostics.metadataResults += 1
-                        hydrated[value.uri] = Self.catalogTrack(from: value)
-                        needsPublication = true
-                    }
-                case .flush:
-                    flushScheduled = false
-                    if needsPublication,
-                        let update = updateFallbackSnapshot(
-                            entries: fallbackEntries,
-                            tracks: Array(hydrated.values),
-                            requestedEpoch: requestedEpoch,
-                            requestedContext: requestedContext)
-                    {
-                        needsPublication = false
-                        SpottyLog.queueSignposter.emitEvent("Queue metadata batch")
-                        await onUpdate(update)
-                    }
-                }
-                let latestEntries = acceptedConnectOrdering(for: requestedContext)?.entries ?? fallbackEntries
-                for uri in uniqueTrackURIs(in: latestEntries)
-                where hydrated[uri] == nil && scheduled.insert(uri).inserted {
-                    pending.append(uri)
-                }
-                while activeRequests < maximumConcurrentRequests, nextRequest < pending.count {
+        private func hydrate(_ seed: HydrationSeed) async {
+            // A new URI can arrive during the initial callback even when the original queue
+            // needed no metadata. Read current ordering before deciding that work is complete.
+            guard let entries = await owner?.hydrationEntries(flightID, key: key, baseline: seed.entries) else {
+                return
+            }
+            let wantedURIs = QueueService.uniqueTrackURIs(in: entries)
+            var hydrated = seed.hydrated
+            let missing = wantedURIs.filter { hydrated[$0] == nil }
+            guard !missing.isEmpty else { return }
+            let interval = SpottyLog.queueSignposter.beginInterval("Queue metadata hydration")
+            defer { SpottyLog.queueSignposter.endInterval("Queue metadata hydration", interval) }
+            let maximumConcurrentRequests = 8
+            await withTaskGroup(of: HydrationResult.self) { group in
+                var pending = missing
+                var scheduled = Set(missing)
+                var scannedEntries = entries
+                var nextRequest = 0
+                var activeRequests = 0
+                var needsPublication = false
+                var flushScheduled = false
+                for _ in 0..<min(maximumConcurrentRequests, missing.count) {
                     let uri = pending[nextRequest]
                     nextRequest += 1
                     activeRequests += 1
                     group.addTask { [metadata] in .metadata(try? await metadata.metadata(for: uri)) }
                 }
-                // One short timer exists only while metadata awaits publication. Ordering was
-                // published immediately above; this bounds enrichment to 20 batches per second
-                // and flushes a partial batch even while the remaining network requests stall.
-                if needsPublication && !flushScheduled {
-                    flushScheduled = true
-                    group.addTask { [clock] in
-                        try? await clock.sleep(seconds: 0.05)
-                        return .flush
+
+                while let result = await group.next() {
+                    var receivedMetadata = false
+                    switch result {
+                    case let .metadata(value):
+                        activeRequests -= 1
+                        if let value {
+                            receivedMetadata = true
+                            hydrated[value.uri] = QueueService.catalogTrack(from: value)
+                            needsPublication = true
+                        }
+                    case .flush:
+                        flushScheduled = false
+                        if needsPublication {
+                            guard
+                                let update = await owner?.commitHydration(
+                                    Array(hydrated.values), baseline: seed.entries, flightID: flightID, key: key)
+                            else { group.cancelAll(); return }
+                            needsPublication = false
+                            SpottyLog.queueSignposter.emitEvent("Queue metadata batch")
+                            await publish(update)
+                        }
+                    }
+                    guard
+                        let latestEntries = await owner?.hydrationEntries(
+                            flightID, key: key, baseline: seed.entries, receivedMetadata: receivedMetadata)
+                    else { group.cancelAll(); return }
+                    if latestEntries != scannedEntries {
+                        for uri in QueueService.uniqueTrackURIs(in: latestEntries)
+                        where hydrated[uri] == nil && scheduled.insert(uri).inserted {
+                            pending.append(uri)
+                        }
+                    }
+                    // Retain the latest immutable array even for equal values, so later
+                    // completions compare shared storage instead of rescanning the queue.
+                    scannedEntries = latestEntries
+                    while activeRequests < maximumConcurrentRequests, nextRequest < pending.count {
+                        let uri = pending[nextRequest]
+                        nextRequest += 1
+                        activeRequests += 1
+                        group.addTask { [metadata] in .metadata(try? await metadata.metadata(for: uri)) }
+                    }
+                    // At most one short timer while metadata awaits publication, including
+                    // a partial batch when another network request remains stalled.
+                    if needsPublication && !flushScheduled {
+                        flushScheduled = true
+                        group.addTask { [clock] in
+                            try? await clock.sleep(seconds: 0.05)
+                            return .flush
+                        }
                     }
                 }
             }
+            SpottyLog.queue.info(
+                "Queue fallback finished; hydrated=\(hydrated.count, privacy: .public)/\(wantedURIs.count, privacy: .public); epoch=\(key.accountEpoch, privacy: .public)"
+            )
+        }
+    }
+
+    private struct WebPhase {
+        let publication: ProvenanceQueueSnapshot?
+        let cachedTracks: [CatalogTrack]
+    }
+
+    private struct HydrationSeed {
+        let initial: ProvenanceQueueSnapshot
+        let entries: [QueueEntry]
+        let hydrated: [String: CatalogTrack]
+    }
+
+    private enum HydrationPlan {
+        case finished(ProvenanceQueueSnapshot?)
+        case hydrate(HydrationSeed)
+    }
+
+    private func beginRefresh(_ flightID: UUID, key: RefreshKey) -> Bool? {
+        guard !Task.isCancelled, refreshFlight?.id == flightID, accountEpoch == key.accountEpoch else { return nil }
+        contextURI = key.contextURI
+        return shouldRequestWebQueue
+    }
+
+    private func isCurrentRefresh(_ flightID: UUID, key: RefreshKey) -> Bool {
+        !Task.isCancelled && refreshFlight?.id == flightID
+            && accountEpoch == key.accountEpoch && contextURI == key.contextURI
+    }
+
+    private func acceptWebResult(
+        _ result: Result<[CatalogTrack], any Error>?, flightID: UUID, key: RefreshKey
+    ) -> WebPhase? {
+        guard isCurrentRefresh(flightID, key: key) else { return nil }
+        switch result {
+        case let .success(tracks):
+            let cached = (snapshot?.tracks ?? []) + key.cachedTracks + tracks
+            webCapability = .available
+            webRetryNotBefore = nil
+            revision &+= 1
+            let incoming = ProvenanceQueueSnapshot(
+                accountEpoch: accountEpoch, revision: revision, source: .webAPI, completeness: .complete,
+                receivedAt: clock.now(), contextURI: key.contextURI,
+                entries: tracks.enumerated().map {
+                    QueueEntry(uri: $0.element.uri, provider: "web-api", occurrence: $0.offset)
+                }, tracks: tracks)
+            snapshot = mergeQueueSnapshots(current: snapshot, incoming: incoming)
+            SpottyLog.queue.info(
+                "Queue refreshed from Web API; entries=\(tracks.count, privacy: .public); epoch=\(key.accountEpoch, privacy: .public)"
+            )
+            return WebPhase(publication: snapshot, cachedTracks: cached)
+        case let .failure(error as WebQueueFailure):
+            let status = error.statusCode
+            if [401, 403].contains(status ?? 0) {
+                webCapability = .unavailable
+            } else if status == 429 {
+                // Avoid hammering a rate-limited endpoint when the inspector reopens.
+                // A new account resets this cooldown; retired failures cannot establish it.
+                webRetryNotBefore = clock.now().addingTimeInterval(5 * 60)
+            }
+            debugLog(
+                "QueueService",
+                "Web queue unavailable; HTTP=\(status.map(String.init) ?? "unknown"); using Connect fallback")
+        case let .failure(error):
+            debugLog(
+                "QueueService",
+                "Web queue unavailable; error=\(String(describing: type(of: error))); using Connect fallback")
+        case nil: break
+        }
+        return WebPhase(publication: nil, cachedTracks: key.cachedTracks)
+    }
+
+    private func prepareHydration(_ web: WebPhase, flightID: UUID, key: RefreshKey) -> HydrationPlan? {
+        guard isCurrentRefresh(flightID, key: key) else { return nil }
+        let ordering = acceptedConnectOrdering(for: key.contextURI)
+        if web.publication != nil {
+            guard let ordering else { return .finished(snapshot) }
+            let knownURIs = Set(snapshot?.tracks.map(\.uri) ?? [])
+            if Self.uniqueTrackURIs(in: ordering.entries).allSatisfy(knownURIs.contains) {
+                return .finished(snapshot)
+            }
+        }
+        let entries = ordering?.entries ?? key.fallbackEntries
+        let wanted = Set(Self.uniqueTrackURIs(in: entries))
+        let hydrated = Dictionary(
+            web.cachedTracks.lazy.filter { wanted.contains($0.uri) }.map { ($0.uri, $0) },
+            uniquingKeysWith: { _, newer in newer })
+        guard let initial = commitHydration(Array(hydrated.values), baseline: entries, flightID: flightID, key: key)
+        else {
+            return nil
         }
         SpottyLog.queue.info(
-            "Queue fallback finished; hydrated=\(hydrated.count, privacy: .public)/\(wantedURIs.count, privacy: .public); epoch=\(requestedEpoch, privacy: .public)"
+            "Queue fallback started; entries=\(entries.count, privacy: .public); cached=\(hydrated.count, privacy: .public); epoch=\(key.accountEpoch, privacy: .public)"
         )
+        return .hydrate(HydrationSeed(initial: initial, entries: entries, hydrated: hydrated))
+    }
+
+    private func hydrationEntries(
+        _ flightID: UUID, key: RefreshKey, baseline: [QueueEntry], receivedMetadata: Bool = false
+    ) -> [QueueEntry]? {
+        guard isCurrentRefresh(flightID, key: key) else { return nil }
+        if receivedMetadata { refreshDiagnostics.metadataResults += 1 }
+        return acceptedConnectOrdering(for: key.contextURI)?.entries ?? baseline
+    }
+
+    private func commitHydration(
+        _ tracks: [CatalogTrack], baseline: [QueueEntry], flightID: UUID, key: RefreshKey
+    ) -> ProvenanceQueueSnapshot? {
+        guard isCurrentRefresh(flightID, key: key) else { return nil }
+        return updateFallbackSnapshot(
+            entries: baseline, tracks: tracks,
+            requestedEpoch: key.accountEpoch, requestedContext: key.contextURI)
+    }
+
+    private func currentRefreshSnapshot(_ flightID: UUID, key: RefreshKey) -> ProvenanceQueueSnapshot? {
+        guard isCurrentRefresh(flightID, key: key) else { return nil }
         return snapshot
     }
 
-    var refreshSubscriberCount: Int { refreshSubscribers.count }
+    var refreshSubscriberCount: Int { refreshFlight?.subscribers.count ?? 0 }
 
-    private func publishRefreshUpdate(_ snapshot: ProvenanceQueueSnapshot, flightID: UUID) async {
-        guard refreshFlightID == flightID else { return }
+    private func subscribersForPublication(_ flightID: UUID, key: RefreshKey) -> [RefreshSubscriber]? {
+        guard isCurrentRefresh(flightID, key: key) else { return nil }
         refreshDiagnostics.publications += 1
-        // A subscriber can cancel while another callback is suspended. Its handle skips
-        // invocation after cancellation without dropping the update for remaining callers.
-        for subscriber in Array(refreshSubscribers.values) {
-            guard refreshFlightID == flightID else { return }
-            await subscriber.invoke(snapshot)
-        }
+        return refreshFlight.map { Array($0.subscribers.values) }
     }
 
     private func removeRefreshSubscriber(_ subscriberID: UUID) {
-        refreshSubscribers.removeValue(forKey: subscriberID)?.complete(nil)
+        refreshFlight?.subscribers.removeValue(forKey: subscriberID)?.complete(nil)
         // Keep a detached flight alive for replacement callers with identical inputs. A changed
         // context or fallback invalidates it through RefreshKey instead of silently reusing the
         // first caller's captured inputs.
     }
 
-    private func finishRefreshFlight(_ flightID: UUID, result: ProvenanceQueueSnapshot?) {
-        guard refreshFlightID == flightID else { return }
-        refreshFlightID = nil
-        refreshFlightKey = nil
-        refreshTask = nil
-        refreshSubscribers.values.forEach { $0.complete(result) }
-        refreshSubscribers.removeAll()
+    private func finishRefreshFlight(_ flightID: UUID, key: RefreshKey, result: ProvenanceQueueSnapshot?) {
+        guard let flight = refreshFlight, flight.id == flightID else { return }
+        let result = isCurrentRefresh(flightID, key: key) ? result : nil
+        refreshFlight = nil
+        flight.complete(result)
     }
 
     private func cancelRefreshFlight() {
-        if refreshTask != nil { refreshDiagnostics.cancellations += 1 }
-        refreshTask?.cancel()
-        refreshFlightID = nil
-        refreshFlightKey = nil
-        refreshTask = nil
-        refreshSubscribers.values.forEach { $0.complete(nil) }
-        refreshSubscribers.removeAll()
+        guard let flight = refreshFlight else { return }
+        refreshFlight = nil
+        refreshDiagnostics.cancellations += 1
+        flight.cancel()
     }
 
     private func acceptedQueue() -> AcceptedConnectQueue? {
@@ -631,7 +648,7 @@ actor QueueService {
         return AcceptedConnectQueue(snapshot: snapshot, mutation: mutation)
     }
 
-    private func uniqueTrackURIs(in entries: [QueueEntry]) -> [String] {
+    private static func uniqueTrackURIs(in entries: [QueueEntry]) -> [String] {
         var seen: Set<String> = []
         return entries.compactMap { entry in
             guard entry.uri.hasPrefix("spotify:track:"), seen.insert(entry.uri).inserted else {
@@ -659,7 +676,7 @@ actor QueueService {
         let ordering = acceptedConnectOrdering(for: requestedContext)
         let currentEntries = ordering?.entries ?? entries
         let knownURIs = Set(tracks.map(\.uri)).union(ordering?.tracks.map(\.uri) ?? [])
-        let isHydrated = uniqueTrackURIs(in: currentEntries).allSatisfy { knownURIs.contains($0) }
+        let isHydrated = Self.uniqueTrackURIs(in: currentEntries).allSatisfy { knownURIs.contains($0) }
         revision &+= 1
         let incoming = ProvenanceQueueSnapshot(
             accountEpoch: accountEpoch,

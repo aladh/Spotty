@@ -1,3 +1,5 @@
+import SpottyTestSupport
+import Synchronization
 import Testing
 @testable import SpottyGateway
 
@@ -7,35 +9,34 @@ struct GatewayAdmissionTests {
     @Test
     func defaultCapacityBoundsActiveAndRejectsOverflowBeforeDispatch() async throws {
         let admission = SpotifyRequestAdmission(maximumQueued: 2)
-        let gate = AdmissionOperationGate()
-        var tasks: [Task<Int, any Error>] = []
+        let gate = AdmissionOperationGate(expected: Array(0..<6))
+        let requests = AdmissionRequests(admission: admission, gate: gate)
+        defer { requests.close() }
         for id in 0..<4 {
-            tasks.append(submit(id, to: admission, gate: gate))
-            #expect(await waitUntil { await gate.started.count == id + 1 })
+            try requests.submit(id)
+            try await requireEventually { gate.started.count == id + 1 }
         }
         for id in 4..<6 {
-            tasks.append(submit(id, to: admission, gate: gate))
-            #expect(await waitUntil { await admission.queuedCount == id - 3 })
+            try requests.submit(id)
+            try await requireEventually { await admission.queuedCount == id - 3 }
         }
 
-        do {
-            _ = try await admission.withPermit(priority: .interactive) { try await gate.run(99) }
-            Issue.record("A full admission queue must reject excess requests")
-        } catch {
-            #expect(error as? SpotifyRequestAdmission.Failure == .overloaded)
-        }
+        try requests.submit(99)
+        let overflow = try await requests.result(99)
+        #expect(throws: SpotifyRequestAdmission.Failure.overloaded) { try overflow.get() }
         #expect(await admission.activeCount == 4)
-        #expect(await gate.started == [0, 1, 2, 3])
+        #expect(gate.started == [0, 1, 2, 3])
 
-        await gate.complete(0)
-        #expect(await waitUntil { await gate.started.count == 5 })
+        gate.complete(0)
+        try await requireEventually { gate.started.count == 5 }
         #expect(await admission.activeCount == 4)
         #expect(await admission.queuedCount == 1)
-        await gate.complete(1)
-        #expect(await waitUntil { await gate.started.count == 6 })
-        for id in 2..<6 { await gate.complete(id) }
-        for (id, task) in tasks.enumerated() {
-            #expect(try await task.value == id)
+        gate.complete(1)
+        try await requireEventually { gate.started.count == 6 }
+        for id in 2..<6 { gate.complete(id) }
+        for id in 0..<6 {
+            let result = try await requests.result(id)
+            #expect(try result.get() == id)
         }
         #expect(await admission.activeCount == 0)
         #expect(await admission.queuedCount == 0)
@@ -44,22 +45,25 @@ struct GatewayAdmissionTests {
     @Test
     func interactiveReadsPrecedeEnrichmentWithFIFOWithinEachLane() async throws {
         let admission = SpotifyRequestAdmission(maximumActive: 1)
-        let gate = AdmissionOperationGate()
-        var tasks = [submit(0, to: admission, gate: gate)]
-        #expect(await waitUntil { await gate.started == [0] })
+        let gate = AdmissionOperationGate(expected: Array(0..<5))
+        let requests = AdmissionRequests(admission: admission, gate: gate)
+        defer { requests.close() }
+        try requests.submit(0)
+        try await requireEventually { gate.started == [0] }
         let priorities: [SpotifyRequestAdmission.Priority] = [.enrichment, .interactive, .enrichment, .interactive]
         for (offset, priority) in priorities.enumerated() {
-            tasks.append(submit(offset + 1, to: admission, gate: gate, priority: priority))
-            #expect(await waitUntil { await admission.queuedCount == offset + 1 })
+            try requests.submit(offset + 1, priority: priority)
+            try await requireEventually { await admission.queuedCount == offset + 1 }
         }
 
         let order = [0, 2, 4, 1, 3]
         for (offset, id) in order.enumerated() {
-            #expect(await waitUntil { await gate.started == Array(order.prefix(offset + 1)) })
-            await gate.complete(id)
+            try await requireEventually { gate.started == Array(order.prefix(offset + 1)) }
+            gate.complete(id)
         }
-        for (id, task) in tasks.enumerated() {
-            #expect(try await task.value == id)
+        for id in 0..<5 {
+            let result = try await requests.result(id)
+            #expect(try result.get() == id)
         }
         #expect(await admission.activeCount == 0)
     }
@@ -67,130 +71,167 @@ struct GatewayAdmissionTests {
     @Test
     func queuedCancellationRemovesWaiterAndFreesCapacityWithoutDispatch() async throws {
         let admission = SpotifyRequestAdmission(maximumActive: 1, maximumQueued: 1)
-        let gate = AdmissionOperationGate()
-        let active = submit(0, to: admission, gate: gate)
-        #expect(await waitUntil { await gate.started == [0] })
-        let cancelled = submit(1, to: admission, gate: gate)
-        #expect(await waitUntil { await admission.queuedCount == 1 })
+        let gate = AdmissionOperationGate(expected: [0, 2])
+        let requests = AdmissionRequests(admission: admission, gate: gate)
+        defer { requests.close() }
+        try requests.submit(0)
+        try await requireEventually { gate.started == [0] }
+        try requests.submit(1)
+        try await requireEventually { await admission.queuedCount == 1 }
 
-        cancelled.cancel()
-        do {
-            _ = try await cancelled.value
-            Issue.record("A cancelled queued request must finish as cancellation")
-        } catch {
-            #expect(error is CancellationError)
-        }
+        requests.cancel(1)
+        let cancelled = try await requests.result(1)
+        #expect(throws: CancellationError.self) { try cancelled.get() }
         #expect(await admission.queuedCount == 0)
-        let replacement = submit(2, to: admission, gate: gate)
-        #expect(await waitUntil { await admission.queuedCount == 1 })
-        await gate.complete(0)
-        #expect(try await active.value == 0)
-        #expect(await waitUntil { await gate.started == [0, 2] })
-        await gate.complete(2)
-        #expect(try await replacement.value == 2)
+        try requests.submit(2)
+        try await requireEventually { await admission.queuedCount == 1 }
+        gate.complete(0)
+        let active = try await requests.result(0)
+        #expect(try active.get() == 0)
+        try await requireEventually { gate.started == [0, 2] }
+        gate.complete(2)
+        let replacement = try await requests.result(2)
+        #expect(try replacement.get() == 2)
         #expect(await admission.activeCount == 0)
     }
 
     @Test
     func activeCancellationRetainsPermitUntilNoncooperativeOperationSettles() async throws {
         let admission = SpotifyRequestAdmission(maximumActive: 1, maximumQueued: 1)
-        let gate = AdmissionOperationGate()
-        let active = submit(0, to: admission, gate: gate)
-        #expect(await waitUntil { await gate.started == [0] })
-        let queued = submit(1, to: admission, gate: gate)
-        #expect(await waitUntil { await admission.queuedCount == 1 })
+        let gate = AdmissionOperationGate(expected: [0, 1])
+        let requests = AdmissionRequests(admission: admission, gate: gate)
+        defer { requests.close() }
+        try requests.submit(0)
+        try await requireEventually { gate.started == [0] }
+        try requests.submit(1)
+        try await requireEventually { await admission.queuedCount == 1 }
 
-        active.cancel()
-        do {
-            _ = try await admission.withPermit(priority: .interactive) { try await gate.run(99) }
-            Issue.record("Cancelling live transport must not admit another active operation")
-        } catch {
-            #expect(error as? SpotifyRequestAdmission.Failure == .overloaded)
-        }
+        requests.cancel(0)
+        try requests.submit(99)
+        let overflow = try await requests.result(99)
+        #expect(throws: SpotifyRequestAdmission.Failure.overloaded) { try overflow.get() }
         #expect(await admission.activeCount == 1)
-        #expect(await gate.started == [0])
-        await gate.fail(0)
-        do {
-            _ = try await active.value
-            Issue.record("The active transport failure must reach its caller")
-        } catch {
-            #expect(error as? AdmissionOperationGate.Failure == .synthetic)
-        }
+        #expect(gate.started == [0])
+        gate.fail(0)
+        let active = try await requests.result(0)
+        #expect(throws: AdmissionOperationGate.Failure.synthetic) { try active.get() }
 
-        #expect(await waitUntil { await gate.started == [0, 1] })
-        await gate.complete(1)
-        #expect(try await queued.value == 1)
+        try await requireEventually { gate.started == [0, 1] }
+        gate.complete(1)
+        let queued = try await requests.result(1)
+        #expect(try queued.get() == 1)
         #expect(await admission.activeCount == 0)
     }
 
     @Test
-    func alreadyCancelledRequestNeverDispatchesOrConsumesCapacity() async {
+    func alreadyCancelledRequestNeverDispatchesOrConsumesCapacity() async throws {
         let admission = SpotifyRequestAdmission(maximumActive: 1, maximumQueued: 0)
-        let gate = AdmissionOperationGate()
-        let start = AdmissionOperationGate()
-        let request = Task {
-            _ = try await start.run(0)
-            return try await admission.withPermit(priority: .interactive) { try await gate.run(1) }
-        }
-        #expect(await waitUntil { await start.started == [0] })
-        request.cancel()
-        await start.complete(0)
-        do {
-            _ = try await request.value
-            Issue.record("An already cancelled request must fail before dispatch")
-        } catch {
-            #expect(error is CancellationError)
-        }
-        #expect(await gate.started.isEmpty)
+        let gate = AdmissionOperationGate(expected: [])
+        let requests = AdmissionRequests(admission: admission, gate: gate)
+        defer { requests.close() }
+        // Submission and cancellation share this MainActor turn; the request cannot start yet.
+        try requests.submit(1)
+        requests.cancel(1)
+        let result = try await requests.result(1)
+        #expect(throws: CancellationError.self) { try result.get() }
+        #expect(gate.started.isEmpty)
         #expect(await admission.activeCount == 0)
         #expect(await admission.queuedCount == 0)
     }
 
-    private func submit(
-        _ id: Int,
-        to admission: SpotifyRequestAdmission,
-        gate: AdmissionOperationGate,
-        priority: SpotifyRequestAdmission.Priority = .interactive
-    ) -> Task<Int, any Error> {
-        Task {
-            try await admission.withPermit(priority: priority) { try await gate.run(id) }
+    @Test
+    func fixtureCleanupSettlesHeldAndQueuedRequests() async throws {
+        let admission = SpotifyRequestAdmission(maximumActive: 1, maximumQueued: 1)
+        let gate = AdmissionOperationGate(expected: [0, 1])
+        let requests = AdmissionRequests(admission: admission, gate: gate)
+        defer { requests.close() }
+        try requests.submit(0)
+        try await requireEventually { gate.started == [0] }
+        try requests.submit(1)
+        try await requireEventually { await admission.queuedCount == 1 }
+
+        requests.close()
+        for id in 0..<2 {
+            let result = try await requests.result(id)
+            #expect(throws: CancellationError.self) { try result.get() }
         }
+        #expect(gate.started == [0])
+        #expect(await admission.activeCount == 0)
+        #expect(await admission.queuedCount == 0)
+    }
+}
+
+/// Owns every admission attempt, including overflow probes. A bounded
+/// settlement prerequisite stays outside assertions about request errors, so timeout stops the test.
+@MainActor
+private final class AdmissionRequests {
+    private let admission: SpotifyRequestAdmission
+    private let gate: AdmissionOperationGate
+    private let completed = HarnessCounters()
+    private var tasks: [Int: Task<Int, any Error>] = [:]
+
+    init(admission: SpotifyRequestAdmission, gate: AdmissionOperationGate) {
+        self.admission = admission
+        self.gate = gate
+    }
+
+    func submit(
+        _ id: Int,
+        priority: SpotifyRequestAdmission.Priority = .interactive,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) throws {
+        try #require(tasks[id] == nil, "Request IDs must be unique", sourceLocation: sourceLocation)
+        tasks[id] = Task { [admission, gate, completed] in
+            defer { completed.record(String(id)) }
+            return try await admission.withPermit(priority: priority) { try await gate.run(id) }
+        }
+    }
+
+    func cancel(_ id: Int) { tasks[id]?.cancel() }
+
+    func result(
+        _ id: Int, sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws -> Result<Int, any Error> {
+        let task = try #require(tasks[id], sourceLocation: sourceLocation)
+        try await requireEventually(
+            description: "Admission request \(id) completes", sourceLocation: sourceLocation
+        ) { completed.count(String(id)) == 1 }
+        return await task.result
+    }
+
+    func close() {
+        tasks.values.forEach { $0.cancel() }
+        gate.close()
     }
 }
 
 /// Admission tests need independently held operations without a catalog, engine, or account
-/// contract. This gate deliberately ignores task cancellation until each test settles transport.
-private actor AdmissionOperationGate {
-    enum Failure: Error { case synthetic }
+/// contract. Shared response gates own suspension and ignore cancellation until transport settles.
+private final class AdmissionOperationGate: Sendable {
+    enum Failure: Error, Equatable { case synthetic, unexpectedOperation(Int), duplicateOperation(Int) }
 
-    private(set) var started: [Int] = []
-    private var continuations: [Int: CheckedContinuation<Int, any Error>] = [:]
+    private let entries = Mutex<[Int]>([])
+    private let responses: [Int: HarnessResponseGate<Int>]
+
+    init(expected: [Int]) {
+        responses = Dictionary(uniqueKeysWithValues: expected.map { ($0, HarnessResponseGate(cancellation: .ignored)) })
+    }
+
+    var started: [Int] { entries.withLock { $0 } }
 
     func run(_ id: Int) async throws -> Int {
-        started.append(id)
-        return try await withCheckedThrowingContinuation { continuation in
-            continuations[id] = continuation
+        let duplicate = entries.withLock { entries in
+            let duplicate = entries.contains(id)
+            entries.append(id)
+            return duplicate
         }
+        guard !duplicate else { throw Failure.duplicateOperation(id) }
+        guard let response = responses[id] else { throw Failure.unexpectedOperation(id) }
+        return try await response.wait()
     }
 
-    func complete(_ id: Int) {
-        continuations.removeValue(forKey: id)?.resume(returning: id)
-    }
-
-    func fail(_ id: Int) {
-        continuations.removeValue(forKey: id)?.resume(throwing: Failure.synthetic)
-    }
-}
-
-/// Poll only concrete actor state; the deadline is a hang watchdog, never a scheduling delay.
-@MainActor
-private func waitUntil(_ condition: @MainActor () async -> Bool) async -> Bool {
-    let clock = ContinuousClock()
-    let deadline = clock.now + .seconds(10)
-    while clock.now < deadline {
-        if Task.isCancelled { return false }
-        if await condition() { return !Task.isCancelled && clock.now < deadline }
-        await Task.yield()
-    }
-    return false
+    // Responses can precede installation of a waiter; the shared gate retains early replies.
+    func complete(_ id: Int) { responses[id]?.finish(id) }
+    func fail(_ id: Int) { responses[id]?.resolve(.failure(Failure.synthetic)) }
+    func close() { responses.values.forEach { $0.close() } }
 }

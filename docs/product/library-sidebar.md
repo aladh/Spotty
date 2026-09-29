@@ -6,6 +6,9 @@
   concurrent folder requests. Follow shared [loading and retention](catalog-interaction.md#loading-and-retained-content);
   show progress until content is available. Cached ownership cannot enable edits.
   Retain the flat catalog for navigation and playlist actions.
+- One load shares bounded work across the whole hierarchy. Repeated folder identities, excessive
+  depth, or exhausted budgets fail the refresh rather than publishing a partial tree; previously
+  loaded rows follow the failure behavior below.
 - Arrows select folders without navigating; Return toggles expansion.
   Navigation clears folder focus; account changes clear focus and expansion.
   Artwork and folder disclosure follow the shared [native focus contract](catalog-interaction.md#focus-and-accessibility).

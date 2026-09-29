@@ -15,9 +15,11 @@ nonisolated enum PartnerAPIError: Error, LocalizedError, Equatable {
     case persistedQueryNotFound(String)
     case graphQLErrors(String)
     case emptyPayload
+    /// The complete library exceeded its aggregate page or raw-entry budget.
+    case libraryLimitReached
     /// A write Spotify answered with HTTP 200 and a failure `__typename`.
     case mutationRejected(String)
-    /// A paged walk hit `Pagination`'s request cap or failed to advance its offset.
+    /// A paged walk exceeded its request cap or could not prove a complete collection.
     case pagination(Pagination.Failure)
 
     var errorDescription: String? {
@@ -32,13 +34,13 @@ nonisolated enum PartnerAPIError: Error, LocalizedError, Equatable {
             "Spotify returned a GraphQL error for \(operation)"
         case .emptyPayload:
             "Spotify returned no data"
+        case .libraryLimitReached:
+            "This playlist library is too large to load"
         case let .pagination(failure):
             failure.errorDescription
         }
     }
 }
-
-typealias Pagination = SpottyDomain.Pagination
 
 /// The request body. At file scope rather than nested in the encoder, because the encoder
 /// takes its variables as an opaque parameter and a generic type cannot be declared inside a
@@ -58,18 +60,34 @@ private nonisolated struct PathfinderRequestBody<Variables: Encodable>: Encodabl
     let extensions: PathfinderExtensions
 }
 
-/// GraphQL reports failure inside a 200 body, so every response is checked for this first.
 private nonisolated struct PathfinderErrorEnvelope: Decodable {
     struct Failure: Decodable {
-        struct Extensions: Decodable {
-            let code: String?
-        }
-
+        struct Extensions: Decodable { let code: String? }
         let message: String?
         let extensions: Extensions?
     }
-
     let errors: [Failure]?
+}
+
+/// Error precedence and payload decoding share one parsed JSON representation. Recognized errors
+/// win before decoding the payload; malformed error envelopes keep the existing payload fallback.
+private nonisolated enum DecodedPathfinderResponse<Payload: Decodable & Sendable>: Decodable {
+    case payload(Payload)
+    case persistedQueryNotFound
+    case graphQLErrors
+
+    init(from decoder: any Decoder) throws {
+        if let envelope = try? PathfinderErrorEnvelope(from: decoder), let errors = envelope.errors, !errors.isEmpty {
+            let retired = errors.contains { error in
+                error.extensions?.code == "PERSISTED_QUERY_NOT_FOUND"
+                    || (error.message?.localizedCaseInsensitiveContains("persistedquerynotfound") ?? false)
+            }
+            self = retired ? .persistedQueryNotFound : .graphQLErrors
+            return
+        }
+        // Generic container decoding preserves Foundation's root Data/Date/URL/Decimal handling.
+        self = .payload(try decoder.singleValueContainer().decode(Payload.self))
+    }
 }
 
 /// Sends persisted queries to `api-partner.spotify.com`.
@@ -265,72 +283,6 @@ nonisolated struct PartnerAPI: Sendable {
 
     // MARK: - Library
 
-    func playlistLibrary() async throws -> [PlaylistLibraryNode] {
-        struct FolderRequest: Sendable {
-            let uri: String?
-            let ancestors: Set<String>
-        }
-        // Keep the complete-library contract without serializing every folder's network latency.
-        // One work queue bounds concurrency across the whole hierarchy, including nested folders.
-        let folders = try await withThrowingTaskGroup(
-            of: (FolderRequest, [PathfinderPlaylist]).self
-        ) { group in
-            var pending = [FolderRequest(uri: nil, ancestors: [])]
-            var next = 0
-            var active = 0
-            var results: [String: [PathfinderPlaylist]] = [:]
-            while next < pending.count || active > 0 {
-                try Task.checkCancellation()
-                while active < 4, next < pending.count {
-                    let request = pending[next]
-                    next += 1
-                    active += 1
-                    group.addTask { (request, try await playlistLibraryEntries(folderURI: request.uri)) }
-                }
-                guard let (request, entities) = try await group.next() else { break }
-                active -= 1
-                results[request.uri ?? ""] = entities
-                for entity in entities where CatalogMapping.item(from: entity) == nil {
-                    guard let uri = entity.uri, uri.contains(":folder:") else { continue }
-                    guard !request.ancestors.contains(uri), request.ancestors.count < 31 else {
-                        throw PartnerAPIError.emptyPayload
-                    }
-                    pending.append(FolderRequest(uri: uri, ancestors: request.ancestors.union([uri])))
-                }
-            }
-            return results
-        }
-        func nodes(in key: String) throws -> [PlaylistLibraryNode] {
-            try Task.checkCancellation()
-            guard let entities = folders[key] else { throw PartnerAPIError.emptyPayload }
-            return try entities.compactMap { entity in
-                try Task.checkCancellation()
-                if let item = CatalogMapping.item(from: entity) { return PlaylistLibraryNode(playlist: item) }
-                guard let uri = entity.uri, uri.contains(":folder:") else { return nil }
-                return PlaylistLibraryNode(folderURI: uri, title: entity.name ?? "Folder", children: try nodes(in: uri))
-            }
-        }
-        try Task.checkCancellation()
-        return try nodes(in: "")
-    }
-
-    private func playlistLibraryEntries(folderURI: String?) async throws -> [PathfinderPlaylist] {
-        try Task.checkCancellation()
-        return try await paginate { offset in
-            let response: PathfinderLibraryResponse<PathfinderPlaylist> = try await query(
-                .libraryV3,
-                variables: PathfinderLibraryVariables(
-                    filters: [LibraryFilter.playlists], offset: offset, limit: LibraryFilter.playlistPageLimit,
-                    order: "Custom Order", flatten: false, folderUri: folderURI
-                )
-            )
-            guard let page = response.page, page.items != nil else { throw PartnerAPIError.emptyPayload }
-            return Pagination.Page(
-                items: try page.validatedEntities(), pageEntryCount: page.items?.count ?? 0, totalCount: page.totalCount
-            )
-        }
-    }
-
     func libraryAlbums() async throws -> [PathfinderAlbum] {
         try await libraryEntities(filter: LibraryFilter.albums)
     }
@@ -346,7 +298,7 @@ nonisolated struct PartnerAPI: Sendable {
     private func libraryEntities<Entity: Decodable & Sendable>(
         filter: String,
     ) async throws -> [Entity] {
-        try await paginate { offset in
+        try await Pagination.collect { offset in
             let response: PathfinderLibraryResponse<Entity> = try await query(
                 .libraryV3,
                 variables: PathfinderLibraryVariables(
@@ -372,7 +324,7 @@ nonisolated struct PartnerAPI: Sendable {
     /// **Stopping at the first page hid every liked song past the fiftieth** — a silent
     /// truncation nobody notices until they look for a specific row that never arrives.
     func libraryTracks() async throws -> [PathfinderLibraryTrackItem] {
-        try await paginate { offset in
+        try await Pagination.collect { offset in
             let response: PathfinderLibraryTracksResponse = try await query(
                 .fetchLibraryTracks,
                 variables: PathfinderLibraryTracksVariables(offset: offset, limit: 50),
@@ -456,18 +408,6 @@ nonisolated struct PartnerAPI: Sendable {
 
     // MARK: - Transport
 
-    /// One bounded walk for playlist contents, `libraryV3`, and saved tracks.
-    private func paginate<Item: Sendable>(
-        firstPage: Pagination.Page<Item>? = nil,
-        fetchPage: @escaping @Sendable (Int) async throws -> Pagination.Page<Item>
-    ) async throws -> [Item] {
-        do {
-            return try await Pagination.collect(firstPage: firstPage, fetchPage: fetchPage)
-        } catch let failure as Pagination.Failure {
-            throw PartnerAPIError.pagination(failure)
-        }
-    }
-
     /// Generic over the whole envelope rather than over a search payload: `getAlbum` answers
     /// with `data.albumUnion`, not `data.searchV2`, so the shape below `data` is the
     /// operation's business. Search call sites name `PathfinderResponse<…>` and are unchanged.
@@ -523,7 +463,7 @@ nonisolated struct PartnerAPI: Sendable {
 
     /// Builds the request body: operation name, variables, and the persisted-query hash. No
     /// query document — Spotify holds it, keyed by that hash.
-    func makeRequest(
+    private func makeRequest(
         _ operation: PathfinderOperation,
         variables: some Encodable & Sendable,
     ) async throws -> URLRequest {
@@ -538,7 +478,7 @@ nonisolated struct PartnerAPI: Sendable {
         return request
     }
 
-    static func encodeBody(
+    private static func encodeBody(
         _ operation: PathfinderOperation,
         variables: some Encodable & Sendable,
     ) throws -> Data {
@@ -560,20 +500,10 @@ nonisolated struct PartnerAPI: Sendable {
         _ data: Data,
         operation: PathfinderOperation,
     ) throws -> Envelope {
-        if let envelope = try? JSONDecoder().decode(PathfinderErrorEnvelope.self, from: data),
-            let errors = envelope.errors,
-            !errors.isEmpty
-        {
-            let retired = errors.contains { error in
-                error.extensions?.code == "PERSISTED_QUERY_NOT_FOUND"
-                    || (error.message?.localizedCaseInsensitiveContains("persistedquerynotfound") ?? false)
-            }
-            if retired {
-                throw PartnerAPIError.persistedQueryNotFound(operation.name)
-            }
-            throw PartnerAPIError.graphQLErrors(operation.name)
+        switch try JSONDecoder().decode(DecodedPathfinderResponse<Envelope>.self, from: data) {
+        case let .payload(payload): return payload
+        case .persistedQueryNotFound: throw PartnerAPIError.persistedQueryNotFound(operation.name)
+        case .graphQLErrors: throw PartnerAPIError.graphQLErrors(operation.name)
         }
-
-        return try JSONDecoder().decode(Envelope.self, from: data)
     }
 }

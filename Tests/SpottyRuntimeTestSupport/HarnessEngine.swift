@@ -237,7 +237,11 @@ final class HarnessEngine: LocalPlaybackEngine, @unchecked Sendable {
         }
     }
 
-    func count(_ call: Call) -> Int { counters.count(call.rawValue) }
+    func count(_ call: Call) -> Int {
+        // The invocation becomes observable with its operation, before any override runs.
+        if call == .execute { return withStorage { $0.operations.count } }
+        return counters.count(call.rawValue)
+    }
 
     var executeCount: Int { count(.execute) }
     var forceReconnectCount: Int { count(.forceReconnect) }
@@ -305,7 +309,6 @@ final class HarnessEngine: LocalPlaybackEngine, @unchecked Sendable {
     }
 
     func execute(_ operation: LocalPlaybackOperation) -> PlaybackEngineResult {
-        counters.record(Call.execute.rawValue)
         withStorage { $0.operations.append(operation) }
         if let override = onExecute { return override(operation) }
         return executeResult

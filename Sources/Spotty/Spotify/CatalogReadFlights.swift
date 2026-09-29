@@ -153,7 +153,7 @@ final class CatalogReadFlights<Key: Hashable & Sendable> {
         } onCancel: { [weak self] in
             guard let cancelled = request.cancel(id) else { return }
             if cancelled.last {
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.complete(request.handle)
                     cancelled.waiter.finish()
                 }

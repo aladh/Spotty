@@ -278,19 +278,6 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
         self.assertEqual(calls[0]["harness"], "1")
         self.assertEqual(calls[0]["graph"], "full")
 
-    def test_clean_resets_the_graph_before_its_first_swift_command(self):
-        script = self.root / "Scripts/check-clean.sh"
-        shutil.copy2(ROOT / "Scripts/check-clean.sh", script)
-        self.environment["VERIFY_TEST_STATUS"] = "17"
-        # Invoke the entry point directly: verify.py also clears inherited selectors, which
-        # would mask a missing reset before this script's initial clean.
-        result = subprocess.run([str(script)], env=self.environment, capture_output=True, text=True, timeout=10)
-        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(result.returncode, 17, result.stderr)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]["graph"], "full")
-        self.assertEqual(calls[0]["command"][1:], ["package", "--package-path", str(self.root), "clean"])
-
     @unittest.skipUnless(sys.platform == "darwin", "macOS adapter graph")
     def test_isolated_failure_and_empty_selection_preserve_diagnostics(self):
         for status, summary, expected in ((17, "failed", 17), (0, "No matching test cases were run", 1)):

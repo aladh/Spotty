@@ -22,6 +22,9 @@ class ScriptTestCoverageTests(unittest.TestCase):
         files = [path for paths in groups.values() for path in paths]
         self.assertEqual(len(files), len(set(files)))
         self.assertIn(ROOT / "Scripts/test_documentation_policy.py", groups["policy"])
+        self.assertIn(ROOT / "Scripts/test_verify.py", groups["policy"])
+        # Executing the clean/pin shell entry points requires the playback lane's zsh setup.
+        self.assertIn(ROOT / "Scripts/test_playback_pin.py", groups["playback"])
         for name in ("profile_synthetic", "trace_summary", "browsing_provenance"):
             self.assertIn(ROOT / f"Scripts/test_harness_{name}.py", groups["harness"])
         self.assertIn(ROOT / "Scripts/agent-review-tests/publication_test.py", groups["review"])

@@ -1,8 +1,11 @@
 """Validate the published consumer pin before any SwiftPM resolution."""
 
+import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -12,6 +15,32 @@ ASSET = "/SpottyPlaybackCore.xcframework.zip"
 
 
 class PlaybackPinTests(unittest.TestCase):
+    def test_clean_resets_the_graph_before_its_first_swift_command(self):
+        # This zsh entry point belongs to the playback lane, which installs its interpreter.
+        # Invoke it directly: verify.py's own reset would mask a missing reset in the script.
+        with tempfile.TemporaryDirectory(prefix="spotty-clean-graph-") as directory:
+            root = Path(directory).resolve()
+            (root / "Scripts").mkdir()
+            script = root / "Scripts/check-clean.sh"
+            shutil.copy2(ROOT / "Scripts/check-clean.sh", script)
+            log = root / "commands.jsonl"
+            swift = root / "swift"
+            swift.write_text(f"""#!{sys.executable}
+import json, os, sys
+with open(os.environ['VERIFY_TEST_LOG'], 'a') as log:
+    log.write(json.dumps({{'command': sys.argv, 'graph': os.environ.get('SPOTTY_PACKAGE_GRAPH')}}) + '\\n')
+raise SystemExit(17)
+""")
+            swift.chmod(0o755)
+            env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                   "VERIFY_TEST_LOG": str(log), "SPOTTY_PACKAGE_GRAPH": "engine-free"}
+            result = subprocess.run([str(script)], env=env, capture_output=True, text=True, timeout=10)
+            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertEqual(result.returncode, 17, result.stderr)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["graph"], "full")
+            self.assertEqual(calls[0]["command"][1:], ["package", "--package-path", str(root), "clean"])
+
     def test_only_canonical_versioned_release_urls_are_accepted(self):
         with tempfile.TemporaryDirectory(prefix="spotty-pin-") as directory:
             root = Path(directory)

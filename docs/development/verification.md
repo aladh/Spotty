@@ -11,11 +11,11 @@ Documentation-only edits need no app build.
 | --- | --- |
 | `preflight` | Discover tools without running or installing them |
 | `list` | Discover Swift tests, including the synthetic harness |
-| `test --test-product SpottyBoundaryTests --filter PlaybackPositionSliderChecks` | Build and run one test product with timeout diagnostics |
-| `test --test-product SpottyGatewayTests --filter KeymasterPersistence` | Gateway checks without building the desktop or playback engine adapter |
-| `test --test-product SpottyTestSupportTests` | Shared clocks, response gates, and polling without app or engine dependencies |
-| `test --test-product SpottyEngineAdapterTests` | C snapshot decoding, event delivery, and reconnect loads without the desktop |
-| `test --test-product SpottySessionRuntimeTests` | Headless runtime checks without compiling the desktop |
+| `test --filter SpottyBoundaryTests.PlaybackPositionSliderChecks` | Native control checks with timeout diagnostics |
+| `test --filter SpottyGatewayTests.KeymasterPersistence` | Gateway grant persistence checks |
+| `test --filter SpottyTestSupportTests` | Shared clocks, response gates, and polling |
+| `test --filter SpottyEngineAdapterTests` | C snapshot decoding, event delivery, and reconnect loads |
+| `test --filter SpottySessionRuntimeTests` | Headless runtime checks |
 | `domain --filter PlaybackReducer` | Domain-only tests, without app or engine dependencies |
 | `swift` | Swift, ABI, compiler boundaries, packaging, and synthetic helpers; no Rust needed |
 | `rust` | Compiled Rust, headers, and playback/harness helpers |
@@ -25,12 +25,14 @@ Documentation-only edits need no app build.
 | `clean` | Rebuild the engine and run complete Debug/Release verification |
 
 `list` and `test` forward SwiftPM arguments using the gate's SDK, caches, and warning policy.
-`--test-product` limits compilation; `--filter` limits execution. Omit `--skip-build` after edits.
+`--filter` limits execution while building the full graph. Swift 6.3.3 combines test targets into
+one product; target-named `--test-product` requires Swift 6.4. Omit `--skip-build` after edits.
 Empty or entirely skipped selections fail. Count executed tests from completion events;
 Swift's summary includes skipped probes.
 
-On macOS, Gateway, CatalogStorage, and TestSupport use `.build/engine-free` without playback or
-Sparkle; Domain uses `.build/domain`. Both isolated workspaces link the manifest and live inputs
+On macOS with Swift 6.4, `test --test-product SpottyGatewayTests` selects `.build/engine-free`
+without playback or Sparkle; CatalogStorage and TestSupport products do likewise. `domain` uses
+`.build/domain` on both toolchains. Isolated workspaces link the manifest and live inputs
 without changing the app lockfile. Explicit `--package-path` or `--scratch-path` disables automatic
 isolation; `--package-path .` selects the app graph. Discovery, unknown products, full gates, and
 shipping builds retain the complete graph.

@@ -136,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog="""Commands:
   preflight  Read-only discovery of local gate tools; no installation or launch
   list       swift test list, including the synthetic browsing harness
-  test       Watchdog-backed swift test; named engine-free products resolve independently
+  test       Watchdog-backed swift test; use --filter for portable test selection
   domain     Isolated portable domain tests; no app or engine dependencies
   swift      Existing Swift gate against the selected playback artifact
   rust       Existing Python playback/harness and compiled Rust/header checks
@@ -148,10 +148,11 @@ def main(argv: list[str] | None = None) -> int:
 Examples:
   python3 Scripts/verify.py list
   python3 Scripts/verify.py domain --filter PlaybackReducer
-  python3 Scripts/verify.py test --test-product SpottyBoundaryTests --filter PlaybackPositionSliderChecks
+  python3 Scripts/verify.py test --filter SpottyBoundaryTests.PlaybackPositionSliderChecks
   python3 Scripts/verify.py rust
 
-list/test/domain forward remaining arguments to SwiftPM. Explicit package/scratch paths
+list/test/domain forward remaining arguments to SwiftPM. Target-named --test-product needs
+Swift 6.4; Swift 6.3 combines test targets into one product. Explicit package/scratch paths
 retain the caller's graph; default named products use isolated caches. Focused checks optimize local
 iteration; Scripts/check.sh remains the complete gate. These commands do not launch
 apps, sign in, or start playback. Setup: docs/development/verification.md

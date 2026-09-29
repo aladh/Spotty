@@ -260,8 +260,8 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                 "Scripts/swift_test_watchdog.py", "--lane", "acceptance", "--repetition", "1",
                 "--timeout-seconds", "123", "--log-dir", str(output / "diagnostics"), "--require-tests", "--",
                 "swift", "test", "--disable-sandbox", "--no-parallel", "--package-path", str(root),
-                "--configuration", "debug", "--test-product", "SpottyBrowsingHarnessTests",
-                "--filter", "AcceptanceCorpusTests", "-Xswiftc", "-warnings-as-errors",
+                "--configuration", "debug", "--filter", "SpottyBrowsingHarnessTests.AcceptanceCorpusTests",
+                "-Xswiftc", "-warnings-as-errors",
             ])
             self.assertEqual(recorded["harness"], "1")
             self.assertTrue(recorded["sdk"])

@@ -2,7 +2,7 @@
 
 [Verification](verification.md) · [Architecture decisions](../architecture/adrs/README.md)
 
-Apply the [product contracts](../product/README.md) as well as
+Apply [product contracts](../product/README.md) and
 [PR acceptance](../../CONTRIBUTING.md#pr-acceptance).
 
 ## Evidence for the implemented scope
@@ -54,7 +54,7 @@ Queue-rendering uses `forceSynchronousLayout: false` for normal AppKit schedulin
 synchronous stress. Compare identical modes. A verified sandbox, zero unexpected mutations, and
 completed workload establish functional acceptance, not speed.
 
-Opt-in probes:
+Opt-in probes (`--test-product` requires [Swift 6.4](verification.md#normal-verification)):
 
 | Output variable | Filter | Measurement |
 | --- | --- | --- |
@@ -153,7 +153,7 @@ SPOTTY_LIFECYCLE_REPORT=/tmp/spotty-lifecycle.json cargo test --locked \
 SPOTTY_STALLED_SHUTDOWN_REPORT=/tmp/spotty-stalled-shutdown.json cargo test --locked \
   --manifest-path Backend/spotty-playback/Cargo.toml measure_stalled_spirc_task_deadline -- --ignored
 SPOTTY_SWIFT_LIFECYCLE_REPORT=/tmp/spotty-swift-drain.json \
-  python3 Scripts/verify.py test --test-product=SpottySessionRuntimeTests --filter PlaybackEffectDrainTests
+  python3 Scripts/verify.py test --filter SpottySessionRuntimeTests.PlaybackEffectDrainTests
 ```
 
 These credential-free probes measure synthetic recovery and task drains without Spotify or audio.

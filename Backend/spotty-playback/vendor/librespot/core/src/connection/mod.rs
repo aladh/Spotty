@@ -196,33 +196,103 @@ pub async fn authenticate(
 #[cfg(test)]
 mod spotty_deadline_tests {
     use super::*;
-    use tokio::{io::AsyncReadExt, net::TcpListener};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::{mpsc, oneshot},
+    };
+
+    // Keep the real clock running until the socket has reached the intended phase. Starting
+    // paused would let Tokio auto-advance a deadline before the loopback I/O is even observed.
+    async fn advance_after_socket_progress(
+        progress: &mut mpsc::UnboundedReceiver<()>,
+        by: Duration,
+    ) {
+        tokio::time::timeout(Duration::from_secs(2), progress.recv())
+            .await
+            .expect("loopback phase reached")
+            .expect("server reported socket progress");
+        tokio::time::pause();
+        tokio::time::advance(by).await;
+        tokio::time::resume();
+    }
+
+    async fn read_proxy_request(socket: &mut TcpStream) {
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            let byte = socket.read_u8().await.expect("complete CONNECT request");
+            request.push(byte);
+            assert!(
+                request.len() <= 4096,
+                "synthetic CONNECT request is bounded"
+            );
+        }
+        assert!(request.starts_with(b"CONNECT "));
+    }
 
     #[tokio::test]
     async fn spotty_proxy_setup_and_handshake_share_attempt_deadline() {
-        for proxy_setup in [true, false] {
+        enum Phase {
+            ProxySetup,
+            DirectHandshake,
+            SlowProxyThenHandshake,
+        }
+        for phase in [
+            Phase::ProxySetup,
+            Phase::DirectHandshake,
+            Phase::SlowProxyThenHandshake,
+        ] {
+            let uses_proxy = !matches!(phase, Phase::DirectHandshake);
+            let delayed_tunnel = matches!(phase, Phase::SlowProxyThenHandshake);
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
+            let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+            let (open_tunnel, tunnel_allowed) = oneshot::channel();
             let server = tokio::spawn(async move {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut bytes = [0; 4096];
-                // Neither complete the proxy tunnel nor answer the AP handshake.
+                if uses_proxy {
+                    read_proxy_request(&mut socket).await;
+                } else {
+                    assert!(
+                        socket.read(&mut bytes).await.unwrap() > 0,
+                        "AP handshake started"
+                    );
+                }
+                progress_tx.send(()).unwrap();
+                if delayed_tunnel {
+                    tunnel_allowed.await.unwrap();
+                    socket.write_all(b"HTTP/1.1 200 OK\r\n\r\n").await.unwrap();
+                    assert!(
+                        socket.read(&mut bytes).await.unwrap() > 0,
+                        "tunneled handshake started"
+                    );
+                    progress_tx.send(()).unwrap();
+                }
+                // Leave the chosen phase stalled, then observe EOF when its attempt expires.
                 while socket.read(&mut bytes).await.unwrap() != 0 {}
             });
             let proxy = Url::parse(&format!("http://{address}")).unwrap();
             let started = tokio::time::Instant::now();
-            let result = tokio::time::timeout(
-                Duration::from_secs(7),
-                connect("127.0.0.1", address.port(), proxy_setup.then_some(&proxy)),
-            )
-            .await
-            .unwrap();
+            let request = tokio::spawn(async move {
+                connect("127.0.0.1", address.port(), uses_proxy.then_some(&proxy)).await
+            });
+            if delayed_tunnel {
+                advance_after_socket_progress(&mut progress_rx, Duration::from_secs(2)).await;
+                open_tunnel.send(()).unwrap();
+                advance_after_socket_progress(&mut progress_rx, Duration::from_secs(3)).await;
+            } else {
+                advance_after_socket_progress(&mut progress_rx, Duration::from_secs(5)).await;
+            }
+            let result = tokio::time::timeout(Duration::from_secs(1), request)
+                .await
+                .expect("attempt must use the original shared deadline")
+                .unwrap();
             assert_eq!(result.err().unwrap().kind(), io::ErrorKind::TimedOut);
             assert!(started.elapsed() >= Duration::from_secs(5));
-            // The expired attempt drops its socket instead of leaking a pending setup.
             tokio::time::timeout(Duration::from_secs(1), server)
                 .await
-                .unwrap()
+                .expect("expired attempt releases its socket")
                 .unwrap();
         }
     }
@@ -231,24 +301,31 @@ mod spotty_deadline_tests {
     async fn spotty_stalled_proxy_allows_bounded_retry() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
         let server = tokio::spawn(async move {
             for _ in 0..2 {
                 let (mut socket, _) = listener.accept().await.unwrap();
+                read_proxy_request(&mut socket).await;
+                progress_tx.send(()).unwrap();
                 let mut bytes = [0; 4096];
                 while socket.read(&mut bytes).await.unwrap() != 0 {}
             }
         });
         let proxy = Url::parse(&format!("http://{address}")).unwrap();
-        let result = tokio::time::timeout(
-            Duration::from_secs(12),
-            connect_with_retry("127.0.0.1", address.port(), Some(&proxy), 1),
-        )
-        .await
-        .unwrap();
+        let request = tokio::spawn(async move {
+            connect_with_retry("127.0.0.1", address.port(), Some(&proxy), 1).await
+        });
+        for _ in 0..2 {
+            advance_after_socket_progress(&mut progress_rx, Duration::from_secs(5)).await;
+        }
+        let result = tokio::time::timeout(Duration::from_secs(1), request)
+            .await
+            .expect("both attempts are bounded")
+            .unwrap();
         assert_eq!(result.err().unwrap().kind(), io::ErrorKind::TimedOut);
         tokio::time::timeout(Duration::from_secs(1), server)
             .await
-            .unwrap()
+            .expect("both expired attempts release their sockets")
             .unwrap();
     }
 }

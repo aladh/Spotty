@@ -43,7 +43,7 @@ pub(crate) fn start_reconnect_loop(
 }
 
 pub(crate) fn session_is_present() -> bool {
-    with_engine(|engine| engine.session.is_some())
+    with_engine(|engine| engine.session().is_some())
 }
 
 pub(crate) async fn acquire_lifecycle() -> tokio::sync::MutexGuard<'static, ()> {

@@ -59,16 +59,30 @@ if (( $# == 1 )); then
     exit 0
 fi
 
-if ! command -v shasum >/dev/null 2>&1; then
-    print -u2 "shasum is required to identify playback artifact inputs"
+if ! command -v python3 >/dev/null 2>&1; then
+    print -u2 "Python 3 is required to identify playback artifact inputs"
     exit 1
 fi
 
 export LC_ALL=C
-{
-    for input_path in "${input_paths[@]}"; do
-        relative_path="${input_path#$project_root/}"
-        file_hash="$(shasum -a 256 "$input_path" | awk '{print $1}')"
-        print -r -- "$relative_path $file_hash"
-    done
-} | shasum -a 256 | awk '{print $1}'
+# Keep the ordered path/content manifest, but stream every file through one hashing process.
+# This command is called repeatedly during candidate selection and artifact validation.
+# NUL-framed input keeps large inventories out of the argument vector.
+printf '%s\0' "${input_paths[@]}" | python3 -c '
+import hashlib
+import os
+import sys
+
+root = os.fsencode(sys.argv[1])
+manifest = hashlib.sha256()
+for path in filter(None, sys.stdin.buffer.read().split(b"\0")):
+    content = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(128 * 1024), b""):
+            content.update(chunk)
+    relative = os.path.relpath(path, root)
+    # Preserve the shasum escaped-filename marker included by the original awk first-field rule.
+    escaped = b"\\" if b"\\" in path or b"\n" in path else b""
+    manifest.update(relative + b" " + escaped + content.hexdigest().encode("ascii") + b"\n")
+print(manifest.hexdigest())
+' "$project_root"

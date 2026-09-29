@@ -527,7 +527,7 @@ pub(crate) async fn create_spirc(
     credentials: &librespot_core::authentication::Credentials,
     player: Arc<librespot_playback::player::Player>,
     mixer: Arc<SoftMixer>,
-) -> Result<(Arc<Spirc>, JoinHandle<()>), InitializationFailure> {
+) -> Result<(Arc<Spirc>, OwnedTask), InitializationFailure> {
     let device_name = configured_connect_device_name().ok_or(InitializationFailure::Transient)?;
     let connect_config = create_connect_config(&device_name);
 
@@ -542,7 +542,7 @@ pub(crate) async fn create_spirc(
     .map_err(|error| classify_initialization_error(&error))?;
 
     let spirc_arc = Arc::new(spirc);
-    let spirc_task = RUNTIME.spawn(spirc_task);
+    let spirc_task = OwnedTask::new(RUNTIME.spawn(spirc_task));
 
     debug!(
         "[WAKE +{}ms] Spirc constructed for pending generation",
@@ -567,10 +567,10 @@ pub(crate) async fn create_spirc(
 /// re-PUTing that id with a partial state would disturb its registration rather than ask a
 /// question.
 /// The returned handle belongs to the session generation and must be retained until teardown.
-pub(crate) fn spawn_initial_cluster_fetch(session: &Session, generation: u64) -> JoinHandle<()> {
+pub(crate) fn spawn_initial_cluster_fetch(session: &Session, generation: u64) -> OwnedTask {
     let session = session.clone();
 
-    RUNTIME.spawn(async move {
+    OwnedTask::new(RUNTIME.spawn(async move {
         // The connection id is assigned over the dealer websocket, which is launched
         // alongside the session rather than before it, so it can be a moment behind.
         let mut connection_id = String::new();
@@ -616,7 +616,7 @@ pub(crate) fn spawn_initial_cluster_fetch(session: &Session, generation: u64) ->
             }
             Err(e) => debug!("Initial cluster fetch failed: {}", e),
         }
-    })
+    }))
 }
 
 /// Registers a hidden connect-state member and returns the cluster the service answers with.
@@ -800,7 +800,7 @@ pub(crate) fn apply_cluster(generation: u64, origin: ClusterOrigin, cluster: Clu
 pub(crate) fn spawn_cluster_listener(
     session: &Session,
     generation: u64,
-) -> Result<JoinHandle<()>, String> {
+) -> Result<OwnedTask, String> {
     let queue_stream = session
         .dealer()
         .listen_for(
@@ -876,5 +876,5 @@ pub(crate) fn spawn_cluster_listener(
         spawn_reconnection_loop_for_generation(intent, generation);
     });
 
-    Ok(task)
+    Ok(OwnedTask::new(task))
 }

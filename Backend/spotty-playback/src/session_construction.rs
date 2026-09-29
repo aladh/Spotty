@@ -26,121 +26,6 @@ fn create_librespot_player(session: &Session) -> Arc<Player> {
     )
 }
 
-/// Keeps a Session invalidated if an initialization future is cancelled at an await point.
-///
-/// `Session`'s `Drop` implementation only releases its Arc; it does not close the AP, dealer, or
-/// channel managers. The guard is therefore kept alive until the transaction commits, and its
-/// clone is harmless while the published Session is still in use.
-pub(crate) struct SessionShutdownGuard {
-    session: Option<Session>,
-}
-
-impl SessionShutdownGuard {
-    pub(crate) fn new(session: Session) -> Self {
-        Self {
-            session: Some(session),
-        }
-    }
-
-    pub(crate) fn disarm(&mut self) {
-        self.session = None;
-    }
-}
-
-impl Drop for SessionShutdownGuard {
-    fn drop(&mut self) {
-        if let Some(session) = self.session.as_ref() {
-            session.shutdown();
-        }
-    }
-}
-
-/// Owns local resources until the generation reaches the atomic publication point.
-///
-/// Tokio detaches a task when its `JoinHandle` is simply dropped. This guard aborts every staged
-/// handle and shuts down both Spirc and Session during cancellation, so a cancelled build cannot
-/// leave work running after its future is gone. The explicit async rollback path below additionally
-/// awaits those handles before proceeding to another build.
-struct StagedGenerationGuard {
-    spirc: Option<Arc<Spirc>>,
-    session: Option<Session>,
-    tasks: Vec<JoinHandle<()>>,
-    armed: bool,
-}
-
-impl StagedGenerationGuard {
-    fn new(spirc: Arc<Spirc>, session: Session, first_task: JoinHandle<()>) -> Self {
-        Self {
-            spirc: Some(spirc),
-            session: Some(session),
-            tasks: vec![first_task],
-            armed: true,
-        }
-    }
-
-    fn take_for_publish(mut self) -> (Arc<Spirc>, Session, Vec<JoinHandle<()>>) {
-        self.armed = false;
-        (
-            self.spirc.take().expect("staged Spirc exists at commit"),
-            self.session
-                .take()
-                .expect("staged Session exists at commit"),
-            std::mem::take(&mut self.tasks),
-        )
-    }
-
-    async fn rollback(mut self) {
-        self.armed = false;
-        let spirc = self
-            .spirc
-            .take()
-            .expect("staged Spirc exists before rollback");
-        let session = self
-            .session
-            .take()
-            .expect("staged Session exists before rollback");
-        rollback_staged_generation(spirc, session, std::mem::take(&mut self.tasks)).await;
-    }
-}
-
-impl Drop for StagedGenerationGuard {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        let spirc = self.spirc.take();
-        let tasks = std::mem::take(&mut self.tasks);
-        shutdown_spirc_and_tasks_sync(
-            spirc.as_ref(),
-            self.session.as_ref(),
-            tasks,
-            "staged construction cancellation",
-        );
-        if let Some(session) = self.session.as_ref() {
-            session.shutdown();
-        }
-    }
-}
-
-/// Aborts a generation that has been constructed but not published.
-///
-/// Every handle is aborted and joined after Spirc shutdown has been queued.
-/// This helper is only called by the lifecycle owner; generation children request recovery and do
-/// not call it themselves, so no task can await or abort its own handle.
-async fn rollback_staged_generation(
-    spirc: Arc<Spirc>,
-    session: Session,
-    tasks: Vec<JoinHandle<()>>,
-) {
-    shutdown_spirc_and_tasks(
-        Some(&spirc),
-        Some(&session),
-        tasks,
-        "staged construction rollback",
-    )
-    .await;
-}
-
 /// Rolls back an installed generation only if it still owns the engine state.
 ///
 /// Cleanup can invalidate the generation while this build is waiting for a rehydration event. In
@@ -153,7 +38,9 @@ async fn rollback_installed_generation(generation: u64) {
     }
 
     let _store = enter_store_section();
-    teardown_engine_resources("initialization rollback").await;
+    if let Some(resources) = take_engine_resources_owned(generation) {
+        resources.shutdown("initialization rollback").await;
+    }
     if with_connection_owned(generation, |c| {
         c.spirc_ready = false;
         c.session_connected = false;
@@ -193,11 +80,34 @@ struct InstalledGenerationGuard {
 }
 
 impl InstalledGenerationGuard {
-    fn new(generation: u64) -> Self {
-        Self {
+    fn publish(
+        generation: u64,
+        resources: GenerationResources,
+        device_id: String,
+        active_device: bool,
+    ) -> Result<Self, GenerationResources> {
+        let _store = enter_store_section();
+        publish_engine_generation(generation, resources, device_id, active_device)?;
+        Ok(Self {
             generation,
             armed: true,
+        })
+    }
+
+    async fn attach_player_events(&self, task: PlayerEventTask) -> Result<(), StaleGeneration> {
+        if let Err(refused) = register_player_events(self.generation, task) {
+            refused.cancel_and_join().await;
+            return Err(StaleGeneration);
         }
+        Ok(())
+    }
+
+    async fn attach_observer(&self, task: OwnedTask) -> Result<(), StaleGeneration> {
+        if let Err(refused) = register_engine_observer(self.generation, task) {
+            refused.cancel_and_join().await;
+            return Err(StaleGeneration);
+        }
+        Ok(())
     }
 
     fn disarm(&mut self) {
@@ -214,20 +124,9 @@ impl Drop for InstalledGenerationGuard {
         }
 
         let _store = enter_store_section();
-        let resources = take_engine_resources();
-        if let Some(tx) = resources.stop_tx {
-            let _ = tx.send(());
-        }
-        shutdown_spirc_and_tasks_sync(
-            resources.spirc.as_ref(),
-            resources.session.as_ref(),
-            resources.tasks,
-            "installed generation cancellation",
-        );
-        if let Some(session) = resources.session.as_ref() {
-            session.shutdown();
-        }
-        clear_engine_objects();
+        // Taking under the same generation check closes the check-then-take interval.
+        // The returned owner drains and releases every object outside ENGINE.
+        drop(take_engine_resources_owned(self.generation));
         let _ = with_connection_owned(self.generation, |c| {
             c.spirc_ready = false;
             c.session_connected = false;
@@ -332,7 +231,7 @@ pub(crate) async fn build_player_owned(
     let device_id = configured_device_id().ok_or(InitializationFailure::Transient)?;
     let (session, credentials) =
         create_session(&device_id, access_token).map_err(|_| InitializationFailure::Transient)?;
-    let mut session_guard = SessionShutdownGuard::new(session.clone());
+    let session_guard = SessionShutdownGuard::new(session.clone());
 
     // Create new mixer
     let mixer_config = MixerConfig::default();
@@ -354,11 +253,12 @@ pub(crate) async fn build_player_owned(
                 return Err(failure);
             }
         };
-    let staged = StagedGenerationGuard::new(spirc.clone(), session.clone(), spirc_task);
+    let event_observer = observer.clone();
+    let staged =
+        GenerationResources::new(session_guard, observer, mixer, spirc.clone(), spirc_task);
 
     if stopped() {
-        staged.rollback().await;
-        session_guard.disarm();
+        staged.shutdown("staged construction rollback").await;
         return Err(InitializationFailure::Transient);
     }
 
@@ -378,8 +278,7 @@ pub(crate) async fn build_player_owned(
                     }
                 };
                 debug!("Auto-activation failed ({:?})", failure);
-                staged.rollback().await;
-                session_guard.disarm();
+                staged.shutdown("staged construction rollback").await;
                 publish_initialization_failure(current_generation, failure, recovery);
                 return Err(failure);
             }
@@ -396,59 +295,36 @@ pub(crate) async fn build_player_owned(
         SESSION_GENERATION.load(Ordering::SeqCst),
     ) || stopped()
     {
-        staged.rollback().await;
-        session_guard.disarm();
+        staged.shutdown("staged construction rollback").await;
         return Err(InitializationFailure::Transient);
     }
 
-    // Every constructor has succeeded. Publish the complete generation in one store section, in
-    // one lock acquisition; no callback is emitted until all object slots and task ownership are
-    // present, and no reader can observe the generation half-installed.
-    let (staged_spirc, staged_session, staged_tasks) = staged.take_for_publish();
-    // Ownership moves into the engine state below; the local clone must not shut down the
-    // published Session if a later await is cancelled. `InstalledGenerationGuard` now owns the
-    // cancellation rollback for the published generation.
-    session_guard.disarm();
-    let publication = {
-        let _store = enter_store_section();
-        publish_engine_generation(
-            current_generation,
-            StagedEngine {
-                session: staged_session,
-                player: observer,
-                mixer,
-                spirc: staged_spirc,
-                tasks: staged_tasks,
-                device_id,
-                active_device,
-            },
-        )
+    // Publication transfers the same protected owner and returns an armed installation guard.
+    // There is no tuple of unguarded handles or separate Session disarm at this boundary.
+    let mut installed_guard = match InstalledGenerationGuard::publish(
+        current_generation,
+        staged,
+        device_id,
+        active_device,
+    ) {
+        Ok(guard) => guard,
+        Err(rejected) => {
+            debug!(
+                "Publication refused: generation {} was superseded or occupied",
+                current_generation
+            );
+            rejected.shutdown("refused construction publication").await;
+            return Err(InitializationFailure::Transient);
+        }
     };
-    // A cleanup that bumped the generation between the check above and this store is refused
-    // here rather than overwriting its successor. The refusal hands the staged objects back so
-    // they can be drained instead of detached.
-    if let Err(rejected) = publication {
-        debug!(
-            "Publication refused: generation {} was superseded",
-            current_generation
-        );
-        rollback_staged_generation(rejected.spirc, rejected.session, rejected.tasks).await;
-        return Err(InitializationFailure::Transient);
-    }
-    let mut installed_guard = InstalledGenerationGuard::new(current_generation);
 
-    // The production objects and the initial Spirc task are now published. Start the remaining
-    // generation tasks only after the state exists, and append each handle to the owned registry
-    // before the next await or fallible setup step. A listener setup failure therefore uses the
-    // same async rollback as an activation failure. Every append names this generation, so a
-    // handle offered after a replacement is aborted rather than adopted.
-    let Some(published_player) = current_player() else {
-        return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
-    };
-    let (event_stop_tx, event_task) =
-        start_player_event_pump(published_player, event_channel, current_generation);
-    if set_player_event_tx(current_generation, event_stop_tx).is_err()
-        || push_engine_task(current_generation, event_task).is_err()
+    // Every spawn returns an owning value. Registration either adopts it atomically or joins
+    // its cancellation outside ENGINE; the installation guard stays armed during that await.
+    let event_task = start_player_event_pump(event_observer, event_channel, current_generation);
+    if installed_guard
+        .attach_player_events(event_task)
+        .await
+        .is_err()
     {
         return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
     }
@@ -461,17 +337,15 @@ pub(crate) async fn build_player_owned(
             );
         }
     };
-    if push_engine_task(current_generation, cluster_task).is_err()
-        || push_engine_task(
-            current_generation,
-            spawn_initial_cluster_fetch(&session, current_generation),
-        )
-        .is_err()
-        || push_engine_task(
-            current_generation,
-            spawn_session_health_check(current_generation),
-        )
-        .is_err()
+    if installed_guard.attach_observer(cluster_task).await.is_err()
+        || installed_guard
+            .attach_observer(spawn_initial_cluster_fetch(&session, current_generation))
+            .await
+            .is_err()
+        || installed_guard
+            .attach_observer(spawn_session_health_check(current_generation))
+            .await
+            .is_err()
     {
         return Err(abandon_installed_generation(current_generation, &mut installed_guard).await);
     }
@@ -597,6 +471,180 @@ pub(crate) async fn build_player_owned(
 mod construction_tests {
     use super::*;
 
+    struct RestoreEngine {
+        generation: u64,
+        resources: Option<GenerationResources>,
+        connection: ConnectionState,
+    }
+
+    impl RestoreEngine {
+        fn capture() -> Self {
+            Self {
+                resources: take_engine_resources(),
+                connection: with_connection(std::mem::take),
+                generation: set_session_generation_for_test(41),
+            }
+        }
+    }
+
+    impl Drop for RestoreEngine {
+        fn drop(&mut self) {
+            drop(replace_engine_resources_for_test(self.resources.take()));
+            with_connection(|connection| *connection = self.connection.clone());
+            set_session_generation_for_test(self.generation);
+        }
+    }
+
+    async fn parked_registration() -> (OwnedTask, tokio::sync::oneshot::Receiver<()>) {
+        struct Stopped(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for Stopped {
+            fn drop(&mut self) {
+                if let Some(sender) = self.0.take() {
+                    let _ = sender.send(());
+                }
+            }
+        }
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel();
+        let task = OwnedTask::new(tokio::spawn(async move {
+            let _stopped = Stopped(Some(stopped_tx));
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+        }));
+        tokio::time::timeout(Duration::from_secs(2), started_rx)
+            .await
+            .expect("registration task starts")
+            .expect("task signaled start");
+        (task, stopped_rx)
+    }
+
+    #[test]
+    fn publication_rejection_retires_candidate_and_preserves_installed_generation() {
+        let _guard = lock_lifecycle_test_globals();
+        let _restore = RestoreEngine::capture();
+        block_on_export(async {
+            let current = Session::new(SessionConfig::default(), None);
+            let installed = InstalledGenerationGuard::publish(
+                41,
+                GenerationResources::for_test(Some(current.clone()), vec![]),
+                "current".into(),
+                true,
+            )
+            .unwrap_or_else(|_| panic!("empty current slot accepts publication"));
+            for rejected_generation in [40, 41] {
+                let candidate = Session::new(SessionConfig::default(), None);
+                let (task, mut stopped) = parked_registration().await;
+                let mut resources = GenerationResources::for_test(Some(candidate.clone()), vec![]);
+                resources.add_observer(task);
+                let rejected = match InstalledGenerationGuard::publish(
+                    rejected_generation,
+                    resources,
+                    "rejected".into(),
+                    false,
+                ) {
+                    Err(resources) => resources,
+                    Ok(_) => panic!("stale or occupied publication must be refused"),
+                };
+                drop(rejected);
+                assert!(candidate.is_invalid());
+                assert_eq!(stopped.try_recv(), Ok(()));
+                assert!(!current.is_invalid());
+                assert_eq!(
+                    with_connection(|c| c.device_id.clone()).as_deref(),
+                    Some("current")
+                );
+                assert!(with_connection(|c| c.is_active_device));
+            }
+            drop(installed);
+            assert!(current.is_invalid());
+            assert!(current_session().is_none());
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn refused_children_are_joined_and_stale_installation_cannot_retire_replacement() {
+        let _guard = lock_lifecycle_test_globals();
+        let _restore = RestoreEngine::capture();
+        block_on_export(async {
+            let current = Session::new(SessionConfig::default(), None);
+            let installed = InstalledGenerationGuard::publish(
+                41,
+                GenerationResources::for_test(Some(current.clone()), vec![]),
+                "current".into(),
+                true,
+            )
+            .unwrap_or_else(|_| panic!("current generation installs"));
+            let (task, mut accepted_stopped) = parked_registration().await;
+            let (stop, _receiver) = mpsc::unbounded_channel();
+            installed
+                .attach_player_events(PlayerEventTask::from_owned(stop, task))
+                .await
+                .unwrap();
+
+            let (duplicate, mut duplicate_stopped) = parked_registration().await;
+            let (stop, _receiver) = mpsc::unbounded_channel();
+            assert!(tokio::time::timeout(
+                Duration::from_secs(2),
+                installed.attach_player_events(PlayerEventTask::from_owned(stop, duplicate),)
+            )
+            .await
+            .unwrap()
+            .is_err());
+            assert_eq!(duplicate_stopped.try_recv(), Ok(()));
+            assert_eq!(
+                accepted_stopped.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            );
+
+            let replacement_generation = advance_session_generation();
+            take_engine_resources()
+                .unwrap()
+                .shutdown("replace test generation")
+                .await;
+            assert_eq!(accepted_stopped.try_recv(), Ok(()));
+            assert!(current.is_invalid());
+            let replacement_session = Session::new(SessionConfig::default(), None);
+            let replacement = InstalledGenerationGuard::publish(
+                replacement_generation,
+                GenerationResources::for_test(Some(replacement_session.clone()), vec![]),
+                "replacement".into(),
+                false,
+            )
+            .unwrap_or_else(|_| panic!("replacement generation installs"));
+
+            let (late_pump, mut late_pump_stopped) = parked_registration().await;
+            let (stop, _receiver) = mpsc::unbounded_channel();
+            assert!(tokio::time::timeout(
+                Duration::from_secs(2),
+                installed.attach_player_events(PlayerEventTask::from_owned(stop, late_pump),)
+            )
+            .await
+            .unwrap()
+            .is_err());
+            assert_eq!(late_pump_stopped.try_recv(), Ok(()));
+            let (late_observer, mut late_observer_stopped) = parked_registration().await;
+            assert!(tokio::time::timeout(
+                Duration::from_secs(2),
+                installed.attach_observer(late_observer)
+            )
+            .await
+            .unwrap()
+            .is_err());
+            assert_eq!(late_observer_stopped.try_recv(), Ok(()));
+
+            drop(installed);
+            assert!(!replacement_session.is_invalid());
+            assert_eq!(
+                with_connection(|c| c.device_id.clone()).as_deref(),
+                Some("replacement")
+            );
+            drop(replacement);
+            assert!(replacement_session.is_invalid());
+        })
+        .unwrap();
+    }
+
     #[test]
     fn cancelling_staged_construction_stops_its_task_and_session() {
         struct TaskStopped(Option<tokio::sync::oneshot::Sender<()>>);
@@ -618,12 +666,7 @@ mod construction_tests {
                 std::future::pending::<()>().await;
             });
             started_rx.await.expect("staged task started");
-            let staged = StagedGenerationGuard {
-                spirc: None,
-                session: Some(session.clone()),
-                tasks: vec![task],
-                armed: true,
-            };
+            let staged = GenerationResources::for_test(Some(session.clone()), vec![task]);
             drop(staged);
             assert!(session.is_invalid());
             tokio::time::timeout(Duration::from_secs(2), stopped_rx)

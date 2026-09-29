@@ -7,7 +7,8 @@ crates throughout the pinned dependency graph. Other librespot crates remain Git
 Changes from that source:
 
 - AP connection timeout includes socket/proxy setup and handshake. Local stalled sockets
-  exercise both phases and retry resource release in `spotty_deadline_tests`.
+  exercise both phases, their shared budget, and retry resource release in `spotty_deadline_tests`.
+  Tests advance Tokio time only after real loopback progress; no production timeout is shortened.
 - The per-load decoder failure classification retains an explicit `AudioKeyError::AesKey`
   refusal. An unencrypted file may still decode. Timeouts remain ordinary failures.
 - Only the current load emits `AudioKeyRefused`, then stops the player and sink using its

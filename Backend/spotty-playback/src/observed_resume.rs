@@ -383,7 +383,7 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
                             .as_ref()
                             .is_some_and(|local| local.track_uri == self.track_uri)
                     {
-                        if let Some(spirc) = engine.spirc.as_ref() {
+                        if let Some(spirc) = engine.spirc() {
                             let _ = spirc.pause();
                         }
                     }
@@ -428,7 +428,7 @@ fn resume_observed(expected: ObservedResumeTarget, generation: u64) -> i32 {
                         transferred,
                     )
                 };
-                let Some(spirc) = engine.spirc.as_ref() else {
+                let Some(spirc) = engine.spirc() else {
                     return Err(ERROR_NOT_CONNECTED);
                 };
                 let result = match action {

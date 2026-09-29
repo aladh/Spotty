@@ -178,6 +178,67 @@ private func fixtureTrack(id: String, uri: String, duration: TimeInterval = 1) -
 struct PlaylistMutationTests {
     @Test
     @MainActor
+    func productionCompositionReleasesItsQueryAndMutationOwners() {
+        let services = ScriptedPlaylistServices()
+        let session = CatalogSessionAvailability(isAvailable: true)
+        let feedback = TransientFeedbackPresenter(clock: HarnessClock.parked())
+        defer { feedback.dismiss(); services.cancelPending() }
+        var catalog: CatalogStore? = makeCatalog(services: services, session: session, feedback: feedback)
+        weak let query = catalog?.playlistStore
+        weak let mutations = catalog?.playlistMutations
+        #expect(query != nil && mutations != nil)
+
+        catalog = nil
+
+        #expect(query == nil, "playlist composition must not retain a query/controller cycle")
+        #expect(mutations == nil)
+    }
+
+    @Test(arguments: [false, true])
+    @MainActor
+    func admittedDuplicateRemovalInvalidatesItsRetainedRouteAfterNavigation(uncertain: Bool) async throws {
+        let (services, _, feedback, catalog, owned) = try await loadedOwnedPlaylist(includeForeign: true)
+        defer {
+            catalog.reset()
+            feedback.dismiss()
+            services.cancelPending()
+        }
+        await services.setPlaylist(foreignContents, id: "foreign")
+        catalog.playlistMutations.removeOccurrences(selectedIDs: ["uid-b"], from: owned)
+        try await requireEventually { await services.isParked }
+        let removal = try #require(await services.removeCalls.first)
+        #expect(removal.uids == ["uid-b"], "the sent write keeps the selected duplicate's server occurrence")
+        await catalog.playlistStore.load(foreignItem)
+        let foreignVersion = catalog.playlistStore.trackCollection.version
+        let readsBeforeOutcome = await services.playlistLoadCount
+        await services.setPlaylist(
+            CatalogPlaylistSnapshot(
+                description: "", ownerURI: "spotify:user:me",
+                tracks: [occurrence("uid-a", track: "dup")], item: ownedItem),
+            id: "owned")
+
+        if uncertain {
+            await services.failPark(PlaylistMutationFailure.failed)
+        } else {
+            await services.completePark()
+        }
+        try await requireEventually { feedback.message?.kind == (uncertain ? .failure : .success) }
+        #expect(catalog.playlistStore.loadedURI == foreignItem.uri)
+        #expect(catalog.playlistStore.trackCollection.version == foreignVersion)
+        #expect(await services.playlistLoadCount == readsBeforeOutcome)
+        catalog.playlistStore.prepare(owned)
+        #expect(catalog.playlistStore.tracks.isEmpty, "a sent offscreen write invalidates its captured retained route")
+        #expect(!catalog.playlistStore.canEditLoadedContent)
+
+        await catalog.playlistStore.load(owned)
+
+        #expect(catalog.playlistStore.tracks.map(\.id) == ["uid-a"])
+        #expect(await services.playlistLoadCount == readsBeforeOutcome + 1)
+        #expect(await services.removeCalls.count == 1, "returning to the route reconciles by reading")
+    }
+
+    @Test
+    @MainActor
     func missingFreshOwnerCannotInheritEditAuthorityFromSelection() async throws {
         let services = ScriptedPlaylistServices()
         await services.setLibrary([ownedLibrary])

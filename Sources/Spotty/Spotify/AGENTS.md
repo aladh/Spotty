@@ -10,10 +10,12 @@ and playback boundaries.
   owns MainActor presentation adapters, not account/playback authority or private wire models.
 - Runtime effects, command permits, reducer acceptance, queue precedence, and teardown belong in
   `SpottySessionRuntime`. Views read equatable publications, never the reducer snapshot.
-- Detail projections use `CatalogDetailCoordinator`; keep selection, retention, freshness, and
-  entity merging inside that owner. `DiscographyStore` owns child publication and one union entity
-  query; its album children reuse the coordinator's read lifecycle. Other catalog presentation requests use
-  `CatalogReadFlights`; playlist write settlement stays in `PlaylistMutationController`. Revalidate after suspension; cancellation alone does not prove an
+- `PlaylistStore` owns its query lifecycle; album and artist projections use `CatalogDetailCoordinator`.
+  Keep selection, retention, freshness, and entity merging inside those owners. Playlist feature
+  composition resets the query and separate mutation owner together. `DiscographyStore` owns child
+  publication and one union entity query; its album children reuse the coordinator's read lifecycle.
+  Other catalog presentation requests use `CatalogReadFlights`; playlist write settlement stays in
+  `PlaylistMutationController`. Revalidate after suspension; cancellation alone does not prove an
   older account or route can no longer complete.
 - [ADR 009](../../../docs/architecture/adrs/ADR-009-account-catalog-retention.md) owns persistent and
   retained catalog freshness. A cached owner or occurrence ID cannot enable a destructive edit.

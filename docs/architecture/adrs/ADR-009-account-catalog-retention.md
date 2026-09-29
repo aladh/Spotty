@@ -50,12 +50,15 @@ Unavailable, corrupt, or unsupported storage leaves live browsing available with
 migrating unknown content. [Catalog interaction](../../product/catalog-interaction.md) owns visible
 loading, refusal, retention, and retry behavior.
 
+[`PlaylistStore`](../../../Sources/Spotty/Spotify/PlaylistStore.swift) owns playlist selection,
+cached/live reads, bounded route retention, freshness, refusal, and entity merging.
 [`CatalogDetailCoordinator`](../../../Sources/Spotty/Spotify/CatalogDetailCoordinator.swift) owns
-selection, cached/live reads, bounded route retention, freshness, refusal, and entity merging.
-Concrete projections expose content without controlling read lifecycle. Discography owns its bounded
-album children, aggregate publication, and one union entity query; children publish cached/live
-replacements immediately without private metadata repositories or subscriptions. Revisited routes preserve collection versions and
-window-local search, selection, sort, and scroll; account replacement retires them. Reconnect may
+the corresponding album and artist lifecycles; their concrete projections expose content without
+controlling reads. Playlist feature composition resets the query and its separate mutation owner
+together on account replacement. Discography owns its bounded album children, aggregate publication,
+and one union entity query; children publish cached/live replacements immediately without private
+metadata repositories or subscriptions. Revisited routes preserve collection versions and window-local
+search, selection, sort, and scroll; account replacement retires them. Reconnect may
 preserve rows, but stale content cannot enable occurrence removal. Successful, uncertain, or cancelled
 admitted playlist writes invalidate the retained route, even offscreen. Cancelled reconciliation
 cannot restore fresh authority.

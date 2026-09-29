@@ -15,12 +15,13 @@ import Foundation
 final class CatalogStore {
     let homeLibrary: HomeLibraryStore
     let searchStore: SearchStore
-    let playlistStore: PlaylistStore
+    private let playlist: PlaylistFeature
+    var playlistStore: PlaylistStore { playlist.query }
     let albumStore: AlbumDetailStore
     let artistStore: ArtistDetailStore
     let discographyStore: DiscographyStore
     let metadata: CatalogMetadataRepository
-    let playlistMutations: PlaylistMutationController
+    var playlistMutations: PlaylistMutationController { playlist.mutations }
 
     init(
         provider: any CatalogProviding,
@@ -33,28 +34,22 @@ final class CatalogStore {
         self.metadata = metadata
         homeLibrary = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
         searchStore = SearchStore(provider: provider, metadata: metadata, session: session, clock: clock)
-        playlistStore = PlaylistStore(provider: provider, metadata: metadata, session: session)
         albumStore = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
         artistStore = ArtistDetailStore(provider: provider, session: session)
         discographyStore = DiscographyStore(provider: provider, metadata: metadata, session: session)
-        self.playlistMutations = PlaylistMutationController(
-            mutations: playlistMutations,
-            session: session,
-            feedback: feedback,
-            playlistStore: playlistStore,
-            homeLibrary: homeLibrary
-        )
+        playlist = PlaylistFeature(
+            provider: provider, metadata: metadata, session: session,
+            mutations: playlistMutations, homeLibrary: homeLibrary, feedback: feedback)
     }
 
     func reset() {
         homeLibrary.reset()
         searchStore.reset()
-        playlistStore.reset()
+        playlist.reset()
         albumStore.reset()
         artistStore.reset()
         discographyStore.reset()
         metadata.reset()
-        playlistMutations.reset()
     }
 
 }

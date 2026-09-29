@@ -16,13 +16,11 @@ final class CatalogDetailCoordinator {
     }
 
     private enum Loaded {
-        case playlist(CatalogPlaylistSnapshot)
         case album(CatalogAlbumSnapshot)
         case artist(CatalogArtistSnapshot)
 
         var freshness: CatalogFreshness {
             switch self {
-            case let .playlist(value): value.freshness
             case let .album(value): value.freshness
             case let .artist(value): value.freshness
             }
@@ -30,7 +28,6 @@ final class CatalogDetailCoordinator {
 
         func content(for selected: CatalogItem) -> CatalogDetailPayload {
             switch self {
-            case let .playlist(value): .playlist(PlaylistDetailContent(value, selected: selected))
             case let .album(value): .album(AlbumDetailContent(value, selected: selected))
             case let .artist(value): .artist(ArtistDetailContent(value, selected: selected))
             }
@@ -83,7 +80,7 @@ final class CatalogDetailCoordinator {
         flight = Flight(session: session)
         retained = RetainedCatalogRoutes(session: session)
         switch (kind, publication) {
-        case (.playlist, .independent), (.album, .independent):
+        case (.album, .independent):
             entityObservation = CatalogEntityObservation(provider: provider, session: session)
         default:
             entityObservation = nil
@@ -100,11 +97,6 @@ final class CatalogDetailCoordinator {
 
     // Each concrete projection fixes its kind at construction. A mismatch is a programming
     // error; never synthesize a fresh empty collection (and version) from a presentation read.
-    var playlistContent: PlaylistDetailContent {
-        guard case let .playlist(value) = payload else { preconditionFailure("Expected playlist detail") }
-        return value
-    }
-
     var albumContent: AlbumDetailContent {
         guard case let .album(value) = payload else { preconditionFailure("Expected album detail") }
         return value
@@ -204,8 +196,6 @@ final class CatalogDetailCoordinator {
         _ provider: any CatalogProviding, kind: CatalogDetailKind, id: String
     ) async throws -> Loaded? {
         switch kind {
-        case .playlist:
-            return try await provider.cachedPlaylist(id: id).map(Loaded.playlist)
         case .album:
             return try await provider.cachedAlbum(id: id).map(Loaded.album)
         case .artistOverview, .artistDiscography:
@@ -217,7 +207,6 @@ final class CatalogDetailCoordinator {
         _ provider: any CatalogProviding, kind: CatalogDetailKind, id: String
     ) async throws -> Loaded {
         switch kind {
-        case .playlist: return .playlist(try await provider.playlist(id: id))
         case .album: return .album(try await provider.album(id: id))
         case .artistOverview: return .artist(try await provider.artist(id: id))
         case .artistDiscography: return .artist(try await provider.artistDiscography(id: id))
@@ -277,7 +266,6 @@ final class CatalogDetailCoordinator {
     private func publishMetadata() {
         guard case let .independent(metadata?) = publication else { return }
         switch kind {
-        case .playlist: metadata.replaceTracks(playlistContent.collection.tracks, from: .playlist)
         case .album: metadata.replaceTracks(albumContent.collection.tracks, from: .album)
         case .artistOverview, .artistDiscography: break
         }

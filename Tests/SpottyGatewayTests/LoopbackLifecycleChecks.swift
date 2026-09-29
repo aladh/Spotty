@@ -139,6 +139,22 @@ struct LoopbackLifecycleTests {
         await #expect(throws: LoopbackCallbackServer.ServerError.self) { try await server.start() }
     }
 
+    @Test(arguments: [Duration.zero, .seconds(-1)])
+    func elapsedCallbackDeadlineClosesTheListener(duration: Duration) async throws {
+        let server = LoopbackCallbackServer(expectedState: "synthetic")
+        defer { Task { await server.stop() } }
+        _ = try await server.start()
+        do {
+            _ = try await server.waitForCallback(timeout: duration)
+            Issue.record("An elapsed callback deadline must fail")
+        } catch LoopbackCallbackServer.ServerError.timedOut {
+            // Deadline expiry consumes the one-shot listener, not just this waiter.
+        }
+        #expect(await server.activeConnectionCount == 0)
+        await #expect(throws: CancellationError.self) { try await server.waitForCallback() }
+        await #expect(throws: LoopbackCallbackServer.ServerError.self) { try await server.start() }
+    }
+
     @Test
     func unrelatedConnectionFailureDoesNotConsumeTheCallback() async throws {
         let server = LoopbackCallbackServer(expectedState: "synthetic")

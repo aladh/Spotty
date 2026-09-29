@@ -212,10 +212,15 @@ actor LoopbackCallbackServer {
                 case .listening:
                     waiter = continuation
                     if let duration {
-                        timeout = Task { [weak self] in
-                            try? await Task.sleep(for: duration)
-                            guard !Task.isCancelled else { return }
-                            await self?.finish(.failure(ServerError.timedOut))
+                        if duration <= .zero {
+                            // An expired deadline needs no timer task or scheduler turn.
+                            finish(.failure(ServerError.timedOut))
+                        } else {
+                            timeout = Task { [weak self] in
+                                do { try await Task.sleep(for: duration) } catch { return }
+                                guard !Task.isCancelled else { return }
+                                await self?.finish(.failure(ServerError.timedOut))
+                            }
                         }
                     }
                 }

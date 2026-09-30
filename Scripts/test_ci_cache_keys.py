@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -172,6 +173,43 @@ class CacheKeyTests(unittest.TestCase):
                      "Backend/spotty-playback/.cargo/config"):
             with self.subTest(input=name):
                 self.assert_input_changes("rust", name)
+
+    def test_bundle_policy_changes_invalidate_both_rust_caches_without_changing_toolchain_or_swift(self):
+        before = self.rust()
+        swift = self.swift()["SWIFT_CACHE_PREFIX"]
+        self.write("Scripts/ci_cache_bundle.py", "changed transfer policy")
+        after = self.rust()
+        self.assertNotEqual(before["RUST_RELEASE_COMPATIBILITY_KEY"], after["RUST_RELEASE_COMPATIBILITY_KEY"])
+        self.assertNotEqual(before["RUST_CACHE_TRANSFER_KEY"], after["RUST_CACHE_TRANSFER_KEY"])
+        self.assertEqual(before["RUST_TOOLCHAIN_KEY"], after["RUST_TOOLCHAIN_KEY"])
+        self.assertEqual(swift, self.swift()["SWIFT_CACHE_PREFIX"])
+
+    def test_missing_or_symlinked_bundle_policy_cannot_identify_a_rust_cache(self):
+        bundle = self.root / "Scripts/ci_cache_bundle.py"
+        bundle.unlink()
+        with self.assertRaises(ValueError):
+            self.rust()
+        bundle.symlink_to(self.root / "Package.swift")
+        with self.assertRaises(ValueError):
+            self.rust()
+
+    def test_new_rust_release_family_cannot_restore_the_old_immutable_generation(self):
+        key = self.rust()["RUST_RELEASE_COMPATIBILITY_KEY"]
+        self.assertRegex(key, r"^macos-rust-release-v4-[0-9a-f]{64}$")
+        old = key.replace("-v4-", "-v3-") + "-" + "a" * 64
+        self.assertFalse(old.startswith(key + "-"))
+
+    def test_actual_workflow_debug_keys_change_with_bundle_policy(self):
+        workflow = RustCacheWorkflowTests.workflow()
+        debug = RustCacheWorkflowTests.step(workflow, "Restore Rust verification products")
+        before = self.rust()
+        self.write("Scripts/ci_cache_bundle.py", "changed transfer policy")
+        after = self.rust()
+        for field in ("key", "restore-keys"):
+            template = RustCacheWorkflowTests.cache_field(debug, field)
+            rendered_before = template.replace("${{ env.RUST_CACHE_TRANSFER_KEY }}", before["RUST_CACHE_TRANSFER_KEY"])
+            rendered_after = template.replace("${{ env.RUST_CACHE_TRANSFER_KEY }}", after["RUST_CACHE_TRANSFER_KEY"])
+            self.assertNotEqual(rendered_before, rendered_after, field)
 
     def test_rust_deployment_incremental_and_cargo_user_configuration_invalidate(self):
         before = self.rust()["RUST_RELEASE_COMPATIBILITY_KEY"]
@@ -363,6 +401,58 @@ class ActualIdentityParsingTests(unittest.TestCase):
             self.assertNotEqual(before["sdk_settings"], sdk_identity(sdk)["sdk_settings"])
             system.write_bytes(plistlib.dumps({"ProductBuildVersion": "25F71"}))
             self.assertNotEqual(before["sdk_build"], sdk_identity(sdk)["sdk_build"])
+
+
+class RustCacheWorkflowTests(unittest.TestCase):
+    @staticmethod
+    def workflow():
+        return (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+
+    @staticmethod
+    def step(workflow, name):
+        matches = re.findall(r"(?m)^      - name: " + re.escape(name) + r"\n.*?(?=^      - name: |^  [a-z_]+:|\Z)",
+                             workflow, re.DOTALL)
+        if len(matches) != 1:
+            raise AssertionError(f"Expected one workflow step named {name}")
+        return matches[0]
+
+    @staticmethod
+    def cache_field(step, name):
+        matches = re.findall(r"(?m)^          " + re.escape(name) + r": (.+)$", step)
+        if len(matches) != 1:
+            raise AssertionError(f"Expected one cache {name}")
+        return matches[0]
+
+    def assert_rust_cache_linkage(self, workflow):
+        identify = self.step(workflow, "Identify Rust cache compatibility")
+        self.assertIn("ci_cache_keys.py rust", identify)
+        self.assertIn('--github-env "$GITHUB_ENV"', identify)
+        debug = self.step(workflow, "Restore Rust verification products")
+        prefix = ("macos-rust-debug-lean-v3-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-"
+                  "${{ env.RUST_CACHE_TRANSFER_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-")
+        self.assertEqual(self.cache_field(debug, "key"), prefix + "${{ github.sha }}")
+        self.assertEqual(self.cache_field(debug, "restore-keys"), prefix)
+        release = self.step(workflow, "Restore Rust release build products")
+        self.assertEqual(self.cache_field(release, "key"),
+                         "${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}")
+        self.assertEqual(self.cache_field(release, "restore-keys"), "${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-")
+
+    def test_actual_workflow_uses_only_new_compatible_families(self):
+        self.assert_rust_cache_linkage(self.workflow())
+
+    def test_old_family_missing_transfer_identity_and_broad_fallbacks_are_rejected(self):
+        workflow = self.workflow()
+        mutations = (
+            workflow.replace("macos-rust-debug-lean-v3-", "macos-rust-debug-lean-v2-"),
+            workflow.replace("${{ env.RUST_CACHE_TRANSFER_KEY }}-", ""),
+            workflow.replace('--github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/toolchain.json"',
+                             '--report "$RUNNER_TEMP/spotty-timings/toolchain.json"'),
+            workflow.replace("restore-keys: ${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-",
+                             "restore-keys: macos-rust-release-"),
+        )
+        for index, changed in enumerate(mutations):
+            with self.subTest(mutation=index), self.assertRaises(AssertionError):
+                self.assert_rust_cache_linkage(changed)
 
 
 if __name__ == "__main__":

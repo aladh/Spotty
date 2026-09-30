@@ -47,14 +47,30 @@ def path_key(value: str) -> str:
     return unicodedata.normalize("NFD", value).casefold()
 
 
-def private_path(path: PurePosixPath) -> bool:
-    return any(path_key(component) in PRIVATE_NAMES for component in path.parts)
+def private_path(path: PurePosixPath, *, logical_name: str, kind: str | None = None) -> bool:
+    parts = [path_key(component) for component in path.parts]
+    # Cargo's approved dependency source roots can contain public schema/source
+    # directories named credentials. Credential stores and secret file names still
+    # stay private, including .cargo/.git stores inside those source trees. A bare
+    # credentials file/link is never a public directory. Unknown kind is used only
+    # for lexical path checks; validate_structure checks every manifest entry's kind.
+    source_root = {"cargo-git": "checkouts", "cargo-registry": "src"}.get(logical_name)
+    public_source = (source_root is not None and len(parts) >= 4 and parts[0] == source_root
+                     and not any(part in {".cargo", ".git"} for part in parts[3:]))
+    for index, component in enumerate(parts):
+        if component not in PRIVATE_NAMES:
+            continue
+        if (component == "credentials" and public_source and index >= 3
+                and (index < len(parts) - 1 or kind in {None, "directory"})):
+            continue
+        return True
+    return False
 
 
-def excluded_path(name: str, relative: PurePosixPath) -> bool:
+def excluded_path(name: str, relative: PurePosixPath, *, kind: str | None = None) -> bool:
     # verification_package.py regenerates these source links before compilation.
     # Their sibling scratch products remain cache inputs; source links leave .build.
-    return private_path(relative) or (
+    return private_path(relative, logical_name=name, kind=kind) or (
         name == "build" and len(relative.parts) >= 2
         and path_key(relative.parts[0]) in {"domain", "engine-free"}
         and path_key(relative.parts[1]) == "package"
@@ -106,9 +122,10 @@ def check_ancestors(path: Path, base: Path) -> None:
 
 
 def paths_in(root: Path, relative: PurePosixPath = PurePosixPath("."), *, logical_name: str):
-    if relative != PurePosixPath(".") and excluded_path(logical_name, relative):
-        return
     path = root if relative == PurePosixPath(".") else root / relative
+    kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+    if relative != PurePosixPath(".") and excluded_path(logical_name, relative, kind=kind):
+        return
     yield path, relative
     if path.is_dir() and not path.is_symlink():
         for child in sorted(path.iterdir(), key=lambda item: os.fsencode(item.name)):
@@ -242,6 +259,8 @@ def validate_structure(entries: dict[str, dict], roots: dict[str, Path]) -> None
         folded[key] = entry
     for path, entry in entries.items():
         name, relative = logical_path(path, roots)
+        if excluded_path(name, relative, kind=entry["type"]):
+            raise ValueError(f"private store is not a cache entry: {path}")
         parent = PurePosixPath(path).parent
         prefix = PurePosixPath("payload") / name
         while parent != prefix.parent:
@@ -287,9 +306,11 @@ def resolve_symlink(path: str, entries: dict[str, dict], roots: dict[str, Path],
             continue
         stack.append(part)
         relative = PurePosixPath(*stack)
-        if excluded_path(name, relative):
-            raise ValueError(f"symlink chain reaches an excluded cache input: {path}")
         candidate = folded.get(path_key(str(prefix / relative)))
+        # A lexical public-directory exception cannot expose a retained private
+        # file/link or a dangling target. The manifest must own that directory.
+        if excluded_path(name, relative, kind=candidate["type"] if candidate else "missing"):
+            raise ValueError(f"symlink chain reaches an excluded cache input: {path}")
         if candidate is not None and candidate["type"] == "symlink":
             links += 1
             if links > 40:
@@ -402,29 +423,36 @@ def stage_bundle(source: tarfile.TarFile, stage: Path, entries: dict[str, dict],
             raise ValueError(f"unsupported cache metadata: {path}") from error
 
 
-def retained_private_dirs(path: Path, relative: PurePosixPath = PurePosixPath(".")) -> set[str]:
-    retained = set()
-    if private_path(relative):
+def retained_private_inputs(path: Path, relative: PurePosixPath = PurePosixPath("."),
+                            *, logical_name: str) -> tuple[set[str], set[str]]:
+    ancestors, exact = set(), set()
+    kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+    if private_path(relative, logical_name=logical_name, kind=kind):
+        exact.add(path_key(str(relative)))
         parent = relative.parent
         while True:
-            retained.add(path_key(str(parent)))
+            ancestors.add(path_key(str(parent)))
             if parent == PurePosixPath("."):
                 break
             parent = parent.parent
     elif path.is_dir() and not path.is_symlink():
         for child in path.iterdir():
-            retained.update(retained_private_dirs(child, relative / child.name))
-    return retained
+            child_ancestors, child_exact = retained_private_inputs(child, relative / child.name,
+                                                                 logical_name=logical_name)
+            ancestors.update(child_ancestors)
+            exact.update(child_exact)
+    return ancestors, exact
 
 
-def reset_owned_path(path: Path, relative: PurePosixPath = PurePosixPath(".")) -> None:
-    if private_path(relative):
+def reset_owned_path(path: Path, relative: PurePosixPath = PurePosixPath("."), *, logical_name: str) -> None:
+    kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+    if private_path(relative, logical_name=logical_name, kind=kind):
         return
     if path.is_symlink() or not path.is_dir():
         path.unlink(missing_ok=True)
     elif path.exists():
         for child in path.iterdir():
-            reset_owned_path(child, relative / child.name)
+            reset_owned_path(child, relative / child.name, logical_name=logical_name)
         if not any(path.iterdir()):
             path.rmdir()
 
@@ -442,10 +470,13 @@ def restore_bundle(archive: Path, *, scope: str, revision: str, roots: dict[str,
             for root in roots.values():
                 if root.exists() and (not root.is_dir() or any(root.iterdir())):
                     raise ValueError("cache restore would overwrite or merge an existing cache root")
-        retained = {name: retained_private_dirs(root) for name, root in roots.items()} if replace_owned_scope else {}
+        retained = {name: retained_private_inputs(root, logical_name=name)
+                    for name, root in roots.items()} if replace_owned_scope else {}
         for path, entry in entries.items():
             name, relative = logical_path(path, roots)
-            if entry["type"] != "directory" and path_key(str(relative)) in retained.get(name, set()):
+            ancestors, exact = retained.get(name, (set(), set()))
+            if (path_key(str(relative)) in exact
+                    or (entry["type"] != "directory" and path_key(str(relative)) in ancestors)):
                 raise ValueError(f"cache entry collides with a retained private directory: {path}")
         stage_parent = existing_parent(next(iter(roots.values())))
         if any(existing_parent(root).stat().st_dev != stage_parent.stat().st_dev for root in roots.values()):
@@ -454,8 +485,8 @@ def restore_bundle(archive: Path, *, scope: str, revision: str, roots: dict[str,
             stage = Path(directory)
             stage_bundle(source, stage, entries, members)
             if replace_owned_scope:
-                for root in roots.values():
-                    reset_owned_path(root)
+                for name, root in roots.items():
+                    reset_owned_path(root, logical_name=name)
             for path, entry in sorted(entries.items(), key=lambda pair: (len(PurePosixPath(pair[0]).parts), pair[0])):
                 name, relative = logical_path(path, roots)
                 destination = roots[name] if relative == PurePosixPath(".") else roots[name] / relative

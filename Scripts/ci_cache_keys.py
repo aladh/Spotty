@@ -26,8 +26,10 @@ SWIFT_BUILD_INPUTS = (
     "Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h",
     "Sources/SpottyPlaybackCore/include/spotty_playback_generated.h",
 )
+RUST_CACHE_TRANSFER_INPUTS = ("Scripts/ci_cache_bundle.py",)
 RUST_BUILD_INPUTS = (
     "rust-toolchain.toml", "Scripts/ci_cache_keys.py",
+    *RUST_CACHE_TRANSFER_INPUTS,
     "Backend/spotty-playback/Cargo.toml", "Backend/spotty-playback/Cargo.lock",
     "Backend/spotty-playback/build.sh", "Backend/spotty-playback/build-xcframework.sh",
     "Backend/spotty-playback/macos-deployment-target",
@@ -255,7 +257,8 @@ def cache_keys(scope, root, identity, *, lane=None, build_system="default", revi
                        "flags": RUST_FIXED_FLAGS, "locked": True,
                        "incremental": environment.get("CARGO_INCREMENTAL", "manifest-default"),
                        "cargo_configuration": cargo_configuration(environment)})
-        values = {"RUST_RELEASE_COMPATIBILITY_KEY": f"macos-rust-release-v3-{digest(common)}",
+        values = {"RUST_RELEASE_COMPATIBILITY_KEY": f"macos-rust-release-v4-{digest(common)}",
+                  "RUST_CACHE_TRANSFER_KEY": digest(input_identity(root, RUST_CACHE_TRANSFER_INPUTS)),
                   "RUST_TOOLCHAIN_KEY": toolchain_key}
     else:
         raise ValueError("Unsupported cache scope")

@@ -65,8 +65,9 @@ SDK (`sdk`, labelled `wrapper-selected`) and Xcode's default macOS SDK (`xcode_s
 version, build and SDKSettings digest. SwiftBuild can use the Xcode SDK despite exported SDKROOT;
 equal identities do not establish which SDK a builder consumed. Rust release archives keep an exact
 engine-input key; a compiler/SDK/profile/locked-dependency compatibility prefix permits Cargo to
-rebuild changed
-bridge sources while retaining unchanged dependencies. Source timestamps are restored only when
+rebuild changed bridge sources while retaining unchanged dependencies. Rust Debug and Release
+cache generations bind the scoped transfer policy as well as their build compatibility inputs;
+changing that policy cannot restore an earlier generation's incomplete source tree. Source timestamps are restored only when
 content matches. Empty or incompatible caches compile normally.
 
 Only successful main lanes export scoped cache bundles. A separate publisher validates their
@@ -75,6 +76,10 @@ aggregate succeeds. The final required `macOS checks` status also requires main 
 PRs explicitly skip it. No cache publisher runs on PR or fork code. This preserves complete-quality
 success before cache writes while isolating concurrent compiler/cache owners. Optional phase
 JSONL and Cargo timing artifacts describe costs without replacing verification.
+The transfer includes complete public dependency source directories named `credentials` within
+Cargo Git checkouts and registry source trees. Credential stores, secret filenames, bare credential
+files or links, and material outside the explicitly owned roots remain excluded. Export, manifest
+validation, link checks and replacement cleanup apply the same scope-aware exclusion policy.
 The [trusted base classifier](../../../Scripts/ci_rust_policy.py) skips macOS only for documentation-only
 PRs and can skip compiled Rust for app-only PRs. Main runs both toolchains. Unknown paths or
 classification failures cannot authorize a skip; source and script checks remain unconditional.

@@ -4,18 +4,17 @@
 
 ## Normal verification
 
-Run focused checks during iteration and complete the relevant gates before delivery.
-Documentation-only edits need no app build.
+Use focused checks, then relevant gates. Documentation-only edits need no build.
 
 | `python3 Scripts/verify.py …` | Use for |
 | --- | --- |
 | `preflight` | Discover tools without running or installing them |
 | `list` | Discover Swift tests, including the synthetic harness |
 | `test --filter SpottyBoundaryTests.PlaybackPositionSliderChecks` | Native controls (full graph) |
-| `test --filter SpottyGatewayTests.KeymasterPersistence` | Grant persistence (full graph) |
-| `test --filter SpottyTestSupportTests` | Clocks, response gates, polling (full graph) |
-| `test --filter SpottyEngineAdapterTests` | Snapshot decoding, event delivery, reconnect (full graph) |
-| `test --filter SpottySessionRuntimeTests` | Headless runtime (full graph) |
+| `test --target SpottyGatewayTests --filter KeymasterPersistence` | Grant persistence (engine free) |
+| `test --target SpottyTestSupportTests` | Clocks, response gates, polling (engine free) |
+| `test --target SpottyEngineAdapterTests` | Snapshot decoding, event delivery, reconnect |
+| `test --target SpottySessionRuntimeTests` | Headless runtime without desktop dependencies |
 | `domain --filter PlaybackReducer` | Domain-only tests, without app or engine dependencies |
 | `swift` | Swift, ABI, compiler boundaries, packaging, and synthetic helpers; no Rust needed |
 | `rust` | Compiled Rust, headers, and playback/harness helpers |
@@ -25,26 +24,26 @@ Documentation-only edits need no app build.
 | `clean` | Rebuild the engine and run complete Debug/Release verification |
 
 `list` and `test` forward SwiftPM arguments using the gate's SDK, caches, and warning policy.
-`--filter` limits execution. Swift 6.3.3 combines test targets into
-one product; target-named `--test-product` requires Swift 6.4. Omit `--skip-build` after edits.
+Place `--target MODULE` or `--target=MODULE` immediately after `test`/`list` on Swift 6.3.3/6.4.
+It selects one test module's dependency closure. Multiple filters retain SwiftPM union semantics.
+Use `--skip-build` only with unchanged sources, graph, configuration, flags and artifacts.
 Empty or entirely skipped selections fail. Count executed tests from completion events;
 Swift's summary includes skipped probes.
 
-On macOS with Swift 6.4, `test --test-product SpottyGatewayTests` selects `.build/engine-free`
-without playback or Sparkle; CatalogStorage and TestSupport products do likewise. `domain` uses
-`.build/domain` on both toolchains. Isolated workspaces link the manifest and live inputs
-without changing the app lockfile. Explicit `--package-path` or `--scratch-path` disables automatic
-isolation; `--package-path .` selects the app graph. Discovery, unknown products, full gates, and
-shipping builds retain the complete graph.
-Portable isolation is tracked in [#589](https://github.com/aladh/Spotty/issues/589).
+Select Domain, TestSupport, CatalogStorage, Gateway, EngineAdapter, SessionRuntime or Boundary tests.
+The first four are engine free; Adapter/Runtime need playback, Boundary also needs Sparkle.
+`.build/test-targets/MODULE` links shared declarations and owns its lockfile. The app lock stays
+unchanged. Selected scratch paths stay literal; package-path/test-product combinations fail.
+Selected listing/help requires no execution. Without a selector, explicit paths retain the caller's
+graph; legacy target-named products require Swift 6.4. Full gates/shipping keep the full graph.
+`domain` remains portable under `.build/domain`.
 
-`domain` forwards test options, including `--configuration release`, to the portable graph.
-Full Debug covers every target, including the browsing harness. The Release gate adds optimized
-domain checks; concrete boundaries use Debug `@testable` modules. Shipping builds exclude harness targets.
+`domain` forwards Release options. Full Debug includes every target and browsing; Release adds
+optimized domain checks. Boundaries use Debug `@testable`; shipping excludes harness targets.
 Queue scheduler suspension hooks and SessionRuntime admission/mutation checks are Debug-only.
 Pure Domain queue-mutation policy also runs optimized.
 
-The wrapper delegates complete gates to [check.sh](../../Scripts/check.sh),
+Complete gates use [check.sh](../../Scripts/check.sh),
 [source policies](../../Scripts/check-source-policy.sh), and [check-clean.sh](../../Scripts/check-clean.sh).
 Direct `check.sh` calls accept `SPOTTY_CHECK_SCOPE=swift` or `rust`. Internal CI `swift-compiled`
 phases divide contracts and complete native tests between jobs; normal gates force the complete

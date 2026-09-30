@@ -69,18 +69,19 @@ Opt-in probes:
 | `SPOTTY_ARTWORK_DECODE_REPORT` | `ArtworkDecoderMeasurementTests` | Decoder CPU and asset bytes |
 | `SPOTTY_ARTWORK_MEASUREMENT_REPORT` | `ArtworkSourceLoaderMeasurementTests` | Idle loader process footprint |
 
-**Swift 6.4 only; explicit scratch path, full-graph dependencies:**
+Boundary (6.3.3/6.4):
 
 ```bash
-SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --test-product SpottyBoundaryTests \
+SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --target SpottyBoundaryTests \
   -c release --scratch-path .build/browsing-optimized -Xswiftc -O -Xswiftc -enable-testing \
   -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED --filter CatalogMetadataMeasurementTests
 ```
 
-Track probes (both toolchains): `verify.py domain -c release --filter FILTER`.
-Gateway probes (**Swift 6.4 only; isolated cache**):
-`verify.py test --test-product SpottyGatewayTests -c release -Xswiftc -O -Xswiftc -enable-testing --filter FILTER`.
-Repeat with `--skip-build`; samples establish neither thresholds nor whole-app gains.
+Track probes (both): `verify.py domain -c release --filter FILTER`.
+Gateway (both, engine free):
+`verify.py test --target SpottyGatewayTests -c release -Xswiftc -O -Xswiftc -enable-testing --filter FILTER`.
+Repeat with `--skip-build` using the same graph/configuration/flags. Testable products differ from
+shipping; samples establish no thresholds or app gains.
 
 ### Visible Instruments captures
 

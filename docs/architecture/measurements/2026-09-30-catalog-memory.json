@@ -1,0 +1,2666 @@
+{
+  "baseline": {
+    "actualCompilerSDKs": [
+      "CLT/SDKs/MacOSX26.5.sdk"
+    ],
+    "cacheContext": "new isolated scratch, one optimized native build plus handshake incremental build, same artifacts for all skip-build samples; filesystem caches warm and unchanged; no shipping claim",
+    "candidate": "none; same production owner graph throughout",
+    "engine": {
+      "canonicalHeadersSHA256": "e1ae33b35cf4a15c3eb01096a0948a27819118ce7c303014d7adfdf197e19688",
+      "engineInputDigest": "2a532b39a61f152544e341d9f639a39beebaddaec2cebc364b778fb104585fc4",
+      "librarySHA256": "107d2b948a6a7e4c27d97daf17bb7aad84c5b3c99b400b8e74a989edec4d7af5",
+      "librespotRevision": "939dc5ee9d833e1980f9495241219d9d4868a061",
+      "pinChecksum": "ee930c23f399ba6d1d2923f7d802af08acdefa8f606aabfcdf92063fb88d565d",
+      "pinURL": "https://github.com/aladh/Spotty/releases/download/playback-v0.2.1/SpottyPlaybackCore.xcframework.zip",
+      "selection": "pinned",
+      "sourceRevision": "28729d5097ebdd05ff2eb5806815c03fe086f18a",
+      "usedForPlayback": false
+    },
+    "fixturePath": "Tests/SpottyBoundaryTests/CatalogRetainedMemoryMeasurementChecks.swift",
+    "fixtureSHA256": "70586e6c5f0381b60ec33b66569bcc76de1f7e77a506b6eb0ef3d826a765e927",
+    "hostSHA256": "7f75846ef1ac3ba70920a7f436044bd801ebffcf62dd9a3fddfb9e0fe300c7e5",
+    "mainRevision": "88a4a772a2207c17c88f22443e309e259183724d",
+    "nativeBundleSHA256": "d1a7f5a46b97c329926031db8874cf2d230bc6af21c67482d77ed33f44cef0fb",
+    "profile": {
+      "browsingOptimizedCondition": true,
+      "buildProfile": "optimized-debug-native-nonwmo",
+      "debugBuild": true,
+      "debugHooksCompiled": true,
+      "effectiveCompilerModules": [
+        "SpottyBoundaryTests",
+        "SpottyCatalogStorage",
+        "SpottyCore",
+        "SpottyDiagnostics",
+        "SpottyDomain",
+        "SpottyEngineAdapter",
+        "SpottyGateway",
+        "SpottyPackageTests",
+        "SpottyRuntimeContracts",
+        "SpottyRuntimeTestSupport",
+        "SpottySessionRuntime",
+        "SpottyTestSupport"
+      ],
+      "optimization": "-O",
+      "shippingBuild": false,
+      "testable": true,
+      "wholeModuleOptimization": false
+    },
+    "sourceIdentity": {
+      "diffSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "includesUntrackedNonignoredFiles": true,
+      "revision": "88a4a772a2207c17c88f22443e309e259183724d",
+      "sourceSHA256": "a7ee50a0de6b8f31d58536942a94eefc3942a52c9fea2cf146e53c275d4e2b6f",
+      "trackedFileCount": 988,
+      "untrackedFileCount": 1
+    },
+    "system": {
+      "logicalCPU": 10,
+      "machine": "arm64",
+      "memoryBytes": "34359738368",
+      "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+      "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx27.0.0\n",
+      "xcode": "Xcode 27.0\nBuild version 27A266a\n"
+    }
+  },
+  "classification": "ambient-load isolated optimized diagnostic; no production optimization proposed",
+  "conclusion": "No retained row/metadata graph leak or measured problem warranting a production optimization is demonstrated. Expected row/metadata/export/membership allocations scale with workload and retention limits; reusable empty export/dirty-set capacity persists until account reset. Account retirement removes typed row arrays, metadata dictionaries and URI sets; weak owners release. Framework/test-reporter/allocator baselines and unassigned bytes remain. No new cache or mandatory CI resource threshold; no historical CPU/RSS, shipping or whole-app improvement claim.",
+  "datasets": {
+    "attribution": "2026-09-30-catalog-memory-attribution.jsonl",
+    "primary": "2026-09-30-catalog-memory-primary.jsonl"
+  },
+  "date": "2026-09-30",
+  "methodology": {
+    "ambientAuthorization": "User accepted current conditions; no further idle request. Original quiet failures remain rejected. Ambient comparisons are descriptive; no quiet baseline or causal speed gain. No compiler overlap observed; swap stayed zero and no thermal restriction was reported.",
+    "attributionControllerSourceHashes": {
+      "local-evidence-packet/allocation-attribution-final/adapter.py": "5ed577030be55c9a46f4113a8c000a2534d79bdecfb90cfb2c0bb5a25746d01e",
+      "local-evidence-packet/allocation-attribution-final/controller.py": "ac75e2a13c44163b2dde163162afc2ade9180058cca067f1643b5474147bf5e8",
+      "local-evidence-packet/allocation-attribution-final/leaf_launcher.py": "ba51382cf596fdb352f585cdf8eacaa91c4e8649a91d4b44e72741664558595d",
+      "local-evidence-packet/allocation-attribution-final/protocol.py": "b9f45671523881a4283066bded81db1f57e279bb66b0e4f06d0aad8dd30639c3",
+      "local-evidence-packet/allocation-attribution-final/run-ambient.py": "7d85563cba4b09f821dd7a7330c9debe7c235ded50561b3693a0df7cb397ed9c"
+    },
+    "attributionPhaseCaptures": 60,
+    "attributionProcesses": 6,
+    "attributionProtocolSHA256": "a8dc32a871e2ef94f26bbab3923d1ee5f947bf866523b69a4f06423ccab76e5a",
+    "attributionSeconds": 172.69,
+    "commands": {
+      "admissionRequired": "A contributor command alone is not a usable measurement invocation. Before acknowledging ready, the owned controller must validate actual live native selection, birth/ancestry and mapped bundle. Attribution must validate identity before/after capture and acknowledge the exact phase. Original native-stream, immutable provenance and kernel death validation remain mandatory.",
+      "attributionEnvironment": {
+        "MallocStackLogging": "1, native helper only",
+        "MallocStackLoggingNoCompact": "1, native helper only",
+        "SPOTTY_CATALOG_MEMORY_ATTRIBUTION": "1",
+        "SPOTTY_CATALOG_MEMORY_GATE_DIR": "new empty exact-process gate directory"
+      },
+      "attributionLaunch": "Exact original SwiftPM helper argv, test bundle and runtime library/SDK context, recorded during qualification. Only per-process event-stream/report/gate paths and nonce differ. Do not set logging on Python supervision.",
+      "captureArgv": [
+        [
+          "/usr/bin/heap",
+          "--sortBySize",
+          "--noContent",
+          "--addresses=.*Dictionary.*|.*Observation.*|.*Array.*|.*Set.*|.*KeyPath.*",
+          "<owned PID>"
+        ],
+        [
+          "/usr/bin/vmmap",
+          "-summary",
+          "<owned PID>"
+        ],
+        [
+          "/usr/bin/footprint",
+          "-p",
+          "<owned PID>",
+          "-f",
+          "bytes"
+        ],
+        [
+          "/usr/bin/malloc_history",
+          "<owned PID>",
+          "<at most two census addresses>"
+        ]
+      ],
+      "nativeBuildArgv": [
+        "python3",
+        "Scripts/verify.py",
+        "test",
+        "--target",
+        "SpottyBoundaryTests",
+        "--build-system",
+        "native",
+        "-c",
+        "debug",
+        "--scratch-path",
+        ".build/catalog-memory-optimized",
+        "-Xswiftc",
+        "-O",
+        "-Xswiftc",
+        "-enable-testing",
+        "-Xswiftc",
+        "-no-whole-module-optimization",
+        "-Xswiftc",
+        "-DSPOTTY_BROWSING_OPTIMIZED",
+        "--filter",
+        "CatalogRetainedMemoryMeasurementTests/measureIsolatedCatalogRetention"
+      ],
+      "primarySampleArgv": "Identical nativeBuildArgv plus --skip-build; each execution is wrapped by the qualified owned controller and independent outer watchdog.",
+      "requiredEnvironment": {
+        "SPOTTY_CATALOG_MEMORY_NONCE": "fresh UUID",
+        "SPOTTY_CATALOG_MEMORY_REPORT": "new per-process report path",
+        "SPOTTY_CATALOG_MEMORY_ROWS": "500, 10000 or 40000",
+        "SPOTTY_CATALOG_MEMORY_WORKLOAD": "same-selection or switch-ab"
+      }
+    },
+    "cpu": "Process self-CPU includes all fixture threads. 100 preparation iterations for retained/same-selection cells; forty-thousand A/B has10 prepare-plus-reload windows separately reported. Startup, oversized reconstruction and retirement reconstruction are separate.",
+    "frozenProtocolDetails": {
+      "attribution": "Separate instrumentation only in exact observed native helper; supervisory wrappers and capture tools uninstrumented. Native argv exactly from observed SwiftPM launch with only stream output rebound. Same fixture bundle/effective flags, published engine and resolved Sparkle; separately bound host/framework/search context. Primary/attribution baselines and CPU never pooled. Preserve prior global-env launch134 failure; no memory fixture/tool executed there.",
+      "attributionCells": [
+        {
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        {
+          "rows": 10000,
+          "workload": "same-selection"
+        },
+        {
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        {
+          "rows": 500,
+          "workload": "switch-ab"
+        },
+        {
+          "rows": 10000,
+          "workload": "switch-ab"
+        },
+        {
+          "rows": 40000,
+          "workload": "switch-ab"
+        }
+      ],
+      "comparisons": "Within-process ordered phase deltas and five fresh independent processes per six cells, identical fixture/build/pin/SDK/cache/machine. Same-selection vs A/B described under measured ambient variability; rows40k A/B reload costs kept separate from retained preparations. No historic/current CPU comparison or shipping extrapolation.",
+      "failureAndCleanup": "Native deadline600s; independent outer watchdog900s primary; capture budgets6s and3s; first signal/status preserved; owned descendants only, joined direct child and kernel death proof; disclose Darwin revalidation-to-signal race. No green retry or discarded slot.",
+      "loadRule": "Predeclared ambient-load series. Record global CPU ticks, external process CPU deltas excluding observed native command descendants and this controller/outer watchdog, owned native self-CPU phase delta and controller CPU lower bound, variability, swap and thermal state. No arbitrary quiet-load acceptance threshold. Competing compiler >0.02s or swap/thermal state violation still fails/stops as uncomparable build/machine conditions. Every slot independently native-admitted; repeated ambient descriptions do not establish a quiet baseline or causal performance improvement. Native memory phase/release evidence remains exact-process and is not whole-app memory.",
+      "phases": [
+        "pre-fixture",
+        "post-load",
+        "post-load-export",
+        "post-switch",
+        "post-switch-export",
+        "post-eviction",
+        "post-invalidation",
+        "pre-account-retirement",
+        "account-retirement",
+        "owner-release"
+      ],
+      "protocol": "Five fresh native processes for each of six same-selection/switch-ab x 500/10000/40000 cells; deterministic randomized 30 slots. Build/functional qualification excluded. Exact host birth, live native function, mapped fixture image, all ten phases, original native validator, death proof and unchanged provenance required. Current metrics distinct from cumulative peak RSS. Start handshake before all checkpoints. 100 retained preparation iterations; oversized A/B has 10 independent prepare+reload windows. No timestamp experiment or historic CPU/RSS comparison.",
+      "seed": 586590,
+      "slots": [
+        {
+          "ordinal": 1,
+          "replicate": 3,
+          "rows": 40000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 2,
+          "replicate": 2,
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 3,
+          "replicate": 3,
+          "rows": 10000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 4,
+          "replicate": 5,
+          "rows": 500,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 5,
+          "replicate": 2,
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 6,
+          "replicate": 4,
+          "rows": 40000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 7,
+          "replicate": 1,
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 8,
+          "replicate": 1,
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 9,
+          "replicate": 3,
+          "rows": 10000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 10,
+          "replicate": 2,
+          "rows": 500,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 11,
+          "replicate": 5,
+          "rows": 10000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 12,
+          "replicate": 3,
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 13,
+          "replicate": 2,
+          "rows": 10000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 14,
+          "replicate": 3,
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 15,
+          "replicate": 5,
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 16,
+          "replicate": 4,
+          "rows": 10000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 17,
+          "replicate": 5,
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 18,
+          "replicate": 2,
+          "rows": 40000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 19,
+          "replicate": 4,
+          "rows": 10000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 20,
+          "replicate": 1,
+          "rows": 40000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 21,
+          "replicate": 5,
+          "rows": 40000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 22,
+          "replicate": 1,
+          "rows": 10000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 23,
+          "replicate": 4,
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 24,
+          "replicate": 1,
+          "rows": 500,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 25,
+          "replicate": 3,
+          "rows": 500,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 26,
+          "replicate": 4,
+          "rows": 500,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 27,
+          "replicate": 1,
+          "rows": 10000,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 28,
+          "replicate": 4,
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        {
+          "ordinal": 29,
+          "replicate": 2,
+          "rows": 10000,
+          "workload": "switch-ab"
+        },
+        {
+          "ordinal": 30,
+          "replicate": 5,
+          "rows": 10000,
+          "workload": "same-selection"
+        }
+      ],
+      "toolBudgets": "6s each heap/vmmap/footprint; 3s each of at most two histories; 26s capture/ack within each 30s gate; any denial stops the action without grants/fallback."
+    },
+    "instrumentation": "Stack logging confined to native helper after preserving Python global-env crash. Direct helper uses observed original SwiftPM argv and allowlisted runtime library/SDK context, same tested bundle and engine. Instrumentation changes baseline, scheduling and allocations; never numerically assigned to primary totals. Malloc logging reported inability to mark its own pages no_footprint; its footprint includes that overhead.",
+    "memory": "Darwin current resident/physical footprint and all-zone malloc in-use/reserved/block-count observations kept separate from cumulative peak RSS. Allocation tools attach only to exact owned synthetic helper. No live Spotify/audio/app process or shipping whole-app inference.",
+    "nativeAdmission": "Live exact selected function in complete native stream, owned microsecond birth/ancestry, exact helper hash, independently mapped produced bundle hash, bounded pre-fixture handshake, unchanged source/effective compiler/pin/SDK/locks/artifacts before+after, original native validator, joined wrapper and kernel ESRCH/newer-birth death proof. Missing identity never proves death.",
+    "originalQuietProtocolSHA256": "f49ac166e356be6b7ebc4e2d47e3b1cfe64184b72d50037787634737585fbfee",
+    "primaryConfigSHA256": "1510d34ca3011cbf7a27297ebbee7f26e47bbe60ba9c99e4a761559e06a29fd5",
+    "primaryControllerSourceHashes": {
+      "local-evidence-packet/adapter.py": "c9a6573adc18b95d3cba239154b3878bf2f78b7a80b7851c48d83379c35fef0a",
+      "local-evidence-packet/controller.py": "6c54a5df890eb6bc9c4251de5b81236ab65fce2dbd1bb5c2f5f6470060e8fd5d",
+      "local-evidence-packet/protocol.py": "b9f45671523881a4283066bded81db1f57e279bb66b0e4f06d0aad8dd30639c3",
+      "local-evidence-packet/run-ambient.py": "7d85563cba4b09f821dd7a7330c9debe7c235ded50561b3693a0df7cb397ed9c"
+    },
+    "primaryProtocolSHA256": "82b616ae9d3b01a37537cfd7d018d746c1f7318060984307b2110e24a5bac45c",
+    "primarySeconds": 128.68,
+    "primarySlots": [
+      {
+        "ordinal": 1,
+        "replicate": 3,
+        "rows": 40000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 2,
+        "replicate": 2,
+        "rows": 40000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 3,
+        "replicate": 3,
+        "rows": 10000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 4,
+        "replicate": 5,
+        "rows": 500,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 5,
+        "replicate": 2,
+        "rows": 500,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 6,
+        "replicate": 4,
+        "rows": 40000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 7,
+        "replicate": 1,
+        "rows": 40000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 8,
+        "replicate": 1,
+        "rows": 500,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 9,
+        "replicate": 3,
+        "rows": 10000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 10,
+        "replicate": 2,
+        "rows": 500,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 11,
+        "replicate": 5,
+        "rows": 10000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 12,
+        "replicate": 3,
+        "rows": 40000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 13,
+        "replicate": 2,
+        "rows": 10000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 14,
+        "replicate": 3,
+        "rows": 500,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 15,
+        "replicate": 5,
+        "rows": 500,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 16,
+        "replicate": 4,
+        "rows": 10000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 17,
+        "replicate": 5,
+        "rows": 40000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 18,
+        "replicate": 2,
+        "rows": 40000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 19,
+        "replicate": 4,
+        "rows": 10000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 20,
+        "replicate": 1,
+        "rows": 40000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 21,
+        "replicate": 5,
+        "rows": 40000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 22,
+        "replicate": 1,
+        "rows": 10000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 23,
+        "replicate": 4,
+        "rows": 40000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 24,
+        "replicate": 1,
+        "rows": 500,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 25,
+        "replicate": 3,
+        "rows": 500,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 26,
+        "replicate": 4,
+        "rows": 500,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 27,
+        "replicate": 1,
+        "rows": 10000,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 28,
+        "replicate": 4,
+        "rows": 500,
+        "workload": "same-selection"
+      },
+      {
+        "ordinal": 29,
+        "replicate": 2,
+        "rows": 10000,
+        "workload": "switch-ab"
+      },
+      {
+        "ordinal": 30,
+        "replicate": 5,
+        "rows": 10000,
+        "workload": "same-selection"
+      }
+    ],
+    "sampleCount": 30,
+    "samplesPerCell": 5,
+    "signalLimit": "Darwin exact-PID signalling retains the shared watchdog revalidation-to-signal race; identities revalidated and unobservable processes fail closed. No unrelated/group-name cleanup.",
+    "tools": {
+      "footprint": "-p PID -f bytes",
+      "heap": "--sortBySize --noContent --addresses=.*Dictionary.*|.*Observation.*|.*Array.*|.*Set.*|.*KeyPath.* PID",
+      "malloc_history": "PID ADDRESS; at most2 representative typed-block addresses per phase; raw addresses/stacks remain private",
+      "vmmap": "-summary PID"
+    },
+    "transientLimits": "Current checkpoint census and two histories do not assign every transient allocation or peak byte. Source-local Observation batch keypaths and dictionary COW histories establish lifetime/owners, not exhaustive transient-byte totals."
+  },
+  "preservedFailedAttempts": [
+    {
+      "acceptedAsSamples": false,
+      "label": "quiet-v1",
+      "observation": {
+        "completedPriorSlots": 1,
+        "failedSlot": {
+          "ordinal": 2,
+          "replicate": 2,
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        "noRetry": true,
+        "originalError": "contaminated slot: ['external CPU exceeds one core average', 'machine busy fraction exceeds 25%']"
+      },
+      "originalSHA256": "c3148e9872bbaf35ba52e48c005eefbcb054347d476348c2041f2ecbd24d147d"
+    },
+    {
+      "acceptedAsSamples": false,
+      "label": "quiet-v2",
+      "observation": {
+        "completedPriorSlots": 6,
+        "failedSlot": {
+          "ordinal": 7,
+          "replicate": 1,
+          "rows": 40000,
+          "workload": "same-selection"
+        },
+        "noRetry": true,
+        "originalError": "contaminated slot: ['external CPU exceeds one core average', 'machine busy fraction exceeds 25%']"
+      },
+      "originalSHA256": "df4b97c572f79c646ecc78feaaff97bdf7898561fbeeddbaaa3ac0af72ae5ae8"
+    },
+    {
+      "acceptedAsSamples": false,
+      "label": "global-stack-logging-launch",
+      "observation": {
+        "completedPriorSlots": 0,
+        "failedSlot": {
+          "ordinal": 1,
+          "replicate": 1,
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        "noRetry": true,
+        "originalError": "original command failed with status 134"
+      },
+      "originalSHA256": "68df2e2996775ac08fcf06bffcd3bcceabc316b19431c81c99e5982757911892"
+    },
+    {
+      "acceptedAsSamples": false,
+      "label": "leaf-missing-Testing-launch",
+      "observation": {
+        "completedPriorSlots": 0,
+        "failedSlot": {
+          "ordinal": 1,
+          "replicate": 1,
+          "rows": 500,
+          "workload": "same-selection"
+        },
+        "noRetry": true,
+        "originalError": "original command failed with status 133"
+      },
+      "originalSHA256": "1b973df483b34b49a667040938a5fa5d3d8fa3f3b3989733bfecdff009d11c9f"
+    }
+  ],
+  "summary": {
+    "cells": [
+      {
+        "phases": {
+          "account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 4035,
+              "median": 4009,
+              "min": 3907,
+              "stdev": 58.66429919465501
+            },
+            "mallocBytesInUse": {
+              "max": 679088,
+              "median": 674800,
+              "min": 662832,
+              "stdev": 6739.233428217189
+            },
+            "physicalFootprintBytes": {
+              "max": 15401656,
+              "median": 15073952,
+              "min": 14172856,
+              "stdev": 573752.3153026922
+            },
+            "processPeakResidentBytes": {
+              "max": 40337408,
+              "median": 39993344,
+              "min": 39108608,
+              "stdev": 569753.4527677739
+            },
+            "residentBytes": {
+              "max": 40337408,
+              "median": 39993344,
+              "min": 39108608,
+              "stdev": 569753.4527677739
+            }
+          },
+          "owner-release": {
+            "mallocBlocksInUse": {
+              "max": 4015,
+              "median": 3989,
+              "min": 3887,
+              "stdev": 58.66429919465501
+            },
+            "mallocBytesInUse": {
+              "max": 681328,
+              "median": 677040,
+              "min": 665072,
+              "stdev": 6739.233428217189
+            },
+            "physicalFootprintBytes": {
+              "max": 15418040,
+              "median": 15073952,
+              "min": 14172856,
+              "stdev": 580936.0121018493
+            },
+            "processPeakResidentBytes": {
+              "max": 40370176,
+              "median": 40009728,
+              "min": 39124992,
+              "stdev": 576940.1749228424
+            },
+            "residentBytes": {
+              "max": 40370176,
+              "median": 40009728,
+              "min": 39124992,
+              "stdev": 576940.1749228424
+            }
+          },
+          "post-eviction": {
+            "mallocBlocksInUse": {
+              "max": 32716,
+              "median": 32488,
+              "min": 32344,
+              "stdev": 137.5099996363901
+            },
+            "mallocBytesInUse": {
+              "max": 5926944,
+              "median": 5908384,
+              "min": 5895072,
+              "stdev": 12019.68731706445
+            },
+            "physicalFootprintBytes": {
+              "max": 15385272,
+              "median": 14992032,
+              "min": 14156472,
+              "stdev": 568110.8144691491
+            },
+            "processPeakResidentBytes": {
+              "max": 40304640,
+              "median": 39895040,
+              "min": 39075840,
+              "stdev": 564166.5713060284
+            },
+            "residentBytes": {
+              "max": 40304640,
+              "median": 39895040,
+              "min": 39075840,
+              "stdev": 564166.5713060284
+            }
+          },
+          "post-invalidation": {
+            "mallocBlocksInUse": {
+              "max": 4163,
+              "median": 3935,
+              "min": 3791,
+              "stdev": 137.58161214348377
+            },
+            "mallocBytesInUse": {
+              "max": 1201584,
+              "median": 1183024,
+              "min": 1169712,
+              "stdev": 12024.133598725522
+            },
+            "physicalFootprintBytes": {
+              "max": 15401656,
+              "median": 15057568,
+              "min": 14156472,
+              "stdev": 580936.0121018493
+            },
+            "processPeakResidentBytes": {
+              "max": 40321024,
+              "median": 39960576,
+              "min": 39075840,
+              "stdev": 576940.1749228424
+            },
+            "residentBytes": {
+              "max": 40321024,
+              "median": 39960576,
+              "min": 39075840,
+              "stdev": 576940.1749228424
+            }
+          },
+          "post-load": {
+            "mallocBlocksInUse": {
+              "max": 4571,
+              "median": 4565,
+              "min": 4562,
+              "stdev": 3.6742346141747673
+            },
+            "mallocBytesInUse": {
+              "max": 1091360,
+              "median": 1087776,
+              "min": 1083296,
+              "stdev": 3321.9637565753183
+            },
+            "physicalFootprintBytes": {
+              "max": 7619208,
+              "median": 7570080,
+              "min": 7553696,
+              "stdev": 26912.16682469102
+            },
+            "processPeakResidentBytes": {
+              "max": 32538624,
+              "median": 32456704,
+              "min": 32456704,
+              "stdev": 35895.545528658564
+            },
+            "residentBytes": {
+              "max": 32538624,
+              "median": 32456704,
+              "min": 32456704,
+              "stdev": 35895.545528658564
+            }
+          },
+          "post-load-export": {
+            "mallocBlocksInUse": {
+              "max": 4576,
+              "median": 4570,
+              "min": 4567,
+              "stdev": 3.6742346141747673
+            },
+            "mallocBytesInUse": {
+              "max": 1338352,
+              "median": 1334768,
+              "min": 1330288,
+              "stdev": 3321.9637565753183
+            },
+            "physicalFootprintBytes": {
+              "max": 8176288,
+              "median": 8110776,
+              "min": 8061624,
+              "stdev": 45453.809380512874
+            },
+            "processPeakResidentBytes": {
+              "max": 33062912,
+              "median": 32997376,
+              "min": 32948224,
+              "stdev": 47201.84620118158
+            },
+            "residentBytes": {
+              "max": 33062912,
+              "median": 32980992,
+              "min": 32948224,
+              "stdev": 48602.79840503014
+            }
+          },
+          "post-switch": {
+            "mallocBlocksInUse": {
+              "max": 4578,
+              "median": 4572,
+              "min": 4569,
+              "stdev": 3.6742346141747673
+            },
+            "mallocBytesInUse": {
+              "max": 1339776,
+              "median": 1336192,
+              "min": 1331712,
+              "stdev": 3321.9637565753183
+            },
+            "physicalFootprintBytes": {
+              "max": 8176288,
+              "median": 8127136,
+              "min": 8061624,
+              "stdev": 44858.47804819062
+            },
+            "processPeakResidentBytes": {
+              "max": 33079296,
+              "median": 33013760,
+              "min": 32964608,
+              "stdev": 47201.84620118158
+            },
+            "residentBytes": {
+              "max": 33079296,
+              "median": 33013760,
+              "min": 32964608,
+              "stdev": 47201.84620118158
+            }
+          },
+          "post-switch-export": {
+            "mallocBlocksInUse": {
+              "max": 4580,
+              "median": 4574,
+              "min": 4571,
+              "stdev": 3.6742346141747673
+            },
+            "mallocBytesInUse": {
+              "max": 1340992,
+              "median": 1337408,
+              "min": 1332928,
+              "stdev": 3321.9637565753183
+            },
+            "physicalFootprintBytes": {
+              "max": 8176288,
+              "median": 8127136,
+              "min": 8061624,
+              "stdev": 44858.47804819062
+            },
+            "processPeakResidentBytes": {
+              "max": 33079296,
+              "median": 33013760,
+              "min": 32964608,
+              "stdev": 47201.84620118158
+            },
+            "residentBytes": {
+              "max": 33079296,
+              "median": 33013760,
+              "min": 32964608,
+              "stdev": 47201.84620118158
+            }
+          },
+          "pre-account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 5450,
+              "median": 5402,
+              "min": 5322,
+              "stdev": 53.08766335034911
+            },
+            "mallocBytesInUse": {
+              "max": 1670448,
+              "median": 1664880,
+              "min": 1654192,
+              "stdev": 6409.8484225447955
+            },
+            "physicalFootprintBytes": {
+              "max": 15401656,
+              "median": 15073952,
+              "min": 14172856,
+              "stdev": 573752.3153026922
+            },
+            "processPeakResidentBytes": {
+              "max": 40321024,
+              "median": 39976960,
+              "min": 39092224,
+              "stdev": 569753.4527677739
+            },
+            "residentBytes": {
+              "max": 40321024,
+              "median": 39976960,
+              "min": 39092224,
+              "stdev": 569753.4527677739
+            }
+          },
+          "pre-fixture": {
+            "mallocBlocksInUse": {
+              "max": 2997,
+              "median": 2991,
+              "min": 2987,
+              "stdev": 3.898717737923586
+            },
+            "mallocBytesInUse": {
+              "max": 549904,
+              "median": 546320,
+              "min": 541840,
+              "stdev": 3307.506130001878
+            },
+            "physicalFootprintBytes": {
+              "max": 6718088,
+              "median": 6652576,
+              "min": 6603424,
+              "stdev": 42714.58205343931
+            },
+            "processPeakResidentBytes": {
+              "max": 30900224,
+              "median": 30867456,
+              "min": 30785536,
+              "stdev": 42408.93249304915
+            },
+            "residentBytes": {
+              "max": 30818304,
+              "median": 30785536,
+              "min": 30703616,
+              "stdev": 42408.93249304915
+            }
+          }
+        },
+        "preparationCPUSeconds": {
+          "max": 0.00028000000000000247,
+          "median": 0.0002689999999999984,
+          "min": 0.00026400000000000035,
+          "stdev": 6.204836822996042e-06
+        },
+        "rows": 500,
+        "workload": "same-selection"
+      },
+      {
+        "phases": {
+          "account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 4136,
+              "median": 3941,
+              "min": 3837,
+              "stdev": 127.28825554622075
+            },
+            "mallocBytesInUse": {
+              "max": 686160,
+              "median": 674960,
+              "min": 660240,
+              "stdev": 10443.223410422665
+            },
+            "physicalFootprintBytes": {
+              "max": 36520632,
+              "median": 36094648,
+              "min": 35685048,
+              "stdev": 352041.01362881
+            },
+            "processPeakResidentBytes": {
+              "max": 61472768,
+              "median": 61030400,
+              "min": 60637184,
+              "stdev": 355461.0655742764
+            },
+            "residentBytes": {
+              "max": 61472768,
+              "median": 61030400,
+              "min": 60637184,
+              "stdev": 355461.0655742764
+            }
+          },
+          "owner-release": {
+            "mallocBlocksInUse": {
+              "max": 4105,
+              "median": 3910,
+              "min": 3806,
+              "stdev": 127.28825554622075
+            },
+            "mallocBytesInUse": {
+              "max": 687136,
+              "median": 675936,
+              "min": 661216,
+              "stdev": 10443.223410422665
+            },
+            "physicalFootprintBytes": {
+              "max": 36520632,
+              "median": 36094648,
+              "min": 35685048,
+              "stdev": 354548.31823716214
+            },
+            "processPeakResidentBytes": {
+              "max": 61472768,
+              "median": 61030400,
+              "min": 60637184,
+              "stdev": 358019.4551138248
+            },
+            "residentBytes": {
+              "max": 61472768,
+              "median": 61030400,
+              "min": 60637184,
+              "stdev": 358019.4551138248
+            }
+          },
+          "post-eviction": {
+            "mallocBlocksInUse": {
+              "max": 33923,
+              "median": 33850,
+              "min": 33608,
+              "stdev": 121.69552169245999
+            },
+            "mallocBytesInUse": {
+              "max": 14071888,
+              "median": 14066000,
+              "min": 14057552,
+              "stdev": 6381.413009671134
+            },
+            "physicalFootprintBytes": {
+              "max": 31654584,
+              "median": 31359672,
+              "min": 31310520,
+              "stdev": 139503.32418691678
+            },
+            "processPeakResidentBytes": {
+              "max": 56590336,
+              "median": 56295424,
+              "min": 56246272,
+              "stdev": 142644.33940679175
+            },
+            "residentBytes": {
+              "max": 56590336,
+              "median": 56295424,
+              "min": 56246272,
+              "stdev": 142644.33940679175
+            }
+          },
+          "post-invalidation": {
+            "mallocBlocksInUse": {
+              "max": 4055,
+              "median": 3935,
+              "min": 3693,
+              "stdev": 134.98888843160387
+            },
+            "mallocBytesInUse": {
+              "max": 4766176,
+              "median": 4762208,
+              "min": 4751840,
+              "stdev": 6725.118051008473
+            },
+            "physicalFootprintBytes": {
+              "max": 31654584,
+              "median": 31376056,
+              "min": 31310520,
+              "stdev": 137370.80265034488
+            },
+            "processPeakResidentBytes": {
+              "max": 56590336,
+              "median": 56311808,
+              "min": 56246272,
+              "stdev": 140463.53981015857
+            },
+            "residentBytes": {
+              "max": 56590336,
+              "median": 56311808,
+              "min": 56246272,
+              "stdev": 140463.53981015857
+            }
+          },
+          "post-load": {
+            "mallocBlocksInUse": {
+              "max": 63790,
+              "median": 63733,
+              "min": 63491,
+              "stdev": 117.68517323775328
+            },
+            "mallocBytesInUse": {
+              "max": 15176560,
+              "median": 15169648,
+              "min": 15162224,
+              "stdev": 6325.7128610141635
+            },
+            "physicalFootprintBytes": {
+              "max": 28885688,
+              "median": 28541600,
+              "min": 28492448,
+              "stdev": 162449.98409110418
+            },
+            "processPeakResidentBytes": {
+              "max": 53788672,
+              "median": 53444608,
+              "min": 53411840,
+              "stdev": 158171.37699090817
+            },
+            "residentBytes": {
+              "max": 53788672,
+              "median": 53444608,
+              "min": 53411840,
+              "stdev": 158171.37699090817
+            }
+          },
+          "post-load-export": {
+            "mallocBlocksInUse": {
+              "max": 63794,
+              "median": 63737,
+              "min": 63495,
+              "stdev": 117.68517323775328
+            },
+            "mallocBytesInUse": {
+              "max": 18733120,
+              "median": 18726208,
+              "min": 18718784,
+              "stdev": 6325.7128610141635
+            },
+            "physicalFootprintBytes": {
+              "max": 31654584,
+              "median": 31343288,
+              "min": 31294136,
+              "stdev": 144975.94442113492
+            },
+            "processPeakResidentBytes": {
+              "max": 56557568,
+              "median": 56246272,
+              "min": 56197120,
+              "stdev": 147910.41093851373
+            },
+            "residentBytes": {
+              "max": 56557568,
+              "median": 56246272,
+              "min": 56197120,
+              "stdev": 147910.41093851373
+            }
+          },
+          "post-switch": {
+            "mallocBlocksInUse": {
+              "max": 63796,
+              "median": 63739,
+              "min": 63497,
+              "stdev": 117.68517323775328
+            },
+            "mallocBytesInUse": {
+              "max": 18734544,
+              "median": 18727632,
+              "min": 18720208,
+              "stdev": 6325.7128610141635
+            },
+            "physicalFootprintBytes": {
+              "max": 31654584,
+              "median": 31343288,
+              "min": 31310520,
+              "stdev": 142171.30080012634
+            },
+            "processPeakResidentBytes": {
+              "max": 56573952,
+              "median": 56262656,
+              "min": 56229888,
+              "stdev": 145347.41272963892
+            },
+            "residentBytes": {
+              "max": 56573952,
+              "median": 56262656,
+              "min": 56229888,
+              "stdev": 145347.41272963892
+            }
+          },
+          "post-switch-export": {
+            "mallocBlocksInUse": {
+              "max": 63798,
+              "median": 63741,
+              "min": 63499,
+              "stdev": 117.68517323775328
+            },
+            "mallocBytesInUse": {
+              "max": 18735760,
+              "median": 18728848,
+              "min": 18721424,
+              "stdev": 6325.7128610141635
+            },
+            "physicalFootprintBytes": {
+              "max": 31654584,
+              "median": 31343288,
+              "min": 31310520,
+              "stdev": 142171.30080012634
+            },
+            "processPeakResidentBytes": {
+              "max": 56573952,
+              "median": 56262656,
+              "min": 56229888,
+              "stdev": 145347.41272963892
+            },
+            "residentBytes": {
+              "max": 56573952,
+              "median": 56262656,
+              "min": 56229888,
+              "stdev": 145347.41272963892
+            }
+          },
+          "pre-account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 63949,
+              "median": 63698,
+              "min": 63650,
+              "stdev": 141.96407996391198
+            },
+            "mallocBytesInUse": {
+              "max": 18754272,
+              "median": 18739488,
+              "min": 18725216,
+              "stdev": 11188.78524237551
+            },
+            "physicalFootprintBytes": {
+              "max": 36520632,
+              "median": 36078264,
+              "min": 35685048,
+              "stdev": 353030.7760227145
+            },
+            "processPeakResidentBytes": {
+              "max": 61456384,
+              "median": 60997632,
+              "min": 60620800,
+              "stdev": 356592.0295059888
+            },
+            "residentBytes": {
+              "max": 61456384,
+              "median": 60997632,
+              "min": 60620800,
+              "stdev": 356592.0295059888
+            }
+          },
+          "pre-fixture": {
+            "mallocBlocksInUse": {
+              "max": 2989,
+              "median": 2986,
+              "min": 2984,
+              "stdev": 1.9235384061671346
+            },
+            "mallocBytesInUse": {
+              "max": 551056,
+              "median": 545680,
+              "min": 539024,
+              "stdev": 5129.271605208677
+            },
+            "physicalFootprintBytes": {
+              "max": 6668960,
+              "median": 6603400,
+              "min": 6570632,
+              "stdev": 42732.528649730055
+            },
+            "processPeakResidentBytes": {
+              "max": 30867456,
+              "median": 30801920,
+              "min": 30785536,
+              "stdev": 38423.885904473536
+            },
+            "residentBytes": {
+              "max": 30785536,
+              "median": 30720000,
+              "min": 30703616,
+              "stdev": 38423.885904473536
+            }
+          }
+        },
+        "preparationCPUSeconds": {
+          "max": 0.0003150000000000097,
+          "median": 0.0003049999999999997,
+          "min": 0.0002989999999999937,
+          "stdev": 7.127411872489313e-06
+        },
+        "rows": 10000,
+        "workload": "same-selection"
+      },
+      {
+        "phases": {
+          "account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 3953,
+              "median": 3943,
+              "min": 3838,
+              "stdev": 49.77147777593107
+            },
+            "mallocBytesInUse": {
+              "max": 673840,
+              "median": 670256,
+              "min": 662448,
+              "stdev": 4226.520460142125
+            },
+            "physicalFootprintBytes": {
+              "max": 79561424,
+              "median": 76055272,
+              "min": 75891408,
+              "stdev": 1596095.6394762816
+            },
+            "processPeakResidentBytes": {
+              "max": 104464384,
+              "median": 100941824,
+              "min": 100794368,
+              "stdev": 1600298.3412091634
+            },
+            "residentBytes": {
+              "max": 104464384,
+              "median": 100941824,
+              "min": 100794368,
+              "stdev": 1600298.3412091634
+            }
+          },
+          "owner-release": {
+            "mallocBlocksInUse": {
+              "max": 3934,
+              "median": 3924,
+              "min": 3819,
+              "stdev": 49.77147777593107
+            },
+            "mallocBytesInUse": {
+              "max": 676144,
+              "median": 672560,
+              "min": 664752,
+              "stdev": 4226.520460142125
+            },
+            "physicalFootprintBytes": {
+              "max": 79577808,
+              "median": 76055272,
+              "min": 75891408,
+              "stdev": 1599892.0258327436
+            },
+            "processPeakResidentBytes": {
+              "max": 104497152,
+              "median": 100958208,
+              "min": 100810752,
+              "stdev": 1604084.805578558
+            },
+            "residentBytes": {
+              "max": 104497152,
+              "median": 100958208,
+              "min": 100810752,
+              "stdev": 1604084.805578558
+            }
+          },
+          "post-eviction": {
+            "mallocBlocksInUse": {
+              "max": 3907,
+              "median": 3751,
+              "min": 3731,
+              "stdev": 73.1252350423573
+            },
+            "mallocBytesInUse": {
+              "max": 15902352,
+              "median": 15895568,
+              "min": 15891088,
+              "stdev": 4525.370261094666
+            },
+            "physicalFootprintBytes": {
+              "max": 79397584,
+              "median": 74728168,
+              "min": 74629840,
+              "stdev": 2046882.367071249
+            },
+            "processPeakResidentBytes": {
+              "max": 104300544,
+              "median": 99614720,
+              "min": 99549184,
+              "stdev": 2046721.64902998
+            },
+            "residentBytes": {
+              "max": 104300544,
+              "median": 99614720,
+              "min": 99549184,
+              "stdev": 2046721.64902998
+            }
+          },
+          "post-invalidation": {
+            "mallocBlocksInUse": {
+              "max": 3891,
+              "median": 3735,
+              "min": 3715,
+              "stdev": 72.96437486883582
+            },
+            "mallocBytesInUse": {
+              "max": 15899136,
+              "median": 15892416,
+              "min": 15887872,
+              "stdev": 4522.405023878335
+            },
+            "physicalFootprintBytes": {
+              "max": 79397584,
+              "median": 74728168,
+              "min": 74629840,
+              "stdev": 2046882.367071249
+            },
+            "processPeakResidentBytes": {
+              "max": 104300544,
+              "median": 99614720,
+              "min": 99549184,
+              "stdev": 2046721.64902998
+            },
+            "residentBytes": {
+              "max": 104300544,
+              "median": 99614720,
+              "min": 99549184,
+              "stdev": 2046721.64902998
+            }
+          },
+          "post-load": {
+            "mallocBlocksInUse": {
+              "max": 123791,
+              "median": 123634,
+              "min": 123618,
+              "stdev": 72.21703400168136
+            },
+            "mallocBytesInUse": {
+              "max": 34022784,
+              "median": 34016192,
+              "min": 34011712,
+              "stdev": 4476.021090209473
+            },
+            "physicalFootprintBytes": {
+              "max": 50152144,
+              "median": 47956712,
+              "min": 47858384,
+              "stdev": 990695.2598429045
+            },
+            "processPeakResidentBytes": {
+              "max": 75005952,
+              "median": 72794112,
+              "min": 72728576,
+              "stdev": 989124.2118577424
+            },
+            "residentBytes": {
+              "max": 75005952,
+              "median": 72794112,
+              "min": 72728576,
+              "stdev": 989124.2118577424
+            }
+          },
+          "post-load-export": {
+            "mallocBlocksInUse": {
+              "max": 123795,
+              "median": 123638,
+              "min": 123622,
+              "stdev": 72.21703400168136
+            },
+            "mallocBytesInUse": {
+              "max": 48196176,
+              "median": 48189584,
+              "min": 48185104,
+              "stdev": 4476.021090209473
+            },
+            "physicalFootprintBytes": {
+              "max": 77562576,
+              "median": 74646224,
+              "min": 74531536,
+              "stdev": 1316877.974464149
+            },
+            "processPeakResidentBytes": {
+              "max": 102416384,
+              "median": 99500032,
+              "min": 99385344,
+              "stdev": 1316574.4453044804
+            },
+            "residentBytes": {
+              "max": 102416384,
+              "median": 99500032,
+              "min": 99385344,
+              "stdev": 1316574.4453044804
+            }
+          },
+          "post-switch": {
+            "mallocBlocksInUse": {
+              "max": 123797,
+              "median": 123640,
+              "min": 123624,
+              "stdev": 72.21703400168136
+            },
+            "mallocBytesInUse": {
+              "max": 48197600,
+              "median": 48191008,
+              "min": 48186528,
+              "stdev": 4476.021090209473
+            },
+            "physicalFootprintBytes": {
+              "max": 77562576,
+              "median": 74646224,
+              "min": 74531536,
+              "stdev": 1316877.974464149
+            },
+            "processPeakResidentBytes": {
+              "max": 102432768,
+              "median": 99516416,
+              "min": 99401728,
+              "stdev": 1316574.4453044804
+            },
+            "residentBytes": {
+              "max": 102432768,
+              "median": 99516416,
+              "min": 99401728,
+              "stdev": 1316574.4453044804
+            }
+          },
+          "post-switch-export": {
+            "mallocBlocksInUse": {
+              "max": 123799,
+              "median": 123642,
+              "min": 123626,
+              "stdev": 72.21703400168136
+            },
+            "mallocBytesInUse": {
+              "max": 48198816,
+              "median": 48192224,
+              "min": 48187744,
+              "stdev": 4476.021090209473
+            },
+            "physicalFootprintBytes": {
+              "max": 77562576,
+              "median": 74646224,
+              "min": 74531536,
+              "stdev": 1316877.974464149
+            },
+            "processPeakResidentBytes": {
+              "max": 102432768,
+              "median": 99516416,
+              "min": 99401728,
+              "stdev": 1316574.4453044804
+            },
+            "residentBytes": {
+              "max": 102432768,
+              "median": 99516416,
+              "min": 99401728,
+              "stdev": 1316574.4453044804
+            }
+          },
+          "pre-account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 123869,
+              "median": 123859,
+              "min": 123754,
+              "stdev": 49.77147777593107
+            },
+            "mallocBytesInUse": {
+              "max": 48228928,
+              "median": 48225344,
+              "min": 48217536,
+              "stdev": 4226.520460142125
+            },
+            "physicalFootprintBytes": {
+              "max": 79561424,
+              "median": 76055272,
+              "min": 75891408,
+              "stdev": 1556580.2031273558
+            },
+            "processPeakResidentBytes": {
+              "max": 104464384,
+              "median": 100941824,
+              "min": 100794368,
+              "stdev": 1559624.276723083
+            },
+            "residentBytes": {
+              "max": 104464384,
+              "median": 100941824,
+              "min": 100794368,
+              "stdev": 1559211.1448919289
+            }
+          },
+          "pre-fixture": {
+            "mallocBlocksInUse": {
+              "max": 2998,
+              "median": 2987,
+              "min": 2984,
+              "stdev": 5.449770637375485
+            },
+            "mallocBytesInUse": {
+              "max": 549776,
+              "median": 546768,
+              "min": 545616,
+              "stdev": 1916.263029962223
+            },
+            "physicalFootprintBytes": {
+              "max": 6734472,
+              "median": 6603400,
+              "min": 6570632,
+              "stdev": 67952.35460232412
+            },
+            "processPeakResidentBytes": {
+              "max": 30916608,
+              "median": 30785536,
+              "min": 30752768,
+              "stdev": 63876.59141814003
+            },
+            "residentBytes": {
+              "max": 30834688,
+              "median": 30703616,
+              "min": 30670848,
+              "stdev": 63876.59141814003
+            }
+          }
+        },
+        "preparationCPUSeconds": {
+          "max": 0.00017299999999997873,
+          "median": 0.00016900000000003024,
+          "min": 0.00016800000000000148,
+          "stdev": 2.1679483388610863e-06
+        },
+        "rows": 40000,
+        "workload": "same-selection"
+      },
+      {
+        "phases": {
+          "account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 4085,
+              "median": 3883,
+              "min": 3756,
+              "stdev": 134.43957750603056
+            },
+            "mallocBytesInUse": {
+              "max": 682800,
+              "median": 668368,
+              "min": 658416,
+              "stdev": 9439.256919906355
+            },
+            "physicalFootprintBytes": {
+              "max": 15254200,
+              "median": 14860984,
+              "min": 14762656,
+              "stdev": 203461.74029335345
+            },
+            "processPeakResidentBytes": {
+              "max": 40206336,
+              "median": 39780352,
+              "min": 39731200,
+              "stdev": 199790.77132640537
+            },
+            "residentBytes": {
+              "max": 40206336,
+              "median": 39780352,
+              "min": 39731200,
+              "stdev": 199790.77132640537
+            }
+          },
+          "owner-release": {
+            "mallocBlocksInUse": {
+              "max": 4056,
+              "median": 3853,
+              "min": 3726,
+              "stdev": 134.81728375842616
+            },
+            "mallocBytesInUse": {
+              "max": 683936,
+              "median": 669408,
+              "min": 659456,
+              "stdev": 9475.604719488883
+            },
+            "physicalFootprintBytes": {
+              "max": 15270584,
+              "median": 14877368,
+              "min": 14779040,
+              "stdev": 203461.25713560308
+            },
+            "processPeakResidentBytes": {
+              "max": 40222720,
+              "median": 39796736,
+              "min": 39747584,
+              "stdev": 200461.4370975126
+            },
+            "residentBytes": {
+              "max": 40222720,
+              "median": 39796736,
+              "min": 39747584,
+              "stdev": 200461.4370975126
+            }
+          },
+          "post-eviction": {
+            "mallocBlocksInUse": {
+              "max": 32528,
+              "median": 32365,
+              "min": 32172,
+              "stdev": 127.05589321239688
+            },
+            "mallocBytesInUse": {
+              "max": 5911472,
+              "median": 5905072,
+              "min": 5892784,
+              "stdev": 7283.905765453038
+            },
+            "physicalFootprintBytes": {
+              "max": 15057616,
+              "median": 14828216,
+              "min": 14746272,
+              "stdev": 131393.05788663265
+            },
+            "processPeakResidentBytes": {
+              "max": 39944192,
+              "median": 39731200,
+              "min": 39682048,
+              "stdev": 117348.79161201448
+            },
+            "residentBytes": {
+              "max": 39944192,
+              "median": 39731200,
+              "min": 39682048,
+              "stdev": 117348.79161201448
+            }
+          },
+          "post-invalidation": {
+            "mallocBlocksInUse": {
+              "max": 4079,
+              "median": 3915,
+              "min": 3723,
+              "stdev": 127.04644819907402
+            },
+            "mallocBytesInUse": {
+              "max": 1192768,
+              "median": 1186304,
+              "min": 1174080,
+              "stdev": 7280.263731486655
+            },
+            "physicalFootprintBytes": {
+              "max": 15221432,
+              "median": 14844600,
+              "min": 14762656,
+              "stdev": 193659.42382233817
+            },
+            "processPeakResidentBytes": {
+              "max": 40157184,
+              "median": 39747584,
+              "min": 39714816,
+              "stdev": 190857.77788500002
+            },
+            "residentBytes": {
+              "max": 40157184,
+              "median": 39747584,
+              "min": 39714816,
+              "stdev": 190857.77788500002
+            }
+          },
+          "post-load": {
+            "mallocBlocksInUse": {
+              "max": 5982,
+              "median": 5972,
+              "min": 5968,
+              "stdev": 6.418722614352485
+            },
+            "mallocBytesInUse": {
+              "max": 1389056,
+              "median": 1387200,
+              "min": 1383072,
+              "stdev": 2759.83999536205
+            },
+            "physicalFootprintBytes": {
+              "max": 8323768,
+              "median": 8274592,
+              "min": 8241824,
+              "stdev": 31523.987768047366
+            },
+            "processPeakResidentBytes": {
+              "max": 33210368,
+              "median": 33161216,
+              "min": 33161216,
+              "stdev": 26921.659146493927
+            },
+            "residentBytes": {
+              "max": 33210368,
+              "median": 33161216,
+              "min": 33161216,
+              "stdev": 23170.47500592079
+            }
+          },
+          "post-load-export": {
+            "mallocBlocksInUse": {
+              "max": 5986,
+              "median": 5976,
+              "min": 5972,
+              "stdev": 6.418722614352485
+            },
+            "mallocBytesInUse": {
+              "max": 1619664,
+              "median": 1617808,
+              "min": 1613680,
+              "stdev": 2759.83999536205
+            },
+            "physicalFootprintBytes": {
+              "max": 8553144,
+              "median": 8471200,
+              "min": 8422048,
+              "stdev": 48612.102657671574
+            },
+            "processPeakResidentBytes": {
+              "max": 33423360,
+              "median": 33374208,
+              "min": 33325056,
+              "stdev": 39116.26387067149
+            },
+            "residentBytes": {
+              "max": 33423360,
+              "median": 33374208,
+              "min": 33325056,
+              "stdev": 39116.26387067149
+            }
+          },
+          "post-switch": {
+            "mallocBlocksInUse": {
+              "max": 6499,
+              "median": 6489,
+              "min": 6485,
+              "stdev": 6.418722614352485
+            },
+            "mallocBytesInUse": {
+              "max": 1653776,
+              "median": 1651920,
+              "min": 1647792,
+              "stdev": 2759.83999536205
+            },
+            "physicalFootprintBytes": {
+              "max": 9290400,
+              "median": 8815288,
+              "min": 8700576,
+              "stdev": 287301.4677358958
+            },
+            "processPeakResidentBytes": {
+              "max": 34226176,
+              "median": 33701888,
+              "min": 33619968,
+              "stdev": 289723.604649673
+            },
+            "residentBytes": {
+              "max": 34226176,
+              "median": 33701888,
+              "min": 33619968,
+              "stdev": 289723.604649673
+            }
+          },
+          "post-switch-export": {
+            "mallocBlocksInUse": {
+              "max": 6501,
+              "median": 6491,
+              "min": 6487,
+              "stdev": 6.418722614352485
+            },
+            "mallocBytesInUse": {
+              "max": 1654992,
+              "median": 1653136,
+              "min": 1649008,
+              "stdev": 2759.83999536205
+            },
+            "physicalFootprintBytes": {
+              "max": 9290400,
+              "median": 8815288,
+              "min": 8700576,
+              "stdev": 287301.4677358958
+            },
+            "processPeakResidentBytes": {
+              "max": 34226176,
+              "median": 33701888,
+              "min": 33619968,
+              "stdev": 289723.604649673
+            },
+            "residentBytes": {
+              "max": 34226176,
+              "median": 33701888,
+              "min": 33619968,
+              "stdev": 289723.604649673
+            }
+          },
+          "pre-account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 6858,
+              "median": 6699,
+              "min": 6569,
+              "stdev": 119.78856372792855
+            },
+            "mallocBytesInUse": {
+              "max": 1920832,
+              "median": 1908864,
+              "min": 1898912,
+              "stdev": 8554.12134587767
+            },
+            "physicalFootprintBytes": {
+              "max": 15237816,
+              "median": 14844600,
+              "min": 14762656,
+              "stdev": 199800.61249956168
+            },
+            "processPeakResidentBytes": {
+              "max": 40173568,
+              "median": 39763968,
+              "min": 39714816,
+              "stdev": 196061.10603380774
+            },
+            "residentBytes": {
+              "max": 40173568,
+              "median": 39763968,
+              "min": 39714816,
+              "stdev": 196061.10603380774
+            }
+          },
+          "pre-fixture": {
+            "mallocBlocksInUse": {
+              "max": 2998,
+              "median": 2988,
+              "min": 2984,
+              "stdev": 6.418722614352485
+            },
+            "mallocBytesInUse": {
+              "max": 551376,
+              "median": 549520,
+              "min": 545456,
+              "stdev": 2736.664246852361
+            },
+            "physicalFootprintBytes": {
+              "max": 6701728,
+              "median": 6636168,
+              "min": 6619784,
+              "stdev": 35528.522401023096
+            },
+            "processPeakResidentBytes": {
+              "max": 30883840,
+              "median": 30834688,
+              "min": 30801920,
+              "stdev": 31938.295709070015
+            },
+            "residentBytes": {
+              "max": 30801920,
+              "median": 30752768,
+              "min": 30720000,
+              "stdev": 31938.295709070015
+            }
+          }
+        },
+        "preparationCPUSeconds": {
+          "max": 0.26877,
+          "median": 0.266705,
+          "min": 0.265759,
+          "stdev": 0.001147200854253518
+        },
+        "rows": 500,
+        "workload": "switch-ab"
+      },
+      {
+        "phases": {
+          "account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 4032,
+              "median": 4027,
+              "min": 3757,
+              "stdev": 130.18179596241558
+            },
+            "mallocBytesInUse": {
+              "max": 646144,
+              "median": 645888,
+              "min": 632640,
+              "stdev": 6185.129004313491
+            },
+            "physicalFootprintBytes": {
+              "max": 36799160,
+              "median": 36602552,
+              "min": 35340984,
+              "stdev": 611279.1136232286
+            },
+            "processPeakResidentBytes": {
+              "max": 61734912,
+              "median": 61554688,
+              "min": 60424192,
+              "stdev": 548680.566362615
+            },
+            "residentBytes": {
+              "max": 61734912,
+              "median": 61554688,
+              "min": 60276736,
+              "stdev": 613733.3556677526
+            }
+          },
+          "owner-release": {
+            "mallocBlocksInUse": {
+              "max": 4001,
+              "median": 3996,
+              "min": 3726,
+              "stdev": 130.18179596241558
+            },
+            "mallocBytesInUse": {
+              "max": 647120,
+              "median": 646864,
+              "min": 633616,
+              "stdev": 6185.129004313491
+            },
+            "physicalFootprintBytes": {
+              "max": 36799160,
+              "median": 36618936,
+              "min": 35340984,
+              "stdev": 612529.3763169241
+            },
+            "processPeakResidentBytes": {
+              "max": 61734912,
+              "median": 61571072,
+              "min": 60424192,
+              "stdev": 549951.1144412747
+            },
+            "residentBytes": {
+              "max": 61734912,
+              "median": 61571072,
+              "min": 60276736,
+              "stdev": 615065.921784649
+            }
+          },
+          "post-eviction": {
+            "mallocBlocksInUse": {
+              "max": 33582,
+              "median": 33579,
+              "min": 33578,
+              "stdev": 1.51657508881031
+            },
+            "mallocBytesInUse": {
+              "max": 14021376,
+              "median": 14021248,
+              "min": 14021184,
+              "stdev": 70.10848736066126
+            },
+            "physicalFootprintBytes": {
+              "max": 35979960,
+              "median": 35865272,
+              "min": 35275448,
+              "stdev": 292306.3558063697
+            },
+            "processPeakResidentBytes": {
+              "max": 61145088,
+              "median": 61046784,
+              "min": 60424192,
+              "stdev": 296183.56980224274
+            },
+            "residentBytes": {
+              "max": 60915712,
+              "median": 60801024,
+              "min": 60194816,
+              "stdev": 296862.52745134407
+            }
+          },
+          "post-invalidation": {
+            "mallocBlocksInUse": {
+              "max": 3667,
+              "median": 3664,
+              "min": 3664,
+              "stdev": 1.3038404810405297
+            },
+            "mallocBytesInUse": {
+              "max": 4719632,
+              "median": 4715664,
+              "min": 4715536,
+              "stdev": 2203.3109630735285
+            },
+            "physicalFootprintBytes": {
+              "max": 35996344,
+              "median": 35865272,
+              "min": 35291832,
+              "stdev": 288330.4713747751
+            },
+            "processPeakResidentBytes": {
+              "max": 61145088,
+              "median": 61046784,
+              "min": 60424192,
+              "stdev": 296183.56980224274
+            },
+            "residentBytes": {
+              "max": 60932096,
+              "median": 60801024,
+              "min": 60211200,
+              "stdev": 292535.8497223887
+            }
+          },
+          "post-load": {
+            "mallocBlocksInUse": {
+              "max": 63789,
+              "median": 63730,
+              "min": 63490,
+              "stdev": 117.47552936675791
+            },
+            "mallocBytesInUse": {
+              "max": 15177328,
+              "median": 15172336,
+              "min": 15154160,
+              "stdev": 9362.239732029937
+            },
+            "physicalFootprintBytes": {
+              "max": 29754040,
+              "median": 28623520,
+              "min": 28492448,
+              "stdev": 515703.34285982675
+            },
+            "processPeakResidentBytes": {
+              "max": 54640640,
+              "median": 53559296,
+              "min": 53379072,
+              "stdev": 505705.90161792655
+            },
+            "residentBytes": {
+              "max": 54640640,
+              "median": 53542912,
+              "min": 53379072,
+              "stdev": 507507.4581048046
+            }
+          },
+          "post-load-export": {
+            "mallocBlocksInUse": {
+              "max": 63793,
+              "median": 63734,
+              "min": 63494,
+              "stdev": 117.47552936675791
+            },
+            "mallocBytesInUse": {
+              "max": 18733888,
+              "median": 18728896,
+              "min": 18710720,
+              "stdev": 9362.239732029937
+            },
+            "physicalFootprintBytes": {
+              "max": 32539320,
+              "median": 31392440,
+              "min": 31294136,
+              "stdev": 528063.2080469156
+            },
+            "processPeakResidentBytes": {
+              "max": 57425920,
+              "median": 56295424,
+              "min": 56164352,
+              "stdev": 527656.3796290158
+            },
+            "residentBytes": {
+              "max": 57425920,
+              "median": 56295424,
+              "min": 56164352,
+              "stdev": 527656.3796290158
+            }
+          },
+          "post-switch": {
+            "mallocBlocksInUse": {
+              "max": 63470,
+              "median": 63467,
+              "min": 63466,
+              "stdev": 1.51657508881031
+            },
+            "mallocBytesInUse": {
+              "max": 18679936,
+              "median": 18679808,
+              "min": 18679744,
+              "stdev": 70.10848736066126
+            },
+            "physicalFootprintBytes": {
+              "max": 35963576,
+              "median": 35848888,
+              "min": 35259064,
+              "stdev": 292306.3558063697
+            },
+            "processPeakResidentBytes": {
+              "max": 61145088,
+              "median": 61046784,
+              "min": 60424192,
+              "stdev": 296183.56980224274
+            },
+            "residentBytes": {
+              "max": 60882944,
+              "median": 60768256,
+              "min": 60162048,
+              "stdev": 296862.52745134407
+            }
+          },
+          "post-switch-export": {
+            "mallocBlocksInUse": {
+              "max": 63472,
+              "median": 63469,
+              "min": 63468,
+              "stdev": 1.51657508881031
+            },
+            "mallocBytesInUse": {
+              "max": 18681152,
+              "median": 18681024,
+              "min": 18680960,
+              "stdev": 70.10848736066126
+            },
+            "physicalFootprintBytes": {
+              "max": 35963576,
+              "median": 35848888,
+              "min": 35259064,
+              "stdev": 292306.3558063697
+            },
+            "processPeakResidentBytes": {
+              "max": 61145088,
+              "median": 61046784,
+              "min": 60424192,
+              "stdev": 296183.56980224274
+            },
+            "residentBytes": {
+              "max": 60882944,
+              "median": 60768256,
+              "min": 60162048,
+              "stdev": 296862.52745134407
+            }
+          },
+          "pre-account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 63799,
+              "median": 63794,
+              "min": 63487,
+              "stdev": 137.36557064999948
+            },
+            "mallocBytesInUse": {
+              "max": 18711312,
+              "median": 18711056,
+              "min": 18695440,
+              "stdev": 6843.1534251396115
+            },
+            "physicalFootprintBytes": {
+              "max": 36799160,
+              "median": 36602552,
+              "min": 35340984,
+              "stdev": 611279.1136232286
+            },
+            "processPeakResidentBytes": {
+              "max": 61718528,
+              "median": 61538304,
+              "min": 60424192,
+              "stdev": 541465.7930499396
+            },
+            "residentBytes": {
+              "max": 61718528,
+              "median": 61538304,
+              "min": 60260352,
+              "stdev": 613733.3556677526
+            }
+          },
+          "pre-fixture": {
+            "mallocBlocksInUse": {
+              "max": 2991,
+              "median": 2990,
+              "min": 2986,
+              "stdev": 2.0
+            },
+            "mallocBytesInUse": {
+              "max": 549904,
+              "median": 547088,
+              "min": 542864,
+              "stdev": 2987.3675368123018
+            },
+            "physicalFootprintBytes": {
+              "max": 6718088,
+              "median": 6636168,
+              "min": 6570632,
+              "stdev": 57460.90939760699
+            },
+            "processPeakResidentBytes": {
+              "max": 30916608,
+              "median": 30834688,
+              "min": 30752768,
+              "stdev": 64918.692679381646
+            },
+            "residentBytes": {
+              "max": 30834688,
+              "median": 30752768,
+              "min": 30670848,
+              "stdev": 64918.692679381646
+            }
+          }
+        },
+        "preparationCPUSeconds": {
+          "max": 5.7831,
+          "median": 5.722097,
+          "min": 5.696033000000001,
+          "stdev": 0.03361654079764882
+        },
+        "rows": 10000,
+        "workload": "switch-ab"
+      },
+      {
+        "phases": {
+          "account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 4274,
+              "median": 4188,
+              "min": 4150,
+              "stdev": 49.472214423856144
+            },
+            "mallocBytesInUse": {
+              "max": 695792,
+              "median": 687088,
+              "min": 678640,
+              "stdev": 6138.597624865145
+            },
+            "physicalFootprintBytes": {
+              "max": 49021672,
+              "median": 48022248,
+              "min": 47956688,
+              "stdev": 449090.94343484595
+            },
+            "processPeakResidentBytes": {
+              "max": 111460352,
+              "median": 110428160,
+              "min": 110166016,
+              "stdev": 646846.461895866
+            },
+            "residentBytes": {
+              "max": 100876288,
+              "median": 100843520,
+              "min": 99680256,
+              "stdev": 633003.6375655356
+            }
+          },
+          "owner-release": {
+            "mallocBlocksInUse": {
+              "max": 4248,
+              "median": 4162,
+              "min": 4124,
+              "stdev": 49.472214423856144
+            },
+            "mallocBytesInUse": {
+              "max": 697456,
+              "median": 688752,
+              "min": 680304,
+              "stdev": 6138.597624865145
+            },
+            "physicalFootprintBytes": {
+              "max": 49021672,
+              "median": 48038632,
+              "min": 47956688,
+              "stdev": 446363.0273075941
+            },
+            "processPeakResidentBytes": {
+              "max": 111460352,
+              "median": 110428160,
+              "min": 110166016,
+              "stdev": 646846.461895866
+            },
+            "residentBytes": {
+              "max": 100892672,
+              "median": 100859904,
+              "min": 99696640,
+              "stdev": 631730.1579275759
+            }
+          },
+          "post-eviction": {
+            "mallocBlocksInUse": {
+              "max": 4390,
+              "median": 4281,
+              "min": 4097,
+              "stdev": 113.52312539742728
+            },
+            "mallocBytesInUse": {
+              "max": 17003696,
+              "median": 16992688,
+              "min": 16975696,
+              "stdev": 10087.783661439216
+            },
+            "physicalFootprintBytes": {
+              "max": 23921384,
+              "median": 23888592,
+              "min": 23855824,
+              "stdev": 29319.994870395185
+            },
+            "processPeakResidentBytes": {
+              "max": 111460352,
+              "median": 110428160,
+              "min": 110166016,
+              "stdev": 646846.461895866
+            },
+            "residentBytes": {
+              "max": 76726272,
+              "median": 75694080,
+              "min": 75431936,
+              "stdev": 646846.461895866
+            }
+          },
+          "post-invalidation": {
+            "mallocBlocksInUse": {
+              "max": 4375,
+              "median": 4266,
+              "min": 4082,
+              "stdev": 113.52444670642531
+            },
+            "mallocBytesInUse": {
+              "max": 17000544,
+              "median": 16989536,
+              "min": 16972544,
+              "stdev": 10085.570524268818
+            },
+            "physicalFootprintBytes": {
+              "max": 23921384,
+              "median": 23888592,
+              "min": 23855824,
+              "stdev": 32780.00043929225
+            },
+            "processPeakResidentBytes": {
+              "max": 111460352,
+              "median": 110428160,
+              "min": 110166016,
+              "stdev": 646846.461895866
+            },
+            "residentBytes": {
+              "max": 76726272,
+              "median": 75710464,
+              "min": 75431936,
+              "stdev": 644788.9842830753
+            }
+          },
+          "post-load": {
+            "mallocBlocksInUse": {
+              "max": 163939,
+              "median": 163842,
+              "min": 163765,
+              "stdev": 68.67095455867786
+            },
+            "mallocBytesInUse": {
+              "max": 37660992,
+              "median": 37651264,
+              "min": 37646912,
+              "stdev": 5931.595131159915
+            },
+            "physicalFootprintBytes": {
+              "max": 56591056,
+              "median": 55739088,
+              "min": 55722704,
+              "stdev": 384762.46436470386
+            },
+            "processPeakResidentBytes": {
+              "max": 81444864,
+              "median": 80592896,
+              "min": 80576512,
+              "stdev": 379599.9904910431
+            },
+            "residentBytes": {
+              "max": 81444864,
+              "median": 80592896,
+              "min": 80576512,
+              "stdev": 383084.4081859767
+            }
+          },
+          "post-load-export": {
+            "mallocBlocksInUse": {
+              "max": 123944,
+              "median": 123847,
+              "min": 123770,
+              "stdev": 68.67095455867786
+            },
+            "mallocBytesInUse": {
+              "max": 49274448,
+              "median": 49264720,
+              "min": 49260368,
+              "stdev": 5931.595131159915
+            },
+            "physicalFootprintBytes": {
+              "max": 83854032,
+              "median": 80708328,
+              "min": 80675536,
+              "stdev": 1367051.1221153364
+            },
+            "processPeakResidentBytes": {
+              "max": 108724224,
+              "median": 105545728,
+              "min": 105529344,
+              "stdev": 1378857.4270791016
+            },
+            "residentBytes": {
+              "max": 108724224,
+              "median": 105545728,
+              "min": 105529344,
+              "stdev": 1378857.4270791016
+            }
+          },
+          "post-switch": {
+            "mallocBlocksInUse": {
+              "max": 204284,
+              "median": 204175,
+              "min": 203992,
+              "stdev": 113.17376020968818
+            },
+            "mallocBytesInUse": {
+              "max": 54419232,
+              "median": 54408224,
+              "min": 54391328,
+              "stdev": 10054.459070482111
+            },
+            "physicalFootprintBytes": {
+              "max": 86541032,
+              "median": 85508840,
+              "min": 85246672,
+              "stdev": 642436.0168583328
+            },
+            "processPeakResidentBytes": {
+              "max": 111427584,
+              "median": 110379008,
+              "min": 110133248,
+              "stdev": 644559.9702519542
+            },
+            "residentBytes": {
+              "max": 111427584,
+              "median": 110379008,
+              "min": 110133248,
+              "stdev": 644559.9702519542
+            }
+          },
+          "post-switch-export": {
+            "mallocBlocksInUse": {
+              "max": 164286,
+              "median": 164177,
+              "min": 163994,
+              "stdev": 113.17376020968818
+            },
+            "mallocBytesInUse": {
+              "max": 51860448,
+              "median": 51849440,
+              "min": 51832544,
+              "stdev": 10054.459070482111
+            },
+            "physicalFootprintBytes": {
+              "max": 86541032,
+              "median": 85508840,
+              "min": 85246672,
+              "stdev": 642436.0168583328
+            },
+            "processPeakResidentBytes": {
+              "max": 111427584,
+              "median": 110379008,
+              "min": 110133248,
+              "stdev": 644559.9702519542
+            },
+            "residentBytes": {
+              "max": 111427584,
+              "median": 110379008,
+              "min": 110133248,
+              "stdev": 644559.9702519542
+            }
+          },
+          "pre-account-retirement": {
+            "mallocBlocksInUse": {
+              "max": 124190,
+              "median": 124104,
+              "min": 124066,
+              "stdev": 49.472214423856144
+            },
+            "mallocBytesInUse": {
+              "max": 49315840,
+              "median": 49307136,
+              "min": 49298688,
+              "stdev": 6138.597624865145
+            },
+            "physicalFootprintBytes": {
+              "max": 49021672,
+              "median": 48005864,
+              "min": 47940304,
+              "stdev": 453462.9393421253
+            },
+            "processPeakResidentBytes": {
+              "max": 111460352,
+              "median": 110428160,
+              "min": 110166016,
+              "stdev": 646846.461895866
+            },
+            "residentBytes": {
+              "max": 100876288,
+              "median": 100843520,
+              "min": 99663872,
+              "stdev": 634718.7821112591
+            }
+          },
+          "pre-fixture": {
+            "mallocBlocksInUse": {
+              "max": 2995,
+              "median": 2990,
+              "min": 2985,
+              "stdev": 4.159326868617084
+            },
+            "mallocBytesInUse": {
+              "max": 551056,
+              "median": 547280,
+              "min": 541712,
+              "stdev": 3769.866204522383
+            },
+            "physicalFootprintBytes": {
+              "max": 6652552,
+              "median": 6652552,
+              "min": 6603400,
+              "stdev": 21362.12244136804
+            },
+            "processPeakResidentBytes": {
+              "max": 30851072,
+              "median": 30834688,
+              "min": 30785536,
+              "stdev": 24847.56625506812
+            },
+            "residentBytes": {
+              "max": 30769152,
+              "median": 30752768,
+              "min": 30703616,
+              "stdev": 24847.56625506812
+            }
+          }
+        },
+        "preparationCPUSeconds": {
+          "max": 1.0646220000000008,
+          "median": 1.054385,
+          "min": 1.0343139999999997,
+          "stdev": 0.011314821761742607
+        },
+        "rows": 40000,
+        "workload": "switch-ab"
+      }
+    ],
+    "decision": "Attribute all six cells separately; observed cost scales with rows, exports, eviction fill and query ownership. Primary data alone cannot classify dictionaries/keypaths/membership/frameworks or distinguish intentionally reused capacity from retained graphs. No production optimization is proposed before attribution. Resident/physical footprint remain process-level current observations; malloc in-use and release witnesses are separate. No quiet baseline, historic comparison or shipping gain.",
+    "externalCoreEquivalents": {
+      "max": 1.3377763704540917,
+      "median": 0.16628864323791545,
+      "min": 0.10975645012170578,
+      "stdev": 0.25913854068199765
+    },
+    "frozenProtocolSHA256": "82b616ae9d3b01a37537cfd7d018d746c1f7318060984307b2110e24a5bac45c",
+    "label": "ambient-load-v1",
+    "machineBusyFraction": {
+      "max": 0.3227739726027397,
+      "median": 0.20326414092637857,
+      "min": 0.19729375818419903,
+      "stdev": 0.027004615641902256
+    },
+    "sampleCount": 30
+  },
+  "version": 1
+}

@@ -35,8 +35,8 @@ modify Spotify's files to bypass caching. Quit stops the runtime; window closure
 
 ## Measurements
 
-Record source/engine identities, system, display, window state, and workload. Compare matched
-optimized builds without concurrent compilation or UI inspection.
+Record source/engine, system, display/window and workload identities. Match optimized builds;
+exclude concurrent compilation/UI inspection.
 
 ```bash
 ./Scripts/browse-synthetic.sh --optimized Tests/BrowsingHarness/queue-rendering.json
@@ -59,6 +59,7 @@ Opt-in probes:
 | --- | --- | --- |
 | `SPOTTY_CATALOG_MEASUREMENT_REPORT` | `CatalogMetadataMeasurementTests` | Catalog publication CPU |
 | `SPOTTY_CATALOG_PREPARATION_REPORT` | `CatalogPreparationMeasurementTests` | Preparation CPU and peak RSS |
+| `SPOTTY_CATALOG_MEMORY_REPORT` | `CatalogRetainedMemoryMeasurementTests` | [Owned retention investigation](../architecture/measurements/2026-09-30-catalog-memory.md) |
 | `SPOTTY_PATHFINDER_DECODING_REPORT` | `PathfinderDecodingMeasurementTests` | Gateway decoding CPU and peak RSS |
 | `SPOTTY_METADATA_EXCHANGE_REPORT` | `CatalogMetadataExchangeMeasurementTests` | Metadata exchange CPU and admission latency |
 | `SPOTTY_TRACK_SORT_REPORT` | `measureTrackTableSorting` | Track sorting CPU |
@@ -108,8 +109,7 @@ exports, and complete application frames. Malformed or interrupted runs fail clo
 reason codes. [Synthetic acceptance](synthetic-acceptance.md#evidence-and-review) explains early-failure artifacts.
 
 The launcher writes `trace-summary.json`; the [summarizer](../../Scripts/summarize_synthetic_trace.py)
-filters exports to the Demo workload/process. Pipelined frame lifetime is not a one-refresh deadline. Raw traces can contain
-host information; keep them local and publish reviewed aggregates.
+filters exports to the Demo workload/process. Pipelined frame lifetime is not a one-refresh deadline. Keep host-bearing traces local; publish reviewed aggregates.
 
 Compare completed captures:
 

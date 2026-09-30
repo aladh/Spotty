@@ -15,6 +15,10 @@ import OSLog
 final class HomeLibraryStore {
     private typealias Flight = CatalogReadFlights<Request>
 
+    #if DEBUG
+        func workerSettlements() -> [Task<Void, Never>] { flight.workerSettlements() }
+    #endif
+
     /// Independent request lifetimes: the launch-critical aggregate load and each section.
     private enum Request: Hashable, Sendable {
         case initialLoad

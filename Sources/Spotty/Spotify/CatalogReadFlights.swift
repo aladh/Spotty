@@ -60,6 +60,10 @@ final class CatalogReadFlights<Key: Hashable & Sendable> {
 
         var isActive: Bool { state.withLock { $0.active } }
 
+        #if DEBUG
+            var workerSettlement: Task<Void, Never>? { state.withLock { $0.task } }
+        #endif
+
         func install(_ task: Task<Void, Never>) { state.withLock { $0.task = task } }
 
         func join(_ waiter: Waiter, id: UUID) -> Bool {
@@ -107,6 +111,14 @@ final class CatalogReadFlights<Key: Hashable & Sendable> {
     }
 
     isolated deinit { reset() }
+
+    #if DEBUG
+        /// Snapshot admitted workers before cancellation/reset clears their live slots.
+        /// Joining a retained handle includes operation processing and complete(handle).
+        func workerSettlements() -> [Task<Void, Never>] {
+            requests.values.compactMap(\.workerSettlement)
+        }
+    #endif
 
     func reset() {
         let retired = requests

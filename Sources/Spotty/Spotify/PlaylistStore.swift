@@ -46,6 +46,10 @@ final class PlaylistStore {
     var canEditLoadedContent: Bool { isCurrentContent }
     var hasLoadedContent: Bool { loadState.hasContent }
 
+    #if DEBUG
+        func workerSettlements() -> [Task<Void, Never>] { flight.workerSettlements() }
+    #endif
+
     init(provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability) {
         self.provider = provider
         self.metadata = metadata

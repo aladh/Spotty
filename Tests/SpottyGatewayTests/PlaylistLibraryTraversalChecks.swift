@@ -1,6 +1,7 @@
 import SpottyTestSupport
 import Foundation
 import SpottyDomain
+import Synchronization
 import Testing
 @testable import SpottyGateway
 
@@ -208,23 +209,94 @@ struct PlaylistLibraryTraversalTests {
         #expect(tree[1].children?.last?.title == "Playlist \(perFolder - 1)")
     }
 
-    @Test func fragmentedFoldersShareOneLogicalPageBudget() async throws {
+    @Test(arguments: [1, 2])
+    func fragmentedFoldersShareOneLogicalPageBudget(folderCount: Int) async throws {
         let calls = HarnessCounters()
         let api = libraryAPI { request in
             calls.record("page")
             let variables = try libraryVariables(request)
             guard let folder = variables["folderUri"] as? String else {
                 return try libraryPage(
-                    [("spotify:folder:first", "First"), ("spotify:folder:second", "Second")], total: 2, request: request
-                )
+                    (0..<folderCount).map { ("spotify:folder:\($0)", "Folder") },
+                    total: folderCount, request: request)
             }
             let offset = try #require(variables["offset"] as? Int)
             return try libraryPage(
-                [("spotify:playlist:\(folder.split(separator: ":").last ?? "")-\(offset)", "Playlist")], total: 300,
-                request: request)
+                [("spotify:playlist:\(folder.split(separator: ":").last ?? "")-\(offset)", "Playlist")],
+                total: folderCount == 1 ? Pagination.maximumPageCount : 300, request: request)
         }
-        await #expect(throws: PartnerAPIError.libraryLimitReached) { try await api.playlistLibrary() }
-        #expect(calls.count("page") == Pagination.maximumPageCount)
+        await #expect(throws: PartnerAPIError.libraryLimitReached) { _ = try await api.playlistLibrary() }
+        let dispatched = calls.count("page")
+        // The root also spends one reservation. A single reader reaches the exact shared cap;
+        // with two readers, failure may cancel the final reserved sibling before transport.
+        #expect(dispatched <= Pagination.maximumPageCount)
+        #expect(dispatched >= Pagination.maximumPageCount - (folderCount - 1))
+    }
+
+    @Test
+    func cancelledReservedPageDoesNotReachTransport() async throws {
+        let penultimateCredential = HarnessResponseGate<Void>()
+        let lastCredential = HarnessResponseGate<Void>()
+        // This ordinal must be assigned atomically; separate record/count calls could park
+        // both concurrent readers. The gates own only the final two admitted credential requests.
+        let admissions = Mutex(0)
+        let calls = HarnessCounters()
+        let api = libraryAPI(accessToken: {
+            let ordinal = admissions.withLock { value in
+                value += 1
+                return value
+            }
+            guard ordinal <= Pagination.maximumPageCount else {
+                Issue.record("A request exceeded the shared admission budget")
+                throw GatewayFixtureFailure.unavailable
+            }
+            if ordinal == Pagination.maximumPageCount - 1 { try await penultimateCredential.wait() }
+            if ordinal == Pagination.maximumPageCount { try await lastCredential.wait() }
+            return "fixture-access"
+        }) { request in
+            calls.record("page")
+            let variables = try libraryVariables(request)
+            guard let folder = variables["folderUri"] as? String else {
+                return try libraryPage(
+                    [("spotify:folder:first", "First"), ("spotify:folder:second", "Second")],
+                    total: 2, request: request)
+            }
+            let offset = try #require(variables["offset"] as? Int)
+            // Neither reader can finish before the shared cap. Both final credential
+            // requests park before either reader can attempt the refused reservation.
+            return try libraryPage(
+                [("spotify:playlist:\(folder.split(separator: ":").last ?? "")-\(offset)", "Playlist")],
+                total: Pagination.maximumPageCount + 1, request: request)
+        }
+        let load = Task { _ = try await api.playlistLibrary() }
+        defer {
+            penultimateCredential.close()
+            lastCredential.close()
+            load.cancel()
+        }
+        do {
+            try await requireEventually {
+                penultimateCredential.waiterCount == 1 && lastCredential.waiterCount == 1
+            }
+            #expect(admissions.withLock { $0 } == Pagination.maximumPageCount)
+            #expect(calls.count("page") == Pagination.maximumPageCount - 2)
+            // Completing admission 499 lets its reader attempt 501. Admission 500 is
+            // already parked, so budget failure must cancel and join it before transport.
+            penultimateCredential.finish(())
+            await #expect(throws: PartnerAPIError.libraryLimitReached) { _ = try await load.value }
+            #expect(admissions.withLock { $0 } == Pagination.maximumPageCount)
+            #expect(calls.count("page") == Pagination.maximumPageCount - 1)
+            #expect(penultimateCredential.requestCount == 1)
+            #expect(lastCredential.requestCount == 1)
+            #expect(penultimateCredential.waiterCount == 0)
+            #expect(lastCredential.waiterCount == 0, "The task group must join the cancelled credential owner")
+        } catch {
+            penultimateCredential.close()
+            lastCredential.close()
+            load.cancel()
+            _ = try? await load.value
+            throw error
+        }
     }
 
     @Test(arguments: [false, true])
@@ -303,9 +375,12 @@ struct PlaylistLibraryTraversalTests {
     }
 }
 
-private func libraryAPI(transport: @escaping SpotifyCredentials.Transport) -> PartnerAPI {
+private func libraryAPI(
+    accessToken: @escaping @Sendable () async throws -> String = { "fixture-access" },
+    transport: @escaping SpotifyCredentials.Transport
+) -> PartnerAPI {
     PartnerAPI(
-        accessToken: { "fixture-access" }, clientToken: { "fixture-client" },
+        accessToken: accessToken, clientToken: { "fixture-client" },
         invalidateAccessToken: { _ in }, invalidateClientToken: { _ in },
         transport: transport, retryTiming: .immediate
     )

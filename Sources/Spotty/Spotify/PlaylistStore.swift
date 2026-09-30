@@ -1,3 +1,4 @@
+// Controlled CI measurement input for #587; no runtime behavior changes.
 import Foundation
 import Observation
 import SpottyDomain

@@ -1,3 +1,4 @@
+// Controlled CI measurement input for #587; no runtime behavior changes.
 use crate::*;
 use std::collections::HashMap;
 use std::sync::OnceLock;

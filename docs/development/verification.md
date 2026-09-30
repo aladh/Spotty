@@ -32,8 +32,8 @@ Swift's summary includes skipped probes.
 
 Select Domain, TestSupport, CatalogStorage, Gateway, EngineAdapter, SessionRuntime or Boundary tests.
 The first four are engine free; Adapter/Runtime need playback, Boundary also needs Sparkle.
-`.build/test-targets/MODULE` links shared declarations and owns its lockfile. The app lock stays
-unchanged. Selected scratch paths stay literal; package-path/test-product combinations fail.
+`.build/test-targets/MODULE/package` links declarations and owns its lock; its parent owns scratch.
+The app lock stays unchanged. Selected scratch paths stay literal; package-path/test-product combinations fail.
 Selected listing/help requires no execution. Without a selector, explicit paths retain the caller's
 graph; legacy target-named products require Swift 6.4. Full gates/shipping keep the full graph.
 `domain` remains portable under `.build/domain`.

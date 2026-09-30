@@ -514,8 +514,23 @@ def graph_proof(root: Path, target: str | None, destination: Path, *, scratch: P
     write_json(destination / "manifest.json", focused)
     full_env = dict(env)
     full_env.pop("SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK", None)
-    full = strict_json(owner["succeeded"](owner["swift"](root, "full", "dump-package", **{**full_env, "SPOTTY_BUILD_BROWSING_HARNESS": "1"}))) if target else focused
+    full_env.update(SPOTTY_PACKAGE_GRAPH="full", SPOTTY_BUILD_BROWSING_HARNESS="1")
+    full = strict_json(owner["succeeded"](owner["swift"](root, "full", "dump-package", **full_env))) if target else focused
     write_json(destination / "full-manifest.json", full)
+    # The immutable before revision predates this API. Use the evidence owner's
+    # shared validator for both references without modifying either clone's source.
+    validator_path = Path(__file__).with_name("check-package-graphs.py")
+    reference_owner = runpy.run_path(str(validator_path))
+    reference = {"validator": {"source": str(validator_path),
+                               "sha256": hashlib.sha256(validator_path.read_bytes()).hexdigest()},
+                 "probe_owner": {"source": str(root / "Scripts/check-package-graphs.py"),
+                                 "sha256": hashlib.sha256((root / "Scripts/check-package-graphs.py").read_bytes()).hexdigest(),
+                                 "has_full_manifest_validator": "verify_full_manifest" in owner},
+                 "full_reference_validated": False}
+    write_json(destination / "reference-assessment.json", reference)
+    reference_owner["verify_full_manifest"](full)
+    reference["full_reference_validated"] = True
+    write_json(destination / "reference-assessment.json", reference)
     if target:
         owner["verify_selection"](full, focused, target, full_package=root, focused_package=package)
     targets = {item["name"]: item for item in focused["targets"]}
@@ -566,6 +581,7 @@ def graph_proof(root: Path, target: str | None, destination: Path, *, scratch: P
                          "system_version": plistlib.loads((Path(sdk) / "System/Library/CoreServices/SystemVersion.plist").read_bytes())}
                     for sdk in sdks}
     proof = {"graph": graph, "package": str(package), "scratch": str(build),
+             "full_reference": reference,
              "local_targets": sorted(targets), "external_dependencies": focused["dependencies"],
              "binary_targets": binaries, "engine_free": engine_free,
              "actual_compiled_modules": compilations, "generated_runner_modules": generated,

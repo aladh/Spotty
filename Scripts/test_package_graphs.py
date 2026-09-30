@@ -12,10 +12,71 @@ graph_checks = runpy.run_path(str(Path(__file__).with_name("check-package-graphs
 verify_test_support = graph_checks["verify_test_support"]
 dependency_closure = graph_checks["dependency_closure"]
 verify_selection = graph_checks["verify_selection"]
+verify_full_manifest = graph_checks["verify_full_manifest"]
 
 
 def target(*dependencies):
     return {"dependencies": [{"byName": [name, None]} for name in dependencies]}
+
+
+def full_manifest_fixture():
+    """Synthetic complete inventory; this is not a native manifest receipt."""
+    names = ("SpottyPlaybackCore", "SpottyEngineAdapter", "SpottySessionRuntime", "SpottyCore",
+             "SpottyApp", "SpottyBrowsingHarness", "SpottyRuntimeTestSupport", "SpottyDomain", "SpottyTestSupport",
+             "SpottyBrowsingHarnessTests", *graph_checks["TEST_TARGETS"])
+    declarations = {name: {"name": name, "type": "test" if name.endswith("Tests") else "regular",
+                           **target()} for name in names}
+    declarations["SpottyPlaybackCore"]["type"] = "binary"
+    declarations["SpottyApp"]["type"] = "executable"
+    declarations["SpottyBrowsingHarness"]["type"] = "executable"
+    declarations["SpottyDomainTests"].update(target("SpottyDomain"))
+    declarations["SpottyRuntimeTestSupport"].update(target("SpottyTestSupport"))
+    declarations["SpottySessionRuntimeTests"].update(target("SpottySessionRuntime", "SpottyRuntimeTestSupport"))
+    declarations["SpottyBoundaryTests"].update(target("SpottyCore", "SpottyRuntimeTestSupport"))
+    declarations["SpottyCore"]["dependencies"].append({"product": ["Sparkle", "Sparkle", None, None]})
+    return {"name": "Spotty", "targets": list(declarations.values()), "products": [{"name": "SpottyApp"}],
+            "dependencies": [{"sourceControl": [{"identity": "sparkle", "requirement": "pinned"}]}]}
+
+
+class FullManifestTests(unittest.TestCase):
+    def test_complete_reference_inventory_accepts_shared_support_boundaries(self):
+        full = full_manifest_fixture()
+        self.assertEqual(set(verify_full_manifest(full)), {item["name"] for item in full["targets"]})
+
+    def test_every_required_inventory_entry_and_external_dependency_must_survive(self):
+        full = full_manifest_fixture()
+        for missing in ("SpottyPlaybackCore", "SpottyEngineAdapter", "SpottySessionRuntime", "SpottyCore",
+                        "SpottyApp", "SpottyBrowsingHarness", "SpottyRuntimeTestSupport", "SpottyBrowsingHarnessTests",
+                        *graph_checks["TEST_TARGETS"]):
+            changed = copy.deepcopy(full)
+            changed["targets"] = [item for item in changed["targets"] if item["name"] != missing]
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, "Full verification lost"):
+                verify_full_manifest(changed)
+        full["dependencies"] = []
+        with self.assertRaisesRegex(ValueError, "Full verification lost"):
+            verify_full_manifest(full)
+
+    def test_duplicate_targets_and_wrong_or_extra_test_types_are_rejected(self):
+        for mode in ("duplicate", "test_is_regular", "shipping_is_test", "extra_test"):
+            changed = full_manifest_fixture()
+            if mode == "duplicate":
+                changed["targets"].append(copy.deepcopy(changed["targets"][0]))
+            elif mode == "extra_test":
+                changed["targets"].append({"name": "UnexpectedTests", "type": "test", **target()})
+            else:
+                name = "SpottyDomainTests" if mode == "test_is_regular" else "SpottyApp"
+                next(item for item in changed["targets"] if item["name"] == name)["type"] = (
+                    "regular" if mode == "test_is_regular" else "test")
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "Full verification"):
+                verify_full_manifest(changed)
+
+    def test_full_reference_checks_unknown_edges_and_shared_runtime_support(self):
+        for edge in ("Missing", "SpottyCore"):
+            changed = full_manifest_fixture()
+            next(item for item in changed["targets"] if item["name"] == "SpottyRuntimeTestSupport")[
+                "dependencies"].append({"byName": [edge, None]})
+            with self.subTest(edge=edge), self.assertRaises(ValueError):
+                verify_full_manifest(changed)
 
 
 class RuntimeFixtureBoundaryTests(unittest.TestCase):
@@ -178,6 +239,17 @@ class FocusedDependencyClosureTests(unittest.TestCase):
                 swift(root / ".build/test-targets/SelectedTests/package", "test-target:SelectedTests",
                       "dump-package", SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK=override)
                 self.assertEqual(run.call_args.kwargs["env"]["SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK"], str(root / override))
+
+    def test_positional_graph_overrides_ambient_and_explicit_conflicting_environment(self):
+        for requested, conflicting in (("full", "test-target:SpottyDomainTests"),
+                                       ("test-target:SpottyDomainTests", "full")):
+            with self.subTest(requested=requested), \
+                 mock.patch.dict("os.environ", {"SPOTTY_PACKAGE_GRAPH": conflicting}), \
+                 mock.patch("subprocess.run") as run:
+                graph_checks["swift"](Path("/synthetic/package"), requested, "dump-package",
+                                      SPOTTY_PACKAGE_GRAPH=conflicting, SPOTTY_BUILD_BROWSING_HARNESS="1")
+                self.assertEqual(run.call_args.kwargs["env"]["SPOTTY_PACKAGE_GRAPH"], requested)
+                self.assertEqual(run.call_args.kwargs["env"]["SPOTTY_BUILD_BROWSING_HARNESS"], "1")
 
     def test_unknown_edges_fail_closed_and_second_reachable_test_is_rejected(self):
         for dependency in ({"byName": ["Missing", None]}, {"unknown": ["Missing"]},

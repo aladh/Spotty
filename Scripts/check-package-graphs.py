@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def swift(package: Path, graph: str, operation: str, **environment: str) -> subprocess.CompletedProcess:
-    selected_environment = {**os.environ, "SPOTTY_PACKAGE_GRAPH": graph, **environment}
+    selected_environment = {**os.environ, **environment, "SPOTTY_PACKAGE_GRAPH": graph}
     override = selected_environment.get("SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK")
     if override is not None:
         # Graph probes, like the user wrapper, keep relative artifact ownership at ROOT.
@@ -125,15 +125,32 @@ def verify_selection(full: dict, focused: dict, name: str, *, full_package: Path
         raise ValueError(f"{name} acquired unexpected external dependencies or products")
 
 
+def verify_full_manifest(full: dict) -> dict:
+    """Validate the genuine shipping/test reference before comparing any focused cut."""
+    targets = {target["name"]: target for target in full["targets"]}
+    if len(targets) != len(full["targets"]):
+        raise ValueError("Full verification contains duplicate target declarations")
+    test_names = {*TEST_TARGETS, "SpottyBrowsingHarnessTests"}
+    required = {"SpottyPlaybackCore": "binary", "SpottyEngineAdapter": "regular",
+                "SpottySessionRuntime": "regular", "SpottyCore": "regular",
+                "SpottyApp": "executable", "SpottyBrowsingHarness": "executable",
+                "SpottyRuntimeTestSupport": "regular",
+                **{name: "test" for name in test_names}}
+    if not required.keys() <= targets.keys() or not full["dependencies"]:
+        raise ValueError("Full verification lost an app, engine, browsing, or package dependency")
+    if (any(targets[name].get("type") != kind for name, kind in required.items()) or
+            {name for name, target in targets.items() if target.get("type") == "test"} != test_names):
+        raise ValueError("Full verification changed the shipping or exact test target types")
+    for name in targets:
+        dependency_closure(targets, name)
+    verify_test_support(targets)
+    return targets
+
+
 def verify() -> str:
     # Dumping the full graph preserves artifact validation without resolving dependencies.
     full = json.loads(succeeded(swift(ROOT, "full", "dump-package", SPOTTY_BUILD_BROWSING_HARNESS="1")))
-    targets = {target["name"]: target for target in full["targets"]}
-    required = {"SpottyPlaybackCore", "SpottyEngineAdapter", "SpottySessionRuntime", "SpottyCore",
-                "SpottyApp", "SpottyBoundaryTests", "SpottyBrowsingHarnessTests", "SpottyRuntimeTestSupport"}
-    if not required <= targets.keys() or not full["dependencies"]:
-        raise ValueError("Full verification lost an app, engine, browsing, or package dependency")
-    verify_test_support(targets)
+    targets = verify_full_manifest(full)
     lockfile = ROOT / "Package.resolved"
     before = lockfile.read_bytes() if lockfile.exists() else None
     try:

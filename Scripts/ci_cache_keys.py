@@ -21,6 +21,7 @@ SWIFT_LANES = ("contracts", "tests", "release")
 SWIFT_BUILD_INPUTS = (
     "Package.swift", "Package.resolved", "Scripts/swiftpm-env.sh", "Scripts/check.sh",
     "Scripts/compile-release-spotty.sh", "Scripts/verification_package.py", "Scripts/ci_cache_keys.py",
+    "Scripts/ci_cache_bundle.py",
     "Sources/SpottyPlaybackCore/include/module.modulemap",
     "Sources/SpottyPlaybackCore/include/spotty_playback.h",
     "Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h",

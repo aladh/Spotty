@@ -174,24 +174,31 @@ class CacheKeyTests(unittest.TestCase):
             with self.subTest(input=name):
                 self.assert_input_changes("rust", name)
 
-    def test_bundle_policy_changes_invalidate_both_rust_caches_without_changing_toolchain_or_swift(self):
+    def test_bundle_policy_changes_invalidate_every_consumer_without_changing_toolchain_identity(self):
         before = self.rust()
-        swift = self.swift()["SWIFT_CACHE_PREFIX"]
+        swift_before = {lane: self.swift(lane=lane) for lane in ("contracts", "tests", "release")}
         self.write("Scripts/ci_cache_bundle.py", "changed transfer policy")
         after = self.rust()
         self.assertNotEqual(before["RUST_RELEASE_COMPATIBILITY_KEY"], after["RUST_RELEASE_COMPATIBILITY_KEY"])
         self.assertNotEqual(before["RUST_CACHE_TRANSFER_KEY"], after["RUST_CACHE_TRANSFER_KEY"])
         self.assertEqual(before["RUST_TOOLCHAIN_KEY"], after["RUST_TOOLCHAIN_KEY"])
-        self.assertEqual(swift, self.swift()["SWIFT_CACHE_PREFIX"])
+        for lane, previous in swift_before.items():
+            with self.subTest(lane=lane):
+                changed = self.swift(lane=lane)
+                self.assertNotEqual(previous["SWIFT_CACHE_KEY"], changed["SWIFT_CACHE_KEY"])
+                self.assertNotEqual(previous["SWIFT_CACHE_PREFIX"], changed["SWIFT_CACHE_PREFIX"])
+                self.assertEqual(previous["SWIFT_TOOLCHAIN_KEY"], changed["SWIFT_TOOLCHAIN_KEY"])
 
-    def test_missing_or_symlinked_bundle_policy_cannot_identify_a_rust_cache(self):
+    def test_missing_or_symlinked_bundle_policy_cannot_identify_any_consumer_cache(self):
         bundle = self.root / "Scripts/ci_cache_bundle.py"
         bundle.unlink()
-        with self.assertRaises(ValueError):
-            self.rust()
+        for method in (self.swift, self.rust):
+            with self.assertRaises(ValueError):
+                method()
         bundle.symlink_to(self.root / "Package.swift")
-        with self.assertRaises(ValueError):
-            self.rust()
+        for method in (self.swift, self.rust):
+            with self.assertRaises(ValueError):
+                method()
 
     def test_new_rust_release_family_cannot_restore_the_old_immutable_generation(self):
         key = self.rust()["RUST_RELEASE_COMPATIBILITY_KEY"]

@@ -69,22 +69,21 @@ Opt-in probes:
 | `SPOTTY_ARTWORK_DECODE_REPORT` | `ArtworkDecoderMeasurementTests` | Decoder CPU and asset bytes |
 | `SPOTTY_ARTWORK_MEASUREMENT_REPORT` | `ArtworkSourceLoaderMeasurementTests` | Idle loader process footprint |
 
-Boundary (6.3.3/6.4):
+Boundary diagnostic (6.3.3/6.4):
 
 ```bash
-SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --target SpottyBoundaryTests \
-  -c release --scratch-path .build/browsing-optimized -Xswiftc -O -Xswiftc -enable-testing \
+SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --target SpottyBoundaryTests --build-system native \
+  -c debug --scratch-path .build/browsing-optimized -Xswiftc -O -Xswiftc -enable-testing \
   -Xswiftc -no-whole-module-optimization \
   -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED --filter CatalogMetadataMeasurementTests
 ```
 
-Track probes (both): `verify.py domain -c release --filter FILTER`.
-Gateway (both, engine free):
-`verify.py test --target SpottyGatewayTests -c release --scratch-path .build/gateway-optimized -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -no-whole-module-optimization --filter FILTER`.
-Swift 6.3.3 Gateway WMO Release compilation failed with `circular reference`. Validate the explicit
-non-WMO `-O`/testability configuration on both compilers using native/workload completion.
-Repeat `--skip-build` with identical sources/graph/configuration/flags/artifacts. Compare matched probes:
-samples establish no thresholds, shipping gains, or compiler-defect attribution. Failures remain terminal.
+Domain Release (both): `verify.py test --target SpottyDomainTests --build-system native -c release -Xswiftc -O -Xswiftc -enable-testing --filter FILTER`.
+Gateway optimized diagnostic (both, engine free):
+`verify.py test --target SpottyGatewayTests --build-system native -c debug --scratch-path .build/gateway-optimized -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -no-whole-module-optimization --filter FILTER`.
+Domain: WMO Release; Gateway/Boundary compile DEBUG hooks. Swift 6.4 deprecates native.
+Require completion and unchanged inputs/artifacts for `--skip-build`. No shipping gain is established.
+Failures are terminal.
 
 ### Visible Instruments captures
 

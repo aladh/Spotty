@@ -393,16 +393,17 @@ class NativeSelectionEvidenceTests(unittest.TestCase):
 
     def test_optimized_configuration_requires_effective_O_nonwmo_and_testability(self):
         flags = list(evidence.OPTIMIZED_PROBE_FLAGS)
-        self.assertEqual(flags[:2], ["-c", "release"])
+        self.assertEqual(flags[:4], ["--build-system", "native", "-c", "debug"])
         forwarded = [flags[index + 1] for index, value in enumerate(flags) if value == "-Xswiftc"]
-        arguments = ["-Onone", "-whole-module-optimization", *forwarded]
+        arguments = ["-Onone", "-DDEBUG", "-whole-module-optimization", *forwarded]
         native = {"GatewayTests": {"compiler_arguments": arguments}}
         swiftbuild = {"GatewayTests": {"compiler_argv": [["swiftc", *arguments]]}}
         for commands in (native, swiftbuild):
             self.assertEqual(evidence.verify_optimized_compilations(commands)["GatewayTests"],
-                             {"optimization": "-O", "whole_module_optimization": False, "testable": True})
+                             {"optimization": "-O", "whole_module_optimization": False, "testable": True, "debug_hooks_compiled": True})
         evidence.verify_optimized_compilations({"GatewayTests": {"compiler_arguments": [*arguments, "-Xcc", "-Onone"]}})
-        for wrong in ([*arguments, "-Onone"], [*arguments, "-Osize"],
+        for wrong in ([*arguments, "-Onone"], [*arguments, "-Osize"], [*arguments, "-disable-testing"],
+                      [flag for flag in arguments if flag != "-DDEBUG"],
                       [*arguments, "-whole-module-optimization"], [*arguments, "-wmo"],
                       [*arguments, "-Xfrontend", "-Onone"],
                       [flag for flag in arguments if flag != "-enable-testing"], []):
@@ -410,7 +411,7 @@ class NativeSelectionEvidenceTests(unittest.TestCase):
                 evidence.verify_optimized_compilations({"GatewayTests": {"compiler_arguments": wrong}})
 
     def test_forwarded_testability_operands_do_not_prove_swift_testability(self):
-        settings = ["-O", "-no-whole-module-optimization"]
+        settings = ["-O", "-DDEBUG", "-no-whole-module-optimization"]
         for forwarding in ("-Xcc", "-Xlinker", "-Xfrontend"):
             with self.subTest(forwarding=forwarding), self.assertRaises(evidence.EvidenceError):
                 evidence.verify_optimized_compilations({"GatewayTests": {
@@ -422,6 +423,25 @@ class NativeSelectionEvidenceTests(unittest.TestCase):
         # Genuine Swift testability still works when Clang/linker operands use the same spelling.
         evidence.verify_optimized_compilations({"GatewayTests": {
             "compiler_arguments": [*settings, "-enable-testing", "-Xcc", "-enable-testing", "-Xlinker", "-enable-testing"]}})
+
+    def test_native_release_requires_wmo_without_debug_and_final_testability(self):
+        arguments = ["-O", "-whole-module-optimization", "-enable-testing"]
+        expected = {"optimization": "-O", "whole_module_optimization": True,
+                    "testable": True, "debug_hooks_compiled": False}
+        self.assertEqual(evidence.verify_optimized_compilations(
+            {"DomainTests": {"compiler_arguments": arguments}}, release=True)["DomainTests"], expected)
+        for wrong in ([*arguments, "-DDEBUG"], [*arguments, "-D", "DEBUG"],
+                      [*arguments, "-no-whole-module-optimization"], [*arguments, "-disable-testing"],
+                      [*arguments, "-Onone"]):
+            with self.subTest(arguments=wrong), self.assertRaises(evidence.EvidenceError):
+                evidence.verify_optimized_compilations({"DomainTests": {"compiler_arguments": wrong}}, release=True)
+        for debug in (["-DDEBUG"], ["-D", "DEBUG"]):
+            evidence.verify_optimized_compilations({"GatewayTests": {"compiler_arguments":
+                ["-O", "-no-whole-module-optimization", "-enable-testing", *debug]}})
+        for forwarding in ("-Xcc", "-Xlinker", "-Xfrontend"):
+            with self.subTest(forwarded_debug=forwarding), self.assertRaises(evidence.EvidenceError):
+                evidence.verify_optimized_compilations({"GatewayTests": {"compiler_arguments":
+                    ["-O", "-no-whole-module-optimization", "-enable-testing", forwarding, "-DDEBUG"]}})
 
     def test_workload_reports_require_all_bounded_rows_and_finite_observations(self):
         report = self.root / "workload.json"
@@ -477,7 +497,7 @@ class CompatibilityProofTests(unittest.TestCase):
 
         def record(root, destination, argv, **settings):
             self.calls.append(("record", destination.name, argv, settings))
-            if fail_release and destination.name == "gateway-release":
+            if fail_release and destination.name == "gateway-optimized-debug-native":
                 raise evidence.EvidenceError("synthetic original compiler failure", 73)
             destination.mkdir()
             if settings.get("case") == "inspection":
@@ -500,26 +520,35 @@ class CompatibilityProofTests(unittest.TestCase):
              patch.object(evidence, "workload_report", return_value={"synthetic": True}):
             return evidence.run_compatibility(self.root, self.destination, str(self.root), self.head, "6.3.3")
 
-    def test_full_current_inventory_precedes_seven_exact_cuts_and_two_explicit_optimized_builds(self):
+    def test_full_current_inventory_precedes_seven_exact_cuts_and_three_explicit_optimized_builds(self):
         proof = self.run_proof()
         self.assertEqual(self.calls[:2], [("clone", self.head), ("full-preflight",)])
         records = [call for call in self.calls if call[0] == "record"]
         success = [call for call in records if call[3].get("case", "success") == "success"]
         builds = [call for call in success if "--skip-build" not in call[2]]
-        self.assertEqual(len(builds), 9)
-        self.assertEqual({call[2][4] for call in builds if "release" not in call[2]},
+        self.assertEqual(len(builds), 10)
+        self.assertEqual({call[2][4] for call in builds if "--build-system" not in call[2]},
                          {"SpottyGatewayTests", *(target for target, _ in evidence.PROBES)})
         for call in builds:
             self.assertIsNotNone(call[3]["expected"])
         for call in success:
-            if "release" in call[2]:
-                self.assertIn("-no-whole-module-optimization", call[2])
+            if "--build-system" in call[2]:
                 self.assertIn("-O", call[2])
                 self.assertIn("-enable-testing", call[2])
-        optimized_skips = [call for call in success if "release" in call[2] and "--skip-build" in call[2]]
-        self.assertEqual(len(optimized_skips), 2)
+                configuration = call[2][call[2].index("-c") + 1]
+                if call[2][4] == "SpottyDomainTests":
+                    self.assertEqual(configuration, "release")
+                    self.assertNotIn("-no-whole-module-optimization", call[2])
+                else:
+                    self.assertEqual(configuration, "debug")
+                    self.assertIn("-no-whole-module-optimization", call[2])
+        optimized_skips = [call for call in success if "--build-system" in call[2] and "--skip-build" in call[2]]
+        self.assertEqual(len(optimized_skips), 3)
         optimized_graphs = [call for call in self.calls if call[0] == "graph" and call[2].get("optimized")]
-        self.assertEqual({call[1] for call in optimized_graphs}, {"SpottyGatewayTests", "SpottyBoundaryTests"})
+        self.assertEqual({call[1] for call in optimized_graphs},
+                         {"SpottyGatewayTests", "SpottyBoundaryTests", "SpottyDomainTests"})
+        self.assertEqual([call[1] for call in optimized_graphs if call[2].get("optimized_release")],
+                         ["SpottyDomainTests"])
         self.assertEqual(len(proof["module_probes"]), 7)
         self.assertEqual(proof["head"], self.head)
         self.assertTrue(proof["full_reference"]["full_reference_validated"])
@@ -538,18 +567,18 @@ class CompatibilityProofTests(unittest.TestCase):
             self.run_proof(fail_release=True)
         self.assertEqual(caught.exception.status, 73)
         records = [call for call in self.calls if call[0] == "record"]
-        self.assertEqual([call[1] for call in records if "release" in call[2]], ["gateway-release"])
+        self.assertEqual([call[1] for call in records if "--build-system" in call[2]], ["gateway-optimized-debug-native"])
 
     def test_optimized_gateway_build_and_skip_build_reject_dependency_fetches(self):
-        for label in ("gateway-release", "gateway-release-skip-build"):
+        for label in ("gateway-optimized-debug-native", "gateway-optimized-debug-native-skip-build"):
             with self.subTest(label=label):
                 self.destination = self.root / label
                 self.destination.mkdir()
                 self.calls = []
                 with self.assertRaisesRegex(evidence.EvidenceError, "engine-free Gateway probe fetched"):
                     self.run_proof(optimized_fetch=label)
-                optimized = [call[1] for call in self.calls if call[0] == "record" and "release" in call[2]]
-                self.assertEqual(optimized, ["gateway-release"] if label == "gateway-release" else ["gateway-release", label])
+                optimized = [call[1] for call in self.calls if call[0] == "record" and "--build-system" in call[2]]
+                self.assertEqual(optimized, ["gateway-optimized-debug-native"] if label == "gateway-optimized-debug-native" else ["gateway-optimized-debug-native", label])
                 self.assertFalse(any(call[0] == "graph" and call[2].get("optimized") for call in self.calls))
 
 

@@ -41,7 +41,7 @@ graph; legacy target-named products require Swift 6.4. Full gates/shipping keep 
 `domain` forwards Release options. Full Debug covers all targets/browsing; Release adds
 optimized Domain/queue-mutation checks. Boundaries use Debug `@testable`; shipping
 excludes harnesses. Queue scheduler suspension hooks and SessionRuntime admission/mutation checks
-require Debug. Gateway/Boundary probes use [explicit optimized non-WMO settings](runtime-acceptance.md#measurements);
+require Debug. Gateway/Boundary probes use [optimized Debug native/non-WMO settings](runtime-acceptance.md#measurements);
 compiler failures remain terminal.
 
 Complete gates use [check.sh](../../Scripts/check.sh),

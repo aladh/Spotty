@@ -40,8 +40,11 @@ NONEMPTY_DIAGNOSTIC = "no executed tests reported; check the filter and skipped 
 # One explicit optimized probe configuration on both supported compilers. Never
 # switch configuration after a failure; these testable measurements are not shipping WMO.
 OPTIMIZED_PROBE_FLAGS = (
-    "-c", "release", "-Xswiftc", "-O", "-Xswiftc", "-enable-testing",
+    "--build-system", "native", "-c", "debug", "-Xswiftc", "-O", "-Xswiftc", "-enable-testing",
     "-Xswiftc", "-no-whole-module-optimization",
+)
+DOMAIN_RELEASE_PROBE_FLAGS = (
+    "--build-system", "native", "-c", "release", "-Xswiftc", "-O", "-Xswiftc", "-enable-testing",
 )
 
 
@@ -570,7 +573,7 @@ def verify_compile_scope(compilations: dict, targets: dict, scratch: Path, *, pa
     return sorted(generated)
 
 
-def verify_optimized_compilations(compilations: dict) -> dict:
+def verify_optimized_compilations(compilations: dict, *, release: bool = False) -> dict:
     """Check the effective compiler configuration, not just the contributor argv."""
     result = {}
     for module, compilation in compilations.items():
@@ -593,17 +596,23 @@ def verify_optimized_compilations(compilations: dict) -> dict:
                 swift_flags.append(flag)
             optimization = [flag for flag in swift_flags if flag in {"-Onone", "-O", "-Osize", "-Ounchecked"}]
             wmo = [flag for flag in swift_flags if flag in {"-whole-module-optimization", "-wmo", "-no-whole-module-optimization"}]
+            debug = any(flag == "-DDEBUG" or (flag == "-D" and index + 1 < len(swift_flags)
+                        and swift_flags[index + 1] == "DEBUG") for index, flag in enumerate(swift_flags))
+            testability = [flag for flag in swift_flags if flag in {"-enable-testing", "-disable-testing"}]
             if (not optimization or optimization[-1] != "-O" or not wmo or
-                    wmo[-1] != "-no-whole-module-optimization" or "-enable-testing" not in swift_flags):
-                raise EvidenceError(f"Actual compiler configuration is not the explicit optimized non-WMO probe: {module}")
-        result[module] = {"optimization": "-O", "whole_module_optimization": False, "testable": True}
+                    (wmo[-1] in {"-whole-module-optimization", "-wmo"}) != release or debug == release or
+                    not testability or testability[-1] != "-enable-testing"):
+                raise EvidenceError(f"Actual compiler configuration is not the declared optimized probe: {module}")
+        result[module] = {"optimization": "-O", "whole_module_optimization": release, "testable": True,
+                          "debug_hooks_compiled": not release}
     if not result:
         raise EvidenceError("Optimized probe lacks actual compiler configuration evidence")
     return result
 
 
 def graph_proof(root: Path, target: str | None, destination: Path, *, scratch: Path | None = None,
-                environment: dict[str, str] | None = None, optimized: bool = False) -> dict:
+                environment: dict[str, str] | None = None, optimized: bool = False,
+                optimized_release: bool = False) -> dict:
     destination.mkdir(exist_ok=False)
     owner = runpy.run_path(str(root / "Scripts/check-package-graphs.py"))
     package_owner = runpy.run_path(str(root / "Scripts/verification_package.py"))
@@ -679,7 +688,9 @@ def graph_proof(root: Path, target: str | None, destination: Path, *, scratch: P
         raise EvidenceError("SwiftBuild actual compiler argv missing from decoded metadata")
     if not sdks or not compilations:
         raise EvidenceError("Actual compilation/SDK evidence missing from preserved build descriptions")
-    optimized_configuration = verify_optimized_compilations(compilations) if optimized else None
+    if optimized and (actual_argv or any("compiler_arguments" not in item for item in compilations.values())):
+        raise EvidenceError("Optimized probe did not produce native-backend compiler metadata")
+    optimized_configuration = verify_optimized_compilations(compilations, release=optimized_release) if optimized else None
     generated = verify_compile_scope(compilations, targets, build, package_name=focused["name"]) if target else []
     engine_free = not binaries and not focused["dependencies"]
     if engine_free and (package / "Package.resolved").exists():
@@ -789,7 +800,7 @@ def compatibility_probes(after: Path, destination: Path, invalid: dict[str, str]
     gateway_selector = "PathfinderDecodingMeasurementTests/measureResponseDecoding"
     gateway_scratch = after / ".build" / "owned gateway optimized scratch"
     gateway_flags = [*OPTIMIZED_PROBE_FLAGS, "--scratch-path", str(gateway_scratch)]
-    for label, extra in (("release", []), ("release-skip-build", ["--skip-build"])):
+    for label, extra in (("optimized-debug-native", []), ("optimized-debug-native-skip-build", ["--skip-build"])):
         report = destination / f"gateway-{label}-workload.json"
         row = record_invocation(after, destination / f"gateway-{label}", contributor("SpottyGatewayTests", gateway_selector, *gateway_flags, *extra),
                                 expected=native_expected("SpottyGatewayTests", gateway_selector), build=gateway_scratch,
@@ -797,18 +808,31 @@ def compatibility_probes(after: Path, destination: Path, invalid: dict[str, str]
         if row["fetch_lines"]:
             raise EvidenceError("Optimized engine-free Gateway probe fetched dependencies")
         optimized.append({"invocation": row, "workload": workload_report(report, "gateway")})
-    optimized.append({"graph": graph_proof(after, "SpottyGatewayTests", destination / "gateway-release-graph",
+    optimized.append({"graph": graph_proof(after, "SpottyGatewayTests", destination / "gateway-optimized-debug-native-graph",
                                           scratch=gateway_scratch, environment=invalid, optimized=True)})
     boundary_selector = "CatalogMetadataMeasurementTests/measureUnchangedEntitySubscriptions"
     boundary_scratch = after / ".build" / "owned boundary optimized scratch"
-    for label, extra in (("release", []), ("release-skip-build", ["--skip-build"])):
+    for label, extra in (("optimized-debug-native", []), ("optimized-debug-native-skip-build", ["--skip-build"])):
         boundary_report = destination / f"boundary-{label}-workload.json"
         row = record_invocation(after, destination / f"boundary-{label}", contributor("SpottyBoundaryTests", boundary_selector, *OPTIMIZED_PROBE_FLAGS,
                                 "--scratch-path", str(boundary_scratch), "-Xswiftc", "-DSPOTTY_BROWSING_OPTIMIZED", *extra),
                                 expected=native_expected("SpottyBoundaryTests", boundary_selector), build=boundary_scratch,
                                 environment={"SPOTTY_ENTITY_OBSERVATION_REPORT": str(boundary_report)})
         optimized.append({"invocation": row, "workload": workload_report(boundary_report, "boundary")})
-    optimized.append({"graph": graph_proof(after, "SpottyBoundaryTests", destination / "boundary-release-graph", scratch=boundary_scratch, optimized=True)})
+    optimized.append({"graph": graph_proof(after, "SpottyBoundaryTests", destination / "boundary-optimized-debug-native-graph", scratch=boundary_scratch, optimized=True)})
+    domain_selector = PROBES[0][1]
+    domain_scratch = after / ".build" / "owned domain release scratch"
+    for label, extra in (("release-native", []), ("release-native-skip-build", ["--skip-build"])):
+        row = record_invocation(after, destination / f"domain-{label}", contributor("SpottyDomainTests", domain_selector,
+                                *DOMAIN_RELEASE_PROBE_FLAGS, "--scratch-path", str(domain_scratch), *extra),
+                                expected=native_expected("SpottyDomainTests", domain_selector),
+                                build=domain_scratch, environment=invalid)
+        if row["fetch_lines"]:
+            raise EvidenceError("Optimized engine-free Domain probe fetched dependencies")
+        optimized.append({"invocation": row})
+    optimized.append({"graph": graph_proof(after, "SpottyDomainTests", destination / "domain-release-native-graph",
+                                          scratch=domain_scratch, environment=invalid,
+                                          optimized=True, optimized_release=True)})
     hook = "QueueAdmissionTests/suspendedResetCannotReplaceANewerAccount"
     hook_row = record_invocation(after, destination / "runtime-debug-hook", contributor("SpottySessionRuntimeTests", hook, "--skip-build"),
                                  expected=native_expected("SpottySessionRuntimeTests", hook), build=selected_build(after, "SpottySessionRuntimeTests"))
@@ -884,7 +908,8 @@ def run_compatibility(primary: Path, destination: Path, source: str, head: str, 
             "identity": identity, "after": final, "full_reference": reference, **acceptance,
             "driver_sha256": driver_digest,
             "optimized_probe_flags": list(OPTIMIZED_PROBE_FLAGS),
-            "cache_context": "One Debug build per cut and one optimized non-WMO build per probe; no before/after cold/warm loop or CI speed credit."}
+            "domain_release_probe_flags": list(DOMAIN_RELEASE_PROBE_FLAGS),
+            "cache_context": "One Debug build per cut; native optimized Debug/non-WMO Gateway/Boundary and native WMO Domain Release. No before/after loop or CI speed credit."}
 
 
 def run_experiment(primary: Path, destination: Path, source: str, before_sha: str, after_sha: str, compiler: str) -> dict:

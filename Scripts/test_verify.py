@@ -1,5 +1,7 @@
 """Exercise focused command dispatch without a compiler, engine, or live account."""
 
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -14,7 +16,7 @@ from unittest import mock
 import verify
 
 from verify import focused_graph
-from verification_package import prepare
+from verification_package import TEST_TARGETS, prepare
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +39,8 @@ class FocusedGraphSelectionTests(unittest.TestCase):
             (["-Xswiftc", "--test-product=SpottyGatewayTests"], "full"),
             (["-Xcc", "--test-product", "SpottyGatewayTests"], "full"),
             (["--filter", "--test-product=SpottyGatewayTests"], "full"),
+            (["--test-product=SpottyGatewayTests", "--filter", "--"], "engine-free"),
+            (["--test-product=SpottyGatewayTests", "-c", "--scratch-path"], "engine-free"),
             (["--test-product=SpottyGatewayTests", "-Xswiftc"], "full"),
             (["--test-product=SpottyGatewayTests", "--scratch-path=custom"], "full"),
             (["--package-path", "another", "--test-product=SpottyGatewayTests"], "full"),
@@ -209,6 +213,110 @@ class VerificationRoutingTests(unittest.TestCase):
         self.assertEqual(command[command.index("--event-stream-path") + 1], str(artifacts / "focused-repeat-1-events.jsonl"))
 
 
+    def test_target_selectors_use_one_owned_package_and_ordinary_swift_test(self):
+        for target in TEST_TARGETS:
+            for selector in (["--target", target], [f"--target={target}"]):
+                with self.subTest(target=target, selector=selector):
+                    tail = ["--filter", "One/first.*", "--filter", "Two/second.*", "-c", "release"]
+                    command, environment, _ = self.invoke("test", *selector, *tail)
+                    graph = f"test-target:{target}"
+                    self.assertEqual(command[4:7], ["verify", "env", f"SPOTTY_PACKAGE_GRAPH={graph}"])
+                    self.assertEqual(environment["SPOTTY_BUILD_BROWSING_HARNESS"], "0")
+                    self.assertIn("--require-tests", command)
+                    self.assertEqual(command[command.index("swift"):], [
+                        "swift", "test", "--no-parallel", "--disable-sandbox", "--package-path",
+                        str(self.root / ".build/test-targets" / target / "package"), *tail,
+                        "--scratch-path", str(self.root / ".build/test-targets" / target),
+                    ])
+                    self.assertNotIn("--test-product", command)
+
+    def test_target_paths_and_compiler_filter_operands_are_literal(self):
+        literal = "custom builds 'quotes' $HOME; $(printf expansion)"
+        for path in (["--scratch-path", literal], [f"--scratch-path={literal}"]):
+            tail = [*path, "--filter", "--target=Unknown", "--skip", "--package-path",
+                    "-Xswiftc", "--target", "-Xcc", "--test-product", "-c", "--help"]
+            command, _, _ = self.invoke("test", "--target", "SpottyGatewayTests", *tail)
+            self.assertIn("--require-tests", command)
+            self.assertEqual(command[command.index("swift") + 6:], tail)
+        for value in ("--scratch-path", "--scratch-path=operand", "--help", "--target=Unknown"):
+            for option in verify.SWIFTPM_VALUE_OPTIONS:
+                if option in ("--package-path", "--test-product"):
+                    continue
+                with self.subTest(option=option, value=value):
+                    command, _, _ = self.invoke("test", "--target=SpottyGatewayTests", option, value)
+                    self.assertIn("--require-tests", command)
+                    swift = command[command.index("swift"):]
+                    self.assertEqual(swift[6:8], [option, value])
+                    if option != "--scratch-path":
+                        self.assertEqual(swift[-2:], ["--scratch-path",
+                                                    str(self.root / ".build/test-targets/SpottyGatewayTests")])
+
+    def test_target_inspection_retains_selected_graph_without_requiring_execution(self):
+        for action, tail in (("list", []), ("test", ["list"]), ("test", ["--help"]),
+                             ("test", ["--list-tests"]), ("test", ["last"])):
+            command, environment, _ = self.invoke(action, "--target=SpottyGatewayTests", *tail)
+            self.assertNotIn("--require-tests", command)
+            self.assertIn("SPOTTY_PACKAGE_GRAPH=test-target:SpottyGatewayTests", command)
+            self.assertEqual(environment["SPOTTY_BUILD_BROWSING_HARNESS"], "0")
+            self.assertIn(str(self.root / ".build/test-targets/SpottyGatewayTests/package"), command)
+
+    def test_selector_errors_precede_package_preparation_and_execution(self):
+        cases = (["--target"], ["--target="], ["--target", "--filter"], ["--target=Unknown"],
+                 ["--target=SpottyApp"], ["--target=SpottyGatewayTests", "--target=SpottyGatewayTests"],
+                 ["--target=SpottyGatewayTests", "--filter", "literal", "--target", "SpottyDomainTests"],
+                 ["--target=SpottyGatewayTests", "--package-path", "custom package"],
+                 ["--target=SpottyGatewayTests", "--package-path=custom package"],
+                 ["--target=SpottyGatewayTests", "--test-product", "SpottyGatewayTests"])
+        for arguments in cases:
+            with self.subTest(arguments=arguments), mock.patch.object(verify, "ROOT", self.root), \
+                    mock.patch.object(verify, "prepare_package") as prepare_mock, \
+                    mock.patch.object(verify, "run") as run_mock:
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                    verify.main(["test", *arguments])
+                self.assertEqual(raised.exception.code, 2)
+                prepare_mock.assert_not_called()
+                run_mock.assert_not_called()
+
+    def test_only_leading_selector_is_consumed_and_separator_remainder_is_passthrough(self):
+        for tail in (["-Xswiftc", "--target"], ["--filter", "--target=Unknown"],
+                     ["--", "--target=Unknown"], ["--skip-build", "--target=SpottyGatewayTests"]):
+            self.assertEqual(verify.target_selection(tail), (None, tail))
+        command, _, _ = self.invoke("test", "--target=SpottyGatewayTests", "--", "--target=Unknown")
+        swift = command[command.index("swift"):]
+        self.assertEqual(swift[6:8], ["--", "--target=Unknown"])
+
+    def test_relative_playback_override_keeps_repository_root_and_caller_environment(self):
+        for override in ("artifacts/local engine.xcframework", "/tmp/absolute engine.xcframework"):
+            ambient = {**self.environment, "SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK": override}
+            _, environment, _ = self.invoke("test", "--target=SpottySessionRuntimeTests", environment=ambient)
+            self.assertEqual(environment["SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK"], str(self.root / override))
+
+    def test_portable_domain_selection_and_nonportable_target_diagnostic(self):
+        command, _, _ = self.invoke("test", "--target=SpottyDomainTests", platform="linux")
+        self.assertEqual(command[:2], ["env", "SPOTTY_PACKAGE_GRAPH=test-target:SpottyDomainTests"])
+        with mock.patch.object(verify.sys, "platform", "linux"), mock.patch.object(verify, "run") as run_mock:
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                verify.main(["test", "--target=SpottyGatewayTests"])
+            self.assertEqual(raised.exception.code, 2)
+            run_mock.assert_not_called()
+
+    def test_portable_target_inspection_and_literal_forwarding_on_linux(self):
+        # Model only the host-platform branch; child Swift behavior/version is not inferred.
+        for action, tail in (("list", []), ("test", ["--help"]), ("test", ["--list-tests"]),
+                             ("test", ["--filter", "One/value with spaces", "--filter", "Two/second",
+                                       "-Xswiftc", "--target=Unknown", "--scratch-path", "owned scratch with spaces"])):
+            with self.subTest(action=action, tail=tail):
+                command, environment, _ = self.invoke(action, "--target=SpottyDomainTests", *tail, platform="linux")
+                self.assertEqual(command[:2], ["env", "SPOTTY_PACKAGE_GRAPH=test-target:SpottyDomainTests"])
+                self.assertEqual(environment["SPOTTY_BUILD_BROWSING_HARNESS"], "0")
+                self.assertEqual("--require-tests" in command, "--filter" in tail)
+                swift = command[command.index("swift"):]
+                prefix = ["swift", "test", "list" if action == "list" else "--no-parallel", "--disable-sandbox",
+                          "--package-path", str(self.root / ".build/test-targets/SpottyDomainTests/package")]
+                scratch = [] if "--scratch-path" in tail else ["--scratch-path", str(self.root / ".build/test-targets/SpottyDomainTests")]
+                self.assertEqual(swift, [*prefix, *tail, *scratch, "-Xswiftc", "-warnings-as-errors"])
+
+
 class VerificationCommandTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -361,6 +469,81 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
         self.assertEqual(calls, [])
         self.assertIn("Expected domain package symlink", result.stderr)
         self.assertEqual(manifest.read_text(), "existing content")
+
+    def test_target_workspaces_have_live_links_and_independent_owned_lockfiles(self):
+        app_lock = self.root / "Package.resolved"
+        app_lock.write_bytes(b"app pinned dependencies")
+        packages = []
+        for target in TEST_TARGETS:
+            graph = f"test-target:{target}"
+            package = prepare(self.root, graph)
+            packages.append(package)
+            self.assertEqual(package, self.root / ".build/test-targets" / target / "package")
+            for relative in ("Package.swift", "Sources", "Tests"):
+                self.assertTrue((package / relative).is_symlink())
+                self.assertFalse((package / relative).readlink().is_absolute())
+                self.assertEqual((package / relative).resolve(), self.root / relative)
+            owned_lock = package / "Package.resolved"
+            self.assertFalse(owned_lock.is_symlink())
+            self.assertNotEqual(owned_lock.stat().st_ino, app_lock.stat().st_ino)
+            self.assertEqual(owned_lock.read_bytes(), app_lock.read_bytes())
+            owned_lock.write_bytes(b"isolated resolution")
+            self.assertEqual(app_lock.read_bytes(), b"app pinned dependencies")
+            app_lock.write_bytes(b"updated app pins")
+            prepare(self.root, graph)
+            self.assertEqual(owned_lock.read_bytes(), b"updated app pins")
+            app_lock.write_bytes(b"app pinned dependencies")
+        self.assertEqual(len(set(packages)), len(TEST_TARGETS))
+
+    def test_target_roots_and_lockfiles_reject_unexpected_links_without_touching_app(self):
+        app_lock = self.root / "Package.resolved"
+        app_lock.write_bytes(b"app pin")
+        graph = "test-target:SpottyGatewayTests"
+        package = prepare(self.root, graph)
+        owned_lock = package / "Package.resolved"
+        owned_lock.unlink()
+        owned_lock.symlink_to(app_lock)
+        with self.assertRaisesRegex(ValueError, "owned package lockfile"):
+            prepare(self.root, graph)
+        self.assertEqual(app_lock.read_bytes(), b"app pin")
+        owned_lock.unlink()
+        os.link(app_lock, owned_lock)
+        with self.assertRaisesRegex(ValueError, "owned package lockfile"):
+            prepare(self.root, graph)
+        self.assertEqual(app_lock.read_bytes(), b"app pin")
+        owned_lock.unlink()
+        shutil.rmtree(package)
+        package.symlink_to(self.root / "Sources")
+        with self.assertRaisesRegex(ValueError, "owned package directory"):
+            prepare(self.root, graph)
+        self.assertFalse((self.root / "Sources/Package.swift").exists())
+        with self.assertRaisesRegex(ValueError, "Unknown isolated test target"):
+            prepare(self.root, "test-target:../../escape")
+
+    def test_selector_dispatch_preserves_terminal_failure_zero_and_all_skipped_outcomes(self):
+        for status, summary, expected in ((17, "compiler failed", 17),
+                                          (0, "No matching test cases were run", 1),
+                                          (0, "✘ Test example() skipped.", 1),
+                                          (0, "✔ Test example() passed after 0.001 seconds.", 0)):
+            with self.subTest(status=status, summary=summary):
+                self.log.unlink(missing_ok=True)
+                self.environment.update(VERIFY_TEST_STATUS=str(status), VERIFY_TEST_SUMMARY=summary)
+                result, calls = self.invoke("test", "--target=SpottyDomainTests", "--filter", "Example")
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0]["graph"], "test-target:SpottyDomainTests")
+                self.assertNotIn("--test-product", calls[0]["command"])
+                self.assertTrue((self.root / "diagnostics/focused-repeat-1.log").is_file())
+
+    def test_target_inspection_executes_one_inspection_command_without_native_completions(self):
+        self.environment["VERIFY_TEST_SUMMARY"] = "Synthetic SwiftPM inspection"
+        for action, tail in (("list", []), ("test", ["--help"]), ("test", ["--list-tests"])):
+            with self.subTest(action=action, tail=tail):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.invoke(action, "--target=SpottyDomainTests", *tail)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0]["graph"], "test-target:SpottyDomainTests")
 
     def test_harness_delegates_to_existing_suite_and_preserves_failure(self):
         for status in (0, 17):

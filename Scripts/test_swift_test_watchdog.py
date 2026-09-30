@@ -7,13 +7,23 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
+from unittest import mock
+
+import swift_test_watchdog as watchdog
 
 
 SCRIPT = Path(__file__).with_name("swift_test_watchdog.py")
 
 
 class SwiftTestWatchdogTests(unittest.TestCase):
+    def setUp(self):
+        # Timeout tests use synthetic samplers exclusively, including on macOS.
+        sampler_environment = mock.patch.dict(os.environ, SPOTTY_SWIFT_TEST_SAMPLER="/usr/bin/false")
+        sampler_environment.start()
+        self.addCleanup(sampler_environment.stop)
+
     def diagnostics(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -267,6 +277,57 @@ class SwiftTestWatchdogTests(unittest.TestCase):
                 self.assert_command_stopped(pid_path)
                 self.assertEqual(process.returncode, 143, stdout + stderr)
 
+    def test_second_interrupt_during_gated_diagnostics_preserves_the_first_status(self):
+        for first, expected in ((signal.SIGINT, 130), (signal.SIGTERM, 143)):
+            for second in (signal.SIGINT, signal.SIGTERM):
+                with self.subTest(first=first, second=second):
+                    diagnostics = self.diagnostics()
+                    command, pid_path = self.sleeping_command(diagnostics)
+                    entered = diagnostics / "diagnostics-entered"
+                    release = diagnostics / "diagnostics-release"
+                    driver = diagnostics / "gated-watchdog.py"
+                    driver.write_text(
+                        "import sys,time\nfrom pathlib import Path\n"
+                        f"sys.path.insert(0, {str(SCRIPT.parent)!r})\n"
+                        "import swift_test_watchdog as watchdog\n"
+                        "original = watchdog.write_interruption_diagnostics\n"
+                        "def gated(*arguments):\n"
+                        f"    Path({str(entered)!r}).touch()\n"
+                        "    deadline = time.monotonic() + 5\n"
+                        f"    while not Path({str(release)!r}).exists():\n"
+                        "        if time.monotonic() >= deadline: raise RuntimeError('diagnostics gate not released')\n"
+                        "        time.sleep(.01)\n"
+                        "    return original(*arguments)\n"
+                        "watchdog.write_interruption_diagnostics = gated\n"
+                        "raise SystemExit(watchdog.run(watchdog.parse_args()))\n"
+                    )
+                    process = subprocess.Popen(
+                        [sys.executable, "-B", str(driver), *self.arguments(command, diagnostics, 30)[2:]],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    )
+
+                    def stop(process=process, release=release):
+                        release.touch()
+                        if process.poll() is None:
+                            process.terminate()
+                        process.communicate(timeout=10)
+
+                    self.addCleanup(process.stderr.close)
+                    self.addCleanup(process.stdout.close)
+                    self.addCleanup(stop)
+                    self.wait_for_file(pid_path, process)
+                    process.send_signal(first)
+                    self.wait_for_file(entered, process)
+                    # The second signal lands after diagnostics began, before cleanup.
+                    # Release only this owned gate; no timing delay chooses the window.
+                    process.send_signal(second)
+                    release.touch()
+                    stdout, stderr = process.communicate(timeout=10)
+                    self.assert_command_stopped(pid_path)
+                    self.assertEqual(process.returncode, expected, stdout + stderr)
+                    self.assertIn(f"status={expected}", stdout)
+                    self.assertTrue((diagnostics / "fixture-repeat-1-process-tree.txt").is_file())
+
     def test_failed_diagnostic_tools_preserve_timeout_with_non_utf8_output(self):
         diagnostics = self.diagnostics()
         tools = diagnostics / "tools"
@@ -361,6 +422,560 @@ class SwiftTestWatchdogTests(unittest.TestCase):
         result, _ = self.run_watchdog([sys.executable, "-c", "import time; time.sleep(60)"], 0.2, env)
         self.assertEqual(result.returncode, 124)
         self.assertIn("sampler failed with status 9", result.stdout)
+
+    def fixture_wrapper(self, *, sampler_timeout=.5, classify_fixture=False):
+        return (
+            f"import sys; sys.path.insert(0, {str(SCRIPT.parent)!r}); "
+            "import swift_test_watchdog as w; "
+            f"w.SAMPLER_TIMEOUT_SECONDS={sampler_timeout!r}; "
+            + ("w.host_role=lambda identity,command: 'synthetic fixture host' "
+               "if '--fixture-host' in command.split() else None; " if classify_fixture else "")
+            + "sys.argv=sys.argv[1:]; raise SystemExit(w.run(w.parse_args()))"
+        )
+
+    def start_wrapped_watchdog(self, command, diagnostics, timeout, *, classify_fixture=False):
+        process = subprocess.Popen(
+            [sys.executable, "-B", "-c", self.fixture_wrapper(classify_fixture=classify_fixture),
+             *self.arguments(command, diagnostics, timeout)[1:]],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.addCleanup(process.stdout.close)
+        self.addCleanup(process.stderr.close)
+
+        def stop():
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=5)
+
+        self.addCleanup(stop)
+        return process
+
+    def sampler_fixture(self, diagnostics, *, detached=False, successful=False):
+        sampler = diagnostics / "sampler"
+        child_path = diagnostics / "sampler-child.pid"
+        sampler.write_text(
+            f"#!{sys.executable}\n"
+            "import os,pathlib,signal,subprocess,sys,time\n"
+            "pathlib.Path(sys.argv[2]).write_text(sys.argv[1])\n"
+            "child=subprocess.Popen([sys.executable,'-c',"
+            "'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)'],"
+            f"start_new_session={detached!r},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+            f"pathlib.Path({str(child_path)!r}).write_text(str(child.pid))\n"
+            + ("time.sleep(.35)\n" if successful else
+               "signal.signal(signal.SIGTERM,signal.SIG_IGN)\ntime.sleep(60)\n")
+        )
+        sampler.chmod(0o755)
+        environment = mock.patch.dict(os.environ, SPOTTY_SWIFT_TEST_SAMPLER=str(sampler))
+        environment.start()
+        self.addCleanup(environment.stop)
+        return child_path
+
+    def remember_fixture_identity(self, pid_path):
+        identity = watchdog.process_identity(int(pid_path.read_text()))
+        self.assertIsNotNone(identity)
+
+        def stop():
+            if identity.same_process(watchdog.process_identity(identity.pid)):
+                try:
+                    os.kill(identity.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+        self.addCleanup(stop)
+        return identity
+
+    def assert_fixture_gone(self, identity):
+        deadline = time.monotonic() + 2
+        while identity.same_process(watchdog.process_identity(identity.pid)) and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertFalse(identity.same_process(watchdog.process_identity(identity.pid)),
+                         f"owned fixture {identity.pid} survived cleanup")
+
+    def test_sampler_timeout_joins_group_children(self):
+        diagnostics = self.diagnostics()
+        child_path = self.sampler_fixture(diagnostics)
+        command, pid_path = self.sleeping_command(diagnostics)
+        process = self.start_wrapped_watchdog(command, diagnostics, .3)
+        self.wait_for_file(child_path, process)
+        child = self.remember_fixture_identity(child_path)
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 124, stdout + stderr)
+        self.assertIn("sampler unavailable or timed out", stdout)
+        self.assert_command_stopped(pid_path)
+        self.assert_fixture_gone(child)
+
+    def test_successful_sampler_joins_observed_detached_child_after_reaping(self):
+        diagnostics = self.diagnostics()
+        child_path = self.sampler_fixture(diagnostics, detached=True, successful=True)
+        command, pid_path = self.sleeping_command(diagnostics)
+        process = self.start_wrapped_watchdog(command, diagnostics, .3)
+        self.wait_for_file(child_path, process)
+        child = self.remember_fixture_identity(child_path)
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 124, stdout + stderr)
+        self.assertIn("sampled driver fallback; host attribution unavailable", stdout)
+        self.assert_fixture_gone(child)
+        self.assert_command_stopped(pid_path)
+
+    def test_interrupt_during_sampler_cleans_sampler_children(self):
+        for interrupt, status in ((signal.SIGINT, 130), (signal.SIGTERM, 143)):
+            with self.subTest(interrupt=interrupt):
+                diagnostics = self.diagnostics()
+                child_path = self.sampler_fixture(diagnostics, detached=True)
+                command, pid_path = self.sleeping_command(diagnostics)
+                process = self.start_wrapped_watchdog(command, diagnostics, .3)
+                self.wait_for_file(child_path, process)
+                child = self.remember_fixture_identity(child_path)
+                # Allow a launch-ancestry observation before the deliberate interrupt.
+                time.sleep(.2)
+                process.send_signal(interrupt)
+                stdout, stderr = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, status, stdout + stderr)
+                self.assert_fixture_gone(child)
+                self.assert_command_stopped(pid_path)
+
+    def test_closed_output_during_sampler_preserves_timeout_and_cleans_children(self):
+        diagnostics = self.diagnostics()
+        child_path = self.sampler_fixture(diagnostics, detached=True)
+        command, pid_path = self.sleeping_command(diagnostics)
+        process = self.start_wrapped_watchdog(command, diagnostics, .3)
+        self.wait_for_file(child_path, process)
+        child = self.remember_fixture_identity(child_path)
+        process.stdout.close()
+        process.wait(timeout=10)
+        self.assertEqual(process.returncode, 124, process.stderr.read())
+        self.assert_fixture_gone(child)
+        self.assert_command_stopped(pid_path)
+
+    def test_owned_detached_host_selected_and_unrelated_process_preserved(self):
+        diagnostics = self.diagnostics()
+        host_path = diagnostics / "host.pid"
+        sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                                     "--fixture-host"], start_new_session=True)
+
+        def stop_sentinel():
+            if sentinel.poll() is None:
+                sentinel.kill()
+            sentinel.wait(timeout=5)
+
+        self.addCleanup(stop_sentinel)
+        sampler = diagnostics / "sampler"
+        sampler.write_text(f"#!{sys.executable}\nimport pathlib,sys\n"
+                           "pathlib.Path(sys.argv[2]).write_text(sys.argv[1])\n")
+        sampler.chmod(0o755)
+        child_code = (
+            "import os,pathlib,time; "
+            f"pathlib.Path({str(host_path)!r}).write_text(str(os.getpid())); time.sleep(60)"
+        )
+        driver_code = (
+            "import subprocess,sys,time; "
+            f"subprocess.Popen([sys.executable,'-c',{child_code!r},'--fixture-host'],"
+            "start_new_session=True); time.sleep(.4)"
+        )
+        with mock.patch.dict(os.environ, SPOTTY_SWIFT_TEST_SAMPLER=str(sampler)):
+            process = self.start_wrapped_watchdog(
+                [sys.executable, "-c", driver_code], diagnostics, .8, classify_fixture=True)
+            self.wait_for_file(host_path, process)
+            host = self.remember_fixture_identity(host_path)
+            stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 124, stdout + stderr)
+        self.assertEqual((diagnostics / "fixture-repeat-1-sample.txt").read_text(), str(host.pid))
+        self.assertIn(f"host PID {host.pid}", stdout)
+        tree = json.loads((diagnostics / "fixture-repeat-1-process-tree.txt").read_text())
+        record = next(row for row in tree["processes"] if row["pid"] == host.pid)
+        self.assertNotEqual(record["pgid"], record["launchAncestry"][0])
+        self.assertNotIn(sentinel.pid, [row["pid"] for row in tree["processes"]])
+        self.assert_fixture_gone(host)
+        self.assertIsNone(sentinel.poll(), "unrelated host-like process was killed")
+
+    def test_timeout_artifact_keeps_native_attribution_separate_from_driver_output(self):
+        diagnostics = self.diagnostics()
+        swift = diagnostics / "swift"
+        records = [
+            {"kind": "test", "payload": {"kind": "function", "id": "completed"}},
+            {"kind": "test", "payload": {"kind": "function", "id": "active"}},
+            {"kind": "event", "payload": {"kind": "testEnded", "testID": "completed"}},
+            {"kind": "event", "payload": {"kind": "testStarted", "testID": "active"}},
+        ]
+        data = "\n".join(json.dumps(record) for record in records) + "\n{\"kind\":"
+        swift.write_text(
+            f"#!{sys.executable}\nimport os,pathlib,sys,time\n"
+            "if sys.argv[1:] == ['test', '--help-hidden']:\n"
+            "    print('--event-stream-output-path'); raise SystemExit(0)\n"
+            "path=pathlib.Path(sys.argv[sys.argv.index('--event-stream-output-path')+1])\n"
+            f"path.write_text({data!r})\n"
+            "print('driver-only output names a different function',flush=True)\n"
+            "time.sleep(60)\n"
+        )
+        swift.chmod(0o755)
+        result, _ = self.run_watchdog([str(swift), "test"], .3,
+                                      diagnostics=diagnostics, require_tests=True)
+        self.assertEqual(result.returncode, 124, result.stdout)
+        tree = json.loads((diagnostics / "fixture-repeat-1-process-tree.txt").read_text())
+        self.assertEqual(tree["nativeEvents"]["activeFunctions"], ["active"])
+        self.assertEqual(tree["nativeEvents"]["lastStarted"]["testID"], "active")
+        self.assertEqual(tree["nativeEvents"]["lastCompleted"]["testID"], "completed")
+        self.assertEqual(tree["nativeEvents"]["partialRecords"], 1)
+        self.assertEqual(tree["hostAttribution"], "unavailable; driver fallback")
+        self.assertIn("driver fallback; host attribution unavailable", result.stdout)
+
+
+class InterruptReentryTests(unittest.TestCase):
+    def test_post_fork_sampler_interrupt_retains_handle_and_joins_before_first_status(self):
+        latch = watchdog.SignalLatch()
+        handlers = {signal.SIGINT: latch.request, signal.SIGTERM: latch.request}
+        original = dict(handlers)
+        root = watchdog.ProcessIdentity(10, 1, 10, (1, 100), "/fixture-driver")
+        owned = SimpleNamespace(observe=lambda **_: None, live=lambda: [root],
+                                process=SimpleNamespace(pid=10), commands={})
+        sampler = SimpleNamespace(pid=30, returncode=None, stdout=mock.Mock())
+        forked, joined = [], []
+
+        def post_fork_launch(*arguments, **keywords):
+            forked.append(sampler.pid)
+            # The child already exists, but Popen has not yet returned its handle.
+            handlers[signal.SIGINT](signal.SIGINT, None)
+            return sampler
+
+        def cleanup():
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+            joined.append(sampler.pid)
+            sampler.returncode = -signal.SIGTERM
+
+        tracker = SimpleNamespace(cleanup=cleanup)
+        with mock.patch.object(watchdog.signal, "getsignal", side_effect=handlers.get), \
+                mock.patch.object(watchdog.signal, "signal", side_effect=lambda sig, handler: handlers.__setitem__(sig, handler)), \
+                mock.patch.object(watchdog, "process_identity", return_value=root), \
+                mock.patch.object(watchdog.subprocess, "Popen", side_effect=post_fork_launch), \
+                mock.patch.object(watchdog, "OwnedProcesses", return_value=tracker), \
+                mock.patch.dict(os.environ, SPOTTY_SWIFT_TEST_SAMPLER="/fixture-sampler"):
+            with self.assertRaises(watchdog.TerminationRequested) as raised:
+                watchdog.sample_helper(owned, Path("/unused"))
+        self.assertEqual(raised.exception.signal_number, signal.SIGINT)
+        self.assertEqual(forked, [30])
+        self.assertEqual(joined, [30])
+        self.assertEqual(handlers, original)
+        sampler.stdout.close.assert_called_once()
+
+    def run_interrupted(self, first, second, *, window="setup"):
+        joins = []
+        injected = False
+        interrupted = False
+
+        def original_int(number, frame):
+            raise KeyboardInterrupt()
+
+        def original_term(number, frame):
+            raise watchdog.TerminationRequested(number)
+
+        handlers = {signal.SIGINT: original_int, signal.SIGTERM: original_term}
+
+        def install(number, handler):
+            nonlocal injected
+            # Deliver the opposite second signal during the first cleanup/catch
+            # handler installation, before that install has masked either signal.
+            matches = (window == "setup" or
+                       (window == "restore" and joins and handler is original_term))
+            if interrupted and not injected and matches:
+                injected = True
+                current = handlers[second]
+                if callable(current):
+                    current(second, None)
+            handlers[number] = handler
+
+        def observe(**keywords):
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                handlers[first](first, None)
+
+        process = SimpleNamespace(pid=10, returncode=None, stdout=mock.Mock())
+        owned = SimpleNamespace(observe=observe)
+
+        def cleanup():
+            joins.extend([20, 10])  # Retained detached descendant, then direct join.
+            process.returncode = -signal.SIGTERM
+
+        owned.cleanup = cleanup
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(log_dir=Path(directory), lane="fixture", repetition=1,
+                                   require_tests=False, event_stream_path=None, command=["fixture"],
+                                   timeout_seconds=10)
+            with mock.patch.object(watchdog.signal, "getsignal", side_effect=handlers.get), \
+                    mock.patch.object(watchdog.signal, "signal", side_effect=install), \
+                    mock.patch.object(watchdog.subprocess, "Popen", return_value=process), \
+                    mock.patch.object(watchdog, "OwnedProcesses", return_value=owned), \
+                    mock.patch.object(watchdog, "command_with_event_stream", return_value=(["fixture"], False)), \
+                    mock.patch.object(watchdog, "write_interruption_diagnostics"), \
+                    mock.patch.object(watchdog, "emit"), \
+                    mock.patch.object(watchdog, "emit_diagnostic"), \
+                    mock.patch.object(watchdog.selectors, "DefaultSelector", return_value=mock.Mock()), \
+                    mock.patch.object(watchdog.time, "monotonic", return_value=0):
+                try:
+                    status = watchdog.run(args)
+                except KeyboardInterrupt:
+                    status = 130
+                except watchdog.TerminationRequested as error:
+                    status = 128 + error.signal_number
+        self.assertTrue(injected)
+        self.assertEqual(joins, [20, 10])
+        self.assertEqual(handlers, {signal.SIGINT: original_int, signal.SIGTERM: original_term})
+        self.assertEqual(status, 128 + first)
+
+    def test_first_sigint_survives_sigterm_at_handler_installation(self):
+        self.run_interrupted(signal.SIGINT, signal.SIGTERM)
+
+    def test_first_sigterm_survives_sigint_at_handler_installation(self):
+        self.run_interrupted(signal.SIGTERM, signal.SIGINT)
+
+    def test_first_sigint_survives_sigterm_at_original_handler_restoration(self):
+        self.run_interrupted(signal.SIGINT, signal.SIGTERM, window="restore")
+
+    def test_first_sigterm_survives_default_sigint_at_original_handler_restoration(self):
+        self.run_interrupted(signal.SIGTERM, signal.SIGINT, window="restore")
+
+    def test_first_signal_during_default_handler_cleanup_setup_waits_for_both_owned_actions(self):
+        for first, second in ((signal.SIGINT, signal.SIGTERM), (signal.SIGTERM, signal.SIGINT)):
+            with self.subTest(first=first, second=second):
+                def original_int(number, frame):
+                    raise KeyboardInterrupt()
+
+                def original_term(number, frame):
+                    raise watchdog.TerminationRequested(number)
+
+                original = {signal.SIGINT: original_int, signal.SIGTERM: original_term}
+                handlers = dict(original)
+                injected = []
+
+                def install(number, handler):
+                    if len(injected) < 2:
+                        target = first if not injected else second
+                        injected.append(target)
+                        handlers[target](target, None)
+                    handlers[number] = handler
+
+                actions = []
+                process = SimpleNamespace(pid=10, returncode=None)
+
+                def wait(**keywords):
+                    actions.append("direct-join")
+                    process.returncode = -signal.SIGTERM
+
+                process.wait = wait
+                owned = object.__new__(watchdog.OwnedProcesses)
+                owned.process = process
+                owned.observe = lambda **_: None
+                owned.live = lambda: []
+                owned.signal = lambda number: actions.append(("retained-descendant-signal", number))
+                with mock.patch.object(watchdog.signal, "getsignal", side_effect=handlers.get), \
+                        mock.patch.object(watchdog.signal, "signal", side_effect=install), \
+                        mock.patch.object(watchdog.time, "monotonic", return_value=0):
+                    with self.assertRaises(watchdog.TerminationRequested) as raised:
+                        watchdog.terminate_owned_group(process, owned)
+                self.assertEqual(raised.exception.signal_number, first)
+                self.assertEqual(injected, [first, second])
+                self.assertEqual(actions, [("retained-descendant-signal", signal.SIGTERM),
+                                           ("retained-descendant-signal", signal.SIGKILL), "direct-join"])
+                self.assertEqual(handlers, original)
+
+    def test_external_first_signal_latch_is_not_replaced_by_cleanup_only_signal(self):
+        original = {signal.SIGINT: lambda *_: None, signal.SIGTERM: lambda *_: None}
+        handlers = dict(original)
+        actions = []
+        process = SimpleNamespace(pid=10, returncode=None)
+
+        def cleanup():
+            actions.append("retained-descendant-cleanup")
+            # An external controller already caught its first SIGINT. Its
+            # handlers return for later signals; cleanup must retain that contract.
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+            actions.append("direct-join")
+            process.returncode = -signal.SIGTERM
+
+        owned = SimpleNamespace(cleanup=cleanup)
+        with mock.patch.object(watchdog.signal, "getsignal", side_effect=handlers.get), \
+                mock.patch.object(watchdog.signal, "signal", side_effect=lambda sig, handler: handlers.__setitem__(sig, handler)):
+            watchdog.terminate_owned_group(process, owned)
+        self.assertEqual(actions, ["retained-descendant-cleanup", "direct-join"])
+        self.assertEqual(handlers, original)
+
+
+class ProcessOwnershipTests(unittest.TestCase):
+    def identity(self, pid, parent=1, group=10, usec=100, executable="/fixture"):
+        return watchdog.ProcessIdentity(pid, parent, group, (1, usec), executable)
+
+    def test_kernel_identity_has_high_resolution_birth_and_actual_relations(self):
+        identity = watchdog.process_identity(os.getpid())
+        self.assertIsNotNone(identity)
+        self.assertEqual((identity.pid, identity.ppid, identity.pgid),
+                         (os.getpid(), os.getppid(), os.getpgid(0)))
+        self.assertTrue(identity.executable)
+        self.assertTrue(identity.birth)
+        if sys.platform == "darwin":
+            self.assertEqual(len(identity.birth), 2)
+            self.assertLess(identity.birth[1], 1_000_000)
+
+    def test_reparented_and_execed_descendants_retained_but_reused_pids_excluded(self):
+        root = self.identity(10)
+        child = self.identity(20, parent=10)
+        unrelated = self.identity(30)
+        identities = {10: root, 20: child, 30: unrelated}
+        rows = {pid: (value.ppid, value.pgid, "/fixture") for pid, value in identities.items()}
+        process = SimpleNamespace(pid=10, returncode=None)
+        with mock.patch.object(watchdog, "process_identity", side_effect=identities.get), \
+                mock.patch.object(watchdog, "process_inventory", return_value=(rows, None)):
+            owned = watchdog.OwnedProcesses(process)
+            owned.observe(force=True)
+            self.assertEqual(set(owned.identities), {10, 20})
+            self.assertEqual(owned.ancestry[20], [10, 20])
+            identities[20] = self.identity(20, parent=1, group=20, executable="/new-image")
+            rows[20] = (1, 20, "/new-image")
+            owned.observe(force=True)
+            self.assertIn(20, [item.pid for item in owned.live()])
+            self.assertEqual(owned.identities[20].executable, "/new-image")
+            # Reuse within the very same second must not pass identity validation.
+            identities[20] = self.identity(20, parent=1, group=20, usec=101)
+            process.returncode = 0
+            with mock.patch.object(watchdog.os, "kill") as kill, \
+                    mock.patch.object(watchdog.os, "killpg") as killpg:
+                owned.signal(signal.SIGKILL)
+                kill.assert_not_called()
+                killpg.assert_not_called()
+
+    def test_reused_parent_cannot_recruit_new_children(self):
+        identities = {10: self.identity(10)}
+        with mock.patch.object(watchdog, "process_identity", side_effect=identities.get), \
+                mock.patch.object(watchdog, "process_inventory") as inventory:
+            owned = watchdog.OwnedProcesses(SimpleNamespace(pid=10, returncode=0))
+            identities[10] = self.identity(10, usec=101)
+            identities[20] = self.identity(20, parent=10, usec=102)
+            inventory.return_value = ({20: (10, 10, "/fixture")}, None)
+            owned.observe(force=True)
+            self.assertNotIn(20, owned.identities)
+
+    def test_sampler_refuses_reused_target_before_launch(self):
+        root = self.identity(10)
+        owned = SimpleNamespace(observe=lambda **_: None, live=lambda: [root], root=root,
+                                process=SimpleNamespace(pid=10), commands={10: "driver"})
+        with mock.patch.object(watchdog, "process_identity", side_effect=[root, self.identity(10, usec=101)]), \
+                mock.patch.object(watchdog.subprocess, "Popen") as launch, \
+                mock.patch.dict(os.environ, SPOTTY_SWIFT_TEST_SAMPLER="/fixture-sampler"):
+            result = watchdog.sample_helper(owned, Path("/unused"))
+        self.assertIn("sampler refused: target identity changed", result)
+        launch.assert_not_called()
+
+    def test_signals_revalidate_every_retained_descendant_and_never_reuse_reaped_root(self):
+        identities = {10: self.identity(10), 20: self.identity(20, parent=10),
+                      30: self.identity(30, parent=10)}
+        rows = {pid: (item.ppid, item.pgid, "/fixture") for pid, item in identities.items()}
+        with mock.patch.object(watchdog, "process_identity", side_effect=identities.get), \
+                mock.patch.object(watchdog, "process_inventory", return_value=(rows, None)):
+            process = SimpleNamespace(pid=10, returncode=0)
+            owned = watchdog.OwnedProcesses(process)
+            owned.observe(force=True)
+            # Root and one descendant have been reaped and reused by unrelated work.
+            identities[10] = self.identity(10, usec=101)
+            identities[20] = self.identity(20, usec=101)
+            with mock.patch.object(watchdog.os, "kill") as kill, \
+                    mock.patch.object(watchdog.os, "killpg") as killpg:
+                owned.signal(signal.SIGKILL)
+            kill.assert_called_once_with(30, signal.SIGKILL)
+            killpg.assert_not_called()
+
+    def test_name_or_group_alone_never_proves_a_host(self):
+        identity = self.identity(20, executable="/tmp/swiftpm-testing-helper")
+        self.assertIsNone(watchdog.host_role(identity, "swiftpm-testing-helper"))
+        helper = "/toolchain/libexec/swift/pm/swiftpm-testing-helper"
+        identity = self.identity(20, executable=helper)
+        self.assertIsNone(watchdog.host_role(identity, helper))
+        self.assertIsNone(watchdog.host_role(identity, helper + " --test-bundle-path /tmp/not-a-bundle"))
+        foreign = self.identity(20, executable="/tmp/swiftpm-testing-helper")
+        self.assertIsNone(watchdog.host_role(foreign, helper + " --test-bundle-path /tmp/Actual.xctest"))
+
+    def test_actual_swift64_loader_binary_operand_identifies_host(self):
+        helper = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper"
+        bundle = Path("/private/tmp/spotty-585-actual64-high-o01yl3zb/run/build/out/Products/Debug/OwnedHostObservationTests.xctest")
+        binary = bundle / "Contents/MacOS/OwnedHostObservationTests"
+        identity = self.identity(4503, executable=helper)
+        # Actual once-only observation used the binary operand and repeated that
+        # binary as a positional argument. Neither is a second bundle flag.
+        command = f"{helper} --test-bundle-path {binary} {binary} --testing-library swift-testing"
+        self.assertEqual(watchdog.host_role(identity, command), "SwiftPM test-bundle loader")
+        self.assertEqual(watchdog.loader_test_bundle(command), bundle)
+
+    def test_loader_bundle_directory_and_quoted_binary_have_one_normalizer(self):
+        helper = "/toolchain/libexec/swift/pm/swiftpm-testing-helper"
+        identity = self.identity(20, executable=helper)
+        bundle = Path("/produced build/SpottyPackageTests.xctest")
+        for operand in (bundle, bundle / "Contents/MacOS/SpottyPackageTests"):
+            command = f'{helper} --test-bundle-path "{operand}"'
+            self.assertEqual(watchdog.host_role(identity, command), "SwiftPM test-bundle loader")
+            self.assertEqual(watchdog.loader_test_bundle(command), bundle)
+
+    def test_loader_rejects_ambiguous_relative_or_arbitrary_bundle_children(self):
+        helper = "/toolchain/libexec/swift/pm/swiftpm-testing-helper"
+        identity = self.identity(20, executable=helper)
+        commands = [
+            f"{helper} --test-bundle-path relative.xctest",
+            f"{helper} --test-bundle-path /build/A.xctest --test-bundle-path /build/B.xctest",
+            f"{helper} --test-bundle-path /build/A.xctest --test-bundle-path=/build/B.xctest",
+            f"{helper} --test-bundle-path /build/A.xctest/arbitrary-child",
+            f"{helper} --test-bundle-path /build/A.xctest/Contents/MacOS/A/child",
+            f"{helper} --test-bundle-path /build/A.xctest/Contents/Other/A",
+            f"{helper} --test-bundle-path /build/A.xctest/Contents/MacOS/../A",
+            f"{helper} --test-bundle-path /build/A.xctest/Contents/MacOS/Other",
+            f"{helper} --test-bundle-path",
+            f'{helper} --test-bundle-path "',
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIsNone(watchdog.host_role(identity, command))
+                self.assertIsNone(watchdog.loader_test_bundle(command))
+
+    def test_actual_binary_host_candidate_is_selected_before_fresh_identity_refusal(self):
+        root = self.identity(10)
+        host = self.identity(4503, parent=10, group=4503,
+                             executable="/toolchain/libexec/swift/pm/swiftpm-testing-helper")
+        bundle = Path("/actual/build/OwnedHostObservationTests.xctest")
+        command = f"swiftpm-testing-helper --test-bundle-path {bundle}/Contents/MacOS/OwnedHostObservationTests"
+        owned = SimpleNamespace(observe=lambda **_: None, live=lambda: [root, host],
+                                process=SimpleNamespace(pid=10), commands={4503: command})
+        with mock.patch.object(watchdog, "process_identity", return_value=None), \
+                mock.patch.object(watchdog.subprocess, "Popen") as launch:
+            result = watchdog.sample_helper(owned, Path("/unused"))
+        self.assertIn("host PID 4503 (SwiftPM test-bundle loader)", result)
+        self.assertIn("sampler refused: target identity unavailable or changed", result)
+        self.assertNotIn("driver fallback", result)
+        launch.assert_not_called()
+
+    def test_ambiguous_host_candidates_use_driver_fallback(self):
+        root, first, second = self.identity(10), self.identity(20), self.identity(30)
+        owned = SimpleNamespace(observe=lambda **_: None, live=lambda: [root, first, second],
+                                process=SimpleNamespace(pid=10), commands={})
+        with mock.patch.object(watchdog, "host_role", side_effect=lambda identity, _: "fixture host" if identity.pid != 10 else None), \
+                mock.patch.object(watchdog, "process_identity", return_value=None), \
+                mock.patch.object(watchdog.subprocess, "Popen") as launch:
+            result = watchdog.sample_helper(owned, Path("/unused"))
+        self.assertIn("driver fallback; host attribution unavailable (2 loader candidates)", result)
+        launch.assert_not_called()
+
+    def test_partial_native_stream_retains_active_and_last_function_events(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "events.jsonl"
+            records = [
+                {"kind": "test", "payload": {"kind": "function", "id": "finished"}},
+                {"kind": "test", "payload": {"kind": "function", "id": "hanging"}},
+                {"kind": "event", "payload": {"kind": "testStarted", "testID": "finished"}},
+                {"kind": "event", "payload": {"kind": "testEnded", "testID": "finished"}},
+                {"kind": "event", "payload": {"kind": "testStarted", "testID": "hanging"}},
+            ]
+            path.write_text("\n".join(json.dumps(record) for record in records) + "\n{\"kind\":")
+            state = watchdog.native_event_state(path)
+        self.assertEqual(state["activeFunctions"], ["hanging"])
+        self.assertEqual(state["lastStarted"]["testID"], "hanging")
+        self.assertEqual(state["lastCompleted"]["testID"], "finished")
+        self.assertEqual(state["partialRecords"], 1)
+        self.assertEqual(state["invalidRecords"], 0)
 
 
 if __name__ == "__main__":

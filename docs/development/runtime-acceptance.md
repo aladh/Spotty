@@ -12,9 +12,9 @@ late publications, and corrupt retained data. Stored identities never authorize 
 For catalog changes, include route restoration, write invalidation, shared enrichment, and artwork
 retirement under [ADR 009](../architecture/adrs/ADR-009-account-catalog-retention.md#decision).
 
-For UI changes, follow the [visual fidelity contract](../product/scope.md#visual-fidelity-and-interaction)
-using synthetic fixtures. Tests cannot establish visual parity or grant
-[live-account permissions](../product/safe-testing.md).
+Inspect UI changes with synthetic fixtures under the
+[visual fidelity contract](../product/scope.md#visual-fidelity-and-interaction).
+Tests establish neither visual parity nor [live-account permissions](../product/safe-testing.md).
 
 ## Production process
 
@@ -43,11 +43,11 @@ optimized builds without concurrent compilation or UI inspection.
 ./Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json
 ```
 
-`--optimized` uses instrumented, testable Release code with synthetic dependencies. `report.json`
-records CPU/memory, hydration, and publications. Callback gaps measure display opportunities, not
-presentation or input-to-pixel latency. Subtract first from last cumulative CPU counters to exclude
-startup. Occluded runs cannot measure rendered-frame budgets. Cold-process visits may use filesystem
-caches; later cycles measure reuse. The workload suppresses App Nap while allowing idle sleep.
+`--optimized` uses instrumented, testable Release with synthetic dependencies. `report.json` records
+CPU/memory, hydration, and publications. Callback gaps measure display opportunities, not presentation
+or input-to-pixel latency. Subtract initial cumulative CPU counters to exclude startup. Occluded runs
+cannot measure rendered-frame budgets. Cold-process visits may use filesystem caches; later cycles
+measure reuse. The workload suppresses App Nap but allows idle sleep.
 
 Queue-rendering uses `forceSynchronousLayout: false` for normal AppKit scheduling; omission retains
 synchronous stress. Compare identical modes. A verified sandbox, zero unexpected mutations, and
@@ -69,25 +69,28 @@ Opt-in probes:
 | `SPOTTY_ARTWORK_DECODE_REPORT` | `ArtworkDecoderMeasurementTests` | Decoder CPU and asset bytes |
 | `SPOTTY_ARTWORK_MEASUREMENT_REPORT` | `ArtworkSourceLoaderMeasurementTests` | Idle loader process footprint |
 
-**Swift 6.4 only; explicit scratch path, full-graph dependencies:**
+Boundary diagnostic (6.3.3/6.4):
 
 ```bash
-SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --test-product SpottyBoundaryTests \
-  -c release --scratch-path .build/browsing-optimized -Xswiftc -O -Xswiftc -enable-testing \
+SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --target SpottyBoundaryTests --build-system native \
+  -c debug --scratch-path .build/browsing-optimized -Xswiftc -O -Xswiftc -enable-testing \
+  -Xswiftc -no-whole-module-optimization \
   -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED --filter CatalogMetadataMeasurementTests
 ```
 
-Track probes (both toolchains): `verify.py domain -c release --filter FILTER`.
-Gateway probes (**Swift 6.4 only; isolated cache**):
-`verify.py test --test-product SpottyGatewayTests -c release -Xswiftc -O -Xswiftc -enable-testing --filter FILTER`.
-Repeat with `--skip-build`; samples establish neither thresholds nor whole-app gains.
+Domain Release (both): `verify.py test --target SpottyDomainTests --build-system native -c release -Xswiftc -O -Xswiftc -enable-testing --filter FILTER`.
+Gateway optimized diagnostic (both, engine free):
+`verify.py test --target SpottyGatewayTests --build-system native -c debug --scratch-path .build/gateway-optimized -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -no-whole-module-optimization --filter FILTER`.
+Domain: WMO Release; Gateway/Boundary compile DEBUG hooks. Swift 6.4 deprecates native.
+Require completion and unchanged inputs/artifacts for `--skip-build`. No shipping gain is established.
+Failures are terminal.
 
 ### Visible Instruments captures
 
-Add `--profile` for Xcode's Animation Hitches template. Read-only preflight checks Xcode/SDK,
-recorder/template, console session, and lock/display state before building.
-It never unlocks the session or requests grants. Unknown session state fails closed; an absent lock
-flag in an active logged-in session is labeled an inference.
+`--profile` uses Xcode's Animation Hitches template. Read-only preflight checks Xcode/SDK,
+recorder/template, console session, and lock/display state before building, without unlocking or
+requesting grants. Unknown session state fails closed; an absent lock flag in an active logged-in
+session is labeled an inference.
 
 Keep the window unoccluded. `--profile --interactive` lets you prepare the inspector before choosing
 **Demo → Run Measurement**. The workload waits for the exact-PID recorder handshake and refreshed
@@ -122,11 +125,9 @@ Comparison commands report:
 | 1 | `descriptive-only` | Valid captures with differing conditions or unknown inspector state. |
 | 2 | `invalid` | Failed capture or missing/malformed evidence. |
 
-`--allow-descriptive` on the comparator makes a descriptive result exit zero without accepting a
-performance comparison. Inspector evidence comes from existing controls and native tables; an
-unobserved inspector is not proof that it is closed. Maximum refresh is display capability;
-observed target cadence is compared with a one-percent tolerance. Compare profiled runs only with
-profiled runs.
+`--allow-descriptive` exits zero without accepting a performance comparison. Existing controls/native
+tables provide inspector evidence; unobserved does not mean closed. Maximum refresh is display
+capability; observed cadence uses one-percent tolerance. Compare profiled runs only with profiled runs.
 
 Compare two layouts from identical source:
 

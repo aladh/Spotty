@@ -137,9 +137,19 @@ module WorkflowPolicy
     contracts_steps = jobs.fetch('macos_contracts', {}).fetch('steps', [])
     swift_steps = jobs.fetch('macos_swift', {}).fetch('steps', [])
     release_steps = jobs.fetch('macos_release', {}).fetch('steps', [])
+    host_request = "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence')"
+    debug_command = <<~'SH'.strip
+      case "$HOST_OBSERVATION_REQUESTED" in
+        true)
+          SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests python3 Scripts/swift_test_host_observation.py --timeout-seconds 840 --output-dir "$RUNNER_TEMP/spotty-host-observation" --build-root "$GITHUB_WORKSPACE/.build" -- ./Scripts/check.sh
+          ;;
+        false) SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh ;;
+        *) echo "Unknown host observation request" >&2; exit 1 ;;
+      esac
+    SH
     {
       'macos_contracts' => ['contracts', 'Run Swift contracts', 'SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh'],
-      'macos_swift' => ['debug', 'Run checks', 'SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh'],
+      'macos_swift' => ['debug', 'Run checks', debug_command],
       'macos_release' => ['release', 'Compile release Spotty with SPOTTY_DISTRIBUTION', './Scripts/compile-release-spotty.sh'],
       'macos_engine' => ['rust', 'Run Rust checks', 'SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh'],
     }.each do |id, (step_id, name, command)|
@@ -155,6 +165,7 @@ module WorkflowPolicy
     end
     debug_step = swift_steps.find { |step| step['id'] == 'debug' } || {}
     check.call(debug_step.dig('env', 'SPOTTY_CHECK_REPEATS') == "${{ github.ref == 'refs/heads/main' && '3' || '1' }}", 'main must repeat boundary checks three times')
+    check.call(debug_step.dig('env', 'HOST_OBSERVATION_REQUESTED') == "${{ #{host_request} }}", 'host observation must bind its trusted explicit request')
     %w[macos_contracts macos_swift macos_release].zip(%w[contracts tests release]).each do |id, scope|
       lane = jobs.fetch(id, {})
       lane_steps = lane.fetch('steps', [])
@@ -238,6 +249,57 @@ module WorkflowPolicy
     gate_shell(check, swift_gate, 'Swift evidence gate')
     check.call(swift_gate['if'] == 'always()', 'Swift evidence gate must run even after failures')
     success_binding(check, swift_gate, 'CHECKS_RESULT', '${{ steps.debug.outcome }}', 'Swift evidence gate')
+    selection_request = "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence')"
+    selection_specs = {
+      'focused_smoke' => {
+        'name' => 'Prove focused test selection', 'timeout-minutes' => 5,
+        'run' => 'python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.3.3',
+      },
+      'selection_experiment' => {
+        'name' => 'Collect supported-toolchain selection evidence', 'timeout-minutes' => 20,
+        'if' => "success() && #{selection_request} && steps.acceptance.outcome == 'success' && steps.acceptance_summary.outcome == 'success' && steps.acceptance_upload.outcome == 'success'",
+        'env' => { 'SELECTION_HEAD_SHA' => '${{ github.event.pull_request.head.sha }}' },
+        'run' => 'python3 Scripts/focused_selection_evidence.py compatibility --source "$GITHUB_WORKSPACE" --head "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/compatibility" --swift-version 6.3.3',
+      },
+      'selection_upload' => {
+        'name' => 'Upload focused selection evidence', 'if' => 'always()',
+        'uses' => "actions/upload-artifact@#{UPLOAD_SHA}",
+        'with' => {
+          'name' => 'focused-selection-${{ github.run_id }}-${{ github.run_attempt }}',
+          'path' => '${{ runner.temp }}/spotty-selection', 'if-no-files-found' => 'error', 'retention-days' => 7,
+        },
+      },
+    }
+    selection_specs.each do |id, fields|
+      matches = swift_steps.select { |step| step['id'] == id || step['name'] == fields['name'] }
+      check.call(matches.length == 1 && matches.first == fields.merge('id' => id), "#{id} must retain its bounded exact selection evidence contract")
+    end
+    positions = ['debug', 'focused_smoke', 'acceptance', 'acceptance_upload', 'selection_experiment', 'selection_upload'].map do |id|
+      swift_steps.index { |step| step['id'] == id }
+    end
+    positions << swift_steps.index(swift_gate)
+    check.call(positions.none?(&:nil?) && positions == positions.sort && positions.uniq.length == positions.length,
+               'focused selection proof must follow Debug and preserve successful corpus ordering')
+    success_binding(check, swift_gate, 'FOCUSED_SMOKE_RESULT', '${{ steps.focused_smoke.outcome }}', 'focused selection gate')
+    success_binding(check, swift_gate, 'SELECTION_UPLOAD_RESULT', '${{ steps.selection_upload.outcome }}', 'focused selection gate')
+    check.call(swift_gate.dig('env', 'SELECTION_EXPERIMENT_REQUESTED') == "${{ #{selection_request} }}" &&
+               swift_gate.dig('env', 'SELECTION_EXPERIMENT_RESULT') == '${{ steps.selection_experiment.outcome }}',
+               'focused selection gate must bind actual trusted request and outcome')
+    case_table(check, swift_gate, 'SELECTION_EXPERIMENT_REQUESTED:$SELECTION_EXPERIMENT_RESULT', %w[true:success false:skipped], '*) echo "Focused selection evidence disagrees with request" >&2; exit 1 ;;', 'focused selection aggregate')
+    host_upload = one_step(check, swift_steps, 'Upload executing-host observation')
+    check.call(host_upload == {
+      'name' => 'Upload executing-host observation', 'id' => 'host_observation_upload',
+      'if' => "always() && #{host_request}", 'uses' => "actions/upload-artifact@#{UPLOAD_SHA}",
+      'with' => { 'name' => 'test-host-observation-${{ github.run_id }}-${{ github.run_attempt }}',
+                  'path' => '${{ runner.temp }}/spotty-host-observation', 'if-no-files-found' => 'error', 'retention-days' => 7 },
+    }, 'host observation upload must retain trusted request and complete failed or successful evidence')
+    check.call(swift_gate.dig('env', 'HOST_OBSERVATION_REQUESTED') == "${{ #{host_request} }}" &&
+               swift_gate.dig('env', 'HOST_OBSERVATION_UPLOAD_RESULT') == '${{ steps.host_observation_upload.outcome }}',
+               'host observation gate must bind actual request and upload outcome')
+    case_table(check, swift_gate, 'HOST_OBSERVATION_REQUESTED:$HOST_OBSERVATION_UPLOAD_RESULT', %w[true:success false:skipped], '*) echo "Host observation evidence disagrees with request" >&2; exit 1 ;;', 'host observation aggregate')
+    check.call(swift_steps.index(debug_step).to_i < swift_steps.index(host_upload).to_i &&
+               swift_steps.index(host_upload).to_i < swift_steps.index(swift_gate).to_i,
+               'host observation upload must follow its invocation and precede the outcome gate')
     acceptance_contract = lambda do |job_steps, result_gate, head_binding|
       check.call(job_steps.count { |step| step.fetch('run', '').include?('acceptance_scenarios.py run') } == 1,
                  'acceptance corpus must execute once without implicit retries')

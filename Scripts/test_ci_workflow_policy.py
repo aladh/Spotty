@@ -181,6 +181,91 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
             checks.append(WorkflowCheck(variant, diagnostic=f'{label} must retain its exact fail-closed truth table'))
         self.check_workflows(checks)
 
+    def test_focused_selection_proof_remains_exact_trusted_bounded_and_required(self):
+        checks = [WorkflowCheck(self.workflow)]
+        for name, identity in (
+                ('Prove focused test selection', 'focused_smoke'),
+                ('Collect supported-toolchain selection evidence', 'selection_experiment'),
+                ('Upload focused selection evidence', 'selection_upload')):
+            original = self.step(self.workflow, 'macos_swift', name)
+            for mutation in ('removed', 'duplicated', 'optional', 'contract'):
+                variant = copy.deepcopy(self.workflow)
+                steps = variant['jobs']['macos_swift']['steps']
+                step = self.step(variant, 'macos_swift', name)
+                if mutation == 'removed':
+                    steps.remove(step)
+                elif mutation == 'duplicated':
+                    steps.append(copy.deepcopy(step))
+                elif mutation == 'optional':
+                    step['continue-on-error'] = True
+                elif 'run' in original:
+                    step['run'] = original['run'].replace('6.3.3', '6.4')
+                else:
+                    step['with']['if-no-files-found'] = 'warn'
+                checks.append(WorkflowCheck(variant, diagnostic=f'{identity} must retain',
+                                            label={'identity': identity, 'mutation': mutation}))
+        variant = copy.deepcopy(self.workflow)
+        step = self.step(variant, 'macos_swift', 'Collect supported-toolchain selection evidence')
+        step['run'] = step['run'].replace(' compatibility ', ' experiment ').replace(
+            '--head "$SELECTION_HEAD_SHA"', '--before cb67cd0d808868d0484cb5786ff46926a81c7852 --after "$SELECTION_HEAD_SHA"')
+        checks.append(WorkflowCheck(variant, diagnostic='selection_experiment must retain',
+                                    label={'mutation': 'reintroduce comparison loops'}))
+        for clause in (
+                "github.event_name == 'pull_request' && ",
+                'github.event.pull_request.head.repo.full_name == github.repository && ',
+                "steps.acceptance_upload.outcome == 'success'"):
+            variant = copy.deepcopy(self.workflow)
+            step = self.step(variant, 'macos_swift', 'Collect supported-toolchain selection evidence')
+            step['if'] = step['if'].replace(clause, 'true')
+            checks.append(WorkflowCheck(variant, diagnostic='selection_experiment must retain'))
+        for name in ('Prove focused test selection', 'Collect supported-toolchain selection evidence'):
+            variant = copy.deepcopy(self.workflow)
+            steps = variant['jobs']['macos_swift']['steps']
+            step = self.step(variant, 'macos_swift', name)
+            steps.remove(step)
+            steps.insert(0, step)
+            checks.append(WorkflowCheck(variant, diagnostic='preserve successful corpus ordering'))
+        variant = copy.deepcopy(self.workflow)
+        gate = self.step(variant, 'macos_swift', 'Require Swift test evidence')
+        gate['run'] = gate['run'].replace('true:success|false:skipped', 'true:success|true:skipped|false:skipped')
+        checks.append(WorkflowCheck(variant, diagnostic='focused selection aggregate must retain its exact fail-closed truth table'))
+        self.check_workflows(checks)
+
+    def test_host_observation_preserves_trust_command_and_failed_evidence(self):
+        checks = [WorkflowCheck(self.workflow)]
+        for mutation in ('request', 'command', 'deadline-missing', 'deadline-no-margin', 'upload-optional', 'upload-condition', 'upload-path', 'gate-binding', 'gate-skip'):
+            variant = copy.deepcopy(self.workflow)
+            debug = self.step(variant, 'macos_swift', 'Run checks')
+            upload = self.step(variant, 'macos_swift', 'Upload executing-host observation')
+            gate = self.step(variant, 'macos_swift', 'Require Swift test evidence')
+            expected = 'host observation'
+            if mutation == 'request':
+                debug['env']['HOST_OBSERVATION_REQUESTED'] = '${{ true }}'
+            elif mutation == 'command':
+                debug['run'] = debug['run'].replace('-- ./Scripts/check.sh', '-- true')
+                expected = 'debug verification command'
+            elif mutation in ('deadline-missing', 'deadline-no-margin'):
+                debug['run'] = debug['run'].replace('--timeout-seconds 840 ', '' if mutation == 'deadline-missing' else '--timeout-seconds 900 ')
+                expected = 'debug verification command'
+            elif mutation == 'upload-optional':
+                upload['with']['if-no-files-found'] = 'warn'
+            elif mutation == 'upload-condition':
+                upload['if'] = upload['if'].replace('always()', 'success()')
+            elif mutation == 'upload-path':
+                upload['with']['path'] = '${{ runner.temp }}/unrelated-evidence'
+            elif mutation == 'gate-binding':
+                gate['env']['HOST_OBSERVATION_UPLOAD_RESULT'] = 'success'
+            else:
+                gate['run'] = gate['run'].replace(
+                    'case "$HOST_OBSERVATION_REQUESTED:$HOST_OBSERVATION_UPLOAD_RESULT" in\n            true:success|false:skipped)',
+                    'case "$HOST_OBSERVATION_REQUESTED:$HOST_OBSERVATION_UPLOAD_RESULT" in\n            true:success|true:skipped|false:skipped)')
+                # YAML block indentation has already been removed by the fixture loader.
+                gate['run'] = gate['run'].replace(
+                    'case "$HOST_OBSERVATION_REQUESTED:$HOST_OBSERVATION_UPLOAD_RESULT" in\n  true:success|false:skipped)',
+                    'case "$HOST_OBSERVATION_REQUESTED:$HOST_OBSERVATION_UPLOAD_RESULT" in\n  true:success|true:skipped|false:skipped)')
+            checks.append(WorkflowCheck(variant, diagnostic=expected, label={'mutation': mutation}))
+        self.check_workflows(checks)
+
     def test_public_cargo_source_preflight_remains_required_before_release_work(self):
         checks = []
         for mutation in ('removed', 'command', 'identity', 'duplicate', 'moved', 'before_rust',

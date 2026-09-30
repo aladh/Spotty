@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import hashlib
 import io
 import json
@@ -12,7 +14,8 @@ import os
 from pathlib import Path, PurePosixPath
 import posixpath
 import re
-import resource
+import select
+import signal
 import stat
 import subprocess
 import sys
@@ -42,6 +45,28 @@ SCOPES = {
 # runner temp directory, or the repository; those can hold account/signing material.
 PRIVATE_NAMES = {"spotty-signing", ".git-credentials", ".netrc", ".npmrc", "credentials",
                  "credentials.toml", "credentials.json", "id_rsa", "id_ed25519"}
+GIT_OUTPUT_LIMIT = 64 * 1024
+GIT_TIMEOUT = 5
+
+
+def exited_group_contains_only_leader(pid: int) -> bool:
+    """Recognize Darwin's zombie-only EPERM using bounded owned-group metadata."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        exited = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        if exited is None or exited.si_pid != pid:
+            return False
+        list_group = ctypes.CDLL("/usr/lib/libproc.dylib").proc_listpgrppids
+        list_group.argtypes = (ctypes.c_int, ctypes.c_void_p, ctypes.c_int)
+        list_group.restype = ctypes.c_int
+        members = (ctypes.c_int * 2)()
+        count = list_group(pid, members, ctypes.sizeof(members))
+        # A full buffer is ambiguous. Only the reserved, already exited leader
+        # may remain; live members, extra zombies and unavailable metadata reject.
+        return count == 1 and members[0] == pid
+    except (OSError, AttributeError):
+        return False
 
 
 def path_key(value: str) -> str:
@@ -68,6 +93,97 @@ def private_path(path: PurePosixPath, *, logical_name: str, kind: str | None = N
             continue
         return True
     return False
+
+
+def read_git_output(command: list[str], environment: dict[str, str],
+                    input_data: bytes | None = None) -> bytes:
+    """Bound Git metadata stdout without limiting unrelated developer-launcher writes."""
+    if input_data is not None and len(input_data) > 65:
+        raise ValueError("Git metadata input exceeds bound")
+    if not all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT", "CLD_EXITED")):
+        raise ValueError("Git metadata process ownership is unsupported")
+    deadline = time.monotonic() + GIT_TIMEOUT
+    process = subprocess.Popen(command, stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               env=environment, start_new_session=True, bufsize=0)
+    output = bytearray()
+    owns_leader = True
+    try:
+        if input_data is not None:
+            try:
+                process.stdin.write(input_data)
+                process.stdin.close()
+            except BrokenPipeError:
+                pass
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+                raise subprocess.TimeoutExpired(command, GIT_TIMEOUT)
+            chunk = os.read(process.stdout.fileno(), min(8192, GIT_OUTPUT_LIMIT + 1 - len(output)))
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > GIT_OUTPUT_LIMIT:
+                raise ValueError("Git metadata output exceeds bound")
+        # Observe exit without reaping: the session leader keeps its PID reserved
+        # until group cleanup, even when a descendant has already closed stdout.
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, GIT_TIMEOUT)
+            try:
+                exited = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                owns_leader = False
+                raise ValueError("Git metadata process ownership was lost") from None
+            if exited is not None:
+                status = exited.si_status if exited.si_code == os.CLD_EXITED else -exited.si_status
+                break
+            time.sleep(min(0.01, remaining))
+        if status:
+            raise subprocess.CalledProcessError(status, command)
+        return bytes(output)
+    finally:
+        # A launcher may leave a descendant holding stdout even after it exits.
+        # Always close the owned group, including on overflow, timeout or failure.
+        unwinding = sys.exc_info()[0] is not None
+        cleanup_failed = not owns_leader
+        if owns_leader:
+            # Clear ownership before the only reap below. An external reap is
+            # fail-closed and never authorizes a signal to a possibly reused PID.
+            owns_leader = False
+            try:
+                os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                cleanup_failed = True
+            except OSError:
+                cleanup_failed = True
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError as error:
+                    cleanup_failed = error.errno != errno.EPERM or not exited_group_contains_only_leader(process.pid)
+                except OSError:
+                    cleanup_failed = True
+        try:
+            process.wait(timeout=1)
+        except (OSError, subprocess.SubprocessError):
+            cleanup_failed = True
+        try:
+            process.stdout.close()
+            if process.stdin is not None:
+                process.stdin.close()
+        except OSError:
+            cleanup_failed = True
+        if cleanup_failed:
+            if not unwinding:
+                raise ValueError("Git metadata child cleanup failed")
+            try:
+                sys.stderr.write("CI cache bundle: Git metadata child cleanup failed\n")
+            except (OSError, ValueError):
+                pass
 
 
 def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixPath) -> str | None:
@@ -142,18 +258,7 @@ def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixP
 
         def read_git(*arguments: str, input_data: bytes | None = None) -> bytes:
             # Identity/path/size output is bounded; never collect object contents.
-            def limit_output() -> None:
-                resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024, 64 * 1024))
-
-            with tempfile.TemporaryFile() as output:
-                subprocess.run(command + list(arguments), input=input_data,
-                               stdout=output, stderr=subprocess.DEVNULL,
-                               env=environment, timeout=5, check=True, preexec_fn=limit_output)
-                output.seek(0)
-                data = output.read(64 * 1024 + 1)
-                if len(data) > 64 * 1024:
-                    raise ValueError(error_message)
-                return data
+            return read_git_output(command + list(arguments), environment, input_data)
 
         stage = "git-head"
         head = read_git("rev-parse", "--verify", "HEAD^{commit}").strip()

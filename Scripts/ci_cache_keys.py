@@ -112,6 +112,12 @@ def toolchain_identity(scope, root, *, probe=command, environment=None, machine=
         **read_sdk(selected_sdk),
     }
     if scope == "swift":
+        # SwiftBuild can select Xcode's SDK independently of the SDKROOT exported for
+        # direct compiler probes. Bound restores to both without assuming which builder
+        # consumes the wrapper selection. Explicitly remove SDKROOT: xcrun honors it.
+        xcode_sdk = probe(["env", "-u", "SDKROOT", "xcrun", "--sdk", "macosx", "--show-sdk-path"], root)
+        identity.update({"sdk_role": "wrapper-selected",
+                         **{f"xcode_{name}": value for name, value in read_sdk(xcode_sdk).items()}})
         swift = probe(["swift", "--version"], root)
         identity.update({
             "swift": field(swift, r"(?:^| )Swift version ([0-9]+(?:\.[0-9]+)*) ", "Swift version"),

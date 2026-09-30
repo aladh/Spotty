@@ -22,7 +22,8 @@ COMMON_TOOLCHAIN = {
     "clang": "17.0.0", "clang_build": "clang-1700.4.4.1", "clang_target": "arm64-apple-darwin25.0.0",
 }
 SWIFT_TOOLCHAIN = {**COMMON_TOOLCHAIN, "swift": "6.3.3", "swift_build": "swiftlang-6.3.3.1.1 clang-1700.4.4.1",
-                   "swift_target": "arm64-apple-macosx26.0"}
+                   "swift_target": "arm64-apple-macosx26.0", "sdk_role": "wrapper-selected",
+                   "xcode_sdk": "27.0", "xcode_sdk_build": "26A425", "xcode_sdk_settings": "b" * 64}
 RUST_TOOLCHAIN = {**COMMON_TOOLCHAIN, "rust": "1.98.1", "rust_commit": "2" * 40,
                   "rust_host": "aarch64-apple-darwin", "rust_llvm": "22.1.8",
                   "cargo": "1.98.1", "cargo_commit": "3" * 40, "cargo_host": "aarch64-apple-darwin"}
@@ -100,6 +101,15 @@ class CacheKeyTests(unittest.TestCase):
         self.assertNotEqual(before["SWIFT_CACHE_KEY"], after["SWIFT_CACHE_KEY"])
         self.assertEqual(before["SWIFT_CACHE_PREFIX"], after["SWIFT_CACHE_PREFIX"])
         self.assertTrue(before["SWIFT_CACHE_KEY"].startswith(before["SWIFT_CACHE_PREFIX"]))
+
+    def test_each_sdk_version_build_and_settings_isolate_every_swift_lane(self):
+        for lane in ("contracts", "tests", "release"):
+            before = self.swift(lane=lane)["SWIFT_CACHE_PREFIX"]
+            for dimension in ("sdk", "sdk_build", "sdk_settings", "xcode_sdk", "xcode_sdk_build",
+                              "xcode_sdk_settings"):
+                with self.subTest(lane=lane, dimension=dimension):
+                    changed = {**SWIFT_TOOLCHAIN, dimension: SWIFT_TOOLCHAIN[dimension] + "-changed"}
+                    self.assertNotEqual(before, self.swift(lane=lane, identity=changed)["SWIFT_CACHE_PREFIX"])
 
     def test_swift_source_edit_can_reuse_only_compatible_build_contract(self):
         before = self.swift()["SWIFT_CACHE_PREFIX"]
@@ -238,6 +248,7 @@ class ActualIdentityParsingTests(unittest.TestCase):
         values = {
             ("xcodebuild", "-version"): "Xcode 26.6\nBuild version 17F80\nPRIVATE_TOKEN=secret",
             ("xcrun", "--show-sdk-path"): "/selected/actual-sdk",
+            ("env", "-u", "SDKROOT", "xcrun", "--sdk", "macosx", "--show-sdk-path"): "/selected/xcode-sdk",
             ("xcrun", "clang", "--version"): "Apple clang version 17.0.0 (clang-1700.4.4.1)\nTarget: arm64-apple-darwin25.0.0",
             ("swift", "--version"): "swift-driver version: 1.168.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.1 clang-1700.4.4.1)\nTarget: arm64-apple-macosx26.0",
             ("rustc", "-vV"): f"release: 1.98.1\ncommit-hash: {'2' * 40}\nhost: aarch64-apple-darwin\nLLVM version: 22.1.8",
@@ -249,8 +260,10 @@ class ActualIdentityParsingTests(unittest.TestCase):
         for scope, expected in (("swift", SWIFT_TOOLCHAIN), ("rust", RUST_TOOLCHAIN)):
             with self.subTest(scope=scope):
                 identity = toolchain_identity(scope, Path.cwd(), probe=self.probe, environment={}, machine="arm64",
-                                              read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
-                                                                     for key in ("sdk", "sdk_build", "sdk_settings")})
+                                              read_sdk=lambda path: {
+                                                  key: SWIFT_TOOLCHAIN[f"xcode_{key}"] if path == "/selected/xcode-sdk"
+                                                  else COMMON_TOOLCHAIN[key]
+                                                  for key in ("sdk", "sdk_build", "sdk_settings")})
                 self.assertEqual(identity, expected)
                 self.assertNotIn("secret", json.dumps(identity))
                 self.assertNotIn("actual-sdk", json.dumps(identity))
@@ -274,8 +287,67 @@ class ActualIdentityParsingTests(unittest.TestCase):
                                        ("rust", {"SDKROOT": "/explicit-rust-sdk"}), ("rust", {})):
                 toolchain_identity(scope, Path.cwd(), probe=self.probe, environment=environment,
                                    machine="arm64", read_sdk=read_sdk)
-        self.assertEqual(selected, ["/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+        self.assertEqual(selected, ["/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk", "/selected/xcode-sdk",
                                     "/explicit-rust-sdk", "/selected/actual-sdk"])
+
+    def test_xcode_sdk_probe_removes_sdkroot_without_mutating_process_environment(self):
+        invocations = []
+
+        def probe(arguments, root):
+            invocations.append(arguments)
+            return self.probe(arguments, root)
+
+        with patch.dict(os.environ, {"SDKROOT": "/private/wrapper-sdk"}), \
+                patch("ci_cache_keys.Path.is_dir", return_value=True):
+            toolchain_identity("swift", Path.cwd(), probe=probe, environment=dict(os.environ), machine="arm64",
+                               read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
+                                                      for key in ("sdk", "sdk_build", "sdk_settings")})
+            self.assertEqual(os.environ["SDKROOT"], "/private/wrapper-sdk")
+        self.assertIn(["env", "-u", "SDKROOT", "xcrun", "--sdk", "macosx", "--show-sdk-path"], invocations)
+
+    def test_equal_sdk_identities_retain_selection_labels_without_claiming_effective_builder_sdk(self):
+        identity = toolchain_identity("swift", Path.cwd(), probe=self.probe, environment={}, machine="arm64",
+                                      read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
+                                                             for key in ("sdk", "sdk_build", "sdk_settings")})
+        self.assertEqual(identity["sdk_role"], "wrapper-selected")
+        for field in ("sdk", "sdk_build", "sdk_settings"):
+            self.assertEqual(identity[field], identity[f"xcode_{field}"])
+        self.assertNotIn("effective_sdk", identity)
+
+    def test_missing_invalid_and_unreadable_xcode_sdk_metadata_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = root / "SDKSettings.json"
+            system = root / "System/Library/CoreServices/SystemVersion.plist"
+            system.parent.mkdir(parents=True)
+            system.write_bytes(plistlib.dumps({"ProductBuildVersion": "26A425"}))
+
+            def read_sdk(path):
+                return sdk_identity(root) if path == "/selected/xcode-sdk" else {
+                    key: COMMON_TOOLCHAIN[key] for key in ("sdk", "sdk_build", "sdk_settings")}
+
+            for contents in (None, "not-json", '{"Version":"unknown"}', '{"Version":"27.0"}'):
+                with self.subTest(contents=contents):
+                    if contents is None:
+                        self.assertFalse(settings.exists())
+                    else:
+                        settings.write_text(contents)
+                    if contents == '{"Version":"27.0"}':
+                        system.write_bytes(plistlib.dumps({"ProductBuildVersion": "invalid build"}))
+                    with self.assertRaises((OSError, ValueError)):
+                        toolchain_identity("swift", Path.cwd(), probe=self.probe, environment={}, machine="arm64",
+                                           read_sdk=read_sdk)
+
+    def test_failed_xcode_sdk_probe_does_not_fall_back_to_wrapper_sdk(self):
+        def probe(arguments, root):
+            if arguments[0] == "env":
+                raise ValueError("Xcode SDK lookup failed")
+            return self.probe(arguments, root)
+
+        with self.assertRaises(ValueError):
+            toolchain_identity("swift", Path.cwd(), probe=probe, environment={}, machine="arm64",
+                               read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
+                                                      for key in ("sdk", "sdk_build", "sdk_settings")})
 
     def test_selected_sdk_metadata_build_and_settings_have_content_identity(self):
         with tempfile.TemporaryDirectory() as directory:

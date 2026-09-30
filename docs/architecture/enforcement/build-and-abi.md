@@ -60,8 +60,12 @@ time; the complete native suite and each semantic/compiler assertion still execu
 Main retains three native repetitions. Acceptance reuses its own lane's Debug products and settings.
 
 Swift caches have separate contracts, tests and Release owners and key the actual compiler, SDK,
-configuration, package and immutable pin. Rust release archives keep an exact engine-input key;
-a compiler/SDK/profile/locked-dependency compatibility prefix permits Cargo to rebuild changed
+configuration, package and immutable pin. Their SDK identity includes both the wrapper-selected
+SDK (`sdk`, labelled `wrapper-selected`) and Xcode's default macOS SDK (`xcode_sdk`), with each
+version, build and SDKSettings digest. SwiftBuild can use the Xcode SDK despite exported SDKROOT;
+equal identities do not establish which SDK a builder consumed. Rust release archives keep an exact
+engine-input key; a compiler/SDK/profile/locked-dependency compatibility prefix permits Cargo to
+rebuild changed
 bridge sources while retaining unchanged dependencies. Source timestamps are restored only when
 content matches. Empty or incompatible caches compile normally.
 

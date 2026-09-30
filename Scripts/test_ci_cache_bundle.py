@@ -180,6 +180,55 @@ class GitOutputTests(unittest.TestCase):
         self.assertEqual(raised.exception.returncode, 72)
         self.assertEqual(output.getvalue(), "CI cache bundle: Git metadata child cleanup failed\n")
 
+    def test_stream_close_failures_preserve_original_subprocess_error_and_private_marker(self):
+        real_popen = subprocess.Popen
+        for original in ("exit", "timeout", "success"):
+            for failed_stream in ("stdout", "stdin"):
+                for error_type in (OSError, ValueError):
+                    output = io.StringIO()
+                    closed = []
+
+                    def close_failure(*args, **kwargs):
+                        process = real_popen(*args, **kwargs)
+                        for name in ("stdout", "stdin"):
+                            stream = getattr(process, name)
+                            close = stream.close
+                            calls = [0]
+
+                            def finish(name=name, close=close, calls=calls):
+                                calls[0] += 1
+                                close()
+                                # stdin is closed once to submit the metadata query,
+                                # then again during final cleanup, which is the failure.
+                                if name == "stdout" or calls[0] > 1:
+                                    closed.append(name)
+                                    if name == failed_stream:
+                                        raise error_type("private stream cleanup fixture")
+
+                            stream.close = finish
+                        return process
+
+                    code = ("import time; time.sleep(30)" if original == "timeout" else
+                            "import sys; sys.stdin.buffer.read(); sys.exit(" + ("72" if original == "exit" else "0") + ")")
+                    expected = {"exit": subprocess.CalledProcessError, "timeout": subprocess.TimeoutExpired,
+                                "success": ValueError}[original]
+                    with self.subTest(original=original, stream=failed_stream, error=error_type.__name__), \
+                            patch.object(bundles.subprocess, "Popen", close_failure), patch.object(sys, "stderr", output), \
+                            patch.object(bundles, "GIT_TIMEOUT", 0.3):
+                        with self.assertRaises(expected) as raised:
+                            self.read(code, input_data=b"a\n")
+                    self.assertEqual(closed, ["stdout", "stdin"])
+                    if original == "success":
+                        self.assertEqual(str(raised.exception), "Git metadata child cleanup failed")
+                        self.assertEqual(output.getvalue(), "")
+                    else:
+                        self.assertEqual(output.getvalue(), "CI cache bundle: Git metadata child cleanup failed\n")
+                        if original == "exit":
+                            self.assertEqual(raised.exception.returncode, 72)
+                        else:
+                            self.assertEqual(raised.exception.timeout, 0.3)
+                    self.assertNotIn("private", str(raised.exception))
+
     def test_darwin_empty_group_exception_requires_exact_bounded_positive_metadata(self):
         pid = 123
         cases = ((1, [pid], True), (0, [], False), (2, [pid, 124], False),
@@ -202,11 +251,25 @@ class GitOutputTests(unittest.TestCase):
                     patch.object(bundles.ctypes, "CDLL") as loader:
                 self.assertFalse(bundles.exited_group_contains_only_leader(pid))
                 loader.assert_not_called()
-        for failure in (OSError("private library error"), AttributeError("private missing API")):
+        for failure in (OSError("private library error"), AttributeError("private missing API"),
+                        bundles.ctypes.ArgumentError("private ctypes argument"), TypeError("private ctypes type"),
+                        ValueError("private ctypes value"), RuntimeError("private native call")):
             with patch.object(bundles.sys, "platform", "darwin"), \
                     patch.object(bundles.os, "waitid", return_value=SimpleNamespace(si_pid=pid)), \
                     patch.object(bundles.ctypes, "CDLL", side_effect=failure):
                 self.assertFalse(bundles.exited_group_contains_only_leader(pid))
+
+    def test_darwin_native_call_exception_fails_closed_without_leaking_diagnostics(self):
+        def failed_native_call(group, buffer, size):
+            raise bundles.ctypes.ArgumentError("private native argument/path")
+
+        library = SimpleNamespace(proc_listpgrppids=failed_native_call)
+        output = io.StringIO()
+        with patch.object(bundles.sys, "platform", "darwin"), \
+                patch.object(bundles.os, "waitid", return_value=SimpleNamespace(si_pid=123)), \
+                patch.object(bundles.ctypes, "CDLL", return_value=library), patch.object(sys, "stderr", output):
+            self.assertFalse(bundles.exited_group_contains_only_leader(123))
+        self.assertEqual(output.getvalue(), "")
 
     def test_empty_group_exception_never_accepts_other_permission_errors(self):
         for error in (PermissionError(errno.EACCES, "private denied group"), PermissionError("private unknown errno")):

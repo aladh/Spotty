@@ -65,7 +65,9 @@ def exited_group_contains_only_leader(pid: int) -> bool:
         # A full buffer is ambiguous. Only the reserved, already exited leader
         # may remain; live members, extra zombies and unavailable metadata reject.
         return count == 1 and members[0] == pid
-    except (OSError, AttributeError):
+    except Exception:
+        # Native lookup/call failures cannot authorize the empty-group exception.
+        # Keep ordinary ctypes errors private while preserving cancellation.
         return False
 
 
@@ -171,12 +173,12 @@ def read_git_output(command: list[str], environment: dict[str, str],
             process.wait(timeout=1)
         except (OSError, subprocess.SubprocessError):
             cleanup_failed = True
-        try:
-            process.stdout.close()
-            if process.stdin is not None:
-                process.stdin.close()
-        except OSError:
-            cleanup_failed = True
+        for stream in (process.stdout, process.stdin):
+            if stream is not None:
+                try:
+                    stream.close()
+                except (OSError, ValueError):
+                    cleanup_failed = True
         if cleanup_failed:
             if not unwinding:
                 raise ValueError("Git metadata child cleanup failed")

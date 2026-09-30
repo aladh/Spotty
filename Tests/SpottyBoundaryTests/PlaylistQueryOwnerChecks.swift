@@ -145,13 +145,18 @@ import Testing
             let fixture = PlaylistOwnerFixture()
             do {
                 try await fixture.run { fixture in
-                    _ = fixture.start(item("first"))
-                    if admitted > 0 { _ = try await fixture.requireRequest(1) }
+                    if admitted > 0 {
+                        _ = fixture.start(item("first"))
+                        _ = try await fixture.requireRequest(1)
+                    } else {
+                        try #require(fixture.store.workerSettlements().isEmpty)
+                    }
                     if admitted > 1 {
                         fixture.store.reset()
                         _ = fixture.start(item("first"))
                         _ = try await fixture.requireRequest(2)
                     }
+                    try #require(fixture.responses.requestCount == admitted)
                     throw PlaylistOwnerPrerequisiteFailure.injected
                 }
                 Issue.record("The injected prerequisite must throw")

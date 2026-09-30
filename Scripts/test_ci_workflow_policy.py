@@ -181,6 +181,57 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
             checks.append(WorkflowCheck(variant, diagnostic=f'{label} must retain its exact fail-closed truth table'))
         self.check_workflows(checks)
 
+    def test_public_cargo_source_preflight_remains_required_before_release_work(self):
+        checks = []
+        for mutation in ('removed', 'command', 'identity', 'duplicate', 'moved', 'before_rust',
+                         'after_release', 'condition', 'main_only', 'candidate_only', 'masked',
+                         'optional', 'gate_binding', 'gate_omitted', 'gate_skipped'):
+            variant = copy.deepcopy(self.workflow)
+            steps = variant['jobs']['macos_engine']['steps']
+            proof = self.step(variant, 'macos_engine', 'Preflight public Cargo source proof')
+            expected = 'exact proof command and outcome identity'
+            if mutation == 'removed':
+                steps.remove(proof)
+                expected = 'Preflight public Cargo source proof must run exactly once'
+            elif mutation == 'command':
+                proof['run'] = proof['run'].replace(' preflight ', ' export ')
+            elif mutation == 'identity':
+                proof['id'] = 'different_source_proof'
+            elif mutation == 'duplicate':
+                variant['jobs']['playback_python']['steps'].append(copy.deepcopy(proof))
+                expected = 'public Cargo source preflight must have exactly one CI owner'
+            elif mutation == 'moved':
+                steps.remove(proof)
+                variant['jobs']['playback_python']['steps'].append(proof)
+                expected = 'Preflight public Cargo source proof must run exactly once'
+            elif mutation in ('before_rust', 'after_release'):
+                steps.remove(proof)
+                anchor = self.step(variant, 'macos_engine', 'Run Rust checks' if mutation == 'before_rust'
+                                   else 'Restore Rust release build products')
+                steps.insert(steps.index(anchor) + (mutation == 'after_release'), proof)
+                expected = 'follow Rust verification and precede Release restoration'
+            elif mutation in ('condition', 'main_only', 'candidate_only'):
+                proof['if'] = {'condition': 'success()', 'main_only': "github.ref == 'refs/heads/main'",
+                               'candidate_only': "steps.inputs.outputs.candidate_needed == 'true'"}[mutation]
+                expected = 'Preflight public Cargo source proof must follow explicit Rust classification'
+            elif mutation == 'masked':
+                proof['run'] += ' || true'
+            elif mutation == 'optional':
+                proof['continue-on-error'] = True
+                expected = 'macos_engine verification must propagate failures'
+            else:
+                gate = self.step(variant, 'macos_engine', 'Require engine results')
+                if mutation == 'gate_binding':
+                    gate['env']['SOURCE_PROOF_RESULT'] = 'success'
+                elif mutation == 'gate_omitted':
+                    gate['run'] = gate['run'].replace('test "$SOURCE_PROOF_RESULT" = success\n', '')
+                else:
+                    gate['run'] = gate['run'].replace('test "$SOURCE_PROOF_RESULT" = success',
+                                                      'test "$SOURCE_PROOF_RESULT" = skipped')
+                expected = 'engine gate must require SOURCE_PROOF_RESULT success'
+            checks.append(WorkflowCheck(variant, diagnostic=expected, label={'mutation': mutation}))
+        self.check_workflows(checks)
+
     def test_main_only_cache_publisher_follows_the_complete_quality_join(self):
         checks = []
         for job, field in (('quality_gate', 'needs'), ('quality_gate', 'if'), ('cache_publisher', 'needs'),

@@ -172,10 +172,14 @@ module WorkflowPolicy
       snapshot = one_step(check, lane_steps, 'Snapshot Swift input timestamps')
       check.call(restore['run'] == 'python3 Scripts/ci_source_mtimes.py restore' && snapshot['run'] == 'python3 Scripts/ci_source_mtimes.py save' && !restore.key?('if') && !snapshot.key?('if') && lane_steps.index(restore).to_i < lane_steps.index(snapshot).to_i, "#{id} must preserve hash-checked source timestamp restoration before snapshot")
     end
-    %w[Show\ Rust\ toolchain Restore\ pinned\ cbindgen Install\ pinned\ cbindgen Identify\ playback\ inputs Restore\ Rust\ verification\ products Run\ Rust\ checks].each do |name|
+    %w[Show\ Rust\ toolchain Restore\ pinned\ cbindgen Install\ pinned\ cbindgen Identify\ playback\ inputs Restore\ Rust\ verification\ products Run\ Rust\ checks Preflight\ public\ Cargo\ source\ proof].each do |name|
       step = one_step(check, engine_steps, name)
       check.call(step['if'] == "needs.policy.outputs.rust_needed == 'true'", "#{name} must follow explicit Rust classification")
     end
+    source_proof = one_step(check, engine_steps, 'Preflight public Cargo source proof')
+    source_proof_command = 'python3 Scripts/ci_cache_bundle.py preflight --scope rust-debug --revision "$GITHUB_SHA" --cargo-home "${CARGO_HOME:-$HOME/.cargo}"'
+    check.call(source_proof['id'] == 'source_proof' && source_proof['run'].to_s.strip == source_proof_command, 'public Cargo source preflight must retain its exact proof command and outcome identity')
+    check.call(steps.count { |step| step['run'].to_s.strip == source_proof_command } == 1, 'public Cargo source preflight must have exactly one CI owner')
     candidate = one_step(check, engine_steps, 'Identify playback inputs')
     check.call(candidate['id'] == 'inputs' && candidate['run'] == './Scripts/playback-candidate-needed.sh', 'candidate selection must retain its inputs step identity')
     check.call(candidate.dig('env', 'INPUT_BASE_SHA') == '${{ github.event.pull_request.base.sha || github.event.before }}', 'candidate selection must receive the PR or push base SHA')
@@ -194,6 +198,8 @@ module WorkflowPolicy
     end
     positions = [candidate, *candidate_steps].map { |step| engine_steps.index(step) }
     check.call(positions.none?(&:nil?) && positions == positions.sort && positions.uniq.length == positions.length, 'candidate selection, timestamps, build, and upload must remain ordered')
+    proof_positions = [engine_steps.find { |step| step['name'] == 'Run Rust checks' }, source_proof, candidate_steps.first].map { |step| engine_steps.index(step) }
+    check.call(proof_positions.none?(&:nil?) && proof_positions == proof_positions.sort && proof_positions.uniq.length == proof_positions.length, 'public Cargo source preflight must follow Rust verification and precede Release restoration')
     check.call(candidate_steps[3]['id'] == 'candidate_build', 'candidate build must retain its outcome identity')
     check.call(candidate_steps[4]['id'] == 'candidate_upload', 'candidate upload must retain its outcome identity')
     check.call(candidate_script.include?('digest="$(./Backend/spotty-playback/source-input-digest.sh)"'), 'candidate selection must compute the engine source input digest')
@@ -210,6 +216,7 @@ module WorkflowPolicy
     gate_shell(check, engine_gate, 'engine gate')
     check.call(engine_gate['if'] == 'always()', 'engine outcome gate must run even after failures')
     success_binding(check, engine_gate, 'RUST_RESULT', '${{ steps.rust.outcome }}', 'engine gate')
+    success_binding(check, engine_gate, 'SOURCE_PROOF_RESULT', '${{ steps.source_proof.outcome }}', 'engine gate')
     {'SELECTION_RESULT' => 'inputs.outcome', 'CANDIDATE_NEEDED' => 'inputs.outputs.candidate_needed', 'BUILD_RESULT' => 'candidate_build.outcome', 'UPLOAD_RESULT' => 'candidate_upload.outcome'}.each do |result, binding|
       check.call(engine_gate.dig('env', result) == "${{ steps.#{binding} }}", "engine gate must bind #{result} to its actual step")
     end

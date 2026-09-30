@@ -59,26 +59,25 @@ complete. Compilation in independent checkouts trades additional runner work for
 time; the complete native suite and each semantic/compiler assertion still execute once per PR.
 Main retains three native repetitions. Acceptance reuses its own lane's Debug products and settings.
 
-Swift caches have separate contracts, tests and Release owners and key the actual compiler, SDK,
-configuration, package and immutable pin. Their SDK identity includes both the wrapper-selected
-SDK (`sdk`, labelled `wrapper-selected`) and Xcode's default macOS SDK (`xcode_sdk`), with each
-version, build and SDKSettings digest. SwiftBuild can use the Xcode SDK despite exported SDKROOT;
-equal identities do not establish which SDK a builder consumed. Rust release archives keep an exact
-engine-input key; a compiler/SDK/profile/locked-dependency compatibility prefix permits Cargo to
-rebuild changed bridge sources while retaining unchanged dependencies. Swift and Rust product
-cache generations bind the shared scoped transfer policy as well as their build compatibility inputs;
-changing that policy cannot restore an earlier generation's incomplete source tree. Source timestamps are restored only when
-content matches. Empty or incompatible caches compile normally.
+Swift's contracts, tests and Release caches bind compiler, configuration, package, immutable pin
+and both SDK identities: wrapper-selected (`sdk`, labelled `wrapper-selected`) and Xcode default
+(`xcode_sdk`), each with version, build and SDKSettings digest. SwiftBuild can choose Xcode despite
+SDKROOT; matching metadata does not identify the consumed SDK. Rust's exact engine-input key has
+a compiler/SDK/profile/locked-dependency compatibility prefix so Cargo reuses unchanged dependencies
+and rebuilds changed bridge sources. Both toolchains bind the scoped transfer policy; a changed
+policy cannot restore older, incomplete trees. Timestamps are restored only for matching content;
+missing or incompatible caches compile normally.
 
-Only successful main lanes export scoped cache bundles. A separate publisher validates their
-source/scope/content, restores owned products in a fresh runner, and saves after the quality
-aggregate succeeds. The final required `macOS checks` status also requires main cache publication;
-PRs explicitly skip it. No cache publisher runs on PR or fork code. This preserves complete-quality
-success before cache writes while isolating concurrent compiler/cache owners. Optional phase
-JSONL and Cargo timing artifacts describe costs without replacing verification.
+Successful main lanes export scoped bundles. After every quality lane succeeds, a separate publisher
+validates source/scope/content, restores owned products in a fresh runner, and saves caches. Required
+`macOS checks` also requires this publication on main; PR and fork code skip the publisher. Optional
+phase JSONL and Cargo artifacts describe costs. Compiler/cache owners stay isolated.
 The transfer permits dependency source directories named `credentials` within Cargo Git checkouts
 only when their files or links exactly match tracked HEAD blobs at the checkout's revision.
-Export and staged restoration verify this proof before publication or cleanup. Unproved existing
+Both PR and main engine lanes preflight the actual admitted Cargo Git inputs after Rust verification,
+before restoring or compiling Release products. A rejected proof stops production and reports only
+a fixed failure stage and process status. Export and staged restoration repeat the proof before
+publication or cleanup; the preflight does not authorize later changed bytes. Unproved existing
 inputs remain protected during owned replacement. Registry credential directories, credential
 stores, secret filenames, bare credential files or links, and material outside the explicitly
 owned roots remain excluded. Export, validation, link checks and replacement cleanup share the

@@ -230,6 +230,10 @@ jobs:
         id: rust
         if: needs.policy.outputs.rust_needed == 'true'
         run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh
+      - name: Preflight public Cargo source proof
+        id: source_proof
+        if: needs.policy.outputs.rust_needed == 'true'
+        run: python3 Scripts/ci_cache_bundle.py preflight --scope rust-debug --revision "$GITHUB_SHA" --cargo-home "${CARGO_HOME:-$HOME/.cargo}"
       - name: Restore Rust release build products
         id: rust_release_cache
         if: steps.inputs.outputs.candidate_needed == 'true'
@@ -288,12 +292,14 @@ jobs:
         if: always()
         env:
           RUST_RESULT: ${{ steps.rust.outcome }}
+          SOURCE_PROOF_RESULT: ${{ steps.source_proof.outcome }}
           SELECTION_RESULT: ${{ steps.inputs.outcome }}
           CANDIDATE_NEEDED: ${{ steps.inputs.outputs.candidate_needed }}
           BUILD_RESULT: ${{ steps.candidate_build.outcome }}
           UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}
         run: |
           test "$RUST_RESULT" = success
+          test "$SOURCE_PROOF_RESULT" = success
           case "$SELECTION_RESULT:$CANDIDATE_NEEDED:$BUILD_RESULT:$UPLOAD_RESULT" in
             success:true:success:success|success:false:skipped:skipped) ;;
             *) echo "Engine candidate results disagree with selection" >&2; exit 1 ;;

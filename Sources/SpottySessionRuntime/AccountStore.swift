@@ -39,6 +39,21 @@ final class AccountStore {
     private let environment: PlaybackEnvironment
     private let coordinator: PlaybackCoordinator
     private var connectionTask: Task<Void, Never>?
+    #if DEBUG
+        /// A snapshot of the actual admitted worker, captured synchronously before yielding.
+        /// Cancellation/logout can clear the live slot without invalidating this join.
+        struct ConnectionSettlement: Sendable {
+            fileprivate let task: Task<Void, Never>
+
+            func cancel() { task.cancel() }
+            func wait() async { await task.value }
+        }
+
+        func connectionSettlement() -> ConnectionSettlement? {
+            connectionTask.map { ConnectionSettlement(task: $0) }
+        }
+    #endif
+
     private var connectionGeneration: UInt64 = 0
     private var grantAdoptionRevision: UInt64 = 0
     private var grantAdoptionTask: Task<Void, any Error>?

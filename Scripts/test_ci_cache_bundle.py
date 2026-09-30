@@ -1021,21 +1021,60 @@ class CacheBundleTests(unittest.TestCase):
         package_spec.loader.exec_module(packages)
         for root in (self.source, self.destination):
             self.write(root / "Package.swift", b"manifest fixture")
+            self.write(root / "Package.resolved", b'{"version": 3, "pins": []}')
             self.write(root / "Sources/SpottyDomain/Policy.swift", b"source fixture")
             self.write(root / "Tests/SpottyDomainTests/PolicyTests.swift", b"test fixture")
-        for graph in ("domain", "engine-free"):
-            packages.prepare(self.source, graph)
-            self.write(self.source / f".build/{graph}/debug/product", b"compiled scratch")
+        graphs = ("domain", "engine-free", *(f"test-target:{target}" for target in packages.TEST_TARGETS))
+        for graph in graphs:
+            package = packages.prepare(self.source, graph)
+            self.write(package.parent / "debug/product", b"compiled scratch")
         self.export()
         self.restore()
         with tarfile.open(self.archive) as archive:
             names = archive.getnames()
-        for graph in ("domain", "engine-free"):
-            self.assertFalse(any(f"payload/build/{graph}/package" in name for name in names))
-            self.assertEqual((self.destination / f".build/{graph}/debug/product").read_bytes(), b"compiled scratch")
-            self.assertFalse((self.destination / f".build/{graph}/package").exists())
-            package = packages.prepare(self.destination, graph)
-            self.assertEqual((package / "Package.swift").resolve(), (self.destination / "Package.swift").resolve())
+        for graph in graphs:
+            with self.subTest(graph=graph):
+                workspace = packages.workspace(self.destination, graph)
+                prefix = "payload/build/" + (workspace / "package").relative_to(self.destination / ".build").as_posix()
+                self.assertFalse(any(name == prefix or name.startswith(prefix + "/") for name in names))
+                self.assertEqual((workspace / "debug/product").read_bytes(), b"compiled scratch")
+                self.assertFalse((workspace / "package").exists())
+                package = packages.prepare(self.destination, graph)
+                inputs = ("Package.swift", "Sources/SpottyDomain", "Tests/SpottyDomainTests") if graph == "domain" else (
+                    "Package.swift", "Sources", "Tests")
+                for relative in inputs:
+                    self.assertTrue((package / relative).is_symlink())
+                    self.assertEqual((package / relative).resolve(), (self.destination / relative).resolve())
+                if graph.startswith("test-target:"):
+                    self.assertFalse((package / "Package.resolved").is_symlink())
+                    self.assertEqual((package / "Package.resolved").read_bytes(), (self.destination / "Package.resolved").read_bytes())
+
+    def test_incoming_target_package_source_links_are_rejected_before_replacement(self):
+        package_spec = importlib.util.spec_from_file_location("verification_package", SCRIPT.with_name("verification_package.py"))
+        packages = importlib.util.module_from_spec(package_spec)
+        package_spec.loader.exec_module(packages)
+        self.write(self.source / ".build/product", b"compiled scratch")
+        for target in packages.TEST_TARGETS:
+            self.write(self.source / f".build/test-targets/{target}/scratch/product", b"compiled scratch")
+        for target in packages.TEST_TARGETS:
+            for suffix, kind in (("package", tarfile.DIRTYPE), ("package/Package.swift", tarfile.SYMTYPE),
+                                 ("PACKAGE/Sources", tarfile.SYMTYPE)):
+                with self.subTest(target=target, suffix=suffix):
+                    self.archive.unlink(missing_ok=True)
+                    self.export()
+                    stale = self.write(self.destination / ".build/retained-evidence", b"keep")
+                    name = f"payload/build/test-targets/{target}/{suffix}"
+
+                    def change(parts):
+                        if kind == tarfile.SYMTYPE:
+                            self.add_member(parts, name.rsplit("/", 1)[0], kind=tarfile.DIRTYPE)
+                        self.add_member(parts, name, kind=kind, linkname="../scratch/product")
+
+                    self.rewrite(change)
+                    with self.assertRaisesRegex(ValueError, "regenerated package"):
+                        self.restore(replace=True)
+                    self.assertEqual(stale.read_bytes(), b"keep")
+                    self.assertFalse((self.destination / ".build/product").exists())
 
     def test_wrong_source_scope_and_mapping_fail_before_restore(self):
         self.prepare_swift()

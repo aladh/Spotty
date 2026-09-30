@@ -15,6 +15,37 @@ package actor ArtworkPipeline: ArtworkProviding {
         let cacheHits: Int
     }
 
+    #if DEBUG
+        /// Actual existing work handles let lifetime tests join abandoned work without retaining its owner.
+        enum WorkReceipt: Sendable {
+            case thumbnail(Task<Void, Never>)
+            case source(Task<Data, any Error>)
+            case loaderCleanup(Task<Void, Never>)
+            case cancellation(Task<Void, Never>)
+
+            func cancel() {
+                switch self {
+                case let .source(task): task.cancel()
+                case let .thumbnail(task), let .loaderCleanup(task), let .cancellation(task): task.cancel()
+                }
+            }
+
+            func wait() async {
+                switch self {
+                case let .source(task): _ = await task.result
+                case let .thumbnail(task), let .loaderCleanup(task), let .cancellation(task): await task.value
+                }
+            }
+        }
+
+        private var workObserver: (@Sendable (WorkReceipt) -> Void)?
+
+        func observeWork(_ observer: @escaping @Sendable (WorkReceipt) -> Void) async {
+            workObserver = observer
+            await limiter.observeCancellation { observer(.cancellation($0)) }
+        }
+    #endif
+
     private struct Key: Hashable, Sendable {
         let url: URL
         let pixels: Int
@@ -122,6 +153,9 @@ package actor ArtworkPipeline: ArtworkProviding {
             await previous?.value
             await loader.cancelAll()
         }
+        #if DEBUG
+            workObserver?(.loaderCleanup(cleanup))
+        #endif
         loaderCleanup = LoaderCleanup(id: id, task: cleanup)
         await cleanup.value
         if loaderCleanup?.id == id { loaderCleanup = nil }
@@ -139,6 +173,9 @@ package actor ArtworkPipeline: ArtworkProviding {
             return cached.value
         }
         let waiterID = UUID()
+        #if DEBUG
+            let cancellationObserver = workObserver
+        #endif
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
@@ -160,10 +197,18 @@ package actor ArtworkPipeline: ArtworkProviding {
                     owner: self, key: key, flightID: id, epoch: request.accountEpoch, limiter: limiter, decoder: decoder
                 )
                 let task = Task { await worker.run() }
+                #if DEBUG
+                    workObserver?(.thumbnail(task))
+                #endif
                 flights[key] = Flight(id: id, task: task, waiters: [waiterID: continuation])
             }
         } onCancel: {
-            Task { await self.cancelWaiter(waiterID, key: key) }
+            let task = Task { await self.cancelWaiter(waiterID, key: key) }
+            #if DEBUG
+                cancellationObserver?(.cancellation(task))
+            #else
+                _ = task
+            #endif
         }
     }
 
@@ -242,6 +287,9 @@ package actor ArtworkPipeline: ArtworkProviding {
             await self?.finishSource(url, id: id, epoch: epoch, result: result)
             return try result.get()
         }
+        #if DEBUG
+            workObserver?(.source(task))
+        #endif
         sourceFlights[url] = SourceFlight(id: id, task: task)
         return .loading(task)
     }
@@ -342,6 +390,13 @@ private actor ArtworkWorkLimiter {
     private let maximumActive: Int
     private var active = 0
     private var queued: [(UUID, CheckedContinuation<Void, any Error>)] = []
+    #if DEBUG
+        private var cancellationObserver: (@Sendable (Task<Void, Never>) -> Void)?
+
+        func observeCancellation(_ observer: @escaping @Sendable (Task<Void, Never>) -> Void) {
+            cancellationObserver = observer
+        }
+    #endif
 
     init(maximumActive: Int) {
         precondition(maximumActive > 0)
@@ -350,6 +405,9 @@ private actor ArtworkWorkLimiter {
 
     func withPermit<Value: Sendable>(_ operation: @escaping @Sendable () async throws -> Value) async throws -> Value {
         let id = UUID()
+        #if DEBUG
+            let observer = cancellationObserver
+        #endif
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             if active < maximumActive {
@@ -358,7 +416,12 @@ private actor ArtworkWorkLimiter {
                 try await withCheckedThrowingContinuation { queued.append((id, $0)) }
             }
         } onCancel: {
-            Task { await self.cancel(id) }
+            let task = Task { await self.cancel(id) }
+            #if DEBUG
+                observer?(task)
+            #else
+                _ = task
+            #endif
         }
         defer {
             if queued.isEmpty { active -= 1 } else { queued.removeFirst().1.resume() }

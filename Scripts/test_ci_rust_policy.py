@@ -408,13 +408,17 @@ class AggregateGateTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Invalid compiler verification selection", result.stderr)
 
-    def test_engine_gate_requires_actual_rust_selection_build_and_upload(self):
+    def test_engine_gate_requires_actual_rust_source_proof_selection_build_and_upload(self):
         valid = [
-            {"RUST_RESULT": "success", "SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "true", "BUILD_RESULT": "success", "UPLOAD_RESULT": "success"},
-            {"RUST_RESULT": "success", "SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "false", "BUILD_RESULT": "skipped", "UPLOAD_RESULT": "skipped"},
+            {"RUST_RESULT": "success", "SOURCE_PROOF_RESULT": "success", "SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "true", "BUILD_RESULT": "success", "UPLOAD_RESULT": "success"},
+            {"RUST_RESULT": "success", "SOURCE_PROOF_RESULT": "success", "SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "false", "BUILD_RESULT": "skipped", "UPLOAD_RESULT": "skipped"},
         ]
         for base in valid:
             self.assertEqual(self.execute("Require engine results", base).returncode, 0)
+            without_proof = {field: value for field, value in base.items() if field != "SOURCE_PROOF_RESULT"}
+            with patch.dict(os.environ):
+                os.environ.pop("SOURCE_PROOF_RESULT", None)
+                self.assertNotEqual(self.execute("Require engine results", without_proof).returncode, 0)
             for field in base:
                 values = ("true", "false", "invalid", "") if field == "CANDIDATE_NEEDED" else ("success", "skipped", "failure", "cancelled", "")
                 for value in values:

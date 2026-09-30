@@ -1,6 +1,7 @@
 """Exercise portable scoped cache handoff and reject unsafe tar/manifest inputs."""
 
 import copy
+import errno
 import hashlib
 import importlib.util
 import io
@@ -13,6 +14,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -23,6 +26,350 @@ bundles = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bundles)
 REVISION = "a" * 40
 
+
+class GitOutputTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="spotty-git-output-test-")
+        self.addCleanup(self.directory.cleanup)
+        self.base = Path(self.directory.name)
+        self.environment = {"PATH": os.defpath, "LANG": "C", "LC_ALL": "C"}
+
+    def read(self, code, *arguments, input_data=None):
+        return bundles.read_git_output([sys.executable, "-c", code, *map(str, arguments)],
+                                       self.environment, input_data)
+
+    def test_unrelated_launcher_file_writes_are_not_limited_by_stdout_bound(self):
+        cache = self.base / "developer cache"
+        data = self.read("import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b'c' * 131072); "
+                         "sys.stdout.buffer.write(b'head\\n')", cache)
+        self.assertEqual(data, b"head\n")
+        self.assertEqual(cache.stat().st_size, 131072)
+
+    def test_output_boundary_and_small_metadata_input(self):
+        self.assertEqual(self.read("import sys; sys.stdout.buffer.write(b'x' * 65536)"), b"x" * 65536)
+        data = b"a" * 64 + b"\n"
+        self.assertEqual(self.read("import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())",
+                                   input_data=data), data)
+        with self.assertRaisesRegex(ValueError, "input exceeds bound"):
+            self.read("raise SystemExit('should not execute')", input_data=data + b"x")
+
+    def test_oversized_stdout_rejects_before_process_finishes(self):
+        started = time.monotonic()
+        with self.assertRaisesRegex(ValueError, "output exceeds bound"):
+            self.read("import os,time; os.write(1, b'x' * 65537); time.sleep(30)")
+        self.assertLess(time.monotonic() - started, 4)
+
+    def test_single_deadline_covers_pipe_read_and_process_exit(self):
+        for code in ("import time; time.sleep(30)",
+                     "import os,time; os.close(1); time.sleep(30)"):
+            with self.subTest(code=code), patch.object(bundles, "GIT_TIMEOUT", 0.15):
+                started = time.monotonic()
+                with self.assertRaises(subprocess.TimeoutExpired) as raised:
+                    self.read(code)
+                self.assertEqual(raised.exception.timeout, 0.15)
+                self.assertLess(time.monotonic() - started, 2)
+
+    def test_session_is_signaled_before_reaping_success_and_failed_leaders(self):
+        real_popen, real_killpg = subprocess.Popen, os.killpg
+        for status in (0, 72):
+            events = []
+            processes = []
+
+            def remember_process(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                wait = process.wait
+
+                def reap(*args, **kwargs):
+                    events.append("reap")
+                    return wait(*args, **kwargs)
+
+                process.wait = reap
+                return process
+
+            def signal_owned(pid, signal_number):
+                self.assertEqual(pid, processes[0].pid)
+                self.assertIsNone(processes[0].returncode)
+                self.assertNotIn("reap", events)
+                self.assertIsNotNone(os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT))
+                events.append("signal")
+                return real_killpg(pid, signal_number)
+
+            with self.subTest(status=status), patch.object(bundles.subprocess, "Popen", remember_process), \
+                    patch.object(bundles.os, "killpg", signal_owned):
+                code = f"import sys; sys.stdout.write('head'); sys.exit({status})"
+                if status:
+                    with self.assertRaises(subprocess.CalledProcessError) as raised:
+                        self.read(code)
+                    self.assertEqual(raised.exception.returncode, status)
+                else:
+                    self.assertEqual(self.read(code), b"head")
+            self.assertEqual(events, ["signal", "reap"])
+
+    def test_lost_leader_ownership_never_signals_a_reusable_group(self):
+        reaped = []
+
+        def externally_reap(identifier, pid, options):
+            if not reaped:
+                os.waitpid(pid, 0)
+                reaped.append(pid)
+            raise ChildProcessError("private external reap fixture")
+
+        with patch.object(bundles.os, "waitid", externally_reap), patch.object(bundles.os, "killpg") as signal_group:
+            with self.assertRaisesRegex(ValueError, "ownership was lost"):
+                self.read("import sys; sys.stdout.write('head')")
+        self.assertEqual(len(reaped), 1)
+        signal_group.assert_not_called()
+
+    def test_lost_ownership_during_failure_cleanup_never_signals_a_reused_group(self):
+        real_popen, real_read = subprocess.Popen, os.read
+        for failure in ("overflow", "timeout", "io"):
+            processes = []
+
+            def remember_process(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+
+            def externally_reap(identifier, pid, options):
+                self.assertEqual(pid, processes[0].pid)
+                self.assertIsNone(processes[0].returncode)
+                os.kill(pid, bundles.signal.SIGKILL)
+                os.waitpid(pid, 0)
+                raise ChildProcessError("private external reap fixture")
+
+            def fail_stdout_read(descriptor, size):
+                if processes and descriptor == processes[0].stdout.fileno():
+                    raise OSError("private I/O fixture")
+                return real_read(descriptor, size)
+
+            code = "import os,time; os.write(1, b'x' * " + ("65537" if failure == "overflow" else "1") + "); time.sleep(30)"
+            expected = {"overflow": ValueError, "timeout": subprocess.TimeoutExpired, "io": OSError}[failure]
+            output = io.StringIO()
+            with self.subTest(failure=failure), patch.object(bundles.subprocess, "Popen", remember_process), \
+                    patch.object(bundles.os, "waitid", externally_reap), patch.object(bundles.os, "killpg") as signal_group, \
+                    patch.object(bundles, "GIT_TIMEOUT", 0.15), patch.object(sys, "stderr", output):
+                if failure == "io":
+                    with patch.object(bundles.os, "read", side_effect=fail_stdout_read), self.assertRaises(expected):
+                        self.read(code)
+                else:
+                    with self.assertRaises(expected):
+                        self.read(code)
+            signal_group.assert_not_called()
+            self.assertIsNotNone(processes[0].returncode)
+            self.assertEqual(output.getvalue(), "CI cache bundle: Git metadata child cleanup failed\n")
+
+    def test_secondary_cleanup_failure_is_visible_without_replacing_original_error(self):
+        real_popen = subprocess.Popen
+        output = io.StringIO()
+
+        def cleanup_failure(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            wait = process.wait
+
+            def reap(*args, **kwargs):
+                wait(*args, **kwargs)
+                raise OSError("private cleanup fixture")
+
+            process.wait = reap
+            return process
+
+        with patch.object(bundles.subprocess, "Popen", cleanup_failure), patch.object(sys, "stderr", output):
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                self.read("raise SystemExit(72)")
+        self.assertEqual(raised.exception.returncode, 72)
+        self.assertEqual(output.getvalue(), "CI cache bundle: Git metadata child cleanup failed\n")
+
+    def test_stream_close_failures_preserve_original_subprocess_error_and_private_marker(self):
+        real_popen = subprocess.Popen
+        for original in ("exit", "timeout", "success"):
+            for failed_stream in ("stdout", "stdin"):
+                for error_type in (OSError, ValueError):
+                    output = io.StringIO()
+                    closed = []
+
+                    def close_failure(*args, **kwargs):
+                        process = real_popen(*args, **kwargs)
+                        for name in ("stdout", "stdin"):
+                            stream = getattr(process, name)
+                            close = stream.close
+                            calls = [0]
+
+                            def finish(name=name, close=close, calls=calls):
+                                calls[0] += 1
+                                close()
+                                # stdin is closed once to submit the metadata query,
+                                # then again during final cleanup, which is the failure.
+                                if name == "stdout" or calls[0] > 1:
+                                    closed.append(name)
+                                    if name == failed_stream:
+                                        raise error_type("private stream cleanup fixture")
+
+                            stream.close = finish
+                        return process
+
+                    code = ("import time; time.sleep(30)" if original == "timeout" else
+                            "import sys; sys.stdin.buffer.read(); sys.exit(" + ("72" if original == "exit" else "0") + ")")
+                    expected = {"exit": subprocess.CalledProcessError, "timeout": subprocess.TimeoutExpired,
+                                "success": ValueError}[original]
+                    with self.subTest(original=original, stream=failed_stream, error=error_type.__name__), \
+                            patch.object(bundles.subprocess, "Popen", close_failure), patch.object(sys, "stderr", output), \
+                            patch.object(bundles, "GIT_TIMEOUT", 0.3):
+                        with self.assertRaises(expected) as raised:
+                            self.read(code, input_data=b"a\n")
+                    self.assertEqual(closed, ["stdout", "stdin"])
+                    if original == "success":
+                        self.assertEqual(str(raised.exception), "Git metadata child cleanup failed")
+                        self.assertEqual(output.getvalue(), "")
+                    else:
+                        self.assertEqual(output.getvalue(), "CI cache bundle: Git metadata child cleanup failed\n")
+                        if original == "exit":
+                            self.assertEqual(raised.exception.returncode, 72)
+                        else:
+                            self.assertEqual(raised.exception.timeout, 0.3)
+                    self.assertNotIn("private", str(raised.exception))
+
+    def test_darwin_empty_group_exception_requires_exact_bounded_positive_metadata(self):
+        pid = 123
+        cases = ((1, [pid], True), (0, [], False), (2, [pid, 124], False),
+                 (3, [pid, 124], False), (-1, [], False), (1, [124], False))
+        for count, members, expected in cases:
+            def list_group(group, buffer, size):
+                self.assertEqual((group, size), (pid, 8))
+                for index, member in enumerate(members):
+                    buffer[index] = member
+                return count
+
+            library = SimpleNamespace(proc_listpgrppids=list_group)
+            with self.subTest(count=count, members=members), patch.object(bundles.sys, "platform", "darwin"), \
+                    patch.object(bundles.os, "waitid", return_value=SimpleNamespace(si_pid=pid)), \
+                    patch.object(bundles.ctypes, "CDLL", return_value=library) as loader:
+                self.assertEqual(bundles.exited_group_contains_only_leader(pid), expected)
+                loader.assert_called_once_with("/usr/lib/libproc.dylib")
+        for state in (None, SimpleNamespace(si_pid=124)):
+            with patch.object(bundles.sys, "platform", "darwin"), patch.object(bundles.os, "waitid", return_value=state), \
+                    patch.object(bundles.ctypes, "CDLL") as loader:
+                self.assertFalse(bundles.exited_group_contains_only_leader(pid))
+                loader.assert_not_called()
+        for failure in (OSError("private library error"), AttributeError("private missing API"),
+                        bundles.ctypes.ArgumentError("private ctypes argument"), TypeError("private ctypes type"),
+                        ValueError("private ctypes value"), RuntimeError("private native call")):
+            with patch.object(bundles.sys, "platform", "darwin"), \
+                    patch.object(bundles.os, "waitid", return_value=SimpleNamespace(si_pid=pid)), \
+                    patch.object(bundles.ctypes, "CDLL", side_effect=failure):
+                self.assertFalse(bundles.exited_group_contains_only_leader(pid))
+
+    def test_darwin_native_call_exception_fails_closed_without_leaking_diagnostics(self):
+        def failed_native_call(group, buffer, size):
+            raise bundles.ctypes.ArgumentError("private native argument/path")
+
+        library = SimpleNamespace(proc_listpgrppids=failed_native_call)
+        output = io.StringIO()
+        with patch.object(bundles.sys, "platform", "darwin"), \
+                patch.object(bundles.os, "waitid", return_value=SimpleNamespace(si_pid=123)), \
+                patch.object(bundles.ctypes, "CDLL", return_value=library), patch.object(sys, "stderr", output):
+            self.assertFalse(bundles.exited_group_contains_only_leader(123))
+        self.assertEqual(output.getvalue(), "")
+
+    def test_empty_group_exception_never_accepts_other_permission_errors(self):
+        for error in (PermissionError(errno.EACCES, "private denied group"), PermissionError("private unknown errno")):
+            with self.subTest(errno=error.errno), patch.object(bundles.os, "killpg", side_effect=error), \
+                    patch.object(bundles, "exited_group_contains_only_leader", return_value=True) as group_proof:
+                with self.assertRaisesRegex(ValueError, "child cleanup failed"):
+                    self.read("print('head')")
+            group_proof.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin zombie-only group semantics")
+    def test_actual_darwin_exited_group_has_only_its_unreaped_leader(self):
+        process = subprocess.Popen([sys.executable, "-c", "print('head')"], stdout=subprocess.PIPE,
+                                   start_new_session=True)
+        try:
+            self.assertEqual(process.stdout.read(), b"head\n")
+            deadline = time.monotonic() + 2
+            while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.01)
+            self.assertTrue(bundles.exited_group_contains_only_leader(process.pid))
+        finally:
+            process.wait(timeout=1)
+            process.stdout.close()
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin group membership query")
+    def test_denied_signal_with_a_live_owned_group_member_cannot_pass(self):
+        terminal = self.base / "denied-child.stop"
+        self.addCleanup(terminal.touch)
+        child_code = ("import pathlib,sys,time\nstop=pathlib.Path(sys.argv[1])\n"
+                      "for _ in range(1500):\n if stop.exists(): break\n time.sleep(0.02)\n")
+        code = ("import subprocess,sys; subprocess.Popen([sys.executable, '-c', "
+                + repr(child_code) + ", sys.argv[1]], stdout=subprocess.DEVNULL)")
+        try:
+            with patch.object(bundles.os, "killpg", side_effect=PermissionError(errno.EPERM, "private denied group")):
+                with self.assertRaisesRegex(ValueError, "child cleanup failed"):
+                    self.read(code, terminal)
+        finally:
+            terminal.touch()
+
+    def test_owned_children_are_killed_and_direct_process_joined_on_overflow_timeout_and_io_error(self):
+        real_popen = subprocess.Popen
+        real_read = os.read
+        for failure in ("overflow", "timeout", "inherited_stdout", "closed_stdout", "io"):
+            processes = []
+            child_pid = self.base / (failure + "-child.pid")
+            terminal = self.base / (failure + "-child.stop")
+            self.addCleanup(terminal.touch)
+            child_code = ("import pathlib,sys,time\nstop=pathlib.Path(sys.argv[1])\n"
+                          "for _ in range(1500):\n if stop.exists(): break\n time.sleep(0.02)\n")
+            code = (
+                "import pathlib,subprocess,sys,time,os; "
+                "child = subprocess.Popen([sys.executable, '-c', "
+                + repr(child_code) + ", sys.argv[2]], "
+                + ("stdout=subprocess.DEVNULL); " if failure == "closed_stdout" else "); ")
+                + "pathlib.Path(sys.argv[1]).write_text(str(child.pid)); "
+                + ("os.write(1, b'x' * 65537); " if failure == "overflow" else
+                   "os.write(1, b'ready'); " if failure == "io" else "")
+                + ("raise SystemExit(0)" if failure in {"inherited_stdout", "closed_stdout"} else "time.sleep(30)")
+            )
+
+            def remember_process(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                processes.append(process)
+                return process
+
+            def fail_stdout_read(descriptor, size):
+                if processes and descriptor == processes[0].stdout.fileno():
+                    raise OSError("private I/O fixture")
+                return real_read(descriptor, size)
+
+            with self.subTest(failure=failure), patch.object(bundles.subprocess, "Popen", remember_process), \
+                    patch.object(bundles, "GIT_TIMEOUT", 0.5):
+                if failure == "io":
+                    with patch.object(bundles.os, "read", side_effect=fail_stdout_read):
+                        with self.assertRaises(OSError):
+                            self.read(code, child_pid, terminal)
+                else:
+                    if failure == "closed_stdout":
+                        self.assertEqual(self.read(code, child_pid, terminal), b"")
+                    else:
+                        with self.assertRaises(ValueError if failure == "overflow" else subprocess.TimeoutExpired):
+                            self.read(code, child_pid, terminal)
+            self.assertTrue(child_pid.exists())
+            self.assertEqual(len(processes), 1)
+            self.assertIsNotNone(processes[0].returncode)
+            pid = int(child_pid.read_text())
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                # Linux may retain an already killed orphan as a zombie until
+                # init reaps it; it is no longer an executing descendant.
+                state = Path(f"/proc/{pid}/stat")
+                if state.exists() and state.read_text().rsplit(")", 1)[1].split()[0] == "Z":
+                    break
+                time.sleep(0.02)
+            else:
+                self.fail("owned descendant survived metadata reader cleanup")
 
 class CacheBundleTests(unittest.TestCase):
     def setUp(self):
@@ -226,6 +573,108 @@ class CacheBundleTests(unittest.TestCase):
         with tarfile.open(self.archive) as archive:
             content = b"".join(archive.extractfile(info).read() for info in archive if info.isfile())
         self.assertNotIn(b"private credential fixture", content)
+
+    def test_source_preflight_uses_exact_export_admission_without_mutating_inputs(self):
+        schema = "proto/credentials/credentials.proto"
+        checkout = self.git_checkout({schema: b"public schema"},
+                                     links={"proto/credentials/source.proto": "credentials.proto"})
+        secrets = (self.source_cargo / "credentials.toml", self.source_cargo / "config.toml",
+                   checkout / ".cargo/credentials", checkout / ".git/credentials",
+                   checkout / "src/credentials", checkout / "src/credentials.json",
+                   self.source_cargo / "registry/src/credentials/private")
+        for path in secrets:
+            self.write(path, b"private fixture")
+        before = {path.relative_to(self.source_cargo): (path.lstat().st_mode, path.read_bytes())
+                  for path in self.source_cargo.rglob("*") if path.is_file() and not path.is_symlink()}
+        result = bundles.preflight_credentials(self.source_cargo / "git")
+        self.assertEqual(result["proven_public_inputs"], 2)
+        self.assertGreater(result["examined_entries"], 2)
+        self.assertFalse(self.archive.exists())
+        after = {path.relative_to(self.source_cargo): (path.lstat().st_mode, path.read_bytes())
+                 for path in self.source_cargo.rglob("*") if path.is_file() and not path.is_symlink()}
+        self.assertEqual(after, before)
+        self.export("rust-debug")
+        self.restore("rust-debug")
+        restored = self.destination_cargo / checkout.relative_to(self.source_cargo)
+        self.assertEqual((restored / schema).read_bytes(), b"public schema")
+        self.assertEqual((restored / "proto/credentials/source.proto").read_bytes(), b"public schema")
+        for path in secrets:
+            self.assertFalse((self.destination_cargo / path.relative_to(self.source_cargo)).exists())
+
+    def test_source_preflight_reports_untracked_and_modified_source_failures(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        token = self.write(checkout / "proto/credentials/token", b"private fixture")
+        with self.assertRaisesRegex(ValueError, r"git-tree:rejected"):
+            bundles.preflight_credentials(self.source_cargo / "git")
+        self.assertEqual(token.read_bytes(), b"private fixture")
+        token.unlink()
+        source = checkout / "proto/credentials/credentials.proto"
+        source.write_bytes(b"modified private fixture")
+        with self.assertRaisesRegex(ValueError, r"source-bytes:rejected"):
+            bundles.preflight_credentials(self.source_cargo / "git")
+        self.assertEqual(source.read_bytes(), b"modified private fixture")
+        self.assertFalse(self.archive.exists())
+
+    def test_source_proof_diagnostics_expose_only_fixed_stage_and_process_status(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        relative = (checkout / "proto/credentials/credentials.proto").relative_to(self.source_cargo / "git")
+        failures = (
+            (subprocess.CalledProcessError(128, ["private argv"], stderr=b"private stderr"), "git-exit-128"),
+            (subprocess.CalledProcessError(-25, ["private argv"]), "git-exit--25"),
+            (subprocess.TimeoutExpired(["private argv"], 5, stderr=b"private stderr"), "git-timeout"),
+            (OSError("private path"), "io"),
+        )
+        for failure, reason in failures:
+            with self.subTest(reason=reason), patch.object(bundles, "read_git_output", side_effect=failure):
+                with self.assertRaises(ValueError) as raised:
+                    bundles.verify_credentials_proof(self.source_cargo / "git", "cargo-git", relative)
+                self.assertEqual(str(raised.exception),
+                                 f"public credentials source lacks exact tracked HEAD proof (git-head:{reason})")
+                self.assertNotIn("private", str(raised.exception))
+
+    def test_actual_subprocess_error_and_timeout_keep_fixed_private_source_diagnostics(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        relative = (checkout / "proto/credentials/credentials.proto").relative_to(self.source_cargo / "git")
+        reader = bundles.read_git_output
+        commands = (
+            ("import sys; sys.stderr.write('private stderr path/config/object'); sys.exit(72)", "git-exit-72"),
+            ("import time; time.sleep(30)", "git-timeout"),
+        )
+        for code, reason in commands:
+            def launch_fixture(command, environment, input_data=None):
+                return reader([sys.executable, "-c", code], environment, input_data)
+
+            with self.subTest(reason=reason), patch.object(bundles, "read_git_output", launch_fixture), \
+                    patch.object(bundles, "GIT_TIMEOUT", 0.15):
+                with self.assertRaises(ValueError) as raised:
+                    bundles.verify_credentials_proof(self.source_cargo / "git", "cargo-git", relative)
+            self.assertEqual(str(raised.exception),
+                             f"public credentials source lacks exact tracked HEAD proof (git-head:{reason})")
+            self.assertNotIn("private", str(raised.exception))
+
+    def test_source_metadata_and_preflight_traversal_errors_do_not_disclose_paths(self):
+        root = self.source_cargo / "git"
+        root.mkdir()
+        relative = bundles.PurePosixPath("checkouts/repo/0000000/proto/credentials/credentials.proto")
+        with patch.object(Path, "lstat", side_effect=OSError("private source path")):
+            with self.assertRaises(ValueError) as raised:
+                bundles.verify_credentials_proof(root, "cargo-git", relative)
+        self.assertEqual(str(raised.exception),
+                         "public credentials source lacks exact tracked HEAD proof (input-metadata:io)")
+        with patch.object(bundles, "paths_in", side_effect=OSError("private traversal path")):
+            with self.assertRaises(ValueError) as raised:
+                bundles.preflight_credentials(root)
+        self.assertEqual(str(raised.exception), "source preflight traversal failed (io)")
+        command = [str(SCRIPT), "preflight", "--scope", "rust-debug", "--revision", REVISION,
+                   "--cargo-home", str(self.source_cargo)]
+        for error in (OSError("private base path"), ValueError("private redirect path")):
+            output = io.StringIO()
+            with self.subTest(error=type(error).__name__), patch.object(sys, "argv", command), \
+                    patch.object(sys, "stderr", output), patch.object(bundles, "roots_for", side_effect=error):
+                with self.assertRaises(SystemExit) as raised:
+                    bundles.main()
+            self.assertEqual(raised.exception.code, 1)
+            self.assertEqual(output.getvalue(), "CI cache bundle: source preflight root mapping rejected\n")
 
     def test_public_credentials_replacement_removes_stale_sources_and_preserves_private_stores(self):
         source = self.git_checkout({"proto/credentials/credentials.proto": b"new public schema"})
@@ -756,6 +1205,39 @@ class CacheBundleTests(unittest.TestCase):
         result = subprocess.run(command + ["--replace-owned-scope"], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 1)
         self.assertIn("only to restore", result.stderr)
+
+    def test_preflight_cli_requires_only_its_read_only_source_scope(self):
+        self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        command = [sys.executable, str(SCRIPT), "preflight", "--scope", "rust-debug",
+                   "--revision", REVISION, "--root", str(self.source), "--cargo-home", str(self.source_cargo)]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["action"], "preflight")
+        self.assertEqual(receipt["proven_public_inputs"], 1)
+        self.assertGreater(receipt["elapsed_seconds"], 0)
+        self.assertNotIn("archive_bytes", receipt)
+        self.assertNotIn(str(self.source_cargo), result.stdout)
+        for options in (["--archive", str(self.archive)], ["--replace-owned-scope"], ["--scope", "swift"]):
+            with self.subTest(options=options):
+                failed = subprocess.run(command + options, capture_output=True, text=True, timeout=10)
+                self.assertEqual(failed.returncode, 1)
+                self.assertIn("source preflight requires rust-debug", failed.stderr)
+                self.assertFalse(self.archive.exists())
+        command[2] = "export"
+        failed = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("require --archive", failed.stderr)
+
+    def test_source_preflight_rejects_missing_or_redirected_cargo_git_root(self):
+        with self.assertRaisesRegex(ValueError, "regular Cargo Git root"):
+            bundles.preflight_credentials(self.source_cargo / "git")
+        outside = self.base / "outside"
+        outside.mkdir()
+        (self.source_cargo / "git").symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "regular Cargo Git root"):
+            bundles.preflight_credentials(self.source_cargo / "git")
+        self.assertEqual(list(outside.iterdir()), [])
 
 
 if __name__ == "__main__":

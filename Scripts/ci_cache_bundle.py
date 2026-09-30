@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import hashlib
 import io
 import json
@@ -12,7 +14,8 @@ import os
 from pathlib import Path, PurePosixPath
 import posixpath
 import re
-import resource
+import select
+import signal
 import stat
 import subprocess
 import sys
@@ -42,6 +45,30 @@ SCOPES = {
 # runner temp directory, or the repository; those can hold account/signing material.
 PRIVATE_NAMES = {"spotty-signing", ".git-credentials", ".netrc", ".npmrc", "credentials",
                  "credentials.toml", "credentials.json", "id_rsa", "id_ed25519"}
+GIT_OUTPUT_LIMIT = 64 * 1024
+GIT_TIMEOUT = 5
+
+
+def exited_group_contains_only_leader(pid: int) -> bool:
+    """Recognize Darwin's zombie-only EPERM using bounded owned-group metadata."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        exited = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        if exited is None or exited.si_pid != pid:
+            return False
+        list_group = ctypes.CDLL("/usr/lib/libproc.dylib").proc_listpgrppids
+        list_group.argtypes = (ctypes.c_int, ctypes.c_void_p, ctypes.c_int)
+        list_group.restype = ctypes.c_int
+        members = (ctypes.c_int * 2)()
+        count = list_group(pid, members, ctypes.sizeof(members))
+        # A full buffer is ambiguous. Only the reserved, already exited leader
+        # may remain; live members, extra zombies and unavailable metadata reject.
+        return count == 1 and members[0] == pid
+    except Exception:
+        # Native lookup/call failures cannot authorize the empty-group exception.
+        # Keep ordinary ctypes errors private while preserving cancellation.
+        return False
 
 
 def path_key(value: str) -> str:
@@ -70,26 +97,120 @@ def private_path(path: PurePosixPath, *, logical_name: str, kind: str | None = N
     return False
 
 
+def read_git_output(command: list[str], environment: dict[str, str],
+                    input_data: bytes | None = None) -> bytes:
+    """Bound Git metadata stdout without limiting unrelated developer-launcher writes."""
+    if input_data is not None and len(input_data) > 65:
+        raise ValueError("Git metadata input exceeds bound")
+    if not all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG", "WNOWAIT", "CLD_EXITED")):
+        raise ValueError("Git metadata process ownership is unsupported")
+    deadline = time.monotonic() + GIT_TIMEOUT
+    process = subprocess.Popen(command, stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               env=environment, start_new_session=True, bufsize=0)
+    output = bytearray()
+    owns_leader = True
+    try:
+        if input_data is not None:
+            try:
+                process.stdin.write(input_data)
+                process.stdin.close()
+            except BrokenPipeError:
+                pass
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+                raise subprocess.TimeoutExpired(command, GIT_TIMEOUT)
+            chunk = os.read(process.stdout.fileno(), min(8192, GIT_OUTPUT_LIMIT + 1 - len(output)))
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > GIT_OUTPUT_LIMIT:
+                raise ValueError("Git metadata output exceeds bound")
+        # Observe exit without reaping: the session leader keeps its PID reserved
+        # until group cleanup, even when a descendant has already closed stdout.
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, GIT_TIMEOUT)
+            try:
+                exited = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                owns_leader = False
+                raise ValueError("Git metadata process ownership was lost") from None
+            if exited is not None:
+                status = exited.si_status if exited.si_code == os.CLD_EXITED else -exited.si_status
+                break
+            time.sleep(min(0.01, remaining))
+        if status:
+            raise subprocess.CalledProcessError(status, command)
+        return bytes(output)
+    finally:
+        # A launcher may leave a descendant holding stdout even after it exits.
+        # Always close the owned group, including on overflow, timeout or failure.
+        unwinding = sys.exc_info()[0] is not None
+        cleanup_failed = not owns_leader
+        if owns_leader:
+            # Clear ownership before the only reap below. An external reap is
+            # fail-closed and never authorizes a signal to a possibly reused PID.
+            owns_leader = False
+            try:
+                os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                cleanup_failed = True
+            except OSError:
+                cleanup_failed = True
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError as error:
+                    cleanup_failed = error.errno != errno.EPERM or not exited_group_contains_only_leader(process.pid)
+                except OSError:
+                    cleanup_failed = True
+        try:
+            process.wait(timeout=1)
+        except (OSError, subprocess.SubprocessError):
+            cleanup_failed = True
+        for stream in (process.stdout, process.stdin):
+            if stream is not None:
+                try:
+                    stream.close()
+                except (OSError, ValueError):
+                    cleanup_failed = True
+        if cleanup_failed:
+            if not unwinding:
+                raise ValueError("Git metadata child cleanup failed")
+            try:
+                sys.stderr.write("CI cache bundle: Git metadata child cleanup failed\n")
+            except (OSError, ValueError):
+                pass
+
+
 def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixPath) -> str | None:
     """Return exact HEAD-proven bytes' SHA256 for relaxed Git files, otherwise None."""
     if logical_name != "cargo-git" or "credentials" not in {path_key(part) for part in relative.parts}:
         return None
     path = root / relative
-    mode = path.lstat().st_mode
-    kind = "directory" if stat.S_ISDIR(mode) else "symlink" if stat.S_ISLNK(mode) else "file"
-    if (kind == "directory" or private_path(relative, logical_name=logical_name, kind=kind)
-            or "credentials" not in {path_key(part) for part in relative.parts}):
-        return None
     error_message = "public credentials source lacks exact tracked HEAD proof"
+    stage = "input-metadata"
     try:
+        mode = path.lstat().st_mode
+        kind = "directory" if stat.S_ISDIR(mode) else "symlink" if stat.S_ISLNK(mode) else "file"
+        if kind == "directory" or private_path(relative, logical_name=logical_name, kind=kind):
+            return None
+        stage = "input-kind"
         if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
             raise ValueError(error_message)
+        stage = "checkout-path"
         checkout = root.joinpath(*relative.parts[:3])
         source_path = PurePosixPath(*relative.parts[3:])
         revision = relative.parts[2]
         if not re.fullmatch(r"[0-9a-f]{7}", revision):
             raise ValueError(error_message)
         check_ancestors(checkout, root)
+        stage = "git-layout"
         git_dir = checkout / ".git"
         if git_dir.is_symlink() or not git_dir.is_dir():
             raise ValueError(error_message)
@@ -111,6 +232,7 @@ def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixP
             "branch": {"remote", "merge"}, "extensions": {"objectformat"},
         }
         section = None
+        stage = "git-config"
         for line in (git_dir / "config").read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith(("#", ";")):
@@ -138,22 +260,13 @@ def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixP
 
         def read_git(*arguments: str, input_data: bytes | None = None) -> bytes:
             # Identity/path/size output is bounded; never collect object contents.
-            def limit_output() -> None:
-                resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024, 64 * 1024))
+            return read_git_output(command + list(arguments), environment, input_data)
 
-            with tempfile.TemporaryFile() as output:
-                subprocess.run(command + list(arguments), input=input_data,
-                               stdout=output, stderr=subprocess.DEVNULL,
-                               env=environment, timeout=5, check=True, preexec_fn=limit_output)
-                output.seek(0)
-                data = output.read(64 * 1024 + 1)
-                if len(data) > 64 * 1024:
-                    raise ValueError(error_message)
-                return data
-
+        stage = "git-head"
         head = read_git("rev-parse", "--verify", "HEAD^{commit}").strip()
         if not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", head) or head[:7].decode() != revision:
             raise ValueError(error_message)
+        stage = "git-tree"
         tree = read_git("ls-tree", "-z", "--full-tree", head.decode(), "--", str(source_path))
         if not tree.endswith(b"\0") or tree.count(b"\0") != 1:
             raise ValueError(error_message)
@@ -163,14 +276,17 @@ def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixP
                 or len(oid) != len(head) or not re.fullmatch(rb"[0-9a-f]+", oid)
                 or tracked_mode not in ({b"120000"} if kind == "symlink" else {b"100644", b"100755"})):
             raise ValueError(error_message)
+        stage = "source-mode"
         if kind == "file" and (mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX)
                                or bool(mode & stat.S_IXUSR) != (tracked_mode == b"100755")):
             raise ValueError(error_message)
         # No blob contents pass through subprocess output, hooks or Git filters.
+        stage = "git-blob-size"
         description = read_git("cat-file", "--batch-check", input_data=oid + b"\n").split()
         if len(description) != 3 or description[:2] != [oid, b"blob"]:
             raise ValueError(error_message)
         size = int(description[2])
+        stage = "source-bytes"
         blob = hashlib.new("sha1" if len(oid) == 40 else "sha256")
         blob.update(f"blob {size}\0".encode())
         digest = hashlib.sha256()
@@ -189,8 +305,32 @@ def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixP
         if read_size != size or blob.hexdigest().encode() != oid:
             raise ValueError(error_message)
         return digest.hexdigest()
-    except (OSError, ValueError, subprocess.SubprocessError):
-        raise ValueError(error_message) from None
+    except subprocess.TimeoutExpired:
+        reason = "git-timeout"
+    except subprocess.CalledProcessError as error:
+        reason = f"git-exit-{error.returncode}"
+    except OSError:
+        reason = "io"
+    except (ValueError, subprocess.SubprocessError):
+        reason = "rejected"
+    # Keep the category bounded and source-independent. Exception text, argv,
+    # stderr, paths, config values and object contents are never diagnostics.
+    raise ValueError(f"{error_message} ({stage}:{reason})") from None
+
+
+def preflight_credentials(root: Path) -> dict:
+    """Check the actual Cargo checkout admission without exporting any cache products."""
+    if not root.is_dir() or root.is_symlink():
+        raise ValueError("source preflight requires a regular Cargo Git root")
+    examined = proven = 0
+    try:
+        for _, relative in paths_in(root, logical_name="cargo-git"):
+            examined += 1
+            if verify_credentials_proof(root, "cargo-git", relative) is not None:
+                proven += 1
+    except OSError:
+        raise ValueError("source preflight traversal failed (io)") from None
+    return {"examined_entries": examined, "proven_public_inputs": proven}
 
 
 def excluded_path(name: str, relative: PurePosixPath, *, kind: str | None = None) -> bool:
@@ -663,9 +803,9 @@ def restore_bundle(archive: Path, *, scope: str, revision: str, roots: dict[str,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("export", "restore"))
+    parser.add_argument("action", choices=("export", "restore", "preflight"))
     parser.add_argument("--scope", choices=SCOPES, required=True)
-    parser.add_argument("--archive", type=Path, required=True)
+    parser.add_argument("--archive", type=Path)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--cargo-home", type=Path)
@@ -675,9 +815,22 @@ def main() -> int:
     args = parser.parse_args()
     started = time.monotonic()
     try:
-        roots = roots_for(args.scope, root=args.root, cargo_home=args.cargo_home,
-                          runner_temp=args.runner_temp)
-        if args.action == "export":
+        check_revision(args.revision)
+        if args.action == "preflight":
+            if args.scope != "rust-debug" or args.archive is not None or args.replace_owned_scope:
+                raise ValueError("source preflight requires rust-debug without archive or replacement options")
+        elif args.archive is None:
+            raise ValueError("cache export and restore require --archive")
+        try:
+            roots = roots_for(args.scope, root=args.root, cargo_home=args.cargo_home,
+                              runner_temp=args.runner_temp)
+        except (OSError, ValueError):
+            if args.action == "preflight":
+                raise ValueError("source preflight root mapping rejected") from None
+            raise
+        if args.action == "preflight":
+            result = preflight_credentials(roots["cargo-git"])
+        elif args.action == "export":
             if args.replace_owned_scope:
                 raise ValueError("--replace-owned-scope applies only to restore")
             result = export_bundle(args.archive, scope=args.scope, revision=args.revision, roots=roots)
@@ -685,6 +838,8 @@ def main() -> int:
             result = restore_bundle(args.archive, scope=args.scope, revision=args.revision, roots=roots,
                                     replace_owned_scope=args.replace_owned_scope)
     except (OSError, ValueError, tarfile.TarError) as error:
+        if args.action == "preflight" and isinstance(error, OSError):
+            parser.exit(1, "CI cache bundle: source preflight filesystem access failed (io)\n")
         parser.exit(1, f"CI cache bundle: {error}\n")
     result.update(action=args.action, scope=args.scope, revision=args.revision,
                   elapsed_seconds=round(time.monotonic() - started, 6))

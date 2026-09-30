@@ -216,9 +216,14 @@ class ParallelWorkflowTests(unittest.TestCase):
 
     def test_swift_consumers_remain_independent_of_engine_producer(self):
         jobs = workflow_jobs()
+        debug = workflow_script("Run checks").strip()
+        normal_debug = "SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh"
+        self.assertEqual(debug.count(normal_debug), 1)
+        self.assertIn(f"false) {normal_debug} ;;", debug)
+        self.assertIn("-- ./Scripts/check.sh", debug)
         expected = {
             "macos_contracts": "SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh",
-            "macos_swift": "SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh",
+            "macos_swift": debug,
             "macos_release": "./Scripts/compile-release-spotty.sh",
             "macos_engine": "SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh",
         }
@@ -431,16 +436,18 @@ class AggregateGateTests(unittest.TestCase):
             "CHECKS_RESULT", "ACCEPTANCE_RESULT", "ACCEPTANCE_SUMMARY_RESULT", "ACCEPTANCE_UPLOAD_RESULT",
             "FOCUSED_SMOKE_RESULT", "SELECTION_UPLOAD_RESULT")}
         for requested, result in (("false", "skipped"), ("true", "success")):
-            valid = {**required, "SELECTION_EXPERIMENT_REQUESTED": requested,
-                     "SELECTION_EXPERIMENT_RESULT": result}
-            self.assertEqual(self.execute("Require Swift test evidence", valid).returncode, 0)
-            for field in valid:
-                values = ("true", "false", "invalid", "") if field == "SELECTION_EXPERIMENT_REQUESTED" else (
-                    "success", "skipped", "failure", "cancelled", "")
-                for value in values:
-                    if value != valid[field]:
-                        with self.subTest(requested=requested, field=field, value=value):
-                            self.assertNotEqual(self.execute("Require Swift test evidence", {**valid, field: value}).returncode, 0)
+            for host_requested, host_result in (("false", "skipped"), ("true", "success")):
+                valid = {**required, "SELECTION_EXPERIMENT_REQUESTED": requested,
+                         "SELECTION_EXPERIMENT_RESULT": result, "HOST_OBSERVATION_REQUESTED": host_requested,
+                         "HOST_OBSERVATION_UPLOAD_RESULT": host_result}
+                self.assertEqual(self.execute("Require Swift test evidence", valid).returncode, 0)
+                for field in valid:
+                    values = ("true", "false", "invalid", "") if field.endswith("REQUESTED") else (
+                        "success", "skipped", "failure", "cancelled", "")
+                    for value in values:
+                        if value != valid[field]:
+                            with self.subTest(requested=requested, host_requested=host_requested, field=field, value=value):
+                                self.assertNotEqual(self.execute("Require Swift test evidence", {**valid, field: value}).returncode, 0)
 
     def test_required_check_accepts_only_verified_main_publication_or_explicit_pr_skip(self):
         valid = [

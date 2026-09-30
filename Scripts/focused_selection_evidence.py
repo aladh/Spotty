@@ -37,6 +37,12 @@ PROBES = (
     ("SpottyBoundaryTests", "FormattingTests/testFormatting"),
 )
 NONEMPTY_DIAGNOSTIC = "no executed tests reported; check the filter and skipped tests"
+# One explicit optimized probe configuration on both supported compilers. Never
+# switch configuration after a failure; these testable measurements are not shipping WMO.
+OPTIMIZED_PROBE_FLAGS = (
+    "-c", "release", "-Xswiftc", "-O", "-Xswiftc", "-enable-testing",
+    "-Xswiftc", "-no-whole-module-optimization",
+)
 
 
 class EvidenceError(ValueError):
@@ -272,7 +278,8 @@ def validate_outcome(case: str, status: int, text: str, events: Path, expected: 
 
 
 def record_invocation(root: Path, destination: Path, argv: list[str], *, expected: str | None,
-                      case: str = "success", environment: dict[str, str] | None = None) -> dict:
+                      case: str = "success", environment: dict[str, str] | None = None,
+                      build: Path | None = None) -> dict:
     destination.mkdir(parents=True, exist_ok=False)
     diagnostics = destination / "diagnostics"
     diagnostics.mkdir()
@@ -287,6 +294,7 @@ def record_invocation(root: Path, destination: Path, argv: list[str], *, expecte
                "started_at_unix_seconds": time.time()}
     write_json(destination / "receipt.json", receipt)
     start = time.monotonic()
+    failure = None
     try:
         with (destination / "command.log").open("wb") as log:
             process = subprocess.run(argv, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -308,15 +316,80 @@ def record_invocation(root: Path, destination: Path, argv: list[str], *, expecte
     except (OSError, ValueError, KeyboardInterrupt) as error:
         receipt["error"] = str(error)
         receipt.setdefault("status", 130 if isinstance(error, KeyboardInterrupt) else 127)
-        raise EvidenceError(str(error), receipt["status"] or 1) from error
+        status = receipt["status"] or (error.status if isinstance(error, EvidenceError) else 1)
+        failure = EvidenceError(str(error), status)
+        raise failure from error
     finally:
-        write_json(destination / "receipt.json", receipt)
+        # Failed compilation still has useful actual command/diagnostic metadata.
+        # Collection must never replace its original terminal status or error.
+        try:
+            receipt["preserved_build_metadata"] = preserve_build_metadata(build or root / ".build", destination / "build-metadata")
+        except (OSError, ValueError) as error:
+            receipt["build_metadata_error"] = str(error)
+        write_final_json(destination / "receipt.json", receipt, failure=failure, status=receipt.get("status", 0))
     return receipt
+
+
+def write_final_json(path: Path, payload: dict, *, failure: BaseException | None = None, status: int = 0) -> None:
+    """Missing terminal evidence fails closed without masking an original failure."""
+    try:
+        write_json(path, payload)
+    except OSError as error:
+        diagnostic = f"Could not preserve required terminal evidence {path}: {error}"
+        payload["evidence_write_error"] = diagnostic
+        try:
+            print(f"focused-selection-evidence: {diagnostic}", file=sys.stderr)
+        except (OSError, ValueError):
+            pass  # An unavailable diagnostic sink cannot replace the terminal status either.
+        if failure is None:
+            raise EvidenceError(diagnostic, status or 1) from error
+
+
+def preserve_build_metadata(build: Path, destination: Path) -> list[dict]:
+    """Copy bounded compiler metadata only, without evaluating a manifest or a build."""
+    destination.mkdir(exist_ok=False)
+    excluded = {"package", "checkouts", "repositories", "artifacts", "module-cache", "ModuleCache",
+                "ModuleCache.noindex", "SwiftExplicitPrecompiledModules", "SDKExplicitPrecompiledModules",
+                "SDKModuleCaches", "index", "index.noindex", "SDKStatCaches.noindex", ".git"}
+    names = {"description.json", "debug.yaml", "release.yaml", "output-file-map.json"}
+    packets, total = [], 0
+    complete = False
+    try:
+        for directory, children, files in os.walk(build, followlinks=False):
+            children[:] = sorted(name for name in children if name not in excluded and
+                                 not (Path(directory) / name).is_symlink() and
+                                 (Path(directory) / name).resolve() != destination.resolve())
+            for name in sorted(files):
+                source = Path(directory) / name
+                if source.is_symlink() or not (name in names or source.suffix == ".dia" or
+                        name.endswith("-OutputFileMap.json") or
+                        (source.parent.suffix == ".xcbuilddata" and name in {"manifest.json", "task-store.msgpack", "description.msgpack"})):
+                    continue
+                size = source.stat().st_size
+                if size > 32 * 1024 * 1024 or total + size > 64 * 1024 * 1024 or len(packets) >= 2048:
+                    raise EvidenceError("Compiler metadata preservation exceeded its bounded packet budget")
+                relative = source.relative_to(build)
+                target = destination / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                data = source.read_bytes()
+                target.write_bytes(data)
+                total += len(data)
+                packets.append({"source": str(source), "preserved": str(target), "bytes": len(data),
+                                "sha256": hashlib.sha256(data).hexdigest()})
+        complete = True
+    finally:
+        write_json(destination / "inventory.json", {"build": str(build), "files": packets,
+                                                   "total_bytes": total, "complete": complete})
+    return packets
 
 
 def contributor(target: str | None, selector: str, *extra: str) -> list[str]:
     return [sys.executable, "Scripts/verify.py", "test", *(["--target", target] if target else []),
             "--filter", selector, *extra]
+
+
+def selected_build(root: Path, target: str) -> Path:
+    return runpy.run_path(str(root / "Scripts/verification_package.py"))["workspace"](root, f"test-target:{target}")
 
 
 def invalid_override(destination: Path) -> dict[str, str]:
@@ -372,7 +445,8 @@ def build_observations(description: dict) -> dict:
         sdk_paths = [arguments[index + 1] for index, token in enumerate(arguments[:-1]) if token == "-sdk"]
         if not sdk_paths:
             raise EvidenceError("SwiftPM compilation lacks its actual SDK operand")
-        compilations[module] = {"source_inputs": sources, "compiler_sdk_paths": sdk_paths}
+        compilations[module] = {"source_inputs": sources, "compiler_sdk_paths": sdk_paths,
+                                "compiler_arguments": arguments}
     return {"compilations": compilations, "link_sdk_paths": sorted(link_sdks)}
 
 
@@ -496,8 +570,40 @@ def verify_compile_scope(compilations: dict, targets: dict, scratch: Path, *, pa
     return sorted(generated)
 
 
+def verify_optimized_compilations(compilations: dict) -> dict:
+    """Check the effective compiler configuration, not just the contributor argv."""
+    result = {}
+    for module, compilation in compilations.items():
+        commands = compilation.get("compiler_argv") or [compilation.get("compiler_arguments", [])]
+        for arguments in commands:
+            if not isinstance(arguments, list) or any(not isinstance(flag, str) for flag in arguments):
+                raise EvidenceError(f"Malformed actual optimized compiler arguments: {module}")
+            # Clang/linker operands are not Swift configuration flags. An explicit
+            # frontend override would need separate proof rather than an assumption.
+            swift_flags = []
+            operands = iter(arguments)
+            controls = {"-Onone", "-O", "-Osize", "-Ounchecked", "-whole-module-optimization", "-wmo",
+                        "-no-whole-module-optimization", "-enable-testing", "-disable-testing"}
+            for flag in operands:
+                if flag in {"-Xcc", "-Xlinker", "-Xfrontend"}:
+                    value = next(operands, None)
+                    if flag == "-Xfrontend" and value in controls:
+                        raise EvidenceError(f"Ambiguous optimized frontend override: {module}")
+                    continue
+                swift_flags.append(flag)
+            optimization = [flag for flag in swift_flags if flag in {"-Onone", "-O", "-Osize", "-Ounchecked"}]
+            wmo = [flag for flag in swift_flags if flag in {"-whole-module-optimization", "-wmo", "-no-whole-module-optimization"}]
+            if (not optimization or optimization[-1] != "-O" or not wmo or
+                    wmo[-1] != "-no-whole-module-optimization" or "-enable-testing" not in swift_flags):
+                raise EvidenceError(f"Actual compiler configuration is not the explicit optimized non-WMO probe: {module}")
+        result[module] = {"optimization": "-O", "whole_module_optimization": False, "testable": True}
+    if not result:
+        raise EvidenceError("Optimized probe lacks actual compiler configuration evidence")
+    return result
+
+
 def graph_proof(root: Path, target: str | None, destination: Path, *, scratch: Path | None = None,
-                environment: dict[str, str] | None = None) -> dict:
+                environment: dict[str, str] | None = None, optimized: bool = False) -> dict:
     destination.mkdir(exist_ok=False)
     owner = runpy.run_path(str(root / "Scripts/check-package-graphs.py"))
     package_owner = runpy.run_path(str(root / "Scripts/verification_package.py"))
@@ -573,6 +679,7 @@ def graph_proof(root: Path, target: str | None, destination: Path, *, scratch: P
         raise EvidenceError("SwiftBuild actual compiler argv missing from decoded metadata")
     if not sdks or not compilations:
         raise EvidenceError("Actual compilation/SDK evidence missing from preserved build descriptions")
+    optimized_configuration = verify_optimized_compilations(compilations) if optimized else None
     generated = verify_compile_scope(compilations, targets, build, package_name=focused["name"]) if target else []
     engine_free = not binaries and not focused["dependencies"]
     if engine_free and (package / "Package.resolved").exists():
@@ -585,6 +692,7 @@ def graph_proof(root: Path, target: str | None, destination: Path, *, scratch: P
              "local_targets": sorted(targets), "external_dependencies": focused["dependencies"],
              "binary_targets": binaries, "engine_free": engine_free,
              "actual_compiled_modules": compilations, "generated_runner_modules": generated,
+             "optimized_configuration": optimized_configuration,
              "actual_compiler_sdk_settings": sdk_receipts, "preserved_build_metadata": metadata,
              "produced_inventory": inventory, "isolated_lock_sha256": hashlib.sha256((package / "Package.resolved").read_bytes()).hexdigest() if (package / "Package.resolved").exists() else None}
     if binaries:
@@ -626,7 +734,8 @@ def run_smoke(root: Path, destination: Path, compiler: str) -> dict:
     before = snapshot(root)
     environment = invalid_override(destination)
     rows = [record_invocation(root, destination / label, contributor("SpottyTestSupportTests", SMOKE),
-                              expected=native_expected("SpottyTestSupportTests", SMOKE), environment=environment)
+                              expected=native_expected("SpottyTestSupportTests", SMOKE), environment=environment,
+                              build=selected_build(root, "SpottyTestSupportTests"))
             for label in ("first", "repeat")]
     graph = graph_proof(root, "SpottyTestSupportTests", destination / "graph", environment=environment)
     if not graph["engine_free"] or any(row["fetch_lines"] for row in rows) or snapshot(root)["files"] != before["files"]:
@@ -656,6 +765,126 @@ def verify_comparison_inputs(identities: dict) -> None:
         raise EvidenceError("Shipping Package.resolved bytes differ; selection-only comparison invalid")
     if before["native_swift_sha256"] != after["native_swift_sha256"] or before["playback_pin"] != after["playback_pin"]:
         raise EvidenceError("Native Swift inputs or playback pins differ; selection-only comparison invalid")
+
+
+def compatibility_probes(after: Path, destination: Path, invalid: dict[str, str], full: dict) -> dict:
+    """One build per explicit configuration; skip-build and negative cases never retry failures."""
+    probes = []
+    # Engine independence derives from the manifest owner's closure, not this function list.
+    owner = runpy.run_path(str(after / "Scripts/check-package-graphs.py"))
+    targets = {item["name"]: item for item in full["targets"]}
+    for target, selector in PROBES:
+        local, external = owner["dependency_closure"](targets, target)
+        engine_free = not external and not any(targets[name]["type"] == "binary" for name in local)
+        env = invalid if engine_free else {}
+        scratch = after / ".build" / "owned TestSupport scratch" if target == "SpottyTestSupportTests" else None
+        extra = ["--scratch-path", str(scratch)] if scratch else []
+        row = record_invocation(after, destination / target, contributor(target, selector, *extra), expected=native_expected(target, selector),
+                                environment=env, build=scratch or selected_build(after, target))
+        proof = graph_proof(after, target, destination / f"{target}-graph", scratch=scratch, environment=env)
+        if engine_free and row["fetch_lines"]:
+            raise EvidenceError(f"Engine-free {target} fetched dependencies")
+        probes.append({"invocation": row, "graph": proof})
+    optimized = []
+    gateway_selector = "PathfinderDecodingMeasurementTests/measureResponseDecoding"
+    gateway_scratch = after / ".build" / "owned gateway optimized scratch"
+    gateway_flags = [*OPTIMIZED_PROBE_FLAGS, "--scratch-path", str(gateway_scratch)]
+    for label, extra in (("release", []), ("release-skip-build", ["--skip-build"])):
+        report = destination / f"gateway-{label}-workload.json"
+        row = record_invocation(after, destination / f"gateway-{label}", contributor("SpottyGatewayTests", gateway_selector, *gateway_flags, *extra),
+                                expected=native_expected("SpottyGatewayTests", gateway_selector), build=gateway_scratch,
+                                environment={**invalid, "SPOTTY_PATHFINDER_DECODING_REPORT": str(report)})
+        if row["fetch_lines"]:
+            raise EvidenceError("Optimized engine-free Gateway probe fetched dependencies")
+        optimized.append({"invocation": row, "workload": workload_report(report, "gateway")})
+    optimized.append({"graph": graph_proof(after, "SpottyGatewayTests", destination / "gateway-release-graph",
+                                          scratch=gateway_scratch, environment=invalid, optimized=True)})
+    boundary_selector = "CatalogMetadataMeasurementTests/measureUnchangedEntitySubscriptions"
+    boundary_scratch = after / ".build" / "owned boundary optimized scratch"
+    for label, extra in (("release", []), ("release-skip-build", ["--skip-build"])):
+        boundary_report = destination / f"boundary-{label}-workload.json"
+        row = record_invocation(after, destination / f"boundary-{label}", contributor("SpottyBoundaryTests", boundary_selector, *OPTIMIZED_PROBE_FLAGS,
+                                "--scratch-path", str(boundary_scratch), "-Xswiftc", "-DSPOTTY_BROWSING_OPTIMIZED", *extra),
+                                expected=native_expected("SpottyBoundaryTests", boundary_selector), build=boundary_scratch,
+                                environment={"SPOTTY_ENTITY_OBSERVATION_REPORT": str(boundary_report)})
+        optimized.append({"invocation": row, "workload": workload_report(boundary_report, "boundary")})
+    optimized.append({"graph": graph_proof(after, "SpottyBoundaryTests", destination / "boundary-release-graph", scratch=boundary_scratch, optimized=True)})
+    hook = "QueueAdmissionTests/suspendedResetCannotReplaceANewerAccount"
+    hook_row = record_invocation(after, destination / "runtime-debug-hook", contributor("SpottySessionRuntimeTests", hook, "--skip-build"),
+                                 expected=native_expected("SpottySessionRuntimeTests", hook), build=selected_build(after, "SpottySessionRuntimeTests"))
+    negatives = []
+    cases = (
+        ("zero-match", contributor("SpottyGatewayTests", "SpottyDoesNotExist589", "--skip-build"), None, invalid),
+        ("skipped", contributor("SpottyGatewayTests", gateway_selector, *gateway_flags, "--skip-build"), native_expected("SpottyGatewayTests", gateway_selector), invalid),
+        ("inspection", [sys.executable, "Scripts/verify.py", "list", "--target", "SpottyGatewayTests"], None, invalid),
+        ("unknown", contributor("SpottyUnknown589Tests", GATEWAY), None, invalid),
+        ("conflict", contributor("SpottyGatewayTests", GATEWAY, "--package-path", str(after)), None, invalid),
+        ("compiler", contributor("SpottyGatewayTests", GATEWAY, "-Xswiftc", "-spotty-deliberately-invalid-589"), None, invalid),
+    )
+    for case, argv, expected, env in cases:
+        row = record_invocation(after, destination / f"negative-{case}", argv, expected=expected, case=case, environment=env,
+                                build=gateway_scratch if case == "skipped" else selected_build(after, "SpottyGatewayTests"))
+        if case == "inspection":
+            text = (destination / f"negative-{case}/command.log").read_text()
+            listed = re.findall(r"^(Spotty\w+Tests)\.", text, re.MULTILINE)
+            if not listed or set(listed) != {"SpottyGatewayTests"}:
+                raise EvidenceError("Selected listing escaped its module or listed no functions")
+        negatives.append(row)
+    return {"module_probes": probes, "optimized_probes": optimized,
+            "debug_hook": hook_row, "negative_cases": negatives}
+
+
+def run_compatibility(primary: Path, destination: Path, source: str, head: str, compiler: str) -> dict:
+    """Source-bound compatibility acceptance without another cost-comparison experiment."""
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise EvidenceError("Compatibility proof requires an immutable full head SHA")
+    original = snapshot(primary)
+    provenance = toolchain(primary, compiler)
+    driver_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    write_json(destination / "toolchain.json", provenance)
+    write_json(destination / "inputs.json", {"head": head, "primary": original, "cloning_source": source,
+                                            "driver_sha256": driver_digest})
+    clones = destination / "clones"
+    clones.mkdir()
+    selected = clones / "selected"
+    immutable_clone(source, head, selected)
+    identity = snapshot(selected)
+    if hashlib.sha256((selected / "Scripts/focused_selection_evidence.py").read_bytes()).hexdigest() != driver_digest:
+        raise EvidenceError("Compatibility driver differs from the requested immutable head")
+    if (identity["source"]["revision"] != head or identity["source"]["diffSHA256"] != hashlib.sha256(b"").hexdigest() or
+            identity["source"]["untrackedFileCount"]):
+        raise EvidenceError("Compatibility clone does not match the clean requested head")
+    write_json(destination / "clone-identity.json", identity)
+    # Validate the genuine current full inventory before making any selected cut.
+    owner = runpy.run_path(str(selected / "Scripts/check-package-graphs.py"))
+    full = strict_json(owner["succeeded"](owner["swift"](selected, "full", "dump-package",
+                                                      SPOTTY_BUILD_BROWSING_HARNESS="1", **clean_environment())))
+    write_json(destination / "full-manifest.json", full)
+    owner["verify_full_manifest"](full)
+    reference = {"source": identity["source"], "validator": str(selected / "Scripts/check-package-graphs.py"),
+                 "validator_sha256": hashlib.sha256((selected / "Scripts/check-package-graphs.py").read_bytes()).hexdigest(),
+                 "full_reference_validated": True}
+    write_json(destination / "full-reference.json", reference)
+    invalid = invalid_override(destination)
+    gateway = record_invocation(selected, destination / "SpottyGatewayTests", contributor("SpottyGatewayTests", GATEWAY),
+                                expected=native_expected("SpottyGatewayTests", GATEWAY), environment=invalid,
+                                build=selected_build(selected, "SpottyGatewayTests"))
+    gateway_graph = graph_proof(selected, "SpottyGatewayTests", destination / "Gateway-debug-graph", environment=invalid)
+    if not gateway_graph["engine_free"] or gateway["fetch_lines"]:
+        raise EvidenceError("Focused Gateway graph acquired engine/external fetch")
+    acceptance = compatibility_probes(selected, destination, invalid, full)
+    acceptance["module_probes"].insert(0, {"invocation": gateway, "graph": gateway_graph})
+    final = snapshot(selected)
+    if final["source"] != identity["source"] or final["files"] != identity["files"]:
+        raise EvidenceError("Compatibility probes changed their source or shipping lockfile")
+    current = snapshot(primary)
+    if current["source"] != original["source"] or current["files"] != original["files"]:
+        raise EvidenceError("Compatibility proof changed the primary checkout or shipping lockfile")
+    return {"head": head, "primary_sha": original["source"]["revision"], "toolchain": provenance,
+            "identity": identity, "after": final, "full_reference": reference, **acceptance,
+            "driver_sha256": driver_digest,
+            "optimized_probe_flags": list(OPTIMIZED_PROBE_FLAGS),
+            "cache_context": "One Debug build per cut and one optimized non-WMO build per probe; no before/after cold/warm loop or CI speed credit."}
 
 
 def run_experiment(primary: Path, destination: Path, source: str, before_sha: str, after_sha: str, compiler: str) -> dict:
@@ -694,63 +923,14 @@ def run_experiment(primary: Path, destination: Path, source: str, before_sha: st
         rows[side] = []
         for label in ("cold", "warm-1", "warm-2", "skip-build"):
             row = record_invocation(root, destination / f"{side}-{label}", contributor(target, selector, *(["--skip-build"] if label == "skip-build" else [])),
-                                    expected=native_expected("SpottyGatewayTests", GATEWAY), environment=environment)
+                                    expected=native_expected("SpottyGatewayTests", GATEWAY), environment=environment,
+                                    build=selected_build(root, target) if target else root / ".build")
             rows[side].append(row)
         graphs[side] = graph_proof(root, target, destination / f"{side}-graph", environment=environment)
         if side == "after" and (not graphs[side]["engine_free"] or any(row["fetch_lines"] for row in rows[side])):
             raise EvidenceError("Focused Gateway graph acquired engine/external fetch")
-    probes = []
-    # Engine independence derives from the manifest owner's closure, not this function list.
-    full = strict_json((destination / "after-graph/full-manifest.json").read_text())
-    owner = runpy.run_path(str(after / "Scripts/check-package-graphs.py"))
-    targets = {item["name"]: item for item in full["targets"]}
-    for target, selector in PROBES:
-        local, external = owner["dependency_closure"](targets, target)
-        engine_free = not external and not any(targets[name]["type"] == "binary" for name in local)
-        env = invalid if engine_free else {}
-        scratch = clones / "after" / ".build" / "owned TestSupport scratch" if target == "SpottyTestSupportTests" else None
-        extra = ["--scratch-path", str(scratch)] if scratch else []
-        row = record_invocation(after, destination / target, contributor(target, selector, *extra), expected=native_expected(target, selector), environment=env)
-        proof = graph_proof(after, target, destination / f"{target}-graph", scratch=scratch, environment=env)
-        if engine_free and row["fetch_lines"]:
-            raise EvidenceError(f"Engine-free {target} fetched dependencies")
-        probes.append({"invocation": row, "graph": proof})
-    optimized = []
-    gateway_selector = "PathfinderDecodingMeasurementTests/measureResponseDecoding"
-    gateway_flags = ["-c", "release", "-Xswiftc", "-O", "-Xswiftc", "-enable-testing"]
-    for label, extra in (("release", []), ("release-skip-build", ["--skip-build"])):
-        report = destination / f"gateway-{label}-workload.json"
-        row = record_invocation(after, destination / f"gateway-{label}", contributor("SpottyGatewayTests", gateway_selector, *gateway_flags, *extra),
-                                expected=native_expected("SpottyGatewayTests", gateway_selector), environment={**invalid, "SPOTTY_PATHFINDER_DECODING_REPORT": str(report)})
-        optimized.append({"invocation": row, "workload": workload_report(report, "gateway")})
-    optimized.append({"graph": graph_proof(after, "SpottyGatewayTests", destination / "gateway-release-graph", environment=invalid)})
-    boundary_selector = "CatalogMetadataMeasurementTests/measureUnchangedEntitySubscriptions"
-    boundary_scratch = after / ".build" / "owned boundary optimized scratch"
-    boundary_report = destination / "boundary-workload.json"
-    row = record_invocation(after, destination / "boundary-release", contributor("SpottyBoundaryTests", boundary_selector, *gateway_flags,
-                            "--scratch-path", str(boundary_scratch), "-Xswiftc", "-DSPOTTY_BROWSING_OPTIMIZED"),
-                            expected=native_expected("SpottyBoundaryTests", boundary_selector), environment={"SPOTTY_ENTITY_OBSERVATION_REPORT": str(boundary_report)})
-    optimized.append({"invocation": row, "workload": workload_report(boundary_report, "boundary"),
-                      "graph": graph_proof(after, "SpottyBoundaryTests", destination / "boundary-release-graph", scratch=boundary_scratch)})
-    hook = "QueueAdmissionTests/suspendedResetCannotReplaceANewerAccount"
-    hook_row = record_invocation(after, destination / "runtime-debug-hook", contributor("SpottySessionRuntimeTests", hook, "--skip-build"), expected=native_expected("SpottySessionRuntimeTests", hook))
-    negatives = []
-    cases = (
-        ("zero-match", contributor("SpottyGatewayTests", "SpottyDoesNotExist589", "--skip-build"), None, invalid),
-        ("skipped", contributor("SpottyGatewayTests", gateway_selector, *gateway_flags, "--skip-build"), native_expected("SpottyGatewayTests", gateway_selector), invalid),
-        ("inspection", [sys.executable, "Scripts/verify.py", "list", "--target", "SpottyGatewayTests"], None, invalid),
-        ("unknown", contributor("SpottyUnknown589Tests", GATEWAY), None, invalid),
-        ("conflict", contributor("SpottyGatewayTests", GATEWAY, "--package-path", str(after)), None, invalid),
-        ("compiler", contributor("SpottyGatewayTests", GATEWAY, "-Xswiftc", "-spotty-deliberately-invalid-589"), None, invalid),
-    )
-    for case, argv, expected, env in cases:
-        row = record_invocation(after, destination / f"negative-{case}", argv, expected=expected, case=case, environment=env)
-        if case == "inspection":
-            text = (destination / f"negative-{case}/command.log").read_text()
-            listed = re.findall(r"^(Spotty\w+Tests)\.", text, re.MULTILINE)
-            if not listed or set(listed) != {"SpottyGatewayTests"}:
-                raise EvidenceError("Selected listing escaped its module or listed no functions")
-        negatives.append(row)
+    acceptance = compatibility_probes(after, destination, invalid,
+                                      strict_json((destination / "after-graph/full-manifest.json").read_text()))
     current = snapshot(primary)
     if current["source"] != original["source"] or current["files"] != original["files"]:
         raise EvidenceError("Experiment mutated the primary checkout or shipping lockfile")
@@ -763,7 +943,7 @@ def run_experiment(primary: Path, destination: Path, source: str, before_sha: st
     return {"before_sha": before_sha, "after_sha": after_sha, "primary_sha": original["source"]["revision"],
             "event_base_sha": os.environ.get("SPOTTY_EVIDENCE_EVENT_BASE_SHA"), "toolchain": provenance,
             "identities": identities, "timing_samples": rows, "costs": costs, "graphs": graphs,
-            "module_probes": probes, "optimized_probes": optimized, "debug_hook": hook_row, "negative_cases": negatives,
+            **acceptance,
             "cache_context": "Owned clones began without products/module caches; shared dependency/manifest/system caches are warm after full lane. One cold sample is descriptive; no #587 credit or speed threshold."}
 
 
@@ -775,18 +955,22 @@ def main() -> int:
     validate.add_argument("--expected-function", required=True)
     record = actions.add_parser("record")
     record.add_argument("--expected-function")
+    record.add_argument("--build-path", type=Path, help="Actual scratch directory whose bounded compiler metadata is preserved on success or failure")
     record.add_argument("--case", choices=("success", "inspection", "zero-match", "skipped", "unknown", "conflict", "compiler"), default="success")
     record.add_argument("argv", nargs=argparse.REMAINDER)
     smoke = actions.add_parser("smoke")
+    compatibility = actions.add_parser("compatibility", help="One source-bound compatibility proof; no before/after timing experiment")
     experiment = actions.add_parser("experiment")
-    for action in (record, smoke, experiment):
+    for action in (record, smoke, compatibility, experiment):
         action.add_argument("--root", type=Path, default=Path.cwd())
         action.add_argument("--output", type=Path, required=True)
-    for action in (smoke, experiment):
+    for action in (smoke, compatibility, experiment):
         action.add_argument("--swift-version", required=True, choices=("6.3.3", "6.4"))
     experiment.add_argument("--source", required=True)
     experiment.add_argument("--before", required=True)
     experiment.add_argument("--after", required=True)
+    compatibility.add_argument("--source", required=True)
+    compatibility.add_argument("--head", required=True)
     args = parser.parse_args()
     try:
         if args.action == "validate":
@@ -796,7 +980,8 @@ def main() -> int:
             argv = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
             if not argv:
                 raise EvidenceError("record requires a contributor argv after --")
-            record_invocation(args.root.resolve(), args.output.resolve(), argv, expected=args.expected_function, case=args.case)
+            record_invocation(args.root.resolve(), args.output.resolve(), argv, expected=args.expected_function, case=args.case,
+                              build=args.build_path.resolve() if args.build_path else None)
             return 0
         destination = args.output.resolve()
         destination.mkdir(parents=True, exist_ok=False)
@@ -804,18 +989,28 @@ def main() -> int:
                    "ci": {key: os.environ.get(key) for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB", "GITHUB_SHA")}}
         start = time.monotonic()
         write_json(destination / "summary.json", summary)
+        failure = None
         try:
-            result = run_smoke(args.root.resolve(), destination, args.swift_version) if args.action == "smoke" else run_experiment(args.root.resolve(), destination, args.source, args.before, args.after, args.swift_version)
+            if args.action == "smoke":
+                result = run_smoke(args.root.resolve(), destination, args.swift_version)
+            elif args.action == "compatibility":
+                result = run_compatibility(args.root.resolve(), destination, args.source, args.head, args.swift_version)
+            else:
+                result = run_experiment(args.root.resolve(), destination, args.source, args.before, args.after, args.swift_version)
             summary.update(result, success=True)
         except (OSError, ValueError, subprocess.SubprocessError, KeyboardInterrupt) as error:
             summary["error"] = str(error)
+            failure = error
             raise
         finally:
             summary["driver_wall_seconds"] = round(time.monotonic() - start, 6)
-            write_json(destination / "summary.json", summary)
+            write_final_json(destination / "summary.json", summary, failure=failure)
         return 0
     except (OSError, ValueError, subprocess.SubprocessError, KeyboardInterrupt) as error:
-        print(f"focused-selection-evidence: {error}", file=sys.stderr)
+        try:
+            print(f"focused-selection-evidence: {error}", file=sys.stderr)
+        except (OSError, ValueError):
+            pass  # Broken pipes and closed streams cannot replace the original failure.
         return error.status if isinstance(error, EvidenceError) else 130 if isinstance(error, KeyboardInterrupt) else 1
 
 

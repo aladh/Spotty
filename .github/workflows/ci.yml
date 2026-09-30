@@ -518,7 +518,15 @@ jobs:
         timeout-minutes: 15
         env:
           SPOTTY_CHECK_REPEATS: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
-        run: SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh
+          HOST_OBSERVATION_REQUESTED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence') }}
+        run: |
+          case "$HOST_OBSERVATION_REQUESTED" in
+            true)
+              SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests python3 Scripts/swift_test_host_observation.py --timeout-seconds 840 --output-dir "$RUNNER_TEMP/spotty-host-observation" --build-root "$GITHUB_WORKSPACE/.build" -- ./Scripts/check.sh
+              ;;
+            false) SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh ;;
+            *) echo "Unknown host observation request" >&2; exit 1 ;;
+          esac
 
       - name: Prove focused test selection
         id: focused_smoke
@@ -551,7 +559,7 @@ jobs:
         timeout-minutes: 20
         env:
           SELECTION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 Scripts/focused_selection_evidence.py experiment --source "$GITHUB_WORKSPACE" --before cb67cd0d808868d0484cb5786ff46926a81c7852 --after "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/experiment" --swift-version 6.3.3
+        run: python3 Scripts/focused_selection_evidence.py compatibility --source "$GITHUB_WORKSPACE" --head "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/compatibility" --swift-version 6.3.3
       - name: Upload focused selection evidence
         id: selection_upload
         if: always()
@@ -569,6 +577,15 @@ jobs:
           path: ${{ runner.temp }}/spotty-swift-test-diagnostics
           if-no-files-found: warn
           retention-days: 7
+      - name: Upload executing-host observation
+        id: host_observation_upload
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-host-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/spotty-host-observation
+          if-no-files-found: error
+          retention-days: 7
       - name: Require Swift test evidence
         if: always()
         env:
@@ -580,6 +597,8 @@ jobs:
           SELECTION_UPLOAD_RESULT: ${{ steps.selection_upload.outcome }}
           SELECTION_EXPERIMENT_REQUESTED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence') }}
           SELECTION_EXPERIMENT_RESULT: ${{ steps.selection_experiment.outcome }}
+          HOST_OBSERVATION_REQUESTED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence') }}
+          HOST_OBSERVATION_UPLOAD_RESULT: ${{ steps.host_observation_upload.outcome }}
         run: |
           test "$CHECKS_RESULT" = success
           test "$ACCEPTANCE_RESULT" = success
@@ -590,6 +609,10 @@ jobs:
           case "$SELECTION_EXPERIMENT_REQUESTED:$SELECTION_EXPERIMENT_RESULT" in
             true:success|false:skipped) ;;
             *) echo "Focused selection evidence disagrees with request" >&2; exit 1 ;;
+          esac
+          case "$HOST_OBSERVATION_REQUESTED:$HOST_OBSERVATION_UPLOAD_RESULT" in
+            true:success|false:skipped) ;;
+            *) echo "Host observation evidence disagrees with request" >&2; exit 1 ;;
           esac
       - name: Upload Swift timing evidence
         if: always()

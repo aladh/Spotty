@@ -38,10 +38,11 @@ Selected listing/help requires no execution. Without a selector, explicit paths 
 graph; legacy target-named products require Swift 6.4. Full gates/shipping keep the full graph.
 `domain` remains portable under `.build/domain`.
 
-`domain` forwards Release options. Full Debug includes every target and browsing; Release adds
-optimized domain checks. Boundaries use Debug `@testable`; shipping excludes harness targets.
-Queue scheduler suspension hooks and SessionRuntime admission/mutation checks are Debug-only.
-Pure Domain queue-mutation policy also runs optimized.
+`domain` forwards Release options. Full Debug covers all targets/browsing; Release adds
+optimized Domain/queue-mutation checks. Boundaries use Debug `@testable`; shipping
+excludes harnesses. Queue scheduler suspension hooks and SessionRuntime admission/mutation checks
+require Debug. Gateway/Boundary probes use [explicit optimized non-WMO settings](runtime-acceptance.md#measurements);
+compiler failures remain terminal.
 
 Complete gates use [check.sh](../../Scripts/check.sh),
 [source policies](../../Scripts/check-source-policy.sh), and [check-clean.sh](../../Scripts/check-clean.sh).
@@ -77,7 +78,7 @@ The [watchdog](../../Scripts/swift_test_watchdog.py) bounds each Swift test invo
 in CI or twenty locally, sampling and terminating only its own process tree without retry.
 Override with `SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS`; select an artifact directory with
 `SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR`. The wrapper reports commands, status, and diagnostics paths;
-CI retains Debug invocation logs and supported native event streams, including passing runs.
+CI retains passing/failing Debug logs/events; [host diagnostics](test-host-diagnostics.md) explains attribution and cleanup.
 
 ## Deterministic synchronization
 

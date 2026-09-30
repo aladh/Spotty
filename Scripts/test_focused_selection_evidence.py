@@ -67,6 +67,37 @@ class NativeSelectionEvidenceTests(unittest.TestCase):
             with self.subTest(wrong=wrong), self.assertRaises(evidence.EvidenceError):
                 evidence.validate_native(self.events, wrong)
 
+    def test_top_level_function_identity_retains_exact_module_and_lifecycle(self):
+        # Observed form in the full actual 6.4 Gateway stream; these transformed
+        # envelopes exercise the parser and are synthetic orchestration evidence.
+        top = "SpottyGatewayTests.tokenEndpointRetries()"
+        raw = top + "/TransportRetryChecks.swift:909:2"
+        for fixture in (ACTUAL_633, ACTUAL_64):
+            rows = copy.deepcopy(fixture)
+            suite = next(row["payload"]["id"] for row in rows if row["payload"]["kind"] == "suite")
+            old = next(row["payload"]["id"] for row in rows if row["payload"]["kind"] == "function")
+            rows = [row for row in rows if row["payload"].get("id") != suite
+                    and row["payload"].get("testID") != suite]
+            for row in rows:
+                for key in ("id", "testID"):
+                    if row["payload"].get(key) == old:
+                        row["payload"][key] = raw
+            proof = evidence.validate_native(self.write(rows), top)
+            self.assertEqual(proof["completed_functions"], [raw])
+            for wrong in (top.replace("SpottyGatewayTests", "SpottyBoundaryTests"),
+                          top.replace("tokenEndpointRetries", "otherFunction")):
+                with self.subTest(wrong=wrong), self.assertRaises(evidence.EvidenceError):
+                    evidence.validate_native(self.events, wrong)
+            missing_end = [row for row in rows if not (row["payload"].get("testID") == raw
+                                                       and row["payload"]["kind"] == "testEnded")]
+            with self.assertRaises(evidence.EvidenceError):
+                evidence.validate_native(self.write(missing_end), top)
+        for malformed in ("tokenEndpointRetries()/TransportRetryChecks.swift:909:2",
+                          top + "/nested/path/TransportRetryChecks.swift:909:2",
+                          top + "/TransportRetryChecks.swift", top + "/TransportRetryChecks.swift:true:2"):
+            with self.subTest(malformed=malformed), self.assertRaises(evidence.EvidenceError):
+                evidence.function_identity(malformed)
+
     def test_missing_empty_truncated_and_malformed_records_fail_closed(self):
         for text in ("", "{}\n", "{broken}\n", "[]\n", "\n", "null\n", "{\"kind\":NaN}\n"):
             with self.subTest(text=text), self.assertRaises(evidence.EvidenceError):

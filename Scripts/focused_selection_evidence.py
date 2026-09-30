@@ -56,7 +56,7 @@ class EvidenceError(ValueError):
 
 def function_identity(raw: str) -> str:
     """Only source location may differ between revisions. Retain raw IDs in receipts."""
-    if not isinstance(raw, str) or not re.fullmatch(r"[^/]+/[^/]+/[^/]+\.swift:\d+:\d+", raw):
+    if not isinstance(raw, str) or not re.fullmatch(r"[A-Za-z_]\w*\.[^/]+/(?:[^/]+/)?[^/]+\.swift:\d+:\d+", raw):
         raise EvidenceError(f"Invalid native function ID: {raw!r}")
     return raw.rsplit("/", 1)[0]
 

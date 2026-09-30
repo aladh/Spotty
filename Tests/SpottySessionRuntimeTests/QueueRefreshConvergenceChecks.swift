@@ -6,53 +6,6 @@ import SpottyDomain
 @testable import SpottySessionRuntime
 import SpottyRuntimeContracts
 
-/// Scripts concurrent Web queue flights by request ID and deliberately ignores cancellation,
-/// allowing old-account failures to arrive after a replacement request starts.
-private actor LateFailureWebQueueGate {
-    private var nextRequestID = 0
-    private var continuations: [Int: CheckedContinuation<[CatalogTrack], any Error>] = [:]
-    private var terminalRequests: Set<Int> = []
-
-    var pendingRequestIDs: Set<Int> { Set(continuations.keys) }
-
-    func next() async throws -> [CatalogTrack] {
-        nextRequestID += 1
-        let requestID = nextRequestID
-        if terminalRequests.remove(requestID) != nil {
-            throw CancellationError()
-        }
-        return try await withCheckedThrowingContinuation { continuation in
-            continuations[requestID] = continuation
-        }
-    }
-
-    func fail429(_ requestID: Int) {
-        guard let continuation = continuations.removeValue(forKey: requestID) else {
-            terminalRequests.insert(requestID)
-            return
-        }
-        continuation.resume(throwing: WebQueueFailure.requestFailed(429))
-    }
-
-    func complete(_ requestID: Int, with tracks: [CatalogTrack]) {
-        guard let continuation = continuations.removeValue(forKey: requestID) else {
-            terminalRequests.insert(requestID)
-            return
-        }
-        continuation.resume(returning: tracks)
-    }
-}
-
-/// A `HarnessWebQueue` whose requests are routed through a `LateFailureWebQueueGate`, so a check
-/// can fail or complete concurrent flights independently by request id. `requestCount` still comes
-/// from the harness queue itself.
-private func makeLateFailureWebQueue() -> (webQueue: HarnessWebQueue, gate: LateFailureWebQueueGate) {
-    let gate = LateFailureWebQueueGate()
-    let webQueue = HarnessWebQueue()
-    webQueue.onQueue = { [gate] in try await gate.next() }
-    return (webQueue, gate)
-}
-
 private func queueRefreshTrack(_ uri: String) -> CatalogTrack {
     CatalogTrack(
         id: uri,
@@ -226,135 +179,73 @@ struct QueueRefreshConvergenceTests {
     @Test
     @MainActor
     func changedFallbackReplacesTheSharedFlight() async throws {
-        let (web, gate) = makeLateFailureWebQueue()
-        let service = QueueService(
-            webQueue: web,
-            metadata: TrackMetadataService(remote: HarnessRemote(metadata: .park))
-        )
-        await service.reset(accountEpoch: 1)
-        let oldURI = "spotify:track:old-fallback"
-        let newURI = "spotify:track:new-fallback"
-        let first = Task {
-            await service.refresh(
+        try await QueueResponseFixture().run { fixture in
+            await fixture.service.reset(accountEpoch: 1)
+            let oldURI = "spotify:track:old-fallback"
+            let newURI = "spotify:track:new-fallback"
+            let first = fixture.start(
                 fallbackEntries: [QueueEntry(uri: oldURI, provider: "fallback", occurrence: 0)],
-                cachedTracks: [queueRefreshTrack(oldURI)],
-                currentTrackURI: "spotify:track:current",
-                accountEpoch: 1
-            )
-        }
-        defer {
-            first.cancel()
-            Task {
-                await gate.fail429(1)
-                await gate.fail429(2)
-            }
-        }
-        try await requireEventually { await gate.pendingRequestIDs.contains(1) }
-        #expect(web.requestCount == 1)
-        let second = Task {
-            await service.refresh(
+                cachedTracks: [queueRefreshTrack(oldURI)])
+            let oldWorker = try await fixture.requireRequest(1)
+            #expect(fixture.web.requestCount == 1)
+            let second = fixture.start(
                 fallbackEntries: [QueueEntry(uri: newURI, provider: "fallback", occurrence: 0)],
-                cachedTracks: [queueRefreshTrack(newURI)],
-                currentTrackURI: "spotify:track:current",
-                accountEpoch: 1
-            )
+                cachedTracks: [queueRefreshTrack(newURI)])
+            let replacementWorker = try await fixture.requireRequest(2)
+            #expect(fixture.web.requestCount == 2)
+            fixture.script.fail429(1)
+            await oldWorker.value
+            #expect(try await fixture.value(first) == nil)
+            fixture.script.fail429(2)
+            await replacementWorker.value
+            let result = try await fixture.value(second)
+            #expect(result?.entries.map(\.uri) == [newURI])
+            #expect(result?.tracks.map(\.uri) == [newURI])
         }
-        defer { second.cancel() }
-        try await requireEventually { await gate.pendingRequestIDs.contains(2) }
-        #expect(web.requestCount == 2)
-        await gate.fail429(1)
-        #expect(await first.value == nil)
-        await gate.fail429(2)
-        let result = await second.value
-        #expect(result?.entries.map(\.uri) == [newURI])
-        #expect(result?.tracks.map(\.uri) == [newURI])
     }
 
     @Test
     @MainActor
     func concurrentRefreshesJoinOneWebFlightAndPublishToBothSubscribers() async throws {
-        let web = HarnessWebQueue(.park)
-        let service = QueueService(
-            webQueue: web,
-            metadata: TrackMetadataService(remote: HarnessRemote(metadata: .park))
-        )
-        await service.reset(accountEpoch: 1)
-
-        let firstUpdates = HarnessCounters()
-        let secondUpdates = HarnessCounters()
-        let first = Task {
-            await service.refresh(
-                fallbackEntries: [],
-                currentTrackURI: "spotify:track:current",
-                accountEpoch: 1,
-                onUpdate: { _ in firstUpdates.record("update") }
-            )
+        try await QueueResponseFixture().run { fixture in
+            await fixture.service.reset(accountEpoch: 1)
+            let firstUpdates = HarnessCounters()
+            let secondUpdates = HarnessCounters()
+            let first = fixture.start(onUpdate: { _ in firstUpdates.record("update") })
+            let worker = try await fixture.requireRequest(1)
+            let second = fixture.start(onUpdate: { _ in secondUpdates.record("update") })
+            try await requireEventually { await fixture.service.refreshSubscriberCount == 2 }
+            #expect(fixture.web.requestCount == 1, "concurrent callers share one Web queue request")
+            fixture.script.complete(1, with: [queueRefreshTrack("spotify:track:joined")])
+            await worker.value
+            #expect((try await fixture.value(first))?.entries.map(\.uri) == ["spotify:track:joined"])
+            #expect((try await fixture.value(second))?.entries.map(\.uri) == ["spotify:track:joined"])
+            #expect(firstUpdates.count("update") == 1)
+            #expect(secondUpdates.count("update") == 1)
         }
-        defer { first.cancel(); web.fail() }
-        try await requireEventually { web.isParked }
-        #expect(web.requestCount == 1)
-        let second = Task {
-            await service.refresh(
-                fallbackEntries: [],
-                currentTrackURI: "spotify:track:current",
-                accountEpoch: 1,
-                onUpdate: { _ in secondUpdates.record("update") }
-            )
-        }
-        try await requireEventually { await service.refreshSubscriberCount == 2 }
-        #expect((web.requestCount) == 1, "concurrent callers share one Web queue request")
-
-        web.complete(with: [queueRefreshTrack("spotify:track:joined")])
-        let firstResult = await first.value
-        let secondResult = await second.value
-        #expect(firstResult?.entries.map(\.uri) == ["spotify:track:joined"])
-        #expect(secondResult?.entries.map(\.uri) == ["spotify:track:joined"])
-        #expect(firstUpdates.count("update") == 1, "the first subscriber receives the shared publication")
-        #expect(secondUpdates.count("update") == 1, "the joining subscriber receives the shared publication")
     }
 
     @Test
     @MainActor
     func cancelledSubscriberCanRejoinWithoutCancellingSharedFlight() async throws {
-        let web = HarnessWebQueue(.park)
-        let service = QueueService(
-            webQueue: web,
-            metadata: TrackMetadataService(remote: HarnessRemote(metadata: .park))
-        )
-        await service.reset(accountEpoch: 1)
-
-        let cancelledUpdates = HarnessCounters()
-        var cancelledSettled = false
-        let cancelled = Task {
-            let result = await service.refresh(
-                fallbackEntries: [],
-                currentTrackURI: "spotify:track:current",
-                accountEpoch: 1,
-                onUpdate: { _ in cancelledUpdates.record("update") }
-            )
-            cancelledSettled = true
-            return result
+        try await QueueResponseFixture().run { fixture in
+            await fixture.service.reset(accountEpoch: 1)
+            let cancelledUpdates = HarnessCounters()
+            let cancelled = fixture.start(onUpdate: { _ in cancelledUpdates.record("update") })
+            let worker = try await fixture.requireRequest(1)
+            let joined = fixture.start()
+            try await requireEventually { await fixture.service.refreshSubscriberCount == 2 }
+            cancelled.cancel()
+            #expect(
+                try await fixture.value(cancelled) == nil, "cancellation settles while the Web request remains parked")
+            try await requireEventually { await fixture.service.refreshSubscriberCount == 1 }
+            #expect(fixture.script.pendingRequestIDs == [1], "one caller cannot cancel shared transport")
+            #expect(fixture.web.requestCount == 1)
+            fixture.script.complete(1, with: [queueRefreshTrack("spotify:track:rejoined")])
+            await worker.value
+            #expect((try await fixture.value(joined))?.entries.map(\.uri) == ["spotify:track:rejoined"])
+            #expect(cancelledUpdates.count("update") == 0)
         }
-        defer { cancelled.cancel(); web.fail() }
-        try await requireEventually { web.isParked }
-        #expect(web.requestCount == 1)
-        let joined = Task {
-            await service.refresh(
-                fallbackEntries: [],
-                currentTrackURI: "spotify:track:current",
-                accountEpoch: 1
-            )
-        }
-        try await requireEventually { await service.refreshSubscriberCount == 2 }
-        cancelled.cancel()
-        #expect(await waitUntil { cancelledSettled }, "cancellation settles before the shared Web request finishes")
-        #expect(await waitUntil { await service.refreshSubscriberCount == 1 })
-
-        #expect((web.requestCount) == 1, "rejoin does not start a duplicate Web request")
-        web.complete(with: [queueRefreshTrack("spotify:track:rejoined")])
-        #expect((await cancelled.value) == nil, "the cancelled caller cannot adopt the result")
-        #expect((await joined.value)?.entries.map(\.uri) == ["spotify:track:rejoined"])
-        #expect(cancelledUpdates.count("update") == 0, "a removed subscriber cannot publish after an await")
     }
 
     @Test
@@ -552,46 +443,43 @@ struct QueueRefreshConvergenceTests {
         #expect((await oldContext.value) == nil, "a context change rejects the old flight result")
     }
 
-    @Test
+    @Test(arguments: [false, true])
     @MainActor
-    func staleWebFailureCannotSetCooldownForTheReplacementAccount() async throws {
-        let (web, gate) = makeLateFailureWebQueue()
-        let service = QueueService(
-            webQueue: web,
-            metadata: TrackMetadataService(remote: HarnessRemote(metadata: .park))
-        )
-        await service.reset(accountEpoch: 1)
-        let oldAccount = Task {
-            await service.refresh(
-                fallbackEntries: [],
-                currentTrackURI: "spotify:track:old-account",
-                accountEpoch: 1
-            )
-        }
-        defer {
-            oldAccount.cancel()
-            Task {
-                await gate.fail429(1)
-                await gate.fail429(2)
+    func staleWebFailureCannotSetCooldownForTheReplacementAccount(replacementPublishesFirst: Bool) async throws {
+        try await QueueResponseFixture().run { fixture in
+            await fixture.service.reset(accountEpoch: 1)
+            let oldAccount = fixture.start(context: "spotify:track:old-account")
+            let oldWorker = try await fixture.requireRequest(1)
+            await fixture.service.reset(accountEpoch: 2)
+            #expect(try await fixture.value(oldAccount) == nil)
+            let replacement = fixture.start(accountEpoch: 2, context: "spotify:track:new-account")
+            let replacementWorker = try await fixture.requireRequest(2)
+            if replacementPublishesFirst {
+                fixture.script.complete(2, with: [queueRefreshTrack("spotify:track:fresh")])
+                await replacementWorker.value
             }
+            fixture.script.fail429(1)
+            // This is the actual worker task, whose end follows acceptWebResult and flight finish.
+            // The cancelled old subscriber's completion cannot establish this ordering.
+            await oldWorker.value
+            if !replacementPublishesFirst {
+                #expect(await fixture.service.refreshSubscriberCount == 1)
+                fixture.script.complete(2, with: [queueRefreshTrack("spotify:track:fresh")])
+                await replacementWorker.value
+            }
+            #expect((try await fixture.value(replacement))?.entries.map(\.uri) == ["spotify:track:fresh"])
+            // A third refresh must reach transport despite the old 429. Its typed immediate
+            // failure selects the ordinary empty fallback rather than parking another waiter.
+            let publication = fixture.probePublication
+            let probe = fixture.start(
+                accountEpoch: 2, context: "spotify:track:new-account",
+                onUpdate: { _ in _ = try? await publication.wait() })
+            let probeWorker = try await fixture.requireProbeWorker()
+            #expect(fixture.web.requestCount == 3, "a retired 429 cannot install replacement-account cooldown")
+            publication.finish(())
+            await probeWorker.value
+            #expect(try await fixture.value(probe) != nil)
+            #expect(fixture.script.pendingRequestIDs.isEmpty)
         }
-        try await requireEventually { await gate.pendingRequestIDs.contains(1) }
-        #expect(web.requestCount == 1)
-        await service.reset(accountEpoch: 2)
-        await gate.fail429(1)
-        #expect((await oldAccount.value) == nil)
-
-        let replacement = Task {
-            await service.refresh(
-                fallbackEntries: [],
-                currentTrackURI: "spotify:track:new-account",
-                accountEpoch: 2
-            )
-        }
-        defer { replacement.cancel() }
-        try await requireEventually { await gate.pendingRequestIDs.contains(2) }
-        #expect(web.requestCount == 2, "the replacement account probes Web again")
-        await gate.complete(2, with: [queueRefreshTrack("spotify:track:fresh")])
-        #expect((await replacement.value)?.entries.map(\.uri) == ["spotify:track:fresh"])
     }
 }

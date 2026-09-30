@@ -205,6 +205,12 @@ actor QueueService {
 
     private var refreshFlight: RefreshFlight?
 
+    #if DEBUG
+        /// Capture while a dependency is parked. Joining this exact task survives slot reset
+        /// and proves the worker finished its owner calls, unlike subscriber completion.
+        var refreshWorkerTask: Task<Void, Never>? { refreshFlight?.task }
+    #endif
+
     init(
         webQueue: any WebQueueClient,
         metadata: TrackMetadataService,

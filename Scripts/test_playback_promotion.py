@@ -65,7 +65,9 @@ class PromotionTests(unittest.TestCase):
                  "completed_at": "2026-09-05T12:10:00Z"} for name in PRODUCER_STEPS
             ] + [{"name": "Run checks", "conclusion": "failure"}],
         }]
-        self.jobs[2]["steps"][2]["started_at"] = "2026-09-05T12:08:00Z"
+        self.upload_step = next(step for step in self.jobs[2]["steps"]
+                                if step["name"] == "Upload candidate playback artifact")
+        self.upload_step["started_at"] = "2026-09-05T12:08:00Z"
         self.artifact = {"expired": False, "created_at": "2026-09-05T12:09:00Z"}
 
     def test_engine_promotion_survives_later_swift_failure(self):
@@ -73,6 +75,12 @@ class PromotionTests(unittest.TestCase):
         validate_checkout(self.run, HEAD)
         validate_artifact(self.artifact, self.jobs)
         self.assertEqual(validate_payload(payload(), HEAD), (HEAD, DIGEST))
+
+    def test_engine_promotion_survives_later_cache_export_failure(self):
+        self.jobs[2]["steps"] = [step for step in self.jobs[2]["steps"] if step["name"] in PRODUCER_STEPS]
+        self.jobs[2]["steps"].append({"name": "Export rust-debug cache products", "conclusion": "failure"})
+        source, digest, _ = promote(**self.promotion_inputs())
+        self.assertEqual((source, digest), (HEAD, DIGEST))
 
     def promotion_inputs(self):
         bundle = zip_bytes(payload())
@@ -134,6 +142,7 @@ class PromotionTests(unittest.TestCase):
         for old, new in ((b"--for-publish", b"--for-publish --changed"),
                          (b"contents: read", b"contents: write"),
                          (b"--test-only", b"--skip-tests"),
+                         (b"Scripts/ci_cache_bundle.py preflight", b"Scripts/ci_cache_bundle.py changed-preflight"),
                          (b"Scripts/script_tests.py playback", b"Scripts/script_tests.py policy")):
             with self.subTest(old=old):
                 self.assertIn(old, WORKFLOW)
@@ -193,6 +202,21 @@ class PromotionTests(unittest.TestCase):
                 with self.subTest(index=index, duplicate=duplicate), self.assertRaises(ValueError):
                     validate_run(self.run, jobs, "owner/repo", HEAD)
 
+    def test_public_cargo_source_proof_requires_one_successful_record(self):
+        name = "Preflight public Cargo source proof"
+        for conclusion in ("failure", "skipped", "cancelled", None, "missing", "duplicate"):
+            args = self.promotion_inputs()
+            args["jobs"] = copy.deepcopy(args["jobs"])
+            engine = args["jobs"][2]
+            engine["conclusion"] = "success"
+            engine["steps"] = [step for step in engine["steps"] if step["name"] != name]
+            if conclusion != "missing":
+                engine["steps"].append({"name": name, "conclusion": "success" if conclusion == "duplicate" else conclusion})
+            if conclusion == "duplicate":
+                engine["steps"].append({"name": name, "conclusion": "success"})
+            with self.subTest(conclusion=conclusion), self.assertRaisesRegex(ValueError, "Missing successful " + name):
+                promote(**args)
+
     def test_artifact_finalization_timestamp_skew_is_bounded(self):
         validate_artifact({**self.artifact, "created_at": "2026-09-05T12:10:01Z"}, self.jobs)
         for created in ("2026-09-05T12:07:59Z", "2026-09-05T12:10:02Z"):
@@ -200,7 +224,7 @@ class PromotionTests(unittest.TestCase):
                 validate_artifact({**self.artifact, "created_at": created}, self.jobs)
 
     def test_artifact_timestamp_tolerance_crosses_midnight(self):
-        self.jobs[2]["steps"][2]["completed_at"] = "2026-09-05T23:59:59Z"
+        self.upload_step["completed_at"] = "2026-09-05T23:59:59Z"
         validate_artifact({**self.artifact, "created_at": "2026-09-06T00:00:00Z"}, self.jobs)
         with self.assertRaises(ValueError):
             validate_artifact({**self.artifact, "created_at": "2026-09-06T00:00:01Z"}, self.jobs)

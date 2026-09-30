@@ -21,13 +21,16 @@ SWIFT_LANES = ("contracts", "tests", "release")
 SWIFT_BUILD_INPUTS = (
     "Package.swift", "Package.resolved", "Scripts/swiftpm-env.sh", "Scripts/check.sh",
     "Scripts/compile-release-spotty.sh", "Scripts/verification_package.py", "Scripts/ci_cache_keys.py",
+    "Scripts/ci_cache_bundle.py",
     "Sources/SpottyPlaybackCore/include/module.modulemap",
     "Sources/SpottyPlaybackCore/include/spotty_playback.h",
     "Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h",
     "Sources/SpottyPlaybackCore/include/spotty_playback_generated.h",
 )
+RUST_CACHE_TRANSFER_INPUTS = ("Scripts/ci_cache_bundle.py",)
 RUST_BUILD_INPUTS = (
     "rust-toolchain.toml", "Scripts/ci_cache_keys.py",
+    *RUST_CACHE_TRANSFER_INPUTS,
     "Backend/spotty-playback/Cargo.toml", "Backend/spotty-playback/Cargo.lock",
     "Backend/spotty-playback/build.sh", "Backend/spotty-playback/build-xcframework.sh",
     "Backend/spotty-playback/macos-deployment-target",
@@ -112,6 +115,12 @@ def toolchain_identity(scope, root, *, probe=command, environment=None, machine=
         **read_sdk(selected_sdk),
     }
     if scope == "swift":
+        # SwiftBuild can select Xcode's SDK independently of the SDKROOT exported for
+        # direct compiler probes. Bound restores to both without assuming which builder
+        # consumes the wrapper selection. Explicitly remove SDKROOT: xcrun honors it.
+        xcode_sdk = probe(["env", "-u", "SDKROOT", "xcrun", "--sdk", "macosx", "--show-sdk-path"], root)
+        identity.update({"sdk_role": "wrapper-selected",
+                         **{f"xcode_{name}": value for name, value in read_sdk(xcode_sdk).items()}})
         swift = probe(["swift", "--version"], root)
         identity.update({
             "swift": field(swift, r"(?:^| )Swift version ([0-9]+(?:\.[0-9]+)*) ", "Swift version"),
@@ -249,7 +258,8 @@ def cache_keys(scope, root, identity, *, lane=None, build_system="default", revi
                        "flags": RUST_FIXED_FLAGS, "locked": True,
                        "incremental": environment.get("CARGO_INCREMENTAL", "manifest-default"),
                        "cargo_configuration": cargo_configuration(environment)})
-        values = {"RUST_RELEASE_COMPATIBILITY_KEY": f"macos-rust-release-v3-{digest(common)}",
+        values = {"RUST_RELEASE_COMPATIBILITY_KEY": f"macos-rust-release-v4-{digest(common)}",
+                  "RUST_CACHE_TRANSFER_KEY": digest(input_identity(root, RUST_CACHE_TRANSFER_INPUTS)),
                   "RUST_TOOLCHAIN_KEY": toolchain_key}
     else:
         raise ValueError("Unsupported cache scope")

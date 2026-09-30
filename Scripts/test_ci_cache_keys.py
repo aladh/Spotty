@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -22,7 +23,8 @@ COMMON_TOOLCHAIN = {
     "clang": "17.0.0", "clang_build": "clang-1700.4.4.1", "clang_target": "arm64-apple-darwin25.0.0",
 }
 SWIFT_TOOLCHAIN = {**COMMON_TOOLCHAIN, "swift": "6.3.3", "swift_build": "swiftlang-6.3.3.1.1 clang-1700.4.4.1",
-                   "swift_target": "arm64-apple-macosx26.0"}
+                   "swift_target": "arm64-apple-macosx26.0", "sdk_role": "wrapper-selected",
+                   "xcode_sdk": "27.0", "xcode_sdk_build": "26A425", "xcode_sdk_settings": "b" * 64}
 RUST_TOOLCHAIN = {**COMMON_TOOLCHAIN, "rust": "1.98.1", "rust_commit": "2" * 40,
                   "rust_host": "aarch64-apple-darwin", "rust_llvm": "22.1.8",
                   "cargo": "1.98.1", "cargo_commit": "3" * 40, "cargo_host": "aarch64-apple-darwin"}
@@ -101,6 +103,15 @@ class CacheKeyTests(unittest.TestCase):
         self.assertEqual(before["SWIFT_CACHE_PREFIX"], after["SWIFT_CACHE_PREFIX"])
         self.assertTrue(before["SWIFT_CACHE_KEY"].startswith(before["SWIFT_CACHE_PREFIX"]))
 
+    def test_each_sdk_version_build_and_settings_isolate_every_swift_lane(self):
+        for lane in ("contracts", "tests", "release"):
+            before = self.swift(lane=lane)["SWIFT_CACHE_PREFIX"]
+            for dimension in ("sdk", "sdk_build", "sdk_settings", "xcode_sdk", "xcode_sdk_build",
+                              "xcode_sdk_settings"):
+                with self.subTest(lane=lane, dimension=dimension):
+                    changed = {**SWIFT_TOOLCHAIN, dimension: SWIFT_TOOLCHAIN[dimension] + "-changed"}
+                    self.assertNotEqual(before, self.swift(lane=lane, identity=changed)["SWIFT_CACHE_PREFIX"])
+
     def test_swift_source_edit_can_reuse_only_compatible_build_contract(self):
         before = self.swift()["SWIFT_CACHE_PREFIX"]
         self.write("Sources/Spotty/Updated.swift", "changed implementation")
@@ -162,6 +173,50 @@ class CacheKeyTests(unittest.TestCase):
                      "Backend/spotty-playback/.cargo/config"):
             with self.subTest(input=name):
                 self.assert_input_changes("rust", name)
+
+    def test_bundle_policy_changes_invalidate_every_consumer_without_changing_toolchain_identity(self):
+        before = self.rust()
+        swift_before = {lane: self.swift(lane=lane) for lane in ("contracts", "tests", "release")}
+        self.write("Scripts/ci_cache_bundle.py", "changed transfer policy")
+        after = self.rust()
+        self.assertNotEqual(before["RUST_RELEASE_COMPATIBILITY_KEY"], after["RUST_RELEASE_COMPATIBILITY_KEY"])
+        self.assertNotEqual(before["RUST_CACHE_TRANSFER_KEY"], after["RUST_CACHE_TRANSFER_KEY"])
+        self.assertEqual(before["RUST_TOOLCHAIN_KEY"], after["RUST_TOOLCHAIN_KEY"])
+        for lane, previous in swift_before.items():
+            with self.subTest(lane=lane):
+                changed = self.swift(lane=lane)
+                self.assertNotEqual(previous["SWIFT_CACHE_KEY"], changed["SWIFT_CACHE_KEY"])
+                self.assertNotEqual(previous["SWIFT_CACHE_PREFIX"], changed["SWIFT_CACHE_PREFIX"])
+                self.assertEqual(previous["SWIFT_TOOLCHAIN_KEY"], changed["SWIFT_TOOLCHAIN_KEY"])
+
+    def test_missing_or_symlinked_bundle_policy_cannot_identify_any_consumer_cache(self):
+        bundle = self.root / "Scripts/ci_cache_bundle.py"
+        bundle.unlink()
+        for method in (self.swift, self.rust):
+            with self.assertRaises(ValueError):
+                method()
+        bundle.symlink_to(self.root / "Package.swift")
+        for method in (self.swift, self.rust):
+            with self.assertRaises(ValueError):
+                method()
+
+    def test_new_rust_release_family_cannot_restore_the_old_immutable_generation(self):
+        key = self.rust()["RUST_RELEASE_COMPATIBILITY_KEY"]
+        self.assertRegex(key, r"^macos-rust-release-v4-[0-9a-f]{64}$")
+        old = key.replace("-v4-", "-v3-") + "-" + "a" * 64
+        self.assertFalse(old.startswith(key + "-"))
+
+    def test_actual_workflow_debug_keys_change_with_bundle_policy(self):
+        workflow = RustCacheWorkflowTests.workflow()
+        debug = RustCacheWorkflowTests.step(workflow, "Restore Rust verification products")
+        before = self.rust()
+        self.write("Scripts/ci_cache_bundle.py", "changed transfer policy")
+        after = self.rust()
+        for field in ("key", "restore-keys"):
+            template = RustCacheWorkflowTests.cache_field(debug, field)
+            rendered_before = template.replace("${{ env.RUST_CACHE_TRANSFER_KEY }}", before["RUST_CACHE_TRANSFER_KEY"])
+            rendered_after = template.replace("${{ env.RUST_CACHE_TRANSFER_KEY }}", after["RUST_CACHE_TRANSFER_KEY"])
+            self.assertNotEqual(rendered_before, rendered_after, field)
 
     def test_rust_deployment_incremental_and_cargo_user_configuration_invalidate(self):
         before = self.rust()["RUST_RELEASE_COMPATIBILITY_KEY"]
@@ -238,6 +293,7 @@ class ActualIdentityParsingTests(unittest.TestCase):
         values = {
             ("xcodebuild", "-version"): "Xcode 26.6\nBuild version 17F80\nPRIVATE_TOKEN=secret",
             ("xcrun", "--show-sdk-path"): "/selected/actual-sdk",
+            ("env", "-u", "SDKROOT", "xcrun", "--sdk", "macosx", "--show-sdk-path"): "/selected/xcode-sdk",
             ("xcrun", "clang", "--version"): "Apple clang version 17.0.0 (clang-1700.4.4.1)\nTarget: arm64-apple-darwin25.0.0",
             ("swift", "--version"): "swift-driver version: 1.168.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.1 clang-1700.4.4.1)\nTarget: arm64-apple-macosx26.0",
             ("rustc", "-vV"): f"release: 1.98.1\ncommit-hash: {'2' * 40}\nhost: aarch64-apple-darwin\nLLVM version: 22.1.8",
@@ -249,8 +305,10 @@ class ActualIdentityParsingTests(unittest.TestCase):
         for scope, expected in (("swift", SWIFT_TOOLCHAIN), ("rust", RUST_TOOLCHAIN)):
             with self.subTest(scope=scope):
                 identity = toolchain_identity(scope, Path.cwd(), probe=self.probe, environment={}, machine="arm64",
-                                              read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
-                                                                     for key in ("sdk", "sdk_build", "sdk_settings")})
+                                              read_sdk=lambda path: {
+                                                  key: SWIFT_TOOLCHAIN[f"xcode_{key}"] if path == "/selected/xcode-sdk"
+                                                  else COMMON_TOOLCHAIN[key]
+                                                  for key in ("sdk", "sdk_build", "sdk_settings")})
                 self.assertEqual(identity, expected)
                 self.assertNotIn("secret", json.dumps(identity))
                 self.assertNotIn("actual-sdk", json.dumps(identity))
@@ -274,8 +332,67 @@ class ActualIdentityParsingTests(unittest.TestCase):
                                        ("rust", {"SDKROOT": "/explicit-rust-sdk"}), ("rust", {})):
                 toolchain_identity(scope, Path.cwd(), probe=self.probe, environment=environment,
                                    machine="arm64", read_sdk=read_sdk)
-        self.assertEqual(selected, ["/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+        self.assertEqual(selected, ["/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk", "/selected/xcode-sdk",
                                     "/explicit-rust-sdk", "/selected/actual-sdk"])
+
+    def test_xcode_sdk_probe_removes_sdkroot_without_mutating_process_environment(self):
+        invocations = []
+
+        def probe(arguments, root):
+            invocations.append(arguments)
+            return self.probe(arguments, root)
+
+        with patch.dict(os.environ, {"SDKROOT": "/private/wrapper-sdk"}), \
+                patch("ci_cache_keys.Path.is_dir", return_value=True):
+            toolchain_identity("swift", Path.cwd(), probe=probe, environment=dict(os.environ), machine="arm64",
+                               read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
+                                                      for key in ("sdk", "sdk_build", "sdk_settings")})
+            self.assertEqual(os.environ["SDKROOT"], "/private/wrapper-sdk")
+        self.assertIn(["env", "-u", "SDKROOT", "xcrun", "--sdk", "macosx", "--show-sdk-path"], invocations)
+
+    def test_equal_sdk_identities_retain_selection_labels_without_claiming_effective_builder_sdk(self):
+        identity = toolchain_identity("swift", Path.cwd(), probe=self.probe, environment={}, machine="arm64",
+                                      read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
+                                                             for key in ("sdk", "sdk_build", "sdk_settings")})
+        self.assertEqual(identity["sdk_role"], "wrapper-selected")
+        for field in ("sdk", "sdk_build", "sdk_settings"):
+            self.assertEqual(identity[field], identity[f"xcode_{field}"])
+        self.assertNotIn("effective_sdk", identity)
+
+    def test_missing_invalid_and_unreadable_xcode_sdk_metadata_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = root / "SDKSettings.json"
+            system = root / "System/Library/CoreServices/SystemVersion.plist"
+            system.parent.mkdir(parents=True)
+            system.write_bytes(plistlib.dumps({"ProductBuildVersion": "26A425"}))
+
+            def read_sdk(path):
+                return sdk_identity(root) if path == "/selected/xcode-sdk" else {
+                    key: COMMON_TOOLCHAIN[key] for key in ("sdk", "sdk_build", "sdk_settings")}
+
+            for contents in (None, "not-json", '{"Version":"unknown"}', '{"Version":"27.0"}'):
+                with self.subTest(contents=contents):
+                    if contents is None:
+                        self.assertFalse(settings.exists())
+                    else:
+                        settings.write_text(contents)
+                    if contents == '{"Version":"27.0"}':
+                        system.write_bytes(plistlib.dumps({"ProductBuildVersion": "invalid build"}))
+                    with self.assertRaises((OSError, ValueError)):
+                        toolchain_identity("swift", Path.cwd(), probe=self.probe, environment={}, machine="arm64",
+                                           read_sdk=read_sdk)
+
+    def test_failed_xcode_sdk_probe_does_not_fall_back_to_wrapper_sdk(self):
+        def probe(arguments, root):
+            if arguments[0] == "env":
+                raise ValueError("Xcode SDK lookup failed")
+            return self.probe(arguments, root)
+
+        with self.assertRaises(ValueError):
+            toolchain_identity("swift", Path.cwd(), probe=probe, environment={}, machine="arm64",
+                               read_sdk=lambda path: {key: COMMON_TOOLCHAIN[key]
+                                                      for key in ("sdk", "sdk_build", "sdk_settings")})
 
     def test_selected_sdk_metadata_build_and_settings_have_content_identity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -291,6 +408,58 @@ class ActualIdentityParsingTests(unittest.TestCase):
             self.assertNotEqual(before["sdk_settings"], sdk_identity(sdk)["sdk_settings"])
             system.write_bytes(plistlib.dumps({"ProductBuildVersion": "25F71"}))
             self.assertNotEqual(before["sdk_build"], sdk_identity(sdk)["sdk_build"])
+
+
+class RustCacheWorkflowTests(unittest.TestCase):
+    @staticmethod
+    def workflow():
+        return (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+
+    @staticmethod
+    def step(workflow, name):
+        matches = re.findall(r"(?m)^      - name: " + re.escape(name) + r"\n.*?(?=^      - name: |^  [a-z_]+:|\Z)",
+                             workflow, re.DOTALL)
+        if len(matches) != 1:
+            raise AssertionError(f"Expected one workflow step named {name}")
+        return matches[0]
+
+    @staticmethod
+    def cache_field(step, name):
+        matches = re.findall(r"(?m)^          " + re.escape(name) + r": (.+)$", step)
+        if len(matches) != 1:
+            raise AssertionError(f"Expected one cache {name}")
+        return matches[0]
+
+    def assert_rust_cache_linkage(self, workflow):
+        identify = self.step(workflow, "Identify Rust cache compatibility")
+        self.assertIn("ci_cache_keys.py rust", identify)
+        self.assertIn('--github-env "$GITHUB_ENV"', identify)
+        debug = self.step(workflow, "Restore Rust verification products")
+        prefix = ("macos-rust-debug-lean-v3-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-"
+                  "${{ env.RUST_CACHE_TRANSFER_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-")
+        self.assertEqual(self.cache_field(debug, "key"), prefix + "${{ github.sha }}")
+        self.assertEqual(self.cache_field(debug, "restore-keys"), prefix)
+        release = self.step(workflow, "Restore Rust release build products")
+        self.assertEqual(self.cache_field(release, "key"),
+                         "${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}")
+        self.assertEqual(self.cache_field(release, "restore-keys"), "${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-")
+
+    def test_actual_workflow_uses_only_new_compatible_families(self):
+        self.assert_rust_cache_linkage(self.workflow())
+
+    def test_old_family_missing_transfer_identity_and_broad_fallbacks_are_rejected(self):
+        workflow = self.workflow()
+        mutations = (
+            workflow.replace("macos-rust-debug-lean-v3-", "macos-rust-debug-lean-v2-"),
+            workflow.replace("${{ env.RUST_CACHE_TRANSFER_KEY }}-", ""),
+            workflow.replace('--github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/toolchain.json"',
+                             '--report "$RUNNER_TEMP/spotty-timings/toolchain.json"'),
+            workflow.replace("restore-keys: ${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-",
+                             "restore-keys: macos-rust-release-"),
+        )
+        for index, changed in enumerate(mutations):
+            with self.subTest(mutation=index), self.assertRaises(AssertionError):
+                self.assert_rust_cache_linkage(changed)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,9 @@ import os
 from pathlib import Path, PurePosixPath
 import posixpath
 import re
+import resource
+import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -47,14 +50,153 @@ def path_key(value: str) -> str:
     return unicodedata.normalize("NFD", value).casefold()
 
 
-def private_path(path: PurePosixPath) -> bool:
-    return any(path_key(component) in PRIVATE_NAMES for component in path.parts)
+def private_path(path: PurePosixPath, *, logical_name: str, kind: str | None = None) -> bool:
+    parts = [path_key(component) for component in path.parts]
+    # Cargo's approved dependency source roots can contain public schema/source
+    # directories named credentials. Credential stores and secret file names still
+    # stay private, including .cargo/.git stores inside those source trees. A bare
+    # credentials file/link is never a public directory. Unknown kind is used only
+    # for lexical path checks; validate_structure checks every manifest entry's kind.
+    public_source = (logical_name == "cargo-git" and len(parts) >= 4 and parts[0] == "checkouts"
+                     and re.fullmatch(r"[0-9a-f]{7}", path.parts[2]) is not None
+                     and not any(part in {".cargo", ".git"} for part in parts[3:]))
+    for index, component in enumerate(parts):
+        if component not in PRIVATE_NAMES:
+            continue
+        if (component == "credentials" and public_source and index >= 3
+                and (index < len(parts) - 1 or kind in {None, "directory"})):
+            continue
+        return True
+    return False
 
 
-def excluded_path(name: str, relative: PurePosixPath) -> bool:
+def verify_credentials_proof(root: Path, logical_name: str, relative: PurePosixPath) -> str | None:
+    """Return exact HEAD-proven bytes' SHA256 for relaxed Git files, otherwise None."""
+    if logical_name != "cargo-git" or "credentials" not in {path_key(part) for part in relative.parts}:
+        return None
+    path = root / relative
+    mode = path.lstat().st_mode
+    kind = "directory" if stat.S_ISDIR(mode) else "symlink" if stat.S_ISLNK(mode) else "file"
+    if (kind == "directory" or private_path(relative, logical_name=logical_name, kind=kind)
+            or "credentials" not in {path_key(part) for part in relative.parts}):
+        return None
+    error_message = "public credentials source lacks exact tracked HEAD proof"
+    try:
+        if not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
+            raise ValueError(error_message)
+        checkout = root.joinpath(*relative.parts[:3])
+        source_path = PurePosixPath(*relative.parts[3:])
+        revision = relative.parts[2]
+        if not re.fullmatch(r"[0-9a-f]{7}", revision):
+            raise ValueError(error_message)
+        check_ancestors(checkout, root)
+        git_dir = checkout / ".git"
+        if git_dir.is_symlink() or not git_dir.is_dir():
+            raise ValueError(error_message)
+        # Git must consume only this checkout's transferred metadata. Linked
+        # worktrees, alternate object stores and internal links can redirect reads.
+        if any((git_dir / name).exists() for name in ("commondir", "objects/info/alternates", "config.worktree")):
+            raise ValueError(error_message)
+        for directory, dirs, files in os.walk(git_dir, followlinks=False):
+            for name in dirs + files:
+                metadata_mode = (Path(directory) / name).lstat().st_mode
+                if not (stat.S_ISDIR(metadata_mode) or stat.S_ISREG(metadata_mode)):
+                    raise ValueError(error_message)
+        # Ignore ambient configuration and reject checkout-local include/path or
+        # command configuration before Git can consume it. Ordinary Cargo clones
+        # use core/remote settings; objectformat supports SHA1 and SHA256 fixtures.
+        allowed_keys = {
+            "core": {"repositoryformatversion", "filemode", "bare", "logallrefupdates", "ignorecase", "precomposeunicode", "autocrlf"},
+            "remote": {"url", "fetch", "tagopt", "mirror"},
+            "branch": {"remote", "merge"}, "extensions": {"objectformat"},
+        }
+        section = None
+        for line in (git_dir / "config").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+            if line.startswith("["):
+                header = re.fullmatch(r'\[([A-Za-z][A-Za-z0-9-]*)(?:\s+"(?:[^"\\]|\\.)*")?\]\s*(?:[#;].*)?', line)
+                section = header.group(1).lower() if header else None
+                if section not in allowed_keys:
+                    raise ValueError(error_message)
+            else:
+                key = re.match(r"([A-Za-z][A-Za-z0-9-]*)(?:\s*=|\s*$)", line)
+                if not key or key.group(1).lower() not in allowed_keys.get(section, set()):
+                    raise ValueError(error_message)
+        environment = {
+            "PATH": os.defpath, "LANG": "C", "LC_ALL": "C",
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
+            "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_NO_LAZY_FETCH": "1", "GIT_PAGER": "cat",
+        }
+        command = ["git", "--no-optional-locks", "--literal-pathspecs",
+                   f"--git-dir={git_dir}", f"--work-tree={checkout}",
+                   "-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false",
+                   "-c", "core.pager=cat", "-c", "protocol.allow=never"]
+
+        def read_git(*arguments: str, input_data: bytes | None = None) -> bytes:
+            # Identity/path/size output is bounded; never collect object contents.
+            def limit_output() -> None:
+                resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024, 64 * 1024))
+
+            with tempfile.TemporaryFile() as output:
+                subprocess.run(command + list(arguments), input=input_data,
+                               stdout=output, stderr=subprocess.DEVNULL,
+                               env=environment, timeout=5, check=True, preexec_fn=limit_output)
+                output.seek(0)
+                data = output.read(64 * 1024 + 1)
+                if len(data) > 64 * 1024:
+                    raise ValueError(error_message)
+                return data
+
+        head = read_git("rev-parse", "--verify", "HEAD^{commit}").strip()
+        if not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", head) or head[:7].decode() != revision:
+            raise ValueError(error_message)
+        tree = read_git("ls-tree", "-z", "--full-tree", head.decode(), "--", str(source_path))
+        if not tree.endswith(b"\0") or tree.count(b"\0") != 1:
+            raise ValueError(error_message)
+        attributes, tracked_path = tree[:-1].split(b"\t", 1)
+        tracked_mode, tracked_kind, oid = attributes.split(b" ")
+        if (tracked_path != os.fsencode(str(source_path)) or tracked_kind != b"blob"
+                or len(oid) != len(head) or not re.fullmatch(rb"[0-9a-f]+", oid)
+                or tracked_mode not in ({b"120000"} if kind == "symlink" else {b"100644", b"100755"})):
+            raise ValueError(error_message)
+        if kind == "file" and (mode & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX)
+                               or bool(mode & stat.S_IXUSR) != (tracked_mode == b"100755")):
+            raise ValueError(error_message)
+        # No blob contents pass through subprocess output, hooks or Git filters.
+        description = read_git("cat-file", "--batch-check", input_data=oid + b"\n").split()
+        if len(description) != 3 or description[:2] != [oid, b"blob"]:
+            raise ValueError(error_message)
+        size = int(description[2])
+        blob = hashlib.new("sha1" if len(oid) == 40 else "sha256")
+        blob.update(f"blob {size}\0".encode())
+        digest = hashlib.sha256()
+        read_size = 0
+        if kind == "symlink":
+            data = os.fsencode(os.readlink(path))
+            blob.update(data)
+            digest.update(data)
+            read_size = len(data)
+        else:
+            with path.open("rb") as source:
+                while data := source.read(1024 * 1024):
+                    blob.update(data)
+                    digest.update(data)
+                    read_size += len(data)
+        if read_size != size or blob.hexdigest().encode() != oid:
+            raise ValueError(error_message)
+        return digest.hexdigest()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise ValueError(error_message) from None
+
+
+def excluded_path(name: str, relative: PurePosixPath, *, kind: str | None = None) -> bool:
     # verification_package.py regenerates these source links before compilation.
     # Their sibling scratch products remain cache inputs; source links leave .build.
-    return private_path(relative) or (
+    return private_path(relative, logical_name=name, kind=kind) or (
         name == "build" and len(relative.parts) >= 2
         and path_key(relative.parts[0]) in {"domain", "engine-free"}
         and path_key(relative.parts[1]) == "package"
@@ -106,9 +248,10 @@ def check_ancestors(path: Path, base: Path) -> None:
 
 
 def paths_in(root: Path, relative: PurePosixPath = PurePosixPath("."), *, logical_name: str):
-    if relative != PurePosixPath(".") and excluded_path(logical_name, relative):
-        return
     path = root if relative == PurePosixPath(".") else root / relative
+    kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+    if relative != PurePosixPath(".") and excluded_path(logical_name, relative, kind=kind):
+        return
     yield path, relative
     if path.is_dir() and not path.is_symlink():
         for child in sorted(path.iterdir(), key=lambda item: os.fsencode(item.name)):
@@ -200,6 +343,7 @@ def export_bundle(archive: Path, *, scope: str, revision: str, roots: dict[str, 
                             raise ValueError(f"hardlink target is not a regular cache entry: {arcname}")
                     elif not (info.isfile() or info.isdir()):
                         raise ValueError(f"unsupported cache entry type: {arcname}")
+                    proof = verify_credentials_proof(root, name, relative)
                     info.uid = info.gid = 0
                     info.uname = info.gname = ""
                     info.mode &= 0o7777
@@ -213,6 +357,10 @@ def export_bundle(archive: Path, *, scope: str, revision: str, roots: dict[str, 
                         output.addfile(info)
                         if info.islnk():
                             digest = entries[info.linkname]["sha256"]
+                    if proof is not None:
+                        archived_digest = hashlib.sha256(os.fsencode(info.linkname)).hexdigest() if info.issym() else digest
+                        if archived_digest != proof:
+                            raise ValueError("public credentials source changed after HEAD proof")
                     after = path.lstat()
                     if (before.st_ino, before.st_size, before.st_mtime_ns, before.st_mode) != (
                             after.st_ino, after.st_size, after.st_mtime_ns, after.st_mode):
@@ -242,6 +390,12 @@ def validate_structure(entries: dict[str, dict], roots: dict[str, Path]) -> None
         folded[key] = entry
     for path, entry in entries.items():
         name, relative = logical_path(path, roots)
+        if excluded_path(name, relative, kind=entry["type"]):
+            raise ValueError(f"private store is not a cache entry: {path}")
+        if (name == "cargo-git" and entry["type"] in {"file", "hardlink", "symlink"}
+                and "credentials" in {path_key(part) for part in relative.parts}
+                and entry["mode"] & 0o7000):
+            raise ValueError("public credentials source has unsupported special permission bits")
         parent = PurePosixPath(path).parent
         prefix = PurePosixPath("payload") / name
         while parent != prefix.parent:
@@ -268,7 +422,7 @@ def validate_structure(entries: dict[str, dict], roots: dict[str, Path]) -> None
 
 
 def resolve_symlink(path: str, entries: dict[str, dict], roots: dict[str, Path],
-                    folded: dict[str, dict]) -> None:
+                    folded: dict[str, dict]) -> tuple[str, PurePosixPath]:
     # Lexical normalization alone is insufficient: `alias/..` follows alias before
     # applying '..'. Resolve archive-owned links component by component too.
     name, _ = logical_path(path, roots)
@@ -287,15 +441,18 @@ def resolve_symlink(path: str, entries: dict[str, dict], roots: dict[str, Path],
             continue
         stack.append(part)
         relative = PurePosixPath(*stack)
-        if excluded_path(name, relative):
-            raise ValueError(f"symlink chain reaches an excluded cache input: {path}")
         candidate = folded.get(path_key(str(prefix / relative)))
+        # A lexical public-directory exception cannot expose a retained private
+        # file/link or a dangling target. The manifest must own that directory.
+        if excluded_path(name, relative, kind=candidate["type"] if candidate else "missing"):
+            raise ValueError(f"symlink chain reaches an excluded cache input: {path}")
         if candidate is not None and candidate["type"] == "symlink":
             links += 1
             if links > 40:
                 raise ValueError(f"cyclic or excessive symlink chain: {path}")
             stack.pop()
             pending = list(PurePosixPath(candidate["linkname"]).parts) + pending
+    return name, PurePosixPath(*stack)
 
 
 def existing_parent(path: Path) -> Path:
@@ -402,29 +559,46 @@ def stage_bundle(source: tarfile.TarFile, stage: Path, entries: dict[str, dict],
             raise ValueError(f"unsupported cache metadata: {path}") from error
 
 
-def retained_private_dirs(path: Path, relative: PurePosixPath = PurePosixPath(".")) -> set[str]:
-    retained = set()
-    if private_path(relative):
+def retained_private_inputs(path: Path, relative: PurePosixPath = PurePosixPath("."),
+                            *, logical_name: str, source_root: Path | None = None) -> tuple[set[str], set[str]]:
+    ancestors, exact = set(), set()
+    if not path.exists() and not path.is_symlink():
+        return ancestors, exact
+    source_root = path if source_root is None else source_root
+    kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+    private = private_path(relative, logical_name=logical_name, kind=kind)
+    if not private and kind != "directory":
+        try:
+            verify_credentials_proof(source_root, logical_name, relative)
+        except (OSError, ValueError):
+            private = True
+    if private:
+        exact.add(path_key(str(relative)))
         parent = relative.parent
         while True:
-            retained.add(path_key(str(parent)))
+            ancestors.add(path_key(str(parent)))
             if parent == PurePosixPath("."):
                 break
             parent = parent.parent
     elif path.is_dir() and not path.is_symlink():
         for child in path.iterdir():
-            retained.update(retained_private_dirs(child, relative / child.name))
-    return retained
+            child_ancestors, child_exact = retained_private_inputs(child, relative / child.name,
+                                                                 logical_name=logical_name, source_root=source_root)
+            ancestors.update(child_ancestors)
+            exact.update(child_exact)
+    return ancestors, exact
 
 
-def reset_owned_path(path: Path, relative: PurePosixPath = PurePosixPath(".")) -> None:
-    if private_path(relative):
+def reset_owned_path(path: Path, relative: PurePosixPath = PurePosixPath("."), *, logical_name: str,
+                     protected: set[str]) -> None:
+    kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+    if path_key(str(relative)) in protected or private_path(relative, logical_name=logical_name, kind=kind):
         return
     if path.is_symlink() or not path.is_dir():
         path.unlink(missing_ok=True)
     elif path.exists():
         for child in path.iterdir():
-            reset_owned_path(child, relative / child.name)
+            reset_owned_path(child, relative / child.name, logical_name=logical_name, protected=protected)
         if not any(path.iterdir()):
             path.rmdir()
 
@@ -442,20 +616,34 @@ def restore_bundle(archive: Path, *, scope: str, revision: str, roots: dict[str,
             for root in roots.values():
                 if root.exists() and (not root.is_dir() or any(root.iterdir())):
                     raise ValueError("cache restore would overwrite or merge an existing cache root")
-        retained = {name: retained_private_dirs(root) for name, root in roots.items()} if replace_owned_scope else {}
+        retained = {name: retained_private_inputs(root, logical_name=name)
+                    for name, root in roots.items()} if replace_owned_scope else {}
+        folded = {path_key(path): entry for path, entry in entries.items()}
         for path, entry in entries.items():
             name, relative = logical_path(path, roots)
-            if entry["type"] != "directory" and path_key(str(relative)) in retained.get(name, set()):
+            ancestors, exact = retained.get(name, (set(), set()))
+            if (path_key(str(relative)) in exact
+                    or (entry["type"] != "directory" and path_key(str(relative)) in ancestors)):
                 raise ValueError(f"cache entry collides with a retained private directory: {path}")
+            if entry["type"] == "symlink" and replace_owned_scope:
+                target_name, target_relative = resolve_symlink(path, entries, roots, folded)
+                target_ancestors, target_exact = retained.get(target_name, (set(), set()))
+                if (path_key(str(target_relative)) in target_ancestors
+                        or any(path_key(str(parent)) in target_exact
+                               for parent in (target_relative, *target_relative.parents))):
+                    raise ValueError("cache symlink reaches a retained private input")
         stage_parent = existing_parent(next(iter(roots.values())))
         if any(existing_parent(root).stat().st_dev != stage_parent.stat().st_dev for root in roots.values()):
             raise ValueError("cache scope destinations must share a filesystem to preserve hardlinks")
         with tempfile.TemporaryDirectory(prefix=".spotty-ci-cache-restore-", dir=stage_parent) as directory:
             stage = Path(directory)
             stage_bundle(source, stage, entries, members)
+            for path in entries:
+                name, relative = logical_path(path, roots)
+                verify_credentials_proof(stage / "payload" / name, name, relative)
             if replace_owned_scope:
-                for root in roots.values():
-                    reset_owned_path(root)
+                for name, root in roots.items():
+                    reset_owned_path(root, logical_name=name, protected=retained[name][1])
             for path, entry in sorted(entries.items(), key=lambda pair: (len(PurePosixPath(pair[0]).parts), pair[0])):
                 name, relative = logical_path(path, roots)
                 destination = roots[name] if relative == PurePosixPath(".") else roots[name] / relative

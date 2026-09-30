@@ -224,8 +224,8 @@ jobs:
             ~/.cargo/registry
             Backend/spotty-playback/target/debug
             Backend/spotty-playback/target/.rustc_info.json
-          key: macos-rust-debug-lean-v2-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: macos-rust-debug-lean-v2-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-
+          key: macos-rust-debug-lean-v3-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-${{ env.RUST_CACHE_TRANSFER_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: macos-rust-debug-lean-v3-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-${{ env.RUST_CACHE_TRANSFER_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-
       - name: Run Rust checks
         id: rust
         if: needs.policy.outputs.rust_needed == 'true'

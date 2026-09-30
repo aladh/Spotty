@@ -60,9 +60,14 @@ time; the complete native suite and each semantic/compiler assertion still execu
 Main retains three native repetitions. Acceptance reuses its own lane's Debug products and settings.
 
 Swift caches have separate contracts, tests and Release owners and key the actual compiler, SDK,
-configuration, package and immutable pin. Rust release archives keep an exact engine-input key;
-a compiler/SDK/profile/locked-dependency compatibility prefix permits Cargo to rebuild changed
-bridge sources while retaining unchanged dependencies. Source timestamps are restored only when
+configuration, package and immutable pin. Their SDK identity includes both the wrapper-selected
+SDK (`sdk`, labelled `wrapper-selected`) and Xcode's default macOS SDK (`xcode_sdk`), with each
+version, build and SDKSettings digest. SwiftBuild can use the Xcode SDK despite exported SDKROOT;
+equal identities do not establish which SDK a builder consumed. Rust release archives keep an exact
+engine-input key; a compiler/SDK/profile/locked-dependency compatibility prefix permits Cargo to
+rebuild changed bridge sources while retaining unchanged dependencies. Swift and Rust product
+cache generations bind the shared scoped transfer policy as well as their build compatibility inputs;
+changing that policy cannot restore an earlier generation's incomplete source tree. Source timestamps are restored only when
 content matches. Empty or incompatible caches compile normally.
 
 Only successful main lanes export scoped cache bundles. A separate publisher validates their
@@ -71,6 +76,13 @@ aggregate succeeds. The final required `macOS checks` status also requires main 
 PRs explicitly skip it. No cache publisher runs on PR or fork code. This preserves complete-quality
 success before cache writes while isolating concurrent compiler/cache owners. Optional phase
 JSONL and Cargo timing artifacts describe costs without replacing verification.
+The transfer permits dependency source directories named `credentials` within Cargo Git checkouts
+only when their files or links exactly match tracked HEAD blobs at the checkout's revision.
+Export and staged restoration verify this proof before publication or cleanup. Unproved existing
+inputs remain protected during owned replacement. Registry credential directories, credential
+stores, secret filenames, bare credential files or links, and material outside the explicitly
+owned roots remain excluded. Export, validation, link checks and replacement cleanup share the
+scope-aware exclusion and public-source proof contract.
 The [trusted base classifier](../../../Scripts/ci_rust_policy.py) skips macOS only for documentation-only
 PRs and can skip compiled Rust for app-only PRs. Main runs both toolchains. Unknown paths or
 classification failures cannot authorize a skip; source and script checks remain unconditional.

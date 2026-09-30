@@ -7,12 +7,14 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("ci_cache_bundle.py")
@@ -48,6 +50,27 @@ class CacheBundleTests(unittest.TestCase):
         path.write_bytes(content)
         path.chmod(mode)
         return path
+
+    def git_checkout(self, files, *, destination=False, links=None):
+        cargo = self.destination_cargo if destination else self.source_cargo
+        pending = cargo / "git/checkouts/librespot-fixture/pending"
+        for name, content in files.items():
+            self.write(pending / name, content)
+        for name, target in (links or {}).items():
+            link = pending / name
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(target)
+        arguments = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
+                     "-c", "user.name=Cache Fixture", "-c", "user.email=cache-fixture@example.invalid"]
+        environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+        for command in (["init", "--quiet", str(pending)], ["-C", str(pending), "add", "--all"],
+                        ["-C", str(pending), "commit", "--quiet", "-m", "Public dependency fixture"]):
+            subprocess.run(arguments + command, check=True, capture_output=True, env=environment)
+        revision = subprocess.run(arguments + ["-C", str(pending), "rev-parse", "HEAD"], check=True,
+                                  capture_output=True, text=True, env=environment).stdout.strip()
+        checkout = pending.with_name(revision[:7])
+        pending.rename(checkout)
+        return checkout
 
     def export(self, scope="swift"):
         return bundles.export_bundle(self.archive, scope=scope, revision=REVISION, roots=self.roots(scope))
@@ -166,6 +189,291 @@ class CacheBundleTests(unittest.TestCase):
         self.restore("rust-debug")
         restored = self.destination / "Backend/spotty-playback/target/debug/compiled"
         self.assertEqual(restored.stat().st_ino, (self.destination_cargo / "git/shared").stat().st_ino)
+
+    def test_tracked_public_credentials_schema_survives_without_credential_stores(self):
+        schema = "protocol/proto/spotify/login5/v3/credentials/credentials.proto"
+        checkout = self.git_checkout({schema: b'syntax = "proto3"; message Password {}\n', ".cargo-ok": b""},
+                                     links={"protocol/proto/spotify/login5/v3/credentials/source.proto": "credentials.proto"})
+        public = checkout / schema
+        tracked = subprocess.run(["git", "-C", str(checkout), "ls-files", "--", schema],
+                                 check=True, capture_output=True, text=True)
+        self.assertEqual(tracked.stdout.strip(), schema)
+        (checkout / "credential-schema").symlink_to(schema)
+        registry = self.source_cargo / "registry/src/registry-fixture/crate-1.0"
+        self.write(registry / "proto/CREDENTIALS/public.proto", b"public registry schema")
+        secrets = (
+            self.source_cargo / "credentials.toml", self.source_cargo / "config.toml",
+            self.source_cargo / "config", self.source_cargo / "git/credentials",
+            self.source_cargo / "registry/credentials.json", checkout / ".cargo/credentials",
+            checkout / ".git/credentials", checkout / "src/credentials",
+            checkout / "src/credentials.toml", checkout / "src/CREDENTIALS.JSON",
+            checkout / "src/.netrc", checkout / "src/.git-credentials",
+            registry / "src/.npmrc", registry / "src/id_ed25519",
+        )
+        for secret in secrets:
+            self.write(secret, b"private credential fixture")
+        self.export("rust-debug")
+        self.restore("rust-debug")
+        restored = self.destination_cargo / checkout.relative_to(self.source_cargo)
+        self.assertEqual((restored / schema).read_bytes(), public.read_bytes())
+        self.assertEqual((restored / "credential-schema").read_bytes(), public.read_bytes())
+        self.assertEqual((restored / "protocol/proto/spotify/login5/v3/credentials/source.proto").read_bytes(), public.read_bytes())
+        self.assertTrue((restored / ".cargo-ok").exists())
+        self.assertFalse((self.destination_cargo / "registry/src/registry-fixture/crate-1.0/proto/CREDENTIALS").exists())
+        for secret in secrets:
+            with self.subTest(secret=secret.relative_to(self.source_cargo)):
+                self.assertFalse((self.destination_cargo / secret.relative_to(self.source_cargo)).exists())
+        with tarfile.open(self.archive) as archive:
+            content = b"".join(archive.extractfile(info).read() for info in archive if info.isfile())
+        self.assertNotIn(b"private credential fixture", content)
+
+    def test_public_credentials_replacement_removes_stale_sources_and_preserves_private_stores(self):
+        source = self.git_checkout({"proto/credentials/credentials.proto": b"new public schema"})
+        self.export("rust-debug")
+        old = self.git_checkout({"proto/credentials/credentials.proto": b"old public schema",
+                                 "proto/credentials/obsolete.proto": b"obsolete public schema"}, destination=True)
+        public = old / "proto/credentials/credentials.proto"
+        stale = public.with_name("obsolete.proto")
+        private = self.write(old / ".cargo/credentials", b"retained credential fixture")
+        untracked = self.write(old / "proto/credentials/token", b"retained untracked credential fixture")
+        self.restore("rust-debug", replace=True)
+        self.assertFalse(public.exists())
+        self.assertFalse(stale.exists())
+        self.assertEqual(private.read_bytes(), b"retained credential fixture")
+        self.assertEqual(untracked.read_bytes(), b"retained untracked credential fixture")
+        self.assertEqual((self.destination_cargo / source.relative_to(self.source_cargo) / "proto/credentials/credentials.proto")
+                         .read_bytes(), b"new public schema")
+
+    def test_manifest_cannot_turn_public_credentials_directory_into_secret_file_or_link(self):
+        self.write(self.source_cargo / "git/checkouts/librespot-fixture/939dc5e/src/marker")
+        for kind, name in ((tarfile.REGTYPE, "credentials"), (tarfile.SYMTYPE, "CREDENTIALS"),
+                           (tarfile.REGTYPE, "credentials.toml")):
+            with self.subTest(kind=kind, name=name):
+                self.archive.unlink(missing_ok=True)
+                self.export("rust-debug")
+                path = f"payload/cargo-git/checkouts/librespot-fixture/939dc5e/src/{name}"
+                self.rewrite(lambda parts: self.add_member(parts, path, kind=kind, linkname="marker"))
+                evidence = self.write(self.destination_cargo / "git/unrelated-evidence", b"retain evidence")
+                with self.assertRaisesRegex(ValueError, "private store"):
+                    self.restore("rust-debug", replace=True)
+                self.assertEqual(evidence.read_bytes(), b"retain evidence")
+
+    def test_public_source_symlink_cannot_reach_excluded_credential_store(self):
+        source = self.source_cargo / "git/checkouts/librespot-fixture/939dc5e"
+        self.write(source / ".cargo/credentials", b"private credential fixture")
+        link = source / "proto/credentials/schema.proto"
+        link.parent.mkdir(parents=True)
+        link.symlink_to("../../.cargo/credentials")
+        with self.assertRaisesRegex(ValueError, "private store"):
+            self.export("rust-debug")
+        self.assertFalse(self.archive.exists())
+
+    def test_public_credentials_directory_cannot_replace_retained_private_file_or_symlink(self):
+        source = self.git_checkout({"src/credentials/credentials.proto": b"public schema"})
+        relative = source.relative_to(self.source_cargo) / "src/credentials"
+        self.export("rust-debug")
+        private = self.destination_cargo / relative
+        private.parent.mkdir(parents=True)
+        outside = self.base / "outside owned cache"
+        outside.mkdir()
+        evidence = self.write(outside / "evidence", b"outside evidence")
+        for symlink in (False, True):
+            with self.subTest(symlink=symlink):
+                if symlink:
+                    private.symlink_to(outside, target_is_directory=True)
+                else:
+                    self.write(private, b"retained credential fixture")
+                stale = self.write(self.destination_cargo / "git/stale", b"retained stale evidence")
+                with self.assertRaisesRegex(ValueError, "retained private directory"):
+                    self.restore("rust-debug", replace=True)
+                self.assertEqual(stale.read_bytes(), b"retained stale evidence")
+                self.assertEqual(evidence.read_bytes(), b"outside evidence")
+                self.assertFalse((outside / "credentials.proto").exists())
+                if not symlink:
+                    self.assertEqual(private.read_bytes(), b"retained credential fixture")
+                private.unlink()
+
+    def test_public_credentials_symlink_target_must_be_a_manifest_owned_directory(self):
+        relative = "git/checkouts/librespot-fixture/939dc5e/src"
+        self.write(self.source_cargo / relative / "marker")
+        for target in ("credentials", "CREDENTIALS", "alias"):
+            with self.subTest(target=target):
+                self.archive.unlink(missing_ok=True)
+                self.export("rust-debug")
+                def change(parts):
+                    if target == "alias":
+                        self.add_member(parts, f"payload/cargo-git/{relative.removeprefix('git/')}/alias",
+                                        kind=tarfile.SYMTYPE, linkname="credentials")
+                    self.add_member(parts, f"payload/cargo-git/{relative.removeprefix('git/')}/read-secret",
+                                    kind=tarfile.SYMTYPE, linkname=target)
+                self.rewrite(change)
+                private = self.write(self.destination_cargo / relative / "credentials", b"retained credential fixture")
+                stale = self.write(self.destination_cargo / "git/stale", b"retained stale evidence")
+                with self.assertRaisesRegex(ValueError, "excluded cache input"):
+                    self.restore("rust-debug", replace=True)
+                self.assertEqual(private.read_bytes(), b"retained credential fixture")
+                self.assertEqual(stale.read_bytes(), b"retained stale evidence")
+                self.assertFalse((private.parent / "read-secret").exists())
+
+    def test_untracked_or_modified_credentials_source_cannot_be_exported(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        token = self.write(checkout / "proto/credentials/token", b"untracked credential fixture")
+        with self.assertRaises(ValueError):
+            self.export("rust-debug")
+        self.assertFalse(self.archive.exists())
+        token.unlink()
+        (checkout / "proto/credentials/credentials.proto").write_bytes(b"modified credential fixture")
+        with self.assertRaises(ValueError):
+            self.export("rust-debug")
+        self.assertFalse(self.archive.exists())
+
+    def test_checkout_revision_and_git_environment_cannot_substitute_public_source_proof(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        with patch.dict(os.environ, {"GIT_DIR": str(self.base / "foreign"), "GIT_WORK_TREE": str(self.base),
+                                     "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.fsmonitor",
+                                     "GIT_CONFIG_VALUE_0": "must-not-execute"}):
+            self.export("rust-debug")
+            self.restore("rust-debug")
+        self.archive.unlink()
+        checkout.rename(checkout.with_name("0000000"))
+        with self.assertRaises(ValueError):
+            self.export("rust-debug")
+        self.assertFalse(self.archive.exists())
+
+    def test_staged_schema_bytes_must_match_git_head_before_replacement(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        self.export("rust-debug")
+        path = "payload/cargo-git/" + str(checkout.relative_to(self.source_cargo / "git")) + "/proto/credentials/credentials.proto"
+        changed = b"forged credential fixture"
+        def change(parts):
+            for index, (info, _) in enumerate(parts):
+                if info.name == path:
+                    info.size = len(changed)
+                    parts[index] = info, changed
+            def update(manifest):
+                entry = next(entry for entry in manifest["entries"] if entry["path"] == path)
+                entry.update(size=len(changed), sha256=hashlib.sha256(changed).hexdigest())
+            self.change_manifest(parts, update)
+        self.rewrite(change)
+        stale = self.write(self.destination_cargo / "git/stale", b"unchanged evidence")
+        with self.assertRaises(ValueError):
+            self.restore("rust-debug", replace=True)
+        self.assertEqual(stale.read_bytes(), b"unchanged evidence")
+        self.assertFalse((self.destination_cargo / checkout.relative_to(self.source_cargo)).exists())
+
+    def test_existing_modified_credentials_source_is_private_before_git_cleanup(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        self.export("rust-debug")
+        old = self.destination_cargo / checkout.relative_to(self.source_cargo)
+        old.parent.mkdir(parents=True)
+        shutil.copytree(checkout, old, symlinks=True)
+        private = self.write(old / "proto/credentials/credentials.proto", b"private modified fixture")
+        token = self.write(old / "proto/credentials/token", b"untracked private fixture")
+        stale = self.write(self.destination_cargo / "git/stale", b"unchanged evidence")
+        with self.assertRaisesRegex(ValueError, "retained private directory"):
+            self.restore("rust-debug", replace=True)
+        self.assertEqual(private.read_bytes(), b"private modified fixture")
+        self.assertEqual(token.read_bytes(), b"untracked private fixture")
+        self.assertEqual(stale.read_bytes(), b"unchanged evidence")
+        self.assertTrue((old / ".git/HEAD").exists())
+
+    def test_registry_credentials_remain_excluded_without_trusted_source_proof(self):
+        crate = self.source_cargo / "registry/src/registry-fixture/crate-1.0"
+        relative = "proto/credentials/credentials.proto"
+        self.write(crate / relative, b"unproved registry fixture")
+        for checksum in (None, "0" * 64, hashlib.sha256(b"unproved registry fixture").hexdigest()):
+            with self.subTest(checksum=checksum):
+                self.archive.unlink(missing_ok=True)
+                if checksum is not None:
+                    self.write(crate / ".cargo-checksum.json", json.dumps({"package": "0" * 64,
+                                                                        "files": {relative: checksum}}).encode())
+                self.export("rust-debug")
+                with tarfile.open(self.archive) as archive:
+                    self.assertFalse(any("/credentials/" in name for name in archive.getnames()))
+
+    def test_public_source_proof_rejects_git_metadata_redirects_before_export(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        git = checkout / ".git"
+        for relative in ("commondir", "objects/info/alternates"):
+            with self.subTest(relative=relative):
+                redirect = self.write(git / relative, b"outside-metadata\n")
+                with self.assertRaises(ValueError):
+                    self.export("rust-debug")
+                self.assertFalse(self.archive.exists())
+                redirect.unlink()
+        config = git / "config"
+        original = config.read_bytes()
+        outside = self.write(self.base / "private-config", b"private config fixture")
+        config.write_bytes(original + f'\n[include]\n\tpath = {outside}\n'.encode())
+        with self.assertRaises(ValueError):
+            self.export("rust-debug")
+        self.assertFalse(self.archive.exists())
+        self.assertEqual(outside.read_bytes(), b"private config fixture")
+
+    def test_directory_alias_cannot_expose_retained_untracked_credentials(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        old = self.destination_cargo / checkout.relative_to(self.source_cargo)
+        old.parent.mkdir(parents=True)
+        shutil.copytree(checkout, old, symlinks=True)
+        token = self.write(old / "proto/credentials/token", b"retained private fixture")
+        outside = self.base / "outside-private-directory"
+        outside_secret = self.write(outside / "secret", b"outside private fixture")
+        (old / "proto/credentials/private-link").symlink_to(outside, target_is_directory=True)
+        stale = self.write(self.destination_cargo / "git/stale", b"retained evidence")
+        prefix = "payload/cargo-git/" + str(checkout.relative_to(self.source_cargo / "git"))
+        for target in ("proto/credentials", "proto/CREDENTIALS", "directory-chain", ".",
+                       "proto/credentials/private-link/secret"):
+            with self.subTest(target=target):
+                self.archive.unlink(missing_ok=True)
+                self.export("rust-debug")
+                def change(parts):
+                    if target == "directory-chain":
+                        self.add_member(parts, prefix + "/directory-chain", kind=tarfile.SYMTYPE,
+                                        linkname="proto/credentials")
+                    self.add_member(parts, prefix + "/directory-alias", kind=tarfile.SYMTYPE, linkname=target)
+                self.rewrite(change)
+                with self.assertRaisesRegex(ValueError, "retained private"):
+                    self.restore("rust-debug", replace=True)
+                self.assertEqual(token.read_bytes(), b"retained private fixture")
+                self.assertEqual(stale.read_bytes(), b"retained evidence")
+                self.assertEqual(outside_secret.read_bytes(), b"outside private fixture")
+                self.assertTrue((old / ".git/HEAD").exists())
+                self.assertFalse((old / "directory-alias").is_symlink())
+
+    def test_noncanonical_checkout_cannot_claim_a_public_credentials_directory(self):
+        self.write(self.source_cargo / "git/checkouts/repo/not-a-revision/src/marker")
+        self.export("rust-debug")
+        path = "payload/cargo-git/checkouts/repo/not-a-revision/src/credentials"
+        self.rewrite(lambda parts: self.add_member(parts, path, kind=tarfile.DIRTYPE))
+        stale = self.write(self.destination_cargo / "git/stale", b"retained evidence")
+        with self.assertRaisesRegex(ValueError, "private store"):
+            self.restore("rust-debug", replace=True)
+        self.assertEqual(stale.read_bytes(), b"retained evidence")
+
+    def test_changed_executable_or_special_bits_cannot_claim_tracked_public_bytes(self):
+        checkout = self.git_checkout({"proto/credentials/credentials.proto": b"public schema"})
+        schema = checkout / "proto/credentials/credentials.proto"
+        path = "payload/cargo-git/" + str(schema.relative_to(self.source_cargo / "git"))
+        stale = self.write(self.destination_cargo / "git/stale", b"retained evidence")
+        for mode in (0o755, 0o4644):
+            with self.subTest(mode=mode):
+                self.export("rust-debug")
+                def change(parts):
+                    for info, _ in parts:
+                        if info.name == path:
+                            info.mode = mode
+                    def update(manifest):
+                        next(entry for entry in manifest["entries"] if entry["path"] == path)["mode"] = mode
+                    self.change_manifest(parts, update)
+                self.rewrite(change)
+                with self.assertRaises(ValueError):
+                    self.restore("rust-debug", replace=True)
+                self.assertEqual(stale.read_bytes(), b"retained evidence")
+                self.archive.unlink()
+        schema.chmod(0o755)
+        with self.assertRaises(ValueError):
+            self.export("rust-debug")
+        self.assertFalse(self.archive.exists())
 
     def test_directory_permissions_and_symlink_mtime_survive_restore(self):
         self.write(self.source / ".build/directory/product")

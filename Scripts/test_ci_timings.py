@@ -86,6 +86,15 @@ class TimingRecordTests(unittest.TestCase):
         self.assertEqual(row["watchdog_log"], str(log))
         self.assertEqual(row["native_events"], str(events))
 
+    def test_actual_swift_633_and_64_build_summary_formats(self):
+        log = self.root / "tests.log"
+        for summary, seconds in (("Build complete! (117.03s)", 117.03),
+                                 ("Build complete! (3.22 secs.)", 3.22)):
+            with self.subTest(summary=summary):
+                log.write_text(summary + "\n")
+                observations = timings.test_observations(log, None)
+                self.assertEqual(observations["test_build_seconds"], seconds)
+
     def test_partial_invalid_or_missing_native_events_never_imply_complete_execution(self):
         events = self.write_events([self.event("runStarted", 10), self.event("runEnded", 12),
                                     self.event("runStarted", 13)])
@@ -180,6 +189,21 @@ printf '%s\\n' "$selected"
                 rows = self.report.read_text().splitlines()
                 self.assertEqual(len(rows), 1)
 
+    def test_captured_function_failure_keeps_stdout_status_and_one_owner_record(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                self.report.unlink(missing_ok=True)
+                result = self.run_shell(shell, '''
+owner() { printf 'captured-output'; return 37; }
+spotty_ci_timings_start captured-function
+selected="$(owner)"
+printf 'forbidden-after-failure\\n'
+''')
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (37, "", ""))
+                rows = [json.loads(line) for line in self.report.read_text().splitlines()]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["status"], 37)
+
     def test_timing_io_failure_does_not_replace_command_failure(self):
         blocker = self.root / "occupied"
         blocker.write_text("file")
@@ -190,6 +214,22 @@ printf '%s\\n' "$selected"
                 self.assertEqual(result.returncode, 29)
                 self.assertEqual(result.stdout, "")
                 self.assertEqual(result.stderr, "ci-timings: timing report unavailable\n")
+
+    @unittest.skipUnless(shutil.which("zsh"), "Release entry point requires zsh")
+    def test_release_captured_resolver_failure_records_original_status_once(self):
+        scripts = self.root / "Scripts"
+        shutil.copy(ROOT / "Scripts/compile-release-spotty.sh", scripts)
+        (scripts / "swiftpm-env.sh").write_text("# Toolchain-free environment fixture\n")
+        (scripts / "playback-xcframework.sh").write_text(
+            "spotty_playback_resolve_xcframework() { printf 'captured-artifact'; return 37; }\n")
+        result = subprocess.run([shutil.which("zsh"), str(scripts / "compile-release-spotty.sh")],
+                                env={**os.environ, "SPOTTY_CI_TIMINGS_REPORT": str(self.report)},
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (37, "", ""))
+        rows = [json.loads(line) for line in self.report.read_text().splitlines()]
+        resolution = [row for row in rows if row["phase"] == "release.artifact.resolve"]
+        self.assertEqual(len(resolution), 1)
+        self.assertEqual(resolution[0]["status"], 37)
 
 
 @unittest.skipUnless(shutil.which("zsh"), "playback build entry point requires zsh")

@@ -6,14 +6,27 @@ set -euo pipefail
 # library filename forces relinking even when a local artifact directory is reused.
 # Does not run the Rust suite, Swift checks, packaging, or signing.
 project_root="${0:A:h:h}"
+source "$project_root/Scripts/ci-timings.sh"
+trap 'spotty_ci_timings_finish "$?"' EXIT
+if [[ -n "${SPOTTY_CI_TIMINGS_REPORT:-}" ]]; then
+    trap 'spotty_ci_timings_finish "$?"' ZERR
+fi
+spotty_ci_timings_start release.environment
 source "$project_root/Scripts/swiftpm-env.sh"
 source "$project_root/Scripts/playback-xcframework.sh"
+spotty_ci_timings_finish 0
 
+spotty_ci_timings_start release.artifact.resolve
 selected_xcframework="$(spotty_playback_resolve_xcframework)"
+spotty_ci_timings_finish 0
+spotty_ci_timings_start release.artifact.validate
 spotty_playback_validate_xcframework "$selected_xcframework"
+spotty_ci_timings_finish 0
+spotty_ci_timings_start release.header-module-cache
 playback_headers="$(spotty_playback_headers_path "$(spotty_playback_slice_path "$selected_xcframework")")"
 python3 "$project_root/Scripts/playback_module_cache.py" "$project_root/.build" "$playback_headers" \
     --configuration release
+spotty_ci_timings_finish 0
 
 swift_arguments=(
     --disable-sandbox
@@ -24,8 +37,11 @@ swift_arguments=(
     "${spotty_swiftc_warnings_as_errors[@]}"
 )
 
+spotty_ci_timings_start release.distribution-build
 swift build "${swift_arguments[@]}"
+spotty_ci_timings_finish 0
 
+spotty_ci_timings_start release.bin-path-and-verification
 bin_path="$(swift build "${swift_arguments[@]}" --show-bin-path)"
 case "$bin_path" in
     */release)
@@ -56,5 +72,6 @@ if [[ -e "$debug_binary" ]]; then
         exit 1
     fi
 fi
+spotty_ci_timings_finish 0
 
 print "Compiled release Spotty with SPOTTY_DISTRIBUTION at $built_binary"

@@ -290,3 +290,27 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
         self.step(variant, 'macos_engine', 'Preserve Cargo timing evidence')['run'] += ' || true'
         checks.append(WorkflowCheck(variant, diagnostic='fail successful candidates with missing reports'))
         self.check_workflows(checks)
+
+    def test_native_debug_evidence_upload_always_retains_the_complete_attempt(self):
+        checks = []
+        for mutation in ('removed', 'failure_only', 'no_attempt', 'partial_path', 'missing_error', 'moved'):
+            variant = copy.deepcopy(self.workflow)
+            steps = variant['jobs']['macos_swift']['steps']
+            upload = self.step(variant, 'macos_swift', 'Upload Swift test diagnostics')
+            if mutation == 'removed':
+                steps.remove(upload)
+            elif mutation == 'failure_only':
+                upload['if'] = "always() && steps.debug.outcome == 'failure'"
+            elif mutation == 'no_attempt':
+                upload['with']['name'] = 'swift-test-diagnostics-${{ github.run_id }}'
+            elif mutation == 'partial_path':
+                upload['with']['path'] += '/native-events.jsonl'
+            elif mutation == 'missing_error':
+                upload['with']['if-no-files-found'] = 'error'
+            else:
+                steps.remove(upload)
+                steps.insert(0, upload)
+            expected = ('after checks and before their result gate' if mutation == 'moved' else
+                        'complete run-attempt archive with missing-log warnings')
+            checks.append(WorkflowCheck(variant, diagnostic=expected, label={'mutation': mutation}))
+        self.check_workflows(checks)

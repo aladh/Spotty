@@ -279,6 +279,24 @@ module WorkflowPolicy
     debug_index = swift_steps.index(debug_step)
     check.call(acceptance_index && debug_index && debug_index < acceptance_index,
                'acceptance corpus must run after Swift checks in its owning lane')
+    debug_evidence = one_step(check, swift_steps, 'Upload Swift test diagnostics')
+    debug_evidence_spec = {
+      'name' => 'Upload Swift test diagnostics',
+      'if' => 'always()',
+      'uses' => "actions/upload-artifact@#{UPLOAD_SHA}",
+      'with' => {
+        'name' => 'swift-test-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}',
+        'path' => '${{ runner.temp }}/spotty-swift-test-diagnostics',
+        'if-no-files-found' => 'warn',
+        'retention-days' => 7,
+      },
+    }
+    check.call(debug_evidence == debug_evidence_spec,
+               'Swift native test evidence must always retain its complete run-attempt archive with missing-log warnings')
+    debug_evidence_index = swift_steps.index(debug_evidence)
+    swift_gate_index = swift_steps.index(swift_gate)
+    check.call(debug_index && debug_evidence_index && swift_gate_index && debug_index < debug_evidence_index && debug_evidence_index < swift_gate_index,
+               'Swift native test evidence must be archived after checks and before their result gate')
 
     triggers = standalone.fetch('on', standalone[true])
     check.call(triggers.is_a?(Hash) && triggers.keys.sort == %w[workflow_call workflow_dispatch],

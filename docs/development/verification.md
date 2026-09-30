@@ -78,7 +78,7 @@ The [watchdog](../../Scripts/swift_test_watchdog.py) bounds each Swift test invo
 in CI or twenty locally, sampling and terminating only its own process tree without retry.
 Override with `SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS`; select an artifact directory with
 `SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR`. The wrapper reports commands, status, and diagnostics paths;
-CI retains failed Debug logs and supported native event streams.
+CI retains Debug invocation logs and supported native event streams, including passing runs.
 
 ## Deterministic synchronization
 

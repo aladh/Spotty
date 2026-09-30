@@ -535,10 +535,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Upload Swift test diagnostics
-        if: always() && steps.debug.outcome == 'failure'
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: swift-test-diagnostics-${{ github.run_id }}
+          name: swift-test-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/spotty-swift-test-diagnostics
           if-no-files-found: warn
           retention-days: 7

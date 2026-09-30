@@ -13,7 +13,7 @@ import sys
 import time
 
 
-BUILD_SUMMARY = re.compile(r"Build complete! \(([0-9]+(?:\.[0-9]+)?) secs\.\)")
+BUILD_SUMMARY = re.compile(r"Build complete! \(([0-9]+(?:\.[0-9]+)?)(?: secs\.|s)\)")
 
 
 def test_observations(log_path: Path | None, event_path: Path | None) -> dict:

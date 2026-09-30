@@ -23,7 +23,7 @@ struct StartupConnectionChecks {
         let interaction = SearchInteractionState()
         interaction.prepare(for: query)
         interaction.filter = .songs
-        var observedPhase = player.phase
+        let observedPhase = StartupPhaseObservation(player.phase)
         func content() -> some View {
             SearchView(
                 store: player.catalog.searchStore, playback: CatalogPlaybackAccess(player: player),
@@ -31,7 +31,7 @@ struct StartupConnectionChecks {
                 playlistActions: TrackPlaylistActions(
                     editablePlaylists: [], canRemoveOccurrences: false, addToPlaylist: { _, _ in },
                     removeOccurrences: { _ in })
-            ).onChange(of: player.phase) { _, phase in observedPhase = phase }
+            ).onChange(of: player.phase) { _, phase in observedPhase.value = phase }
         }
         let host = NSHostingView(rootView: content())
         let window = NSWindow(
@@ -57,7 +57,7 @@ struct StartupConnectionChecks {
         host.rootView = content()
         try await requireEventually {
             host.layoutSubtreeIfNeeded()
-            return observedPhase == .recovering
+            return observedPhase.value == .recovering
         }
         #expect(!player.catalog.searchStore.isEmpty)
         #expect(table(in: host) === original)
@@ -70,7 +70,7 @@ struct StartupConnectionChecks {
         host.rootView = content()
         try await requireEventually {
             host.layoutSubtreeIfNeeded()
-            return observedPhase == .failed("Offline")
+            return observedPhase.value == .failed("Offline")
         }
         #expect(!player.catalog.searchStore.isEmpty)
         #expect(table(in: host) == nil, "an empty query cannot display retained results from a previous query")
@@ -107,4 +107,11 @@ struct StartupConnectionChecks {
         }
         await player.shutdownForTermination()
     }
+}
+
+@MainActor
+private final class StartupPhaseObservation {
+    var value: PlaybackStore.Phase
+
+    init(_ value: PlaybackStore.Phase) { self.value = value }
 }

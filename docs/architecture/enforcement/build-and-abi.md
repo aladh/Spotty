@@ -13,12 +13,13 @@
 | Production uses live integrations; fixtures remain in tests | [Dependency ownership](../adrs/ADR-002-playback-state-and-dependencies.md), [test guidance](../../../Tests/AGENTS.md) |
 | Valid bundle metadata | [check.sh](../../../Scripts/check.sh), [packaging](../../development/releases.md) |
 
-The portable graph supports isolated macOS policy tests through `verify.py domain`; named Gateway,
-CatalogStorage, and TestSupport tests use a second engine-free graph. Both reuse the full manifest's
-target declarations. [Manifest probes](../../../Scripts/check-package-graphs.py) resolve these graphs
-with an invalid playback override, compare shared declarations, and verify lockfile isolation.
-App and complete-gate entry points explicitly restore the full graph; see
-[workspace selection](../../development/verification.md#normal-verification).
+`verify.py domain` owns the portable graph; legacy engine-free verification groups Gateway,
+CatalogStorage and TestSupport. Leading `verify.py test/list --target` selects one of seven exact closures
+from shared declarations. [Manifest probes](../../../Scripts/check-package-graphs.py) compare
+declarations/edges and owned locks, rejecting playback resolution in engine-free cuts. Required CI
+executes TestSupport smoke; trusted labeled PRs retain actual-toolchain native/compiler/SDK and
+optimized closure proofs. App and complete gates restore the full graph; complete gates execute every test target.
+[Selection guidance](../../development/verification.md#normal-verification) owns module dependencies.
 
 ## ABI and cross-language contracts
 

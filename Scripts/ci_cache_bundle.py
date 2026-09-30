@@ -337,9 +337,12 @@ def excluded_path(name: str, relative: PurePosixPath, *, kind: str | None = None
     # verification_package.py regenerates these source links before compilation.
     # Their sibling scratch products remain cache inputs; source links leave .build.
     return private_path(relative, logical_name=name, kind=kind) or (
-        name == "build" and len(relative.parts) >= 2
-        and path_key(relative.parts[0]) in {"domain", "engine-free"}
-        and path_key(relative.parts[1]) == "package"
+        name == "build" and (
+            (len(relative.parts) >= 2 and path_key(relative.parts[0]) in {"domain", "engine-free"}
+             and path_key(relative.parts[1]) == "package")
+            or (len(relative.parts) >= 3 and path_key(relative.parts[0]) == "test-targets"
+                and path_key(relative.parts[2]) == "package")
+        )
     )
 
 

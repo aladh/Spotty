@@ -79,6 +79,9 @@ import Testing
                 } else {
                     connection.cancel()
                 }
+                // The cancellation branch leaves both gates open to prove cancellation itself settles.
+                // If that prerequisite fails, fixture cleanup closes them before joining.
+                try await fixture.requireConnectionSettlement(connection)
                 await connection.wait()
                 #expect(fixture.account.adoption.requestCount == 0)
                 #expect(fixture.account.authorization.waiterCount == 0)
@@ -216,6 +219,24 @@ import Testing
 
         func own(_ connection: AccountStore.ConnectionSettlement?) {
             if let connection { connections.append(connection) }
+        }
+
+        func requireConnectionSettlement(
+            _ connection: AccountStore.ConnectionSettlement,
+            sourceLocation: SourceLocation = #_sourceLocation
+        ) async throws {
+            let completion = HarnessCounters()
+            let observer = Task {
+                await connection.wait()
+                completion.record("settled")
+            }
+            operations.append(observer)
+            try await requireEventually(
+                description: "Pre-registration cancellation or closure settles accepted connection work",
+                sourceLocation: sourceLocation
+            ) {
+                completion.count("settled") == 1
+            }
         }
 
         func logout() -> Task<Void, Never> {

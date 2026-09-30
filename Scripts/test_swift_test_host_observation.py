@@ -182,12 +182,21 @@ class HostObservationTests(unittest.TestCase):
             self.completions.observe()
 
     def test_ci_explicitly_refuses_real_or_inherited_sampler(self):
-        for environment in ({"CI": "true"}, {"GITHUB_ACTIONS": "true"},
-                            {"CI": "1", "SPOTTY_SWIFT_TEST_SAMPLER": "/custom/sampler"}):
-            env = observation.invocation_environment(self.root, "nonce", environment)
-            self.assertEqual(env["SPOTTY_SWIFT_TEST_SAMPLER"], "/usr/bin/false")
-            self.assertEqual(env["SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS"], "300")
-        self.assertNotIn("SPOTTY_HOST_OBSERVATION_DIR", os.environ)
+        parent = dict(os.environ)
+        for inherited in ({}, {"SPOTTY_HOST_OBSERVATION_DIR": "/inherited/reports",
+                               "SPOTTY_HOST_OBSERVATION_NONCE": "stale-nonce"}):
+            for ci in ({"CI": "true"}, {"GITHUB_ACTIONS": "true"},
+                       {"CI": "1", "SPOTTY_SWIFT_TEST_SAMPLER": "/custom/sampler"}):
+                environment = {**inherited, **ci}
+                original = dict(environment)
+                env = observation.invocation_environment(self.root, "nonce", environment)
+                self.assertIsNot(env, environment)
+                self.assertEqual(environment, original)
+                self.assertEqual(env["SPOTTY_SWIFT_TEST_SAMPLER"], "/usr/bin/false")
+                self.assertEqual(env["SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS"], "300")
+                self.assertEqual(env["SPOTTY_HOST_OBSERVATION_DIR"], str(self.root / "reports"))
+                self.assertEqual(env["SPOTTY_HOST_OBSERVATION_NONCE"], "nonce")
+        self.assertEqual(dict(os.environ), parent)
 
     def run_mocked(self, *, command_status=0, interrupt=False, write_failure=False, timeout=False,
                    launch_interrupt=False, observation_failure=False, proof=False, output_failure=False,

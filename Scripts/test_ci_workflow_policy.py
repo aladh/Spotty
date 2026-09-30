@@ -181,6 +181,50 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
             checks.append(WorkflowCheck(variant, diagnostic=f'{label} must retain its exact fail-closed truth table'))
         self.check_workflows(checks)
 
+    def test_focused_selection_proof_remains_exact_trusted_bounded_and_required(self):
+        checks = [WorkflowCheck(self.workflow)]
+        for name, identity in (
+                ('Prove focused test selection', 'focused_smoke'),
+                ('Collect supported-toolchain selection evidence', 'selection_experiment'),
+                ('Upload focused selection evidence', 'selection_upload')):
+            original = self.step(self.workflow, 'macos_swift', name)
+            for mutation in ('removed', 'duplicated', 'optional', 'contract'):
+                variant = copy.deepcopy(self.workflow)
+                steps = variant['jobs']['macos_swift']['steps']
+                step = self.step(variant, 'macos_swift', name)
+                if mutation == 'removed':
+                    steps.remove(step)
+                elif mutation == 'duplicated':
+                    steps.append(copy.deepcopy(step))
+                elif mutation == 'optional':
+                    step['continue-on-error'] = True
+                elif 'run' in original:
+                    step['run'] = original['run'].replace('6.3.3', '6.4')
+                else:
+                    step['with']['if-no-files-found'] = 'warn'
+                checks.append(WorkflowCheck(variant, diagnostic=f'{identity} must retain',
+                                            label={'identity': identity, 'mutation': mutation}))
+        for clause in (
+                "github.event_name == 'pull_request' && ",
+                'github.event.pull_request.head.repo.full_name == github.repository && ',
+                "steps.acceptance_upload.outcome == 'success'"):
+            variant = copy.deepcopy(self.workflow)
+            step = self.step(variant, 'macos_swift', 'Collect supported-toolchain selection evidence')
+            step['if'] = step['if'].replace(clause, 'true')
+            checks.append(WorkflowCheck(variant, diagnostic='selection_experiment must retain'))
+        for name in ('Prove focused test selection', 'Collect supported-toolchain selection evidence'):
+            variant = copy.deepcopy(self.workflow)
+            steps = variant['jobs']['macos_swift']['steps']
+            step = self.step(variant, 'macos_swift', name)
+            steps.remove(step)
+            steps.insert(0, step)
+            checks.append(WorkflowCheck(variant, diagnostic='preserve successful corpus ordering'))
+        variant = copy.deepcopy(self.workflow)
+        gate = self.step(variant, 'macos_swift', 'Require Swift test evidence')
+        gate['run'] = gate['run'].replace('true:success|false:skipped', 'true:success|true:skipped|false:skipped')
+        checks.append(WorkflowCheck(variant, diagnostic='focused selection aggregate must retain its exact fail-closed truth table'))
+        self.check_workflows(checks)
+
     def test_public_cargo_source_preflight_remains_required_before_release_work(self):
         checks = []
         for mutation in ('removed', 'command', 'identity', 'duplicate', 'moved', 'before_rust',

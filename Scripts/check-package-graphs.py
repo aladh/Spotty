@@ -7,16 +7,21 @@ import subprocess
 import sys
 import tempfile
 
-from verification_package import prepare
+from verification_package import TEST_TARGETS, prepare
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def swift(package: Path, graph: str, operation: str, **environment: str) -> subprocess.CompletedProcess:
+    selected_environment = {**os.environ, "SPOTTY_PACKAGE_GRAPH": graph, **environment}
+    override = selected_environment.get("SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK")
+    if override is not None:
+        # Graph probes, like the user wrapper, keep relative artifact ownership at ROOT.
+        selected_environment["SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK"] = str(ROOT / override)
     return subprocess.run(
         ["swift", "package", "--disable-sandbox", "--package-path", str(package), operation],
-        env={**os.environ, "SPOTTY_PACKAGE_GRAPH": graph, **environment},
+        env=selected_environment,
         text=True, capture_output=True, timeout=60,
     )
 
@@ -62,6 +67,64 @@ def verify_test_support(targets: dict) -> None:
             raise ValueError(f"{product} acquired a test-support dependency")
 
 
+def dependency_closure(targets: dict, selected: str) -> tuple[set[str], set[str]]:
+    """Derive expectations from dump-package, never from a parallel dependency map."""
+    local, external, pending = set(), set(), [selected]
+    while pending:
+        name = pending.pop()
+        if name in local:
+            continue
+        if name not in targets:
+            raise ValueError(f"Unknown local package dependency: {name}")
+        local.add(name)
+        for dependency in targets[name].get("dependencies", []):
+            if "byName" in dependency or "target" in dependency:
+                pending.append(dependency.get("byName", dependency.get("target"))[0])
+            elif "product" in dependency:
+                package = dependency["product"][1]
+                if not package:
+                    raise ValueError(f"Unbound external package dependency: {name}")
+                external.add(package.lower())
+            else:
+                raise ValueError(f"Unknown package dependency shape in {name}")
+    return local, external
+
+
+def package_identity(dependency: dict) -> str:
+    for kind in ("sourceControl", "fileSystem", "registry"):
+        if kind in dependency:
+            return dependency[kind][0]["identity"].lower()
+    raise ValueError("Unknown external package declaration")
+
+
+def verify_selection(full: dict, focused: dict, name: str, *, full_package: Path = ROOT,
+                     focused_package: Path | None = None) -> None:
+    targets = {target["name"]: target for target in full["targets"]}
+    local, external = dependency_closure(targets, name)
+    selected = {target["name"]: target for target in focused["targets"]}
+    if selected.keys() != local or len(selected) != len(focused["targets"]):
+        raise ValueError(f"{name} does not contain its exact local dependency closure")
+    if {target["name"] for target in focused["targets"] if target["type"] == "test"} != {name}:
+        raise ValueError(f"{name} must be the only focused test target")
+    for target_name, declaration in selected.items():
+        original = targets[target_name]
+        if (declaration.get("type") == original.get("type") == "binary"
+                and isinstance(declaration.get("path"), str) and isinstance(original.get("path"), str)
+                and focused_package is not None):
+            # A local binary's relative path belongs to its package, not to the source
+            # checkout. Normalize only this path; every other declaration field stays exact.
+            declaration = {**declaration, "path": str((focused_package / declaration["path"]).resolve())}
+            original = {**original, "path": str((full_package / original["path"]).resolve())}
+        if declaration != original:
+            raise ValueError(f"{name} changed the shared declaration of {target_name}")
+    dependencies = [dependency for dependency in full["dependencies"]
+                    if package_identity(dependency) in external]
+    if {package_identity(dependency) for dependency in dependencies} != external:
+        raise ValueError(f"{name} has an unbound external dependency")
+    if focused["dependencies"] != dependencies or focused.get("products"):
+        raise ValueError(f"{name} acquired unexpected external dependencies or products")
+
+
 def verify() -> str:
     # Dumping the full graph preserves artifact validation without resolving dependencies.
     full = json.loads(succeeded(swift(ROOT, "full", "dump-package", SPOTTY_BUILD_BROWSING_HARNESS="1")))
@@ -79,7 +142,8 @@ def verify() -> str:
             for name in ("Package.swift", "Sources", "Tests"):
                 (root / name).symlink_to(ROOT / name, target_is_directory=(ROOT / name).is_dir())
             # Give the temporary checkout its own lockfile too. Neither isolated root owns it.
-            (root / "Package.resolved").write_bytes(b"synthetic app lockfile\n")
+            app_lock = before if before is not None else b'{"pins": [], "version": 3}\n'
+            (root / "Package.resolved").write_bytes(app_lock)
             invalid = {"SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK": str(root / "missing.xcframework"),
                        "SPOTTY_BUILD_BROWSING_HARNESS": "1"}
             for graph, names in (
@@ -98,8 +162,23 @@ def verify() -> str:
                     if target != targets[name]:
                         raise ValueError(f"{graph} changed the shared declaration of {name}")
                 succeeded(swift(package, graph, "resolve", **invalid))
-                if (root / "Package.resolved").read_bytes() != b"synthetic app lockfile\n":
+                if (root / "Package.resolved").read_bytes() != app_lock:
                     raise ValueError(f"{graph} changed the app lockfile")
+            for name in TEST_TARGETS:
+                graph = f"test-target:{name}"
+                package = prepare(root, graph)
+                local, external = dependency_closure(targets, name)
+                # Only binary-consuming cuts may evaluate the playback override. Dumping
+                # those graphs needs no artifact download or external package resolution.
+                environment = {"SPOTTY_BUILD_BROWSING_HARNESS": "1"}
+                if "SpottyPlaybackCore" not in local:
+                    environment.update(invalid)
+                manifest = json.loads(succeeded(swift(package, graph, "dump-package", **environment)))
+                verify_selection(full, manifest, name, focused_package=package)
+                if not external and "SpottyPlaybackCore" not in local:
+                    succeeded(swift(package, graph, "resolve", **invalid))
+                if (root / "Package.resolved").read_bytes() != app_lock:
+                    raise ValueError(f"{name} changed the app lockfile")
             rejected = swift(ROOT, "full", "dump-package", **invalid)
             if rejected.returncode == 0 or "must point to an existing XCFramework directory" not in rejected.stderr:
                 raise ValueError("The full graph stopped validating its playback override")

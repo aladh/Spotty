@@ -427,12 +427,20 @@ class AggregateGateTests(unittest.TestCase):
                             self.assertNotEqual(self.execute("Require engine results", {**base, field: value}).returncode, 0)
 
     def test_swift_gate_requires_tests_and_complete_acceptance_evidence(self):
-        valid = {key: "success" for key in ("CHECKS_RESULT", "ACCEPTANCE_RESULT", "ACCEPTANCE_SUMMARY_RESULT", "ACCEPTANCE_UPLOAD_RESULT")}
-        self.assertEqual(self.execute("Require Swift test evidence", valid).returncode, 0)
-        for field in valid:
-            for value in ("skipped", "failure", "cancelled", ""):
-                with self.subTest(field=field, value=value):
-                    self.assertNotEqual(self.execute("Require Swift test evidence", {**valid, field: value}).returncode, 0)
+        required = {key: "success" for key in (
+            "CHECKS_RESULT", "ACCEPTANCE_RESULT", "ACCEPTANCE_SUMMARY_RESULT", "ACCEPTANCE_UPLOAD_RESULT",
+            "FOCUSED_SMOKE_RESULT", "SELECTION_UPLOAD_RESULT")}
+        for requested, result in (("false", "skipped"), ("true", "success")):
+            valid = {**required, "SELECTION_EXPERIMENT_REQUESTED": requested,
+                     "SELECTION_EXPERIMENT_RESULT": result}
+            self.assertEqual(self.execute("Require Swift test evidence", valid).returncode, 0)
+            for field in valid:
+                values = ("true", "false", "invalid", "") if field == "SELECTION_EXPERIMENT_REQUESTED" else (
+                    "success", "skipped", "failure", "cancelled", "")
+                for value in values:
+                    if value != valid[field]:
+                        with self.subTest(requested=requested, field=field, value=value):
+                            self.assertNotEqual(self.execute("Require Swift test evidence", {**valid, field: value}).returncode, 0)
 
     def test_required_check_accepts_only_verified_main_publication_or_explicit_pr_skip(self):
         valid = [

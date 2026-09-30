@@ -238,6 +238,43 @@ module WorkflowPolicy
     gate_shell(check, swift_gate, 'Swift evidence gate')
     check.call(swift_gate['if'] == 'always()', 'Swift evidence gate must run even after failures')
     success_binding(check, swift_gate, 'CHECKS_RESULT', '${{ steps.debug.outcome }}', 'Swift evidence gate')
+    selection_request = "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence')"
+    selection_specs = {
+      'focused_smoke' => {
+        'name' => 'Prove focused test selection', 'timeout-minutes' => 5,
+        'run' => 'python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.3.3',
+      },
+      'selection_experiment' => {
+        'name' => 'Collect supported-toolchain selection evidence', 'timeout-minutes' => 20,
+        'if' => "success() && #{selection_request} && steps.acceptance.outcome == 'success' && steps.acceptance_summary.outcome == 'success' && steps.acceptance_upload.outcome == 'success'",
+        'env' => { 'SELECTION_HEAD_SHA' => '${{ github.event.pull_request.head.sha }}' },
+        'run' => 'python3 Scripts/focused_selection_evidence.py experiment --source "$GITHUB_WORKSPACE" --before cb67cd0d808868d0484cb5786ff46926a81c7852 --after "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/experiment" --swift-version 6.3.3',
+      },
+      'selection_upload' => {
+        'name' => 'Upload focused selection evidence', 'if' => 'always()',
+        'uses' => "actions/upload-artifact@#{UPLOAD_SHA}",
+        'with' => {
+          'name' => 'focused-selection-${{ github.run_id }}-${{ github.run_attempt }}',
+          'path' => '${{ runner.temp }}/spotty-selection', 'if-no-files-found' => 'error', 'retention-days' => 7,
+        },
+      },
+    }
+    selection_specs.each do |id, fields|
+      matches = swift_steps.select { |step| step['id'] == id || step['name'] == fields['name'] }
+      check.call(matches.length == 1 && matches.first == fields.merge('id' => id), "#{id} must retain its bounded exact selection evidence contract")
+    end
+    positions = ['debug', 'focused_smoke', 'acceptance', 'acceptance_upload', 'selection_experiment', 'selection_upload'].map do |id|
+      swift_steps.index { |step| step['id'] == id }
+    end
+    positions << swift_steps.index(swift_gate)
+    check.call(positions.none?(&:nil?) && positions == positions.sort && positions.uniq.length == positions.length,
+               'focused selection proof must follow Debug and preserve successful corpus ordering')
+    success_binding(check, swift_gate, 'FOCUSED_SMOKE_RESULT', '${{ steps.focused_smoke.outcome }}', 'focused selection gate')
+    success_binding(check, swift_gate, 'SELECTION_UPLOAD_RESULT', '${{ steps.selection_upload.outcome }}', 'focused selection gate')
+    check.call(swift_gate.dig('env', 'SELECTION_EXPERIMENT_REQUESTED') == "${{ #{selection_request} }}" &&
+               swift_gate.dig('env', 'SELECTION_EXPERIMENT_RESULT') == '${{ steps.selection_experiment.outcome }}',
+               'focused selection gate must bind actual trusted request and outcome')
+    case_table(check, swift_gate, 'SELECTION_EXPERIMENT_REQUESTED:$SELECTION_EXPERIMENT_RESULT', %w[true:success false:skipped], '*) echo "Focused selection evidence disagrees with request" >&2; exit 1 ;;', 'focused selection aggregate')
     acceptance_contract = lambda do |job_steps, result_gate, head_binding|
       check.call(job_steps.count { |step| step.fetch('run', '').include?('acceptance_scenarios.py run') } == 1,
                  'acceptance corpus must execute once without implicit retries')

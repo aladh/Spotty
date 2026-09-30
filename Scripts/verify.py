@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 
-from verification_package import prepare as prepare_package
+from verification_package import TEST_TARGETS, prepare as prepare_package, workspace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +24,56 @@ GATES = {
 COMPILER_ARGUMENT_OPTIONS = frozenset(("-Xswiftc", "-Xcc", "-Xcxx", "-Xlinker", "-Xbuild-tools-swiftc"))
 
 
+SWIFTPM_VALUE_OPTIONS = COMPILER_ARGUMENT_OPTIONS | frozenset((
+    "--filter", "--skip", "--test-product", "--package-path", "--scratch-path",
+    "--configuration", "-c", "--jobs", "-j", "--num-workers", "--triple", "--sdk",
+    "--toolchain", "--swift-sdk", "--experimental-swift-sdk", "--arch", "--sanitize",
+    "--build-system", "--cache-path", "--config-path", "--security-path",
+    "--multiroot-data-file", "--netrc-file", "--resolver-fingerprint-checking",
+    "--resolver-signing-entity-checking", "--default-registry-url", "--traits",
+    "--xunit-output", "--event-stream-output-path",
+))
+
+
+def swiftpm_options(arguments: list[str]):
+    """Walk top-level options once; compiler/filter/path operands stay opaque."""
+    values = iter(arguments)
+    for argument in values:
+        if argument == "--":
+            yield "--", None
+            break
+        key, separator, value = argument.partition("=")
+        if not separator and key in SWIFTPM_VALUE_OPTIONS:
+            value = next(values, None)
+        yield key, value
+
+
+def target_selection(arguments: list[str]) -> tuple[str | None, list[str]]:
+    """Consume only the leading repository selector; never reinterpret SwiftPM operands."""
+    target = None
+    remaining = arguments
+    if arguments[:1] == ["--target"]:
+        if len(arguments) < 2 or not arguments[1] or arguments[1].startswith("-"):
+            raise ValueError("--target requires one test module name")
+        target, remaining = arguments[1], arguments[2:]
+    elif arguments and arguments[0].startswith("--target="):
+        target, remaining = arguments[0].partition("=")[2], arguments[1:]
+        if not target:
+            raise ValueError("--target requires one test module name")
+    if target is not None:
+        if target not in TEST_TARGETS:
+            raise ValueError(f"Unknown --target {target!r}; choose one of: {', '.join(TEST_TARGETS)}")
+        for key, _ in swiftpm_options(remaining):
+            if key == "--target":
+                raise ValueError("--target must be specified exactly once, immediately after test or list")
+            if key == "--package-path":
+                raise ValueError("--target owns its package root and cannot be combined with --package-path; "
+                                 "use test --package-path PATH --filter MODULE.SUITE instead")
+            if key == "--test-product":
+                raise ValueError("--target cannot be combined with --test-product; it selects one test module directly")
+    return target, remaining
+
+
 def inspects_tests(arguments: list[str]) -> bool:
     """Recognize inspection at SwiftPM's level, not inside forwarded option values."""
     if arguments[:1] in (["list"], ["last"]):
@@ -32,36 +82,19 @@ def inspects_tests(arguments: list[str]) -> bool:
         "--help", "--help-hidden", "-h", "-help", "--version", "--list-tests", "-l",
         "--show-codecov-path", "--show-code-coverage-path", "--show-coverage-path",
     }
-    value_options = COMPILER_ARGUMENT_OPTIONS | {
-        "--filter", "--skip", "--test-product", "--package-path", "--scratch-path",
-    }
-    values = iter(arguments)
-    for argument in values:
-        if argument == "--":
-            break
-        if argument in value_options:
-            next(values, None)
-        elif argument in inspection_options:
-            return True
-    return False
+    return any(key in inspection_options for key, _ in swiftpm_options(arguments))
 
 
 def focused_graph(arguments: list[str]) -> str:
     """Select only unambiguous, repository-owned products using the default workspace."""
     products = []
-    values = iter(arguments)
-    for argument in values:
-        if argument == "--" or argument.split("=", 1)[0] in ("--package-path", "--scratch-path"):
+    for key, value in swiftpm_options(arguments):
+        if key in ("--", "--package-path", "--scratch-path"):
             return "full"
-        if argument in COMPILER_ARGUMENT_OPTIONS:
-            if next(values, None) is None:  # A compiler option is not a SwiftPM graph selector.
-                return "full"
-        elif argument in ("--filter", "--skip"):
-            next(values, None)
-        elif argument == "--test-product":
-            products.append(next(values, None))
-        elif argument.startswith("--test-product="):
-            products.append(argument.partition("=")[2])
+        if key in COMPILER_ARGUMENT_OPTIONS and value is None:
+            return "full"
+        if key == "--test-product":
+            products.append(value)
     if len(products) != 1:
         return "full"
     return {
@@ -136,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog="""Commands:
   preflight  Read-only discovery of local gate tools; no installation or launch
   list       swift test list, including the synthetic browsing harness
-  test       Watchdog-backed swift test; use --filter for portable test selection
+  test       Watchdog-backed swift test; --target MODULE selects its dependency closure
   domain     Isolated portable domain tests; no app or engine dependencies
   swift      Existing Swift gate against the selected playback artifact
   rust       Existing Python playback/harness and compiled Rust/header checks
@@ -148,13 +181,16 @@ def main(argv: list[str] | None = None) -> int:
 Examples:
   python3 Scripts/verify.py list
   python3 Scripts/verify.py domain --filter PlaybackReducer
-  python3 Scripts/verify.py test --filter SpottyBoundaryTests.PlaybackPositionSliderChecks
+  python3 Scripts/verify.py test --target SpottyGatewayTests --filter KeymasterPersistence
   python3 Scripts/verify.py rust
 
-list/test/domain forward remaining arguments to SwiftPM. Target-named --test-product needs
-Swift 6.4; Swift 6.3 combines test targets into one product. Explicit package/scratch paths
-retain the caller's graph; default named products use isolated caches. Focused checks optimize local
-iteration; Scripts/check.sh remains the complete gate. These commands do not launch
+Place --target NAME or --target=NAME immediately after test/list. It selects exactly one
+existing test module plus its declared dependencies, using ordinary swift test on Swift 6.3.3/6.4.
+Remaining arguments pass literally to SwiftPM; repeated filters retain SwiftPM union semantics.
+Selected listing/help retains that graph. --target owns an isolated package and cannot be combined
+with --package-path or --test-product. A selected --scratch-path is forwarded without broadening.
+Without --target, explicit paths retain the caller's graph; legacy target-named --test-product
+needs Swift 6.4. Complete gates and shipping builds keep the full graph. These commands do not launch
 apps, sign in, or start playback. Setup: docs/development/verification.md
 """,
     )
@@ -170,6 +206,15 @@ apps, sign in, or start playback. Setup: docs/development/verification.md
     if args.command == "preflight":
         return preflight()
 
+    selected = None
+    if args.command in ("test", "list"):
+        try:
+            selected, args.arguments = target_selection(args.arguments)
+        except ValueError as error:
+            parser.error(str(error))
+        if selected is not None and sys.platform != "darwin" and selected != "SpottyDomainTests":
+            parser.error(f"--target {selected} requires macOS; SpottyDomainTests is portable")
+
     environment = os.environ.copy()
     environment["SPOTTY_CHECK_PHASE"] = "all"
     environment["SPOTTY_PACKAGE_GRAPH"] = "full"
@@ -181,7 +226,14 @@ apps, sign in, or start playback. Setup: docs/development/verification.md
     if args.command in ("list", "test", "domain"):
         inspection = inspects_tests(args.arguments)
         graph = "domain" if args.command == "domain" else "full"
-        if args.command == "test" and not inspection and sys.platform == "darwin":
+        if selected is not None:
+            graph = f"test-target:{selected}"
+            # The manifest's package root changes; a local artifact still belongs to the
+            # repository from which the wrapper delegates, including relative overrides.
+            override = environment.get("SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK")
+            if override is not None:
+                environment["SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK"] = str(ROOT / override)
+        elif args.command == "test" and not inspection and sys.platform == "darwin":
             graph = focused_graph(args.arguments)
         environment["SPOTTY_BUILD_BROWSING_HARNESS"] = "1" if graph == "full" else "0"
         command = ["swift", "test"]
@@ -189,10 +241,13 @@ apps, sign in, or start playback. Setup: docs/development/verification.md
             command.append("list")
         else:
             command.append("--no-parallel")
-        package = prepare_package(ROOT, graph) if graph != "full" else ROOT
+        try:
+            package = prepare_package(ROOT, graph) if graph != "full" else ROOT
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
         command += ["--disable-sandbox", "--package-path", str(package), *args.arguments]
-        if graph != "full" and not any(arg.split("=", 1)[0] == "--scratch-path" for arg in args.arguments):
-            command += ["--scratch-path", str(ROOT / ".build" / graph)]
+        if graph != "full" and not any(key == "--scratch-path" for key, _ in swiftpm_options(args.arguments)):
+            command += ["--scratch-path", str(workspace(ROOT, graph))]
         if args.command != "list":
             command = [
                 sys.executable, str(ROOT / "Scripts/swift_test_watchdog.py"),

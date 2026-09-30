@@ -84,8 +84,9 @@ artifacts, and require execution, summary, and upload success. These synthetic c
 GUI, sandbox, or live-account behavior.
 
 Ordinary non-candidate PRs target five minutes on macOS; the measured engine-changing target and cold/cache costs are tracked in
-[#587](https://github.com/aladh/Spotty/issues/587). The Swift Debug step has a 15-minute watchdog within the candidate-capable job's
-120-minute ceiling. Per-invocation test deadlines and diagnostics are in
+[#587](https://github.com/aladh/Spotty/issues/587). Each macOS verification lane has a 120-minute job ceiling.
+`Run Swift contracts` in the contracts lane and `Run checks` in the Swift-tests lane each have a
+15-minute step limit. Per-invocation test deadlines and diagnostics are in
 [verification](../../development/verification.md#normal-verification).
 
 [GitHub guidance](../../../.github/AGENTS.md) owns workflow-change constraints.

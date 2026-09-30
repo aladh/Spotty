@@ -53,13 +53,6 @@ fail() {
     fail "expected an XCFramework directory: $xcframework_path"
 info_plist="$xcframework_path/Info.plist"
 [[ -f "$info_plist" ]] || fail "XCFramework Info.plist is missing"
-plutil -lint "$info_plist" >/dev/null || fail "XCFramework Info.plist is invalid"
-
-plist_value() {
-    local key="$1"
-    local plist="$2"
-    plutil -extract "$key" raw -o - "$plist" 2>/dev/null
-}
 require_equal() {
     local label="$1"
     local expected="$2"
@@ -67,38 +60,15 @@ require_equal() {
     [[ "$expected" == "$actual" ]] || fail "$label mismatch (expected $expected, found $actual)"
 }
 
-require_equal "package type" XFWK "$(plist_value CFBundlePackageType "$info_plist")"
+# Read the bounded metadata once instead of launching plutil for every field. This helper
+# only validates metadata relationships and content hashes; lipo/otool still inspect the binary.
+artifact_helper="$project_root/Scripts/playback_artifact.py"
+artifact_metadata="$(python3 "$artifact_helper" metadata "$xcframework_path")" || exit 1
 minimum_macos="$(cat "$backend_root/macos-deployment-target")"
-artifact_minimum_macos="$(plist_value MinimumOSVersion "$info_plist")"
-require_equal "library type" static "$(plist_value LibraryType "$info_plist")"
-require_equal "module name" SpottyPlaybackCore "$(plist_value ModuleName "$info_plist")"
-
-library_count="$(plist_value AvailableLibraries "$info_plist")"
-require_equal "available library count" 1 "$library_count"
-library_identifier="$(plist_value AvailableLibraries.0.LibraryIdentifier "$info_plist")"
-require_equal "library identifier" macos-arm64 "$library_identifier"
-platform="$(plist_value AvailableLibraries.0.SupportedPlatform "$info_plist")"
-require_equal "supported platform" macos "$platform"
-architecture_count="$(plist_value AvailableLibraries.0.SupportedArchitectures "$info_plist")"
-require_equal "architecture count" 1 "$architecture_count"
-architecture="$(plist_value AvailableLibraries.0.SupportedArchitectures.0 "$info_plist")"
-require_equal "architecture" arm64 "$architecture"
-library_relative_path="$(plist_value AvailableLibraries.0.LibraryPath "$info_plist")"
-headers_relative_path="$(plist_value AvailableLibraries.0.HeadersPath "$info_plist")"
-require_equal "binary path" "$library_relative_path" "$(plist_value AvailableLibraries.0.BinaryPath "$info_plist")"
-[[ "$library_relative_path" == libSpottyPlaybackCore_*.a ]] || \
-    fail "static library name must carry the engine input digest"
-[[ "$library_relative_path" != */* && "$library_relative_path" != *..* ]] || \
-    fail "static library path must be a safe file name"
-library_stem="${library_relative_path%.a}"
-library_identity="${library_stem#libSpottyPlaybackCore_}"
-library_engine_digest="${library_identity%%_*}"
-library_name_digest="${library_identity#*_}"
-[[ "$library_engine_digest" =~ ^[0-9a-fA-F]{64}$ ]] || \
-    fail "static library name has no valid engine input digest"
-[[ "$library_name_digest" =~ ^[0-9a-fA-F]{64}$ && "$library_identity" == "$library_engine_digest"\_* ]] || \
-    fail "static library name has no valid library digest"
-require_equal "headers path" Headers "$headers_relative_path"
+artifact_minimum_macos="${artifact_metadata%%$'\n'*}"
+library_relative_path="${artifact_metadata#*$'\n'}"
+library_identifier=macos-arm64
+headers_relative_path=Headers
 
 library_path="$xcframework_path/$library_identifier/$library_relative_path"
 headers_path="$xcframework_path/$library_identifier/$headers_relative_path"
@@ -133,39 +103,17 @@ python3 "$project_root/Scripts/playback_deployment.py" \
     --minimum "$minimum_macos" --declared "$artifact_minimum_macos" --check-source "$check_source" \
     <<< "$otool_dump" || fail "static archive deployment target is invalid"
 
-provenance_path="$xcframework_path/spotty_playback_provenance.json"
-[[ -f "$provenance_path" ]] || fail "embedded playback provenance is missing"
-plutil -convert xml1 -o /dev/null "$provenance_path" >/dev/null 2>&1 || fail "embedded playback provenance is invalid"
-provenance_value() {
-    local key="$1"
-    plutil -extract "$key" raw -o - "$provenance_path" 2>/dev/null || \
-        fail "embedded provenance is missing $key"
-}
-
+provenance_arguments=()
 if [[ "$check_source" == true ]]; then
     source_digest="$("$backend_root/source-input-digest.sh")"
-else
-    source_digest="$(provenance_value source.engineInputDigest)"
+    provenance_arguments+=(--source-digest "$source_digest")
 fi
-require_equal "provenance source input digest" "$source_digest" "$(provenance_value source.engineInputDigest)"
-require_equal "provenance target" aarch64-apple-darwin "$(provenance_value target)"
-require_equal "library filename input digest" "$source_digest" "$library_engine_digest"
-require_equal "provenance module" SpottyPlaybackCore "$(provenance_value module)"
-require_equal "provenance library name" "$library_relative_path" "$(provenance_value libraryName)"
-require_equal "provenance platform" macOS "$(provenance_value platform)"
-require_equal "provenance minimum OS version" "$artifact_minimum_macos" "$(provenance_value minimumOSVersion)"
-require_equal "provenance library type" static "$(provenance_value libraryType)"
-
-header_digest="$({
-    for header_name in spotty_playback.h spotty_playback_generated.h spotty_playback_annotations.h module.modulemap; do
-        print -r -- "$header_name $(shasum -a 256 "$headers_path/$header_name" | awk '{print $1}')"
-    done
-} | shasum -a 256 | awk '{print $1}')"
-require_equal "provenance canonical header digest" "$header_digest" "$(provenance_value source.canonicalHeadersSHA256)"
-
-library_digest="$(shasum -a 256 "$library_path" | awk '{print $1}')"
-require_equal "provenance library digest" "$library_digest" "$(provenance_value librarySHA256)"
-require_equal "library filename digest" "$library_digest" "$library_name_digest"
+if [[ "$for_publish" == true ]]; then
+    provenance_arguments+=(--for-publish)
+fi
+python3 "$artifact_helper" verify "$xcframework_path" \
+    --expected-minimum "$artifact_minimum_macos" --expected-name "$library_relative_path" \
+    "${provenance_arguments[@]}" || exit 1
 
 for notice_path in \
     "$xcframework_path/Notices/ThirdPartyNotices.md" \
@@ -242,8 +190,6 @@ fi
 
 if [[ "$for_publish" == true ]]; then
     [[ -n "$archive_path" ]] || fail "--for-publish requires --archive"
-    require_equal "provenance source dirty flag" false "$(provenance_value source.sourceDirty)"
-    require_equal "provenance source input digest" "$source_digest" "$(provenance_value source.engineInputDigest)"
 fi
 
 print "Validated SpottyPlaybackCore XCFramework: $xcframework_path"

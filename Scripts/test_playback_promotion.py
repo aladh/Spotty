@@ -60,7 +60,7 @@ class PromotionTests(unittest.TestCase):
         self.jobs = [
             {"name": "Source policies", "conclusion": "success"},
             {"name": "Playback script checks", "conclusion": "success"},
-            {"name": "macOS checks", "conclusion": "failure", "steps": [
+            {"name": "macOS engine", "conclusion": "failure", "steps": [
                 {"name": name, "conclusion": "success", "started_at": "2026-09-05T12:00:00Z",
                  "completed_at": "2026-09-05T12:10:00Z"} for name in PRODUCER_STEPS
             ] + [{"name": "Run checks", "conclusion": "failure"}],
@@ -91,6 +91,24 @@ class PromotionTests(unittest.TestCase):
         # Compare to the actual bundle contents, including unchanged archive bytes.
         with zipfile.ZipFile(io.BytesIO(args["bundle"])) as archive:
             self.assertEqual(assets, {name: archive.read(name) for name in archive.namelist()})
+
+    def test_promotion_rejects_legacy_or_ambiguous_producer_jobs(self):
+        for jobs in ([{**self.jobs[2], "name": "macOS checks"}] + self.jobs[:2],
+                     self.jobs + [copy.deepcopy(self.jobs[2])]):
+            with self.subTest(jobs=jobs), self.assertRaisesRegex(ValueError, "one macOS engine"):
+                validate_run(self.run, jobs, "owner/repo", HEAD)
+
+    def test_legacy_producer_definition_requires_a_fresh_candidate(self):
+        args = self.promotion_inputs()
+        legacy = WORKFLOW.replace(b"  macos_engine:\n", b"  macos:\n")
+        with self.assertRaisesRegex(ValueError, "Unrecognized CI producer boundary"):
+            promote(**{**args, "workflow_bytes": legacy})
+
+    def test_post_quality_cache_publication_does_not_change_tested_producer(self):
+        args = self.promotion_inputs()
+        self.assertIn(b"name: Validated main caches", WORKFLOW)
+        promote(**{**args, "trusted_ci": WORKFLOW.replace(
+            b"name: Validated main caches", b"name: Validated main caches # unrelated publisher")})
 
     def test_promotion_rejects_missing_or_ambiguous_candidates(self):
         args = self.promotion_inputs()

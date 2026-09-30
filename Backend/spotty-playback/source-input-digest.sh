@@ -21,6 +21,8 @@ input_paths=(
     "$backend_root/build.sh"
     "$backend_root/build-xcframework.sh"
     "$backend_root/source-input-digest.sh"
+    "$project_root/Scripts/ci-timings.sh"
+    "$project_root/Scripts/ci_timings.py"
     "$project_root/Scripts/generate-c-header.sh"
     "$project_root/Scripts/generate-playback-notices.py"
     "$project_root/Scripts/playback-license-overrides.json"

@@ -13,7 +13,7 @@ class WorkflowAcceptanceTests(WorkflowFixtureMixin, unittest.TestCase):
                 for mutation in ('remove', 'conditional', 'optional', 'duplicate', 'mask_failure', 'move'):
                     with self.subTest(standalone=standalone, step=step_id, mutation=mutation):
                         variant = copy.deepcopy(self.acceptance_workflow if standalone else self.workflow)
-                        job = variant['jobs']['acceptance' if standalone else 'macos']
+                        job = variant['jobs']['acceptance' if standalone else 'macos_swift']
                         step = next(s for s in job['steps'] if s.get('id') == step_id)
                         if mutation == 'remove':
                             job['steps'].remove(step)
@@ -40,9 +40,9 @@ class WorkflowAcceptanceTests(WorkflowFixtureMixin, unittest.TestCase):
                 for mutation in ('fabricated', 'missing', 'ignored'):
                     with self.subTest(standalone=standalone, binding=binding, mutation=mutation):
                         variant = copy.deepcopy(self.acceptance_workflow if standalone else self.workflow)
-                        job = variant['jobs']['acceptance' if standalone else 'macos']
+                        job = variant['jobs']['acceptance' if standalone else 'macos_swift']
                         gate = next(s for s in job['steps'] if s['name'] in (
-                            'Require every quality lane', 'Require acceptance evidence'))
+                            'Require Swift test evidence', 'Require acceptance evidence'))
                         if mutation == 'fabricated':
                             gate['env'][binding] = 'success'
                         elif mutation == 'missing':
@@ -93,9 +93,9 @@ class WorkflowAcceptanceTests(WorkflowFixtureMixin, unittest.TestCase):
     def test_acceptance_execution_remains_after_swift_checks_in_existing_lane(self):
         checks = []
         variant = copy.deepcopy(self.workflow)
-        steps = variant['jobs']['macos']['steps']
+        steps = variant['jobs']['macos_swift']['steps']
         acceptance = next(s for s in steps if s.get('id') == 'acceptance')
         steps.remove(acceptance)
         steps.insert(0, acceptance)
-        checks.append(WorkflowCheck(variant, diagnostic='after Swift checks and before Release compilation'))
+        checks.append(WorkflowCheck(variant, diagnostic='after Swift checks in its owning lane'))
         self.check_workflows(checks)

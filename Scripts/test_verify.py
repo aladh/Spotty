@@ -59,6 +59,7 @@ class VerificationRoutingTests(unittest.TestCase):
             **os.environ,
             "SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR": str(self.root / "diagnostics"),
             "SPOTTY_CHECK_SCOPE": "rust-compiled", "SPOTTY_PACKAGE_GRAPH": "engine-free",
+            "SPOTTY_CHECK_PHASE": "tests",
         }
         self.environment.pop("CI", None)
         self.environment.pop("SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS", None)
@@ -82,6 +83,7 @@ class VerificationRoutingTests(unittest.TestCase):
                 command, environment, artifacts = self.invoke(action)
                 self.assertEqual(command, [str(self.root / "Scripts" / script)])
                 self.assertEqual(environment["SPOTTY_CHECK_SCOPE"], scope)
+                self.assertEqual(environment["SPOTTY_CHECK_PHASE"], "all")
                 self.assertEqual(environment["SPOTTY_PACKAGE_GRAPH"], "full")
                 self.assertEqual(artifacts, self.root / "diagnostics" if action in ("check", "swift", "clean") else None)
 

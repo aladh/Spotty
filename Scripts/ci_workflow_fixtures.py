@@ -43,7 +43,8 @@ class WorkflowFixtureMixin:
             str(ROOT / '.github/workflows/ci.yml'),
             str(ROOT / '.github/workflows/acceptance-scenarios.yml')], text=True))
         # Ruby's YAML 1.1 loader reads unquoted "on" as true; JSON retains the intended key.
-        cls.acceptance_workflow['on'] = cls.acceptance_workflow.pop('true')
+        for workflow in (cls.workflow, cls.acceptance_workflow):
+            workflow['on'] = workflow.pop('true')
 
     def policy_inputs(self, check):
         assets = {name: (self.scripts / name).read_text() for name in (

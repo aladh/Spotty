@@ -62,68 +62,10 @@ spotty_playback_resolve_xcframework() {
         return 1
     fi
 
-    # The workspace state stores binary artifacts under object.artifacts. Walk its bounded
-    # array with plutil so app-only checks require the Apple toolchain alone. Select exactly the
-    # SpottyPlaybackCore remote entry and its recorded path; never accept another artifact or a
-    # local producer path left under this checkout. The URL/checksum comparison below also rejects
-    # a state entry that belongs to an older package pin.
-    local_resolved_path=""
-    local_resolved_count=0
-    local_resolved_index=""
-    artifact_index=0
-    while [ "$artifact_index" -lt 64 ]; do
-        artifact_target="$(plutil -extract "object.artifacts.$artifact_index.targetName" raw -o - "$local_workspace_state" 2>/dev/null || true)"
-        if [ -z "$artifact_target" ]; then
-            break
-        fi
-        if [ "$artifact_target" != "SpottyPlaybackCore" ]; then
-            artifact_index=$((artifact_index + 1))
-            continue
-        fi
-        artifact_source="$(plutil -extract "object.artifacts.$artifact_index.source.type" raw -o - "$local_workspace_state" 2>/dev/null || true)"
-        case "$artifact_source" in
-            remote|url) ;;
-            *)
-                echo "SwiftPM SpottyPlaybackCore entry is not a remote artifact" >&2
-                return 1
-                ;;
-        esac
-        artifact_path="$(plutil -extract "object.artifacts.$artifact_index.path" raw -o - "$local_workspace_state" 2>/dev/null || true)"
-        if [ -z "$artifact_path" ]; then
-            echo "SwiftPM SpottyPlaybackCore entry has no artifact path" >&2
-            return 1
-        fi
-        case "$artifact_path" in
-            /*) candidate_path="$artifact_path" ;;
-            *) candidate_path="$project_root/$artifact_path" ;;
-        esac
-        if [ ! -d "$candidate_path" ] || [ "${candidate_path##*.}" != "xcframework" ]; then
-            echo "SwiftPM SpottyPlaybackCore artifact path is missing: $artifact_path" >&2
-            return 1
-        fi
-        local_resolved_path="$(cd "$candidate_path" && pwd -P)"
-        local_resolved_index="$artifact_index"
-        local_resolved_count=$((local_resolved_count + 1))
-        artifact_index=$((artifact_index + 1))
-    done
-
-    if [ "$local_resolved_count" -ne 1 ]; then
-        echo "Expected one resolved remote SpottyPlaybackCore artifact in SwiftPM workspace state; found $local_resolved_count" >&2
-        return 1
-    fi
-
-    # Reject a stale resolved artifact after a Package.swift pin change.
-    state_url="$(plutil -extract "object.artifacts.$local_resolved_index.source.url" raw -o - "$local_workspace_state" 2>/dev/null || true)"
-    state_checksum="$(plutil -extract "object.artifacts.$local_resolved_index.source.checksum" raw -o - "$local_workspace_state" 2>/dev/null || true)"
-    if [ -z "$manifest_url" ] || [ -z "$manifest_checksum" ] || [ -z "$state_url" ] || [ -z "$state_checksum" ]; then
-        echo "SwiftPM SpottyPlaybackCore state or package pin is missing its remote URL/checksum" >&2
-        return 1
-    fi
-    if [ "$state_url" != "$manifest_url" ] || [ "$(printf '%s' "$state_checksum" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$manifest_checksum" | tr '[:upper:]' '[:lower:]')" ]; then
-        echo "SwiftPM SpottyPlaybackCore state does not match Package.swift" >&2
-        return 1
-    fi
-    printf '%s\n' "$local_resolved_path"
+    # Parse the bounded artifact array once, after resolution. Selection still requires exactly
+    # one remote entry, an existing XCFramework, and the current manifest URL/checksum.
+    python3 "$project_root/Scripts/playback_artifact.py" resolve \
+        "$project_root" "$local_workspace_state" "$manifest_url" "$manifest_checksum"
 }
 
 spotty_playback_slice_path() {

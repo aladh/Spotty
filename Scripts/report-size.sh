@@ -19,6 +19,9 @@ trap 'echo "report-size.sh: failed at line $LINENO" >&2' ERR
 #   --out-dir  <repo>/.build (ignored by git)
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve using the shipping compiler's SDK/cache settings. Otherwise SwiftPM replans
+# the release graph with the ambient SDK before merely reporting its binary path.
+source "$project_root/Scripts/swiftpm-env.sh"
 source "$project_root/Scripts/playback-xcframework.sh"
 
 binary_path=""

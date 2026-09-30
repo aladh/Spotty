@@ -1,10 +1,12 @@
 """Exercise Rust PR selection and the aggregate gate without any compiler toolchain."""
 
+from functools import lru_cache
+import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
-import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -13,16 +15,21 @@ from ci_rust_policy import verification_needed
 ROOT = Path(__file__).resolve().parent.parent
 
 
+@lru_cache(maxsize=1)
+def workflow_jobs():
+    # Parse the real YAML: a final run block must not swallow the following job.
+    return json.loads(subprocess.check_output([
+        "ruby", "-ryaml", "-rjson", "-e",
+        "puts JSON.generate(YAML.safe_load(File.read(ARGV.fetch(0)), aliases: true).fetch('jobs'))",
+        str(ROOT / ".github/workflows/ci.yml")], text=True))
+
+
 def workflow_script(step_name):
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    marker = f"      - name: {step_name}\n"
-    if workflow.count(marker) != 1:
-        raise AssertionError(f"Expected one CI step named {step_name!r}; update the fixture extractor after workflow restructuring")
-    step = workflow.split(marker, 1)[1].split("\n      - name:", 1)[0]
-    run_marker = "        run: |\n"
-    if step.count(run_marker) != 1:
-        raise AssertionError(f"Expected an indented run block in CI step {step_name!r}; update the fixture extractor after workflow restructuring")
-    return textwrap.dedent(step.split(run_marker, 1)[1])
+    matches = [step for job in workflow_jobs().values() for step in job.get("steps", [])
+               if step.get("name") == step_name]
+    if len(matches) != 1 or not isinstance(matches[0].get("run"), str):
+        raise AssertionError(f"Expected one executable CI step named {step_name!r}")
+    return matches[0]["run"]
 
 
 class RustSelectionTests(unittest.TestCase):
@@ -187,96 +194,41 @@ class RustSelectionTests(unittest.TestCase):
                 verification_needed("pull_request", self.base, self.root)["rust_needed"]
 
 
-class ConsolidatedWorkflowTests(unittest.TestCase):
-    def test_rust_scope_guards_and_phase_order(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        self.assertEqual(workflow.count("runs-on: macos-"), 1)
-        playback = workflow.split("  playback_python:\n", 1)[1].split("\n  macos:\n", 1)[0]
-        self.assertIn("name: Playback script checks", playback)
-        self.assertIn("runs-on: ubuntu-latest", playback)
-        self.assertIn("apt-get install --no-install-recommends --yes zsh", playback)
-        self.assertIn("run: python3 -B Scripts/script_tests.py playback", playback)
-        self.assertIn("run: python3 -B Scripts/script_tests.py harness", playback)
-        macos = workflow.split("  macos:\n", 1)[1]
-        self.assertNotRegex(macos, r"(?m)^  [^ #\s]",
-                            "macOS must remain the final CI job; update the job extractor if this changes")
-        self.assertIn("if: always() && needs.policy.outputs.macos_needed == 'true'", macos)
-        self.assertIn("needs: [policy, domain_linux, playback_python]", macos)
-        steps = {}
-        for block in macos.split("      - name: ")[1:]:
-            name, body = block.split("\n", 1)
-            self.assertNotIn(name, steps)
-            steps[name] = body
-        for name in ("Show Rust toolchain", "Restore pinned cbindgen", "Install pinned cbindgen",
-                     "Identify playback inputs", "Restore Rust verification products", "Run Rust checks"):
-            with self.subTest(name=name):
-                self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
-                self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", steps[name])
-        identify = steps["Identify playback inputs"]
-        self.assertIn("id: inputs", identify)
-        self.assertIn("INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}", identify)
-        self.assertIn("run: ./Scripts/playback-candidate-needed.sh", identify)
-        macos_lines = [line.strip() for line in macos.splitlines()]
-        for step_id in ("cbindgen_cache", "inputs", "rust_debug_cache", "rust_release_cache",
-                        "candidate_build", "candidate_upload", "swift_cache", "rust", "debug", "release"):
-            self.assertEqual(macos_lines.count(f"id: {step_id}"), 1)
-        for name in ("Restore Rust release build products", "Restore unchanged Rust release input timestamps",
-                     "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
-                     "Upload candidate playback artifact"):
-            with self.subTest(name=name):
-                self.assertIn(name, steps, f"Required CI step was renamed or removed: {name}")
-                self.assertIn("if: steps.inputs.outputs.candidate_needed == 'true'", steps[name])
-        names = list(steps)
-        self.assertNotIn("\n  gate:", workflow)
-        save_names = ("Save pinned cbindgen", "Save Rust verification products",
-                      "Save Rust release build products", "Save SwiftPM build directory")
-        self.assertEqual(tuple(names[-5:]), ("Require every quality lane", *save_names))
-        gate = steps["Require every quality lane"]
-        self.assertIn("if: always()", gate)
-        for binding in ("POLICY_RESULT: ${{ needs.policy.result }}",
-                        "DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}",
-                        "PLAYBACK_PYTHON_RESULT: ${{ needs.playback_python.result }}",
-                        "RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}",
-                        "RUST_RESULT: ${{ steps.rust.outcome }}",
-                        "CANDIDATE_SELECTION_RESULT: ${{ steps.inputs.outcome }}",
-                        "CANDIDATE_NEEDED: ${{ steps.inputs.outputs.candidate_needed }}",
-                        "CANDIDATE_BUILD_RESULT: ${{ steps.candidate_build.outcome }}",
-                        "CANDIDATE_UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}",
-                        "CHECKS_RESULT: ${{ steps.debug.outcome }}",
-                        "RELEASE_RESULT: ${{ steps.release.outcome }}"):
-            self.assertIn(binding, gate)
-        ordered = ("Show Rust toolchain", "Restore pinned cbindgen", "Install pinned cbindgen", "Identify playback inputs", "Run Rust checks", "Restore Rust release build products", "Restore unchanged Rust release input timestamps", "Snapshot Rust release input timestamps", "Build candidate playback XCFramework",
-                   "Upload candidate playback artifact", "Block Rust tools", "Run checks",
-                   "Compile release Spotty with SPOTTY_DISTRIBUTION")
-        for name in ordered:
-            self.assertIn(name, steps, f"Required CI producer/consumer step was renamed or removed: {name}")
-        positions = [names.index(name) for name in ordered]
-        self.assertEqual(positions, sorted(positions))
-        self.assertIn("run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh", steps["Run Rust checks"])
-        self.assertIn("timeout-minutes: 15", steps["Run checks"])
-        self.assertIn("id: candidate_build", steps["Build candidate playback XCFramework"])
-        self.assertIn("id: candidate_upload", steps["Upload candidate playback artifact"])
-        for outcome in ("true:success:success:true:success:success",
-                        "true:success:success:false:skipped:skipped",
-                        "false:skipped:skipped::skipped:skipped"):
-            self.assertIn(outcome, gate)
-        self.assertNotIn("continue-on-error:", macos)
-        cbindgen_cache = steps["Restore pinned cbindgen"]
-        self.assertIn("${{ env.CBINDGEN_VERSION }}", cbindgen_cache)
-        self.assertIn("if: needs.policy.outputs.rust_needed == 'true'", cbindgen_cache)
-        self.assertIn("${{ runner.arch }}", cbindgen_cache)
-        self.assertNotIn("restore-keys:", cbindgen_cache)
-        cache = steps["Restore SwiftPM build directory"]
-        self.assertEqual(macos.count("path: |\n            .build/*"), 2)
-        self.assertIn("!.build/spotty-signing", cache)
-        self.assertNotIn("macos-swiftpm-debug-", cache)
-        self.assertNotIn("macos-swiftpm-release-", cache)
-        for name in ("Restore pinned cbindgen", "Restore Rust verification products",
-                     "Restore Rust release build products", "Restore SwiftPM build directory"):
-            self.assertIn("uses: actions/cache/restore@", steps[name])
-        for name in save_names:
-            self.assertIn("uses: actions/cache/save@", steps[name])
-            self.assertIn("if: success() && github.ref == 'refs/heads/main'", steps[name])
+class ParallelWorkflowTests(unittest.TestCase):
+    def test_parallel_verification_and_serial_cache_publication_keep_one_required_check(self):
+        jobs = workflow_jobs()
+        verify = {"macos_engine", "macos_contracts", "macos_swift", "macos_release"}
+        self.assertEqual({key for key, job in jobs.items() if job["runs-on"].startswith("macos-")},
+                         verify | {"cache_publisher"})
+        for key in verify:
+            self.assertEqual(jobs[key]["needs"], ["policy"], key)
+        quality = {"policy", "domain_linux", "playback_python"} | verify
+        self.assertEqual(set(jobs["quality_gate"]["needs"]), quality)
+        self.assertEqual(set(jobs["cache_publisher"]["needs"]), verify | {"quality_gate"})
+        self.assertEqual(set(jobs["macos"]["needs"]), {"quality_gate", "cache_publisher"})
+        self.assertEqual(jobs["macos"]["name"], "macOS checks")
+        self.assertEqual(jobs["macos"]["runs-on"], "ubuntu-latest")
+        self.assertIn("github.ref == 'refs/heads/main'", jobs["cache_publisher"]["if"])
+        saves = [(key, step) for key, job in jobs.items() for step in job.get("steps", [])
+                 if step.get("uses", "").startswith("actions/cache/save@")]
+        self.assertEqual(len(saves), 6)
+        self.assertTrue(all(key == "cache_publisher" for key, _ in saves))
+
+    def test_swift_consumers_remain_independent_of_engine_producer(self):
+        jobs = workflow_jobs()
+        expected = {
+            "macos_contracts": "SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh",
+            "macos_swift": "SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh",
+            "macos_release": "./Scripts/compile-release-spotty.sh",
+            "macos_engine": "SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh",
+        }
+        all_commands = [step.get("run", "").strip() for job in jobs.values() for step in job.get("steps", [])]
+        for key, command in expected.items():
+            self.assertEqual(all_commands.count(command), 1)
+            self.assertIn(command, [step.get("run", "").strip() for step in jobs[key]["steps"]])
+        self.assertIn("--corpus all", workflow_script("Run acceptance scenarios"))
+        self.assertIn("candidate_needed == 'true'", next(
+            step["if"] for step in jobs["macos_engine"]["steps"] if step.get("id") == "candidate_build"))
 
 
 class CheckScopeOwnershipTests(unittest.TestCase):
@@ -290,7 +242,9 @@ class CheckScopeOwnershipTests(unittest.TestCase):
         # Scope routing is Bash-compatible; the policy job needs no zsh or compiler.
         root_assignment = 'project_root="${0:A:h:h}"'
         self.assertEqual(script.count(root_assignment), 1)
-        (scripts / "check.sh").write_text(script.replace(root_assignment, 'project_root="$PWD"'))
+        print_fixture = 'print() { printf "%s\\n" "$*" >&2; }\n'
+        (scripts / "check.sh").write_text(print_fixture + script.replace(root_assignment, 'project_root="$PWD"'))
+        shutil.copy(ROOT / "Scripts/ci-timings.sh", scripts)
         for name in ("swiftpm-env.sh", "playback-xcframework.sh"):
             (scripts / name).write_text("# Toolchain-free scope fixture\n")
         (scripts / "script_tests.py").write_text(
@@ -302,11 +256,11 @@ class CheckScopeOwnershipTests(unittest.TestCase):
             path.write_text(f'#!/bin/sh\necho "{name}"\nexit {status}\n')
             path.chmod(0o755)
 
-    def run_scope(self, scope, failing_helper=""):
+    def run_scope(self, scope, failing_helper="", phase="all"):
         return subprocess.run(["bash", str(self.root / "Scripts/check.sh")], cwd=self.root,
                               capture_output=True, text=True,
                               env={**os.environ, "SPOTTY_CHECK_SCOPE": scope, "SPOTTY_FAIL_HELPER": failing_helper,
-                                   "SPOTTY_BUILD_CONFIGURATION": "debug"})
+                                   "SPOTTY_BUILD_CONFIGURATION": "debug", "SPOTTY_CHECK_PHASE": phase})
 
     def test_harness_failure_stops_normal_scopes_before_compilation(self):
         for scope in ("full", "swift", "rust", "rust-compiled", "swift-compiled"):
@@ -329,6 +283,21 @@ class CheckScopeOwnershipTests(unittest.TestCase):
                 result = self.run_scope(scope)
                 self.assertEqual(result.returncode, 74 if scope.startswith("rust") else 75, result.stderr)
                 self.assertEqual(result.stdout.splitlines(), commands)
+
+    def test_partitioned_phases_are_rejected_outside_explicit_ci_scope(self):
+        for scope in ("full", "swift", "rust", "rust-compiled"):
+            for phase in ("contracts", "tests", "unknown"):
+                with self.subTest(scope=scope, phase=phase):
+                    result = self.run_scope(scope, phase=phase)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertEqual(result.stdout, "")
+        result = self.run_scope("swift-compiled", phase="contracts")
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["format-swift.sh"])
+        result = self.run_scope("swift-compiled", phase="tests")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("format-swift.sh", result.stdout)
+        self.assertNotIn("harness", result.stdout)
 
     def test_playback_source_checks_run_once_and_only_ci_compiled_scope_skips_them(self):
         script = (ROOT / "Scripts/check.sh").read_text()
@@ -388,58 +357,98 @@ chmod +x "$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
 
 
 class AggregateGateTests(unittest.TestCase):
-    def test_only_explicit_rust_and_candidate_outcomes_are_accepted(self):
-        script = workflow_script("Require every quality lane")
-        env = {**os.environ, "POLICY_RESULT": "success", "DOMAIN_LINUX_RESULT": "success",
-               "PLAYBACK_PYTHON_RESULT": "success",
-               "CHECKS_RESULT": "success", "RELEASE_RESULT": "success",
-               "ACCEPTANCE_RESULT": "success", "ACCEPTANCE_SUMMARY_RESULT": "success",
-               "ACCEPTANCE_UPLOAD_RESULT": "success",
-               "RUST_NEEDED": "false", "RUST_RESULT": "skipped",
-               "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
-               "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"}
-        valid = (
-            {"RUST_NEEDED": "false", "RUST_RESULT": "skipped",
-             "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
-             "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"},
-            {"RUST_NEEDED": "true", "RUST_RESULT": "success",
-             "CANDIDATE_SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "false",
-             "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"},
-            {"RUST_NEEDED": "true", "RUST_RESULT": "success",
-             "CANDIDATE_SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "true",
-             "CANDIDATE_BUILD_RESULT": "success", "CANDIDATE_UPLOAD_RESULT": "success"},
-        )
-        for outcome in valid:
-            with self.subTest(outcome=outcome):
-                completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                           env={**env, **outcome})
-                self.assertEqual(completed.returncode, 0, completed.stderr)
+    @staticmethod
+    def execute(name, outcomes):
+        return subprocess.run(["bash", "-e", "-c", workflow_script(name)], capture_output=True,
+                              text=True, env={**os.environ, **outcomes})
 
-        field_values = {
-            "RUST_NEEDED": ("true", "false", "invalid", ""),
-            "RUST_RESULT": ("success", "skipped", "failure", "cancelled", ""),
-            "CANDIDATE_SELECTION_RESULT": ("success", "skipped", "failure", "cancelled", ""),
-            "CANDIDATE_NEEDED": ("true", "false", "invalid", ""),
-            "CANDIDATE_BUILD_RESULT": ("success", "skipped", "failure", "cancelled", ""),
-            "CANDIDATE_UPLOAD_RESULT": ("success", "skipped", "failure", "cancelled", ""),
-        }
+    @staticmethod
+    def valid_quality_outcomes():
+        portable = {"POLICY_RESULT": "success", "DOMAIN_LINUX_RESULT": "success", "PLAYBACK_PYTHON_RESULT": "success"}
+        absent_engine = {"RUST_NEEDED": "false", "ENGINE_RESULT": "skipped", "RUST_RESULT": "",
+                         "CANDIDATE_SELECTION_RESULT": "", "CANDIDATE_NEEDED": "",
+                         "CANDIDATE_BUILD_RESULT": "", "CANDIDATE_UPLOAD_RESULT": ""}
+        swift = {"MACOS_NEEDED": "true", "CONTRACTS_RESULT": "success", "SWIFT_RESULT": "success", "RELEASE_RESULT": "success"}
+        docs = {"MACOS_NEEDED": "false", "CONTRACTS_RESULT": "skipped", "SWIFT_RESULT": "skipped", "RELEASE_RESULT": "skipped"}
+        engine = {"RUST_NEEDED": "true", "ENGINE_RESULT": "success", "RUST_RESULT": "success",
+                  "CANDIDATE_SELECTION_RESULT": "success"}
+        candidate = {"CANDIDATE_NEEDED": "true", "CANDIDATE_BUILD_RESULT": "success", "CANDIDATE_UPLOAD_RESULT": "success"}
+        no_candidate = {"CANDIDATE_NEEDED": "false", "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"}
+        return [
+            {**portable, **absent_engine, **docs},
+            {**portable, **absent_engine, **swift},
+            {**portable, **swift, **engine, **candidate},
+            {**portable, **swift, **engine, **no_candidate},
+        ]
+
+    def test_docs_app_and_both_engine_candidate_cases_pass_without_fabricated_skips(self):
+        for outcomes in self.valid_quality_outcomes():
+            with self.subTest(outcomes=outcomes):
+                result = self.execute("Require every quality lane", outcomes)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_failed_cancelled_or_inconsistent_quality_results_fail_closed(self):
+        valid = self.valid_quality_outcomes()
         for base in valid:
-            for field, values in field_values.items():
+            for field in base:
+                values = ("true", "false", "invalid", "") if field.endswith("NEEDED") else ("success", "skipped", "failure", "cancelled", "")
                 for value in values:
-                    if value == base[field]:
+                    mutated = {**base, field: value}
+                    if mutated in valid:
                         continue
                     with self.subTest(base=base, field=field, value=value):
-                        completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                                   env={**env, **base, field: value})
-                        self.assertNotEqual(completed.returncode, 0)
-        for lane in ("POLICY_RESULT", "DOMAIN_LINUX_RESULT", "PLAYBACK_PYTHON_RESULT",
-                     "CHECKS_RESULT", "RELEASE_RESULT", "ACCEPTANCE_RESULT",
-                     "ACCEPTANCE_SUMMARY_RESULT", "ACCEPTANCE_UPLOAD_RESULT"):
-            for outcome in ("failure", "skipped", "cancelled", ""):
-                with self.subTest(lane=lane, outcome=outcome):
-                    completed = subprocess.run(["bash", "-e", "-c", script], capture_output=True,
-                                               env={**env, lane: outcome})
-                    self.assertNotEqual(completed.returncode, 0)
+                        result = self.execute("Require every quality lane", mutated)
+                        self.assertNotEqual(result.returncode, 0)
+
+    def test_engine_only_selection_cannot_skip_swift_consumers(self):
+        for engine in self.valid_quality_outcomes()[2:]:
+            result = self.execute("Require every quality lane", {
+                **engine, "MACOS_NEEDED": "false", "CONTRACTS_RESULT": "skipped",
+                "SWIFT_RESULT": "skipped", "RELEASE_RESULT": "skipped"})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Invalid compiler verification selection", result.stderr)
+
+    def test_engine_gate_requires_actual_rust_selection_build_and_upload(self):
+        valid = [
+            {"RUST_RESULT": "success", "SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "true", "BUILD_RESULT": "success", "UPLOAD_RESULT": "success"},
+            {"RUST_RESULT": "success", "SELECTION_RESULT": "success", "CANDIDATE_NEEDED": "false", "BUILD_RESULT": "skipped", "UPLOAD_RESULT": "skipped"},
+        ]
+        for base in valid:
+            self.assertEqual(self.execute("Require engine results", base).returncode, 0)
+            for field in base:
+                values = ("true", "false", "invalid", "") if field == "CANDIDATE_NEEDED" else ("success", "skipped", "failure", "cancelled", "")
+                for value in values:
+                    if value != base[field]:
+                        with self.subTest(base=base, field=field, value=value):
+                            self.assertNotEqual(self.execute("Require engine results", {**base, field: value}).returncode, 0)
+
+    def test_swift_gate_requires_tests_and_complete_acceptance_evidence(self):
+        valid = {key: "success" for key in ("CHECKS_RESULT", "ACCEPTANCE_RESULT", "ACCEPTANCE_SUMMARY_RESULT", "ACCEPTANCE_UPLOAD_RESULT")}
+        self.assertEqual(self.execute("Require Swift test evidence", valid).returncode, 0)
+        for field in valid:
+            for value in ("skipped", "failure", "cancelled", ""):
+                with self.subTest(field=field, value=value):
+                    self.assertNotEqual(self.execute("Require Swift test evidence", {**valid, field: value}).returncode, 0)
+
+    def test_required_check_accepts_only_verified_main_publication_or_explicit_pr_skip(self):
+        valid = [
+            {"QUALITY_RESULT": "success", "CACHE_RESULT": "success", "MAIN_REF": "refs/heads/main"},
+            {"QUALITY_RESULT": "success", "CACHE_RESULT": "skipped", "MAIN_REF": "refs/pull/123/merge"},
+            {"QUALITY_RESULT": "success", "CACHE_RESULT": "skipped", "MAIN_REF": "refs/pull/456/merge"},
+        ]
+        for base in valid:
+            result = self.execute("Require completed verification and cache publication", base)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for field in ("QUALITY_RESULT", "CACHE_RESULT"):
+                for value in ("success", "failure", "skipped", "cancelled", ""):
+                    changed = {**base, field: value}
+                    if changed not in valid:
+                        with self.subTest(base=base, field=field, value=value):
+                            self.assertNotEqual(self.execute("Require completed verification and cache publication", changed).returncode, 0)
+        for ref in ("refs/heads/feature", "refs/tags/test", "", "refs/pull"):
+            result = self.execute("Require completed verification and cache publication", {
+                "QUALITY_RESULT": "success", "CACHE_RESULT": "skipped", "MAIN_REF": ref})
+            self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":

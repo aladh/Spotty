@@ -74,6 +74,9 @@ class CandidateSelectionTests(unittest.TestCase):
                              ("Backend/spotty-playback/src/tests.rs", True),
                              ("Backend/spotty-playback/validate-xcframework.sh", False),
                              ("Scripts/playback_deployment.py", False),
+                             ("Scripts/playback_artifact.py", False),
+                             ("Scripts/ci_cache_keys.py", False),
+                             ("Scripts/ci_cache_bundle.py", False),
                              ("Backend/spotty-playback/macos-deployment-target", False)):
             with self.subTest(path=path):
                 target = self.root / path

@@ -171,6 +171,7 @@ apps, sign in, or start playback. Setup: docs/development/verification.md
         return preflight()
 
     environment = os.environ.copy()
+    environment["SPOTTY_CHECK_PHASE"] = "all"
     environment["SPOTTY_PACKAGE_GRAPH"] = "full"
     artifacts = None
     if args.command in ("test", "domain", "check", "swift", "clean"):

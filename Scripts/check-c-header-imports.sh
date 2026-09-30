@@ -52,17 +52,13 @@ swift_arguments=(
 
 negative_flags=("${(@f)$(sed -nE 's/^#if (NEG_[A-Z0-9_]+).*$/\1/p' "$negative_fixture" | sort -u)}")
 (( ${#negative_flags} > 0 )) || { print -u2 "No negative ABI probes found"; exit 1; }
+# Verify every nullability error in one compiler invocation. Removing any individual
+# optional annotation leaves that assignment's expected diagnostic unmet.
+negative_arguments=()
 for negative_flag in "${negative_flags[@]}"; do
-    negative_log="$module_cache/$negative_flag.err"
-    if "$swiftc_path" "${swift_arguments[@]}" "-D$negative_flag" "$negative_fixture" > /dev/null 2> "$negative_log"; then
-        print -u2 "negative $negative_flag probe unexpectedly compiled"
-        exit 1
-    fi
-    if ! rg -q "optional type|must be unwrapped" "$negative_log"; then
-        print -u2 "negative $negative_flag probe failed for an unexpected reason"
-        cat "$negative_log" >&2
-        exit 1
-    fi
+    negative_arguments+=("-D$negative_flag")
 done
+"$swiftc_path" "${swift_arguments[@]}" "${negative_arguments[@]}" \
+    -Xfrontend -verify -Xfrontend -verify-ignore-unrelated "$negative_fixture"
 
 print "Swift C-header import contract passed: positive import and ${#negative_flags} nullability negatives"

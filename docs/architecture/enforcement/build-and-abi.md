@@ -47,11 +47,30 @@ owns runtime ports and desktop presentation boundaries.
 [CI](../../../.github/workflows/ci.yml) and [workflow assertions](../../../Scripts/check-ci-workflow.rb)
 own tool selection, cache integrity, and complete verification. Three unconditional Linux jobs run
 source policies, domain build/tests, and playback/harness/watchdog/formatter-wrapper tests. The
-single macOS job waits for all three, then runs compiled Rust/header checks, selected engine
-candidate builds, Swift checks, acceptance scenarios, and Release compilation serially. CI's
-compiled scopes omit only portable checks owned by Linux; normal local scopes retain them.
-Acceptance uses the Debug gate's SDK and compiler settings so SwiftPM can reuse fresh products.
+macOS work starts after source policies in four independent lanes: contracts (shipping Debug,
+format, package, ABI, compiler and packaging checks), complete Swift tests plus acceptance,
+distribution Release plus size reporting, and classified Rust/header verification plus candidate
+production. Each Swift consumer resolves and validates its own published engine. The internal
+quality aggregate requires every Linux lane and every explicitly selected macOS lane. Missing,
+failed, cancelled or inconsistent outcomes fail closed; only classified skips are accepted.
 
+`SPOTTY_CHECK_PHASE` partitions only CI's `swift-compiled` scope. Normal verification remains
+complete. Compilation in independent checkouts trades additional runner work for shorter elapsed
+time; the complete native suite and each semantic/compiler assertion still execute once per PR.
+Main retains three native repetitions. Acceptance reuses its own lane's Debug products and settings.
+
+Swift caches have separate contracts, tests and Release owners and key the actual compiler, SDK,
+configuration, package and immutable pin. Rust release archives keep an exact engine-input key;
+a compiler/SDK/profile/locked-dependency compatibility prefix permits Cargo to rebuild changed
+bridge sources while retaining unchanged dependencies. Source timestamps are restored only when
+content matches. Empty or incompatible caches compile normally.
+
+Only successful main lanes export scoped cache bundles. A separate publisher validates their
+source/scope/content, restores owned products in a fresh runner, and saves after the quality
+aggregate succeeds. The final required `macOS checks` status also requires main cache publication;
+PRs explicitly skip it. No cache publisher runs on PR or fork code. This preserves complete-quality
+success before cache writes while isolating concurrent compiler/cache owners. Optional phase
+JSONL and Cargo timing artifacts describe costs without replacing verification.
 The [trusted base classifier](../../../Scripts/ci_rust_policy.py) skips macOS only for documentation-only
 PRs and can skip compiled Rust for app-only PRs. Main runs both toolchains. Unknown paths or
 classification failures cannot authorize a skip; source and script checks remain unconditional.
@@ -64,9 +83,10 @@ reusable calls. Both run representative and holdout corpora once with a deadline
 artifacts, and require execution, summary, and upload success. These synthetic checks do not prove
 GUI, sandbox, or live-account behavior.
 
-Ordinary non-candidate PRs target five minutes on macOS; producing an XCFramework is an explicit
-exception. The Swift Debug step has a 15-minute watchdog within the candidate-capable job's
-120-minute ceiling. Per-invocation test deadlines and diagnostics are in
+Ordinary non-candidate PRs target five minutes on macOS; the measured engine-changing target and cold/cache costs are tracked in
+[#587](https://github.com/aladh/Spotty/issues/587). Each macOS verification lane has a 120-minute job ceiling.
+`Run Swift contracts` in the contracts lane and `Run checks` in the Swift-tests lane each have a
+15-minute step limit. Per-invocation test deadlines and diagnostics are in
 [verification](../../development/verification.md#normal-verification).
 
 [GitHub guidance](../../../.github/AGENTS.md) owns workflow-change constraints.

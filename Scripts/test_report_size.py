@@ -25,6 +25,7 @@ class SizeReportTests(unittest.TestCase):
         scripts.mkdir(parents=True)
         self.command = scripts / "report-size.sh"
         shutil.copy2(ROOT / "Scripts/report-size.sh", self.command)
+        (scripts / "swiftpm-env.sh").write_text('export SPOTTY_PACKAGE_GRAPH=full\n')
         (scripts / "playback-xcframework.sh").write_text("""
 spotty_playback_resolve_xcframework() { printf '%s\\n' "$SIZE_TEST_FRAMEWORK"; }
 spotty_playback_validate_xcframework() { test -d "$1"; }

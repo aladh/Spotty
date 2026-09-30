@@ -46,8 +46,10 @@ Pure Domain queue-mutation policy also runs optimized.
 
 The wrapper delegates complete gates to [check.sh](../../Scripts/check.sh),
 [source policies](../../Scripts/check-source-policy.sh), and [check-clean.sh](../../Scripts/check-clean.sh).
-Direct `check.sh` calls accept `SPOTTY_CHECK_SCOPE=swift` or `rust`. Checks do not sign in or start
-playback. A source/pin mismatch warns without replacing the published engine.
+Direct `check.sh` calls accept `SPOTTY_CHECK_SCOPE=swift` or `rust`. Internal CI `swift-compiled`
+phases divide contracts and complete native tests between jobs; normal gates force the complete
+phase. Checks do not sign in or start playback. A source/pin mismatch warns without replacing the
+published engine.
 
 All gates need Python 3.10+. Swift/source gates need Ruby; source policies also need Node.js 20+,
 npm, jq, and the version in `Scripts/ast-grep/version`. Install reviewer test dependencies with
@@ -76,7 +78,7 @@ The [watchdog](../../Scripts/swift_test_watchdog.py) bounds each Swift test invo
 in CI or twenty locally, sampling and terminating only its own process tree without retry.
 Override with `SPOTTY_SWIFT_TEST_TIMEOUT_SECONDS`; select an artifact directory with
 `SPOTTY_SWIFT_TEST_DIAGNOSTICS_DIR`. The wrapper reports commands, status, and diagnostics paths;
-CI retains failed Debug logs and supported native event streams.
+CI retains Debug invocation logs and supported native event streams, including passing runs.
 
 ## Deterministic synchronization
 

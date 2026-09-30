@@ -23,13 +23,13 @@ class WorkflowCLITests(WorkflowFixtureMixin, unittest.TestCase):
 
     def test_policy_failure_prints_ordered_diagnostics_and_fails(self):
         workflow = copy.deepcopy(self.workflow)
-        workflow['jobs']['macos']['runs-on'] = 'macos-latest'
+        workflow['jobs']['macos']['runs-on'] = 'ubuntu-24.04'
         workflow['jobs']['macos']['name'] = 'Other name'
         result = self.run_cli(workflow)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, '')
-        self.assertEqual(result.stderr, 'CI invariant: macOS image must remain macos-26\n'
-                         'CI invariant: required aggregate must retain the macOS checks name\n')
+        self.assertEqual(result.stderr, 'CI invariant: required aggregate must retain the macOS checks name\n'
+                         'CI invariant: required aggregate must use its portable Ubuntu runner\n')
 
     def test_companion_assets_are_read_beside_the_entry_script(self):
         for edit, diagnostic in [

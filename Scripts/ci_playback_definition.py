@@ -5,20 +5,20 @@ import re
 
 def producer_definition(workflow):
     text = workflow.decode("utf-8")
-    # Only the trailing Swift consumer phase is irrelevant to engine publication. Retain the
-    # triggers, permissions, source policies, macOS toolchain, and every producer step verbatim.
-    boundaries = ("  macos:\n", "      - name: Upload candidate playback artifact\n",
-                  "      - name: Install verification tools\n")
+    # Consumer verification and cache publication are independent of engine publication. Retain the
+    # triggers, permissions, source policies, engine toolchain, and every producer step through its successful upload verbatim.
+    boundaries = ("  macos_engine:\n", "      - name: Upload candidate playback artifact\n",
+                  "      - name: Require engine results\n")
     positions = []
     for marker in boundaries:
         if text.count(marker) != 1:
             raise ValueError("Unrecognized CI producer boundary; update the definition policy")
         positions.append(text.index(marker))
     if positions != sorted(positions):
-        raise ValueError("CI producer steps must precede the Swift consumer phase")
+        raise ValueError("CI producer steps must precede the engine result gate")
     upload = text[positions[1]:positions[2]]
     if upload.count("      - name:") != 1:
-        raise ValueError("Unexpected step between candidate upload and Swift setup")
+        raise ValueError("Unexpected step between candidate upload and engine result gate")
     producer = text[:positions[2]]
     # Linux image selection cannot change the macOS-produced archive. Keep the source-policy
     # commands and their trust boundary; only normalize this runner label.

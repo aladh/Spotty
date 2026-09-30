@@ -7,8 +7,8 @@ candidate_paths() {
     ./Backend/spotty-playback/source-input-digest.sh --print-inputs || return 1
     # Whole directories catch deletions; infrastructure changes revalidate candidate creation.
     printf '%s\n' Backend/spotty-playback/src Backend/spotty-playback/vendor Scripts/playback-license-overrides \
-        Backend/spotty-playback/validate-xcframework.sh Scripts/playback_deployment.py \
-        Scripts/ci_playback_definition.py Scripts/playback-candidate-needed.sh
+        Backend/spotty-playback/validate-xcframework.sh Scripts/playback_deployment.py Scripts/playback_artifact.py \
+        Scripts/ci_playback_definition.py Scripts/ci_cache_keys.py Scripts/ci_cache_bundle.py Scripts/playback-candidate-needed.sh
 }
 
 if [[ "${1:-}" == --print-paths && $# == 1 ]]; then

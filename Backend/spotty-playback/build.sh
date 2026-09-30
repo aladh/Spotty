@@ -51,7 +51,12 @@ export MACOSX_DEPLOYMENT_TARGET="$minimum_macos"
 export RUSTFLAGS="-C target-cpu=apple-m1 --cfg aes_armv8"
 
 cd "$backend_root"
-"$cargo_bin" build --release --locked --target "$target"
+cargo_arguments=(build --release --locked --target "$target")
+if [[ -n "${SPOTTY_CI_TIMINGS_REPORT:-}" ]]; then
+    # Cargo's HTML report separates compilation units without changing the release profile.
+    cargo_arguments+=(--timings)
+fi
+"$cargo_bin" "${cargo_arguments[@]}"
 cp "target/$target/release/libspotty_playback.a" "$output_path"
 
 echo "Built $output_path"

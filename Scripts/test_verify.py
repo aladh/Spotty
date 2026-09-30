@@ -300,6 +300,22 @@ class VerificationRoutingTests(unittest.TestCase):
             self.assertEqual(raised.exception.code, 2)
             run_mock.assert_not_called()
 
+    def test_portable_target_inspection_and_literal_forwarding_on_linux(self):
+        # Model only the host-platform branch; child Swift behavior/version is not inferred.
+        for action, tail in (("list", []), ("test", ["--help"]), ("test", ["--list-tests"]),
+                             ("test", ["--filter", "One/value with spaces", "--filter", "Two/second",
+                                       "-Xswiftc", "--target=Unknown", "--scratch-path", "owned scratch with spaces"])):
+            with self.subTest(action=action, tail=tail):
+                command, environment, _ = self.invoke(action, "--target=SpottyDomainTests", *tail, platform="linux")
+                self.assertEqual(command[:2], ["env", "SPOTTY_PACKAGE_GRAPH=test-target:SpottyDomainTests"])
+                self.assertEqual(environment["SPOTTY_BUILD_BROWSING_HARNESS"], "0")
+                self.assertEqual("--require-tests" in command, "--filter" in tail)
+                swift = command[command.index("swift"):]
+                prefix = ["swift", "test", "list" if action == "list" else "--no-parallel", "--disable-sandbox",
+                          "--package-path", str(self.root / ".build/test-targets/SpottyDomainTests/package")]
+                scratch = [] if "--scratch-path" in tail else ["--scratch-path", str(self.root / ".build/test-targets/SpottyDomainTests")]
+                self.assertEqual(swift, [*prefix, *tail, *scratch, "-Xswiftc", "-warnings-as-errors"])
+
 
 class VerificationCommandTests(unittest.TestCase):
     def setUp(self):
@@ -512,10 +528,10 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
             with self.subTest(status=status, summary=summary):
                 self.log.unlink(missing_ok=True)
                 self.environment.update(VERIFY_TEST_STATUS=str(status), VERIFY_TEST_SUMMARY=summary)
-                result, calls = self.invoke("test", "--target=SpottyGatewayTests", "--filter", "Example")
+                result, calls = self.invoke("test", "--target=SpottyDomainTests", "--filter", "Example")
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
                 self.assertEqual(len(calls), 1)
-                self.assertEqual(calls[0]["graph"], "test-target:SpottyGatewayTests")
+                self.assertEqual(calls[0]["graph"], "test-target:SpottyDomainTests")
                 self.assertNotIn("--test-product", calls[0]["command"])
                 self.assertTrue((self.root / "diagnostics/focused-repeat-1.log").is_file())
 
@@ -524,10 +540,10 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
         for action, tail in (("list", []), ("test", ["--help"]), ("test", ["--list-tests"])):
             with self.subTest(action=action, tail=tail):
                 self.log.unlink(missing_ok=True)
-                result, calls = self.invoke(action, "--target=SpottyGatewayTests", *tail)
+                result, calls = self.invoke(action, "--target=SpottyDomainTests", *tail)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(len(calls), 1)
-                self.assertEqual(calls[0]["graph"], "test-target:SpottyGatewayTests")
+                self.assertEqual(calls[0]["graph"], "test-target:SpottyDomainTests")
 
     def test_harness_delegates_to_existing_suite_and_preserves_failure(self):
         for status in (0, 17):

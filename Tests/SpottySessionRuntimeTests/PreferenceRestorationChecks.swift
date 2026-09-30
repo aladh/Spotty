@@ -92,28 +92,57 @@ struct PreferenceRestorationTests {
 
     @Test func aSuspendedPreferenceSeedDoesNotKeepTheRuntimeAlive() async throws {
         let responses = HarnessResponseGate<Bool>(cancellation: .ignored)
-        defer { responses.close() }
+        let reset = HarnessSuspension()
+        defer { responses.close(); reset.close() }
+        #if DEBUG
+            reset.arm()
+            let hook = QueueServiceSuspensionHook(reset: reset)
+        #else
+            let hook: (any QueueServiceHook)? = nil
+        #endif
         let preferences = HarnessPreferences(shuffleResponses: responses)
         var runtime: PlaybackSessionRuntime? = PlaybackSessionRuntime(
-            environment: HarnessEnvironment.make(preferences: preferences))
+            environment: HarnessEnvironment.make(preferences: preferences, queueServiceHook: hook))
         weak let owner = runtime
         runtime?.startLifetimeEffectsIfNeeded()
-        let restoring = try #require(runtime?.effects.settlement(of: .preferencesRestore))
+        let bootstrap = runtime?.effects.settlement(of: .queueServiceBootstrap)
+        let restoring = runtime?.effects.settlement(of: .preferencesRestore)
         do {
+            let bootstrap = try #require(bootstrap)
+            _ = try #require(restoring)
             try await requireEventually { responses.waiterCount == 1 }
-            runtime = nil
+            #if DEBUG
+                try await requireEventually { reset.isWaiting }
+                runtime = nil
+                await Task { @SessionRuntimeActor in }.value
+                let retainedByBootstrap = owner != nil
+                #expect(retainedByBootstrap, "The admitted queue reset owns the runtime until it settles")
+                reset.resume()
+                await bootstrap.wait()
+            #else
+                await bootstrap.wait()
+                runtime = nil
+            #endif
+            // An executor turn cannot join the bootstrap's separate actor hops. Its exact
+            // settlement excludes that temporary owner while the preference read stays parked.
             await Task { @SessionRuntimeActor in }.value
-            #expect(owner == nil)
+            let wasReleased = owner == nil
+            #expect(wasReleased, "A suspended preference seed must not own the runtime")
+            #expect(responses.waiterCount == 1, "Deallocation is proved before the ignored read replies")
         } catch {
             responses.close()
-            await restoring.wait()
-            await runtime?.shutdownForTermination()
+            reset.close()
+            await bootstrap?.wait()
+            await restoring?.wait()
+            await (runtime ?? owner)?.shutdownForTermination()
             throw error
         }
         responses.close()
-        await restoring.wait()
+        reset.close()
+        await bootstrap?.wait()
+        await restoring?.wait()
         // Also retire a retained owner when deliberately testing broken ownership.
-        await owner?.shutdownForTermination()
+        await (runtime ?? owner)?.shutdownForTermination()
     }
 
     @Test func playbackBeforeRestorationPreservesPreviouslySavedHistory() async throws {

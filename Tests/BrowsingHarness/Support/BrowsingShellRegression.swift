@@ -151,6 +151,9 @@ final class BrowsingShellRegression {
                 }
             }
             navigation.updateSelection(.destination(.home))
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+            try await settle(window: window, deadline: deadline)
             for (name, size) in [
                 ("default", NSSize(width: 1220, height: 780)),
                 ("minimum", NSSize(width: 960, height: 640)),
@@ -284,18 +287,23 @@ final class BrowsingShellRegression {
         guard let screen = window.screen, let content = window.contentView else {
             throw BrowsingFailure.checkpoint("window.display-unavailable")
         }
+        let visibleFrame = screen.visibleFrame
         let overhead = CGSize(
             width: window.frame.width - content.bounds.width,
             height: window.frame.height - window.contentLayoutRect.height)
         // Preserve the display prerequisite in failure-state evidence even if no target is eligible.
         desiredBodySize = bodySize
         requestedBodySize = nil
-        sizingScreenVisibleFrame = screen.visibleFrame
+        sizingScreenVisibleFrame = visibleFrame
         frameToBodyOverhead = overhead
-        let target = try Self.targetBodySize(desired: bodySize, visibleFrame: screen.visibleFrame, overhead: overhead)
+        let target = try Self.targetBodySize(desired: bodySize, visibleFrame: visibleFrame, overhead: overhead)
         requestedBodySize = target
         let inset = content.bounds.height - window.contentLayoutRect.height
         window.setContentSize(NSSize(width: target.width, height: target.height + max(0, inset)))
+        // Place only the owned fixture window; AppKit still owns its controls and geometry.
+        window.setFrameOrigin(CGPoint(
+            x: visibleFrame.midX - window.frame.width / 2,
+            y: visibleFrame.midY - window.frame.height / 2))
     }
 
     private func sendHistoryKey(_ character: String, keyCode: UInt16, window: NSWindow) throws {
@@ -314,6 +322,7 @@ final class BrowsingShellRegression {
 
     private func settle(window: NSWindow, deadline: ContinuousClock.Instant, required: [String] = []) async throws {
         var previous: [String: Rect] = [:]
+        var previousVisibleFrame: CGRect?
         var stableSince = ContinuousClock.now
         try await wait("shell.geometry-ready", deadline: deadline) {
             let frames = ShellGeometry.frames(in: window)
@@ -322,8 +331,10 @@ final class BrowsingShellRegression {
                     .allSatisfy({ frames[$0].map { $0.width > 0 && $0.height > 0 } == true })
             else { return false }
             let current = frames.mapValues(Rect.init)
-            if current != previous {
+            let visibleFrame = window.screen?.visibleFrame
+            if current != previous || visibleFrame != previousVisibleFrame {
                 previous = current
+                previousVisibleFrame = visibleFrame
                 stableSince = .now
                 return false
             }

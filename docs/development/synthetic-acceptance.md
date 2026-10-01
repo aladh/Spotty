@@ -87,14 +87,15 @@ bind padding checks to the owned window; view captures provide diagnostics.
 
 Before resizing, targets derive from desired body sizes and visible display capacity minus native
 overhead. Records include desired/requested sizes, display geometry and overhead; the runner
-independently recomputes them. Observed clamps, unstable/off-screen geometry, capacity below
+independently recomputes them. Owned fixture windows are centered within that visible frame.
+Observed clamps, unstable/off-screen geometry, capacity below
 960×640 or indistinct resize fail. Constrained-height width coverage and local full-size evidence
 remain separate. Native Command-[ / Command-] must restore Search, revisit the playlist, then return.
 
 CI requests `--qualify-hosted-display` exclusively on disposable GitHub-hosted macOS runners.
 A guarded helper records advertised logical/pixel modes and initial geometry, holds one supported
 eligible mode through both fixtures, and requires bounded retirement plus verified post-exit
-restoration. Missing modes or usable capacity fail; no private virtual displays or permission changes
+original mode/frame/scale restoration. Dock work-area changes remain recorded separately. Missing modes or usable capacity fail; no private virtual displays or permission changes
 are used. Local invocations never change display modes.
 
 These checks establish neither full visual parity nor live playback/audible output. The inactive

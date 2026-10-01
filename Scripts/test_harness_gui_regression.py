@@ -613,7 +613,7 @@ class GUIRegressionChecks(unittest.TestCase):
             self.assertIn("display guardian exited", gui.read_json(root / "gui-evidence.json")["failure"])
 
     def test_display_restoration_requires_post_owner_exit_inspection(self):
-        for mismatch in (False, True):
+        for mismatch in (None, "mode", "frame", "scale", "screen-id", "invalid-visible", "valid-visible"):
             with self.subTest(mismatch=mismatch), TemporaryDirectory() as directory:
                 root = Path(directory)
                 process = Mock(pid=73)
@@ -627,8 +627,18 @@ class GUIRegressionChecks(unittest.TestCase):
                 def inspect(*args, **kwargs):
                     post = {"phase": "inspected", "displayID": 1, "originalMode": deepcopy(report["originalMode"]),
                             "beforeScreens": deepcopy(report["beforeScreens"])}
-                    if mismatch:
+                    if mismatch == "mode":
                         post["originalMode"]["id"] = 99
+                    elif mismatch == "frame":
+                        post["beforeScreens"][0]["frame"]["width"] = 1040
+                    elif mismatch == "scale":
+                        post["beforeScreens"][0]["backingScale"] = 2
+                    elif mismatch == "screen-id":
+                        post["beforeScreens"][0]["displayID"] = 2
+                    elif mismatch == "invalid-visible":
+                        post["beforeScreens"][0]["visibleFrame"]["height"] = float("nan")
+                    elif mismatch == "valid-visible":
+                        post["beforeScreens"][0]["visibleFrame"].update(y=74, height=663)
                     gui.write_json(root / "hosted-display-restored.json", post)
 
                 with (
@@ -636,15 +646,22 @@ class GUIRegressionChecks(unittest.TestCase):
                     patch.object(gui, "retire_command", return_value={"verified": True, "failures": []}) as retire,
                 ):
                     restored = gui.restore_display_guardian(process, root, root, root / "guardian")
-                self.assertEqual(restored["verified"], not mismatch)
+                expected = mismatch in (None, "valid-visible")
+                self.assertEqual(restored["verified"], expected)
                 command.assert_called_once()
                 self.assertEqual(command.call_args.args[0][1], "--inspect")
                 process.stdin.write.assert_called_once_with("restore\n")
-                if mismatch:
+                if not expected:
                     retire.assert_called_once_with(process)
                     self.assertIn("post-exit", restored["failure"])
                 else:
                     retire.assert_not_called()
+                    self.assertEqual(restored["workAreaChanged"], mismatch == "valid-visible")
+                    self.assertEqual(restored["workAreasBefore"], [{"displayID": 1,
+                                      "visibleFrame": report["beforeScreens"][0]["visibleFrame"]}])
+                    if mismatch == "valid-visible":
+                        self.assertEqual(restored["workAreasAfter"][0]["visibleFrame"],
+                                         {"x": 0, "y": 74, "width": 1024, "height": 663})
 
     def test_display_restoration_timeout_is_unverified_and_cannot_mask_fixture_failure(self):
         with TemporaryDirectory() as directory:

@@ -286,9 +286,34 @@ def inspect_original_display(root, output, executable, report):
                     time.monotonic() + 5)
     post = read_json(post_path)
     require(post.get("phase") == "inspected" and post.get("displayID") == report.get("displayID")
-            and post.get("originalMode") == report.get("originalMode")
-            and post.get("beforeScreens") == report.get("beforeScreens"), "post-exit original display restoration")
-    return {"verified": True, "artifact": "hosted-display.json", "postExitArtifact": post_path.name}
+            and post.get("originalMode") == report.get("originalMode"), "post-exit original display restoration")
+
+    def screen_state(screens):
+        require(isinstance(screens, list) and bool(screens), "post-exit screen geometry")
+        identities, work_areas = {}, {}
+        for screen in screens:
+            require(isinstance(screen, dict) and type(screen.get("displayID")) is int and screen["displayID"] > 0
+                    and screen["displayID"] not in identities and number(screen.get("backingScale"), positive=True),
+                    "post-exit screen identity/scale")
+            frame = rectangle(screen.get("frame"), "post-exit screen frame")
+            visible = rectangle(screen.get("visibleFrame"), "post-exit visible screen frame")
+            require(visible["x"] >= frame["x"] - 1 and visible["y"] >= frame["y"] - 1
+                    and visible["x"] + visible["width"] <= frame["x"] + frame["width"] + 1
+                    and visible["y"] + visible["height"] <= frame["y"] + frame["height"] + 1,
+                    "post-exit visible area contained by screen")
+            identities[screen["displayID"]] = {"frame": frame, "backingScale": screen["backingScale"]}
+            work_areas[screen["displayID"]] = visible
+        return identities, [{"displayID": identifier, "visibleFrame": work_areas[identifier]}
+                            for identifier in sorted(work_areas)]
+
+    before_identity, before_work_areas = screen_state(report["beforeScreens"])
+    after_identity, after_work_areas = screen_state(post.get("beforeScreens"))
+    require(after_identity == before_identity, "post-exit original screen identity/frame/scale")
+    # Dock/menu-bar reservations may change after launching an app. Report that observation;
+    # display restoration attests the mode, screen frame and scale, without changing preferences.
+    return {"verified": True, "artifact": "hosted-display.json", "postExitArtifact": post_path.name,
+            "workAreaChanged": before_work_areas != after_work_areas,
+            "workAreasBefore": before_work_areas, "workAreasAfter": after_work_areas}
 
 
 def start_display_guardian(root, output, executable, deadline):

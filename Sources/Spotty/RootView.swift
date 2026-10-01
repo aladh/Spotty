@@ -7,6 +7,10 @@ struct RootView: View {
     let catalog: CatalogStore
     let feedback: TransientFeedbackPresenter
 
+    @State private var searchField = NavigationSearchField.Controller()
+    private let toolbarActions: NavigationToolbarActions
+    @Binding private var canGoBack: Bool
+    @Binding private var canGoForward: Bool
     @State private var navigation: CatalogNavigation
     @State private var queueSelection: Set<QueueEntry.ID> = []
     @State private var historySelection: Set<HistoryEntry.ID> = []
@@ -18,13 +22,17 @@ struct RootView: View {
     init(
         player: PlaybackStore, catalog: CatalogStore, feedback: TransientFeedbackPresenter,
         navigation: CatalogNavigation? = nil,
-        showsSidePanel: Binding<Bool>
+        showsSidePanel: Binding<Bool>, toolbarActions: NavigationToolbarActions? = nil,
+        canGoBack: Binding<Bool> = .constant(false), canGoForward: Binding<Bool> = .constant(false)
     ) {
         self.player = player
         self.catalog = catalog
         self.feedback = feedback
         _navigation = State(initialValue: navigation ?? CatalogNavigation())
         _showsSidePanel = showsSidePanel
+        self.toolbarActions = toolbarActions ?? NavigationToolbarActions()
+        _canGoBack = canGoBack
+        _canGoForward = canGoForward
     }
 
     var body: some View {
@@ -34,11 +42,18 @@ struct RootView: View {
                 ArtworkAccess(provider: player.artworkProvider, accountEpoch: player.accountEpoch)
             )
             .foregroundStyle(SpottyPalette.textPrimary)
-            .background(WindowToolbarLayout().frame(width: 0, height: 0))
-            .toolbar { navigationToolbar }
+            .background {
+                WindowToolbarLayout(history: historyControls, navigation: navigationControls)
+                    .frame(width: 0, height: 0)
+            }
             .toolbarBackground(SpottyPalette.windowChrome, for: .windowToolbar)
             .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
-            .onAppear { showsSidePanel = restoredShowsSidePanel }
+            .onAppear(perform: configureToolbar)
+            .onDisappear {
+                toolbarActions.clear(); canGoBack = false; canGoForward = false
+            }
+            .onChange(of: navigation.backHistory.isEmpty) { _, isEmpty in canGoBack = !isEmpty }
+            .onChange(of: navigation.forwardHistory.isEmpty) { _, isEmpty in canGoForward = !isEmpty }
             .onChange(of: showsSidePanel) { _, isPresented in restoredShowsSidePanel = isPresented }
             .onOpenURL { url in
                 if navigation.open(url) { prepareSelectedRoute() }
@@ -59,40 +74,55 @@ struct RootView: View {
             }
     }
 
-    @ToolbarContentBuilder
-    private var navigationToolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            HStack(spacing: 2) {
-                HistoryNavigationButton(
-                    "Go back", symbol: "chevron.left", shortcut: "[", isEnabled: !navigation.backHistory.isEmpty
-                ) {
-                    navigation.goBack()
-                    prepareSelectedRoute()
-                }
-                .shellGeometry("shell.history.back")
-                HistoryNavigationButton(
-                    "Go forward", symbol: "chevron.right", shortcut: "]",
-                    isEnabled: !navigation.forwardHistory.isEmpty
-                ) {
-                    navigation.goForward()
-                    prepareSelectedRoute()
-                }
-                .shellGeometry("shell.history.forward")
+    private func configureToolbar() {
+        showsSidePanel = restoredShowsSidePanel
+        toolbarActions.focusSearch = { [weak navigation, weak searchField] in
+            navigation?.updateSelection(.destination(.search))
+            searchField?.focus()
+        }
+        toolbarActions.goBack = { [weak navigation, catalog] in
+            guard let navigation else { return }
+            navigation.goBack()
+            Self.prepareSelectedRoute(navigation: navigation, catalog: catalog)
+        }
+        toolbarActions.goForward = { [weak navigation, catalog] in
+            guard let navigation else { return }
+            navigation.goForward()
+            Self.prepareSelectedRoute(navigation: navigation, catalog: catalog)
+        }
+        canGoBack = !navigation.backHistory.isEmpty
+        canGoForward = !navigation.forwardHistory.isEmpty
+    }
+
+    private var historyControls: some View {
+        HStack(spacing: 2) {
+            HistoryNavigationButton(
+                "Go back", symbol: "chevron.left", isEnabled: !navigation.backHistory.isEmpty
+            ) {
+                navigation.goBack()
+                prepareSelectedRoute()
             }
-            .padding(.top, 12)
+            .shellGeometry("shell.history.back")
+            HistoryNavigationButton(
+                "Go forward", symbol: "chevron.right", isEnabled: !navigation.forwardHistory.isEmpty
+            ) {
+                navigation.goForward()
+                prepareSelectedRoute()
+            }
+            .shellGeometry("shell.history.forward")
         }
-        .sharedBackgroundVisibility(.hidden)
-        ToolbarItem(placement: .principal) {
-            NavigationBar(
-                searchText: Bindable(navigation).searchText, availableWidth: windowWidth,
-                accountEpoch: player.accountEpoch,
-                isHome: selection == .destination(.home),
-                isSearch: selection == .destination(.search),
-                goHome: { navigation.updateSelection(.destination(.home)) },
-                showSearch: { navigation.updateSelection(.destination(.search)) }
-            )
-        }
-        .sharedBackgroundVisibility(.hidden)
+    }
+
+    private var navigationControls: some View {
+        NavigationBar(
+            searchText: Bindable(navigation).searchText, availableWidth: windowWidth,
+            accountEpoch: player.accountEpoch,
+            isHome: selection == .destination(.home),
+            isSearch: selection == .destination(.search),
+            goHome: { [weak navigation] in navigation?.updateSelection(.destination(.home)) },
+            showSearch: { [weak navigation] in navigation?.updateSelection(.destination(.search)) },
+            searchField: searchField
+        )
     }
 
     private var shellContent: some View {
@@ -314,15 +344,25 @@ struct RootView: View {
     }
 
     private func prepareSelectedRoute() {
-        switch selection {
+        Self.prepareSelectedRoute(navigation: navigation, catalog: catalog)
+    }
+
+    private static func prepareSelectedRoute(navigation: CatalogNavigation, catalog: CatalogStore) {
+        func item(for uri: String, kind: CatalogItem.Kind) -> CatalogItem? {
+            navigation.model.item(
+                uri: uri, kind: kind,
+                playlists: kind == .playlist ? catalog.homeLibrary.playlists : [],
+                metadataItem: catalog.metadata.knownItem(for: uri))
+        }
+        switch navigation.selection {
         case let .playlist(uri):
-            if let item = playlistItem(for: uri) { catalog.playlistStore.prepare(item) }
+            if let item = item(for: uri, kind: .playlist) { catalog.playlistStore.prepare(item) }
         case let .album(uri):
-            if let item = selectedItem(uri: uri, kind: .album) { catalog.albumStore.prepare(item) }
+            if let item = item(for: uri, kind: .album) { catalog.albumStore.prepare(item) }
         case let .artist(uri):
-            if let item = selectedItem(uri: uri, kind: .artist) { catalog.artistStore.prepare(item) }
+            if let item = item(for: uri, kind: .artist) { catalog.artistStore.prepare(item) }
         case let .discography(uri):
-            if let item = selectedItem(uri: uri, kind: .artist) { catalog.discographyStore.artist.prepare(item) }
+            if let item = item(for: uri, kind: .artist) { catalog.discographyStore.artist.prepare(item) }
             catalog.discographyStore.prepare(artistURI: uri)
         case .destination:
             break

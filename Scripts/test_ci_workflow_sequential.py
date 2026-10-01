@@ -9,7 +9,7 @@ from ci_workflow_fixtures import WorkflowCheck, WorkflowFixtureMixin
 class SequentialNativeWorkflowTests(WorkflowFixtureMixin, unittest.TestCase):
     def test_native_runner_is_unique_and_publisher_cannot_overlap_it(self):
         jobs = self.workflow['jobs']
-        native = {key for key, job in jobs.items() if job['runs-on'] == 'macos-26'}
+        native = {key for key, job in jobs.items() if job['runs-on'] == 'xcode-27'}
         self.assertEqual(native, {'macos_verify', 'cache_publisher'})
         self.assertIn('macos_verify', jobs['quality_gate']['needs'])
         self.assertEqual(set(jobs['cache_publisher']['needs']), {'quality_gate', 'macos_verify'})

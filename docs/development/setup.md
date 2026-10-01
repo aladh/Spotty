@@ -5,12 +5,14 @@
 App builds and packaging use Xcode's SDK and Clang with the pinned playback binary; they need no
 Rust tools or cbindgen. Engine development uses the included Rust source.
 
+CI uses the standard ARM64 [`xcode-27` runner](https://github.blog/changelog/2026-09-10-xcode-27-runner-image-now-runs-on-macos-27/) with Xcode 27.0 and the macOS 27.0 SDK. This image is in public preview; native checks verify the executing OS, architecture, and toolchain.
+
 ## Fresh clone
 
 Development requires:
 
-- An Apple Silicon Mac running macOS 26.2 or newer; the app's runtime target is macOS 26+.
-- Xcode 26.6 with Swift 6.3.3.
+- An Apple Silicon Mac running macOS 27 or newer; the app's runtime target is macOS 27+.
+- Xcode 27.0 with Swift 6.4.
 - [ripgrep](https://github.com/BurntSushi/ripgrep) for repository verification.
 - Python 3.10 or newer for verification and helper scripts; engine artifact production needs
   Python 3.11 or newer as described below.

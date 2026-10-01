@@ -50,6 +50,8 @@ def required_assertions(name, signed_out):
     names.update(("toolbar.history-controls-disjoint", "toolbar.group-centered", "toolbar.home-size",
                   "toolbar.search-width", "toolbar.control-alignment", "toolbar.history-alignment",
                   "toolbar.row-height", "toolbar.control-margins",
+                  "toolbar.shortcut-search", "toolbar.hit-target-search", "toolbar.hit-target-home", "toolbar.hit-target-back", "toolbar.hit-target-forward",
+                  "toolbar.shortcut-search-already-focused",
                   "shell.home.glyph.aligned", "shell.search.glyph.aligned", "toolbar.search-field-inset",
                   "inspector.presentation"))
     if name.startswith("inspector.") and name != "inspector.closed":

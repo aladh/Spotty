@@ -52,6 +52,8 @@ struct NavigationSearchField: NSViewRepresentable {
         if coordinator.field === field {
             coordinator.endEditing()
             coordinator.field = nil
+            coordinator.onActivate = {}
+            coordinator.text = .constant("")
         }
         field.delegate = nil
         if let field = field as? Field {

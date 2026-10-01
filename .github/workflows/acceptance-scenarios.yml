@@ -19,7 +19,7 @@ permissions:
 jobs:
   acceptance:
     name: Acceptance scenario corpus
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 20
     outputs:
       evidence_artifact_url: ${{ steps.acceptance_upload.outputs.artifact-url }}
@@ -30,8 +30,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Select Xcode 26.6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      - name: Select Xcode 27.0
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
+          python3 Scripts/check_native_environment.py
 
       # Injected state boundaries only: no live credentials, GUI, or sandbox attestation.
       - name: Run acceptance scenarios

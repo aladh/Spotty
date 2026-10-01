@@ -97,7 +97,7 @@ private func domainTargets() -> [Target] {
 }
 private func domainPackage() -> Package {
     Package(
-        name: "Spotty", platforms: [.macOS(.v26)],
+        name: "Spotty", platforms: [.macOS("27.0")],
         products: [.library(name: "SpottyDomain", targets: ["SpottyDomain"])],
         targets: domainTargets())
 }
@@ -136,7 +136,7 @@ private func engineFreeTargets() -> [Target] {
     ]
 }
 private func engineFreePackage() -> Package {
-    Package(name: "Spotty", platforms: [.macOS(.v26)], targets: engineFreeTargets())
+    Package(name: "Spotty", platforms: [.macOS("27.0")], targets: engineFreeTargets())
 }
 
 // These declarations are the sole dependency graph for shipping and focused verification.
@@ -268,7 +268,7 @@ private func testTargetPackage(_ name: String) -> Package {
         fatalError("Focused graph must contain exactly one test target")
     }
     return Package(
-        name: "Spotty", platforms: [.macOS(.v26)],
+        name: "Spotty", platforms: [.macOS("27.0")],
         dependencies: packageDeclarations.filter { packages.contains($0.name) }.map(\.dependency),
         targets: targets
     )
@@ -287,7 +287,7 @@ let package: Package
 
         package = Package(
             name: "Spotty",
-            platforms: [.macOS(.v26)],
+            platforms: [.macOS("27.0")],
             products: [
                 .executable(name: "Spotty", targets: ["SpottyApp"]),
                 .library(name: "SpottyCore", targets: ["SpottyCore"]),

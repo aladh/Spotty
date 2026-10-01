@@ -13,7 +13,7 @@ module WorkflowPolicy
     'contracts' => [
       ["Check out contracts source", 'contracts_checkout', true],
       ["Initialize timing evidence", 'contracts_initialize_timing_evidence', false],
-      ["Select Xcode 26.6", 'contracts_select_xcode_26_6', false],
+      ["Select Xcode 27.0", 'contracts_select_xcode_27_0', false],
       ["Install verification tools", 'contracts_install_verification_tools', false],
       ["Show toolchains", 'contracts_show_toolchains', false],
       ["Block Rust tools", 'contracts_block_rust_tools', false],
@@ -26,7 +26,7 @@ module WorkflowPolicy
     'tests' => [
       ["Check out tests source", 'tests_checkout', true],
       ["Initialize timing evidence", 'tests_initialize_timing_evidence', false],
-      ["Select Xcode 26.6", 'tests_select_xcode_26_6', false],
+      ["Select Xcode 27.0", 'tests_select_xcode_27_0', false],
       ["Install verification tools", 'tests_install_verification_tools', false],
       ["Show toolchains", 'tests_show_toolchains', false],
       ["Block Rust tools", 'tests_block_rust_tools', false],
@@ -42,7 +42,7 @@ module WorkflowPolicy
     'release' => [
       ["Check out release source", 'release_checkout', true],
       ["Initialize timing evidence", 'release_initialize_timing_evidence', false],
-      ["Select Xcode 26.6", 'release_select_xcode_26_6', false],
+      ["Select Xcode 27.0", 'release_select_xcode_27_0', false],
       ["Install verification tools", 'release_install_verification_tools', false],
       ["Show toolchains", 'release_show_toolchains', false],
       ["Block Rust tools", 'release_block_rust_tools', false],
@@ -187,7 +187,7 @@ module WorkflowPolicy
     check.call(triggers.is_a?(Hash) && triggers.keys.sort == %w[pull_request push] && triggers.dig('push', 'branches') == ['main'], 'CI must retain main-push and pull-request triggers')
     check.call(jobs.keys.sort == (QUALITY_JOBS + %w[quality_gate cache_publisher macos]).sort, 'CI must contain exactly the classified verification, quality, cache, and required lanes')
     check.call(jobs.values.all? { |job| job['runs-on'].is_a?(String) && !job['runs-on'].include?('${{') }, 'CI runner selection must remain static')
-    macos_ids = jobs.select { |_id, job| job['runs-on'].to_s.downcase.include?('macos') }.keys
+    macos_ids = jobs.select { |_id, job| job['runs-on'].to_s.downcase.match?(/\A(?:macos-|xcode-)/) }.keys
     check.call(macos_ids.sort == (VERIFY_JOBS + ['cache_publisher']).sort, 'CI must use one sequential macOS verification job and the downstream main cache publisher')
     jobs.each do |id, job|
       check.call(!job.key?('continue-on-error') && job.fetch('steps', []).none? { |step| step.key?('continue-on-error') }, "#{id} verification must propagate failures")
@@ -199,7 +199,7 @@ module WorkflowPolicy
       end
     end
     native = jobs.fetch('macos_verify', {})
-    check.call(native['runs-on'] == 'macos-26', 'macos_verify macOS image must remain macos-26')
+    check.call(native['runs-on'] == 'xcode-27', 'macos_verify macOS image must remain xcode-27')
     check.call(Array(native['needs']) == ['policy'] && native['if'] == "needs.policy.result == 'success' && needs.policy.outputs.macos_needed == 'true'", 'macos_verify must start only after successful source policy and explicit classification')
     check.call(native.fetch('env', {}).values.none? { |value| value.to_s.include?('runner.') }, 'macos_verify job environment must not use unavailable runner context')
     check.call(native['name'] == 'macOS verification' && native['timeout-minutes'] == 240, 'native suite must retain its bounded unique producer job identity')
@@ -220,8 +220,8 @@ module WorkflowPolicy
       initialize_command = "mkdir -p \"$RUNNER_TEMP/spotty-timings/#{scope}\"\necho \"SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/#{scope}/phases.jsonl\" >> \"$GITHUB_ENV\""
       check.call(initialize['run'].to_s.strip == initialize_command && initialize['if'] == rust_if && lane_steps.index(initialize) == 1,
                  "#{scope} must initialize required timing evidence immediately after checkout")
-      xcode = one_step(check, lane_steps, 'Select Xcode 26.6')
-      check.call(xcode['run'] == 'sudo xcode-select -s /Applications/Xcode_26.6.app' && xcode['if'] == rust_if,
+      xcode = one_step(check, lane_steps, 'Select Xcode 27.0')
+      check.call(xcode['run'].to_s.strip == "sudo xcode-select -s /Applications/Xcode_27.app\npython3 Scripts/check_native_environment.py" && xcode['if'] == rust_if,
                  "#{scope} must select the pinned Xcode before compilation")
       if scope == 'engine'
         lane_steps.each do |step|
@@ -275,7 +275,7 @@ module WorkflowPolicy
       lane = native
       lane_steps = phases.fetch(scope, [])
       tools = one_step(check, lane_steps, 'Show toolchains')
-      check.call(tools.fetch('run', '').include?("grep -q 'Apple Swift version 6.3.3'") && !tools.key?('if'), "#{id} must verify the actual pinned Swift toolchain")
+      check.call(tools.fetch('run', '').include?("grep -q 'Apple Swift version 6.4'") && !tools.key?('if'), "#{id} must verify the actual pinned Swift toolchain")
       blocked = one_step(check, lane_steps, 'Block Rust tools')
       check.call(blocked.fetch('run', '').include?('for tool in cargo rustc rustup; do') && !blocked.key?('if'), "#{id} must block Rust tools")
       install = one_step(check, lane_steps, 'Install verification tools')
@@ -367,13 +367,13 @@ module WorkflowPolicy
     selection_specs = {
       'focused_smoke' => {
         'name' => 'Prove focused test selection', 'timeout-minutes' => 5,
-        'run' => 'python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.3.3',
+        'run' => 'python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.4',
       },
       'selection_experiment' => {
         'name' => 'Collect supported-toolchain selection evidence', 'timeout-minutes' => 20,
         'if' => "success() && #{selection_request} && steps.acceptance.outcome == 'success' && steps.acceptance_summary.outcome == 'success' && steps.acceptance_upload.outcome == 'success'",
         'env' => { 'SELECTION_HEAD_SHA' => '${{ github.event.pull_request.head.sha }}' },
-        'run' => 'python3 Scripts/focused_selection_evidence.py compatibility --source "$GITHUB_WORKSPACE" --head "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/compatibility" --swift-version 6.3.3',
+        'run' => 'python3 Scripts/focused_selection_evidence.py compatibility --source "$GITHUB_WORKSPACE" --head "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/compatibility" --swift-version 6.4',
       },
       'selection_upload' => {
         'name' => 'Upload focused selection evidence', 'if' => 'always()',
@@ -518,7 +518,7 @@ module WorkflowPolicy
     standalone_jobs = standalone.fetch('jobs', {})
     check.call(standalone_jobs.keys == ['acceptance'], 'standalone acceptance must run exactly one attempt without fanout')
     standalone_job = standalone_jobs.fetch('acceptance', {})
-    check.call(standalone_job['runs-on'] == 'macos-26' && standalone_job['timeout-minutes'] == 20 &&
+    check.call(standalone_job['runs-on'] == 'xcode-27' && standalone_job['timeout-minutes'] == 20 &&
                (%w[strategy if continue-on-error secrets environment permissions] & standalone_job.keys).empty?,
                'standalone acceptance must retain its credential-free bounded macOS job')
     standalone_steps = standalone_job.fetch('steps', [])
@@ -561,7 +561,7 @@ module WorkflowPolicy
     check.call(terminal.dig('env', 'MAIN_REF') == '${{ github.ref }}' && terminal.dig('env', 'CACHE_RESULT') == '${{ needs.cache_publisher.result }}', 'required aggregate must bind actual event and cache results')
     case_table(check, terminal, 'MAIN_REF:$CACHE_RESULT', %w[refs/heads/main:success refs/pull/*:skipped], '*) echo "Cache publication disagrees with verified event" >&2; exit 1 ;;', 'required cache aggregate')
     publisher = jobs.fetch('cache_publisher', {})
-    check.call(publisher['runs-on'] == 'macos-26' && publisher['if'] == "github.ref == 'refs/heads/main' && needs.quality_gate.result == 'success'" && Array(publisher['needs']).sort == (VERIFY_JOBS + ['quality_gate']).sort, 'cache publisher must follow successful aggregate verification on main only')
+    check.call(publisher['runs-on'] == 'xcode-27' && publisher['if'] == "github.ref == 'refs/heads/main' && needs.quality_gate.result == 'success'" && Array(publisher['needs']).sort == (VERIFY_JOBS + ['quality_gate']).sort, 'cache publisher must follow successful aggregate verification on main only')
     publisher_steps = publisher.fetch('steps', [])
     specs = {
       'contracts' => ['contracts', 'swift', 'contracts_cache', nil, '.build/*\n!.build/spotty-signing', '${{ needs.macos_verify.outputs.contracts_key }}'],
@@ -596,7 +596,7 @@ module WorkflowPolicy
         prefix = restore.dig('with', 'restore-keys').to_s
         check.call(key.include?('${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}') && key.include?('${{ runner.arch }}') && key.include?("hashFiles('Backend/spotty-playback/Cargo.lock')") && key.end_with?('-${{ github.sha }}') && prefix == key.delete_suffix('${{ github.sha }}'), 'Rust verification cache must retain its actual Debug toolchain, architecture, and Cargo.lock isolation')
       else
-        check.call(restore.dig('with', 'key') == 'macos-26-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}' && !restore.fetch('with', {}).key?('restore-keys'), 'cbindgen cache must retain its exact architecture and parser version')
+        check.call(restore.dig('with', 'key') == 'xcode-27-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}' && !restore.fetch('with', {}).key?('restore-keys'), 'cbindgen cache must retain its exact architecture and parser version')
       end
       export_if = "success() && github.ref == 'refs/heads/main'"
       export_if += " && needs.policy.outputs.rust_needed == 'true'" if job_id == 'engine'

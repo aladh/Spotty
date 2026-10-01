@@ -10,6 +10,7 @@ import AVFoundation
 import SpottyDomain
 import CoreMedia
 import OSLog
+import Synchronization
 
 nonisolated enum AudioRendererError: LocalizedError, Sendable {
     case formatDescription(OSStatus)
@@ -23,7 +24,7 @@ nonisolated enum AudioRendererError: LocalizedError, Sendable {
 }
 
 /// Audio renderer that bridges librespot's push model (Sink::write) to
-/// AVSampleBufferAudioRenderer's pull model (requestMediaDataWhenReady).
+/// AVSampleBufferAudioRenderer's receiver, with a bounded presentation-time pump.
 ///
 /// Thread safety: `writeAudioData` is called from librespot's Rust player thread.
 /// `feedRenderer` runs on a dedicated serial dispatch queue.
@@ -50,6 +51,9 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
 
     private var renderer = AVSampleBufferAudioRenderer()
     private var synchronizer = AVSampleBufferRenderSynchronizer()
+    /// Non-Sendable receiver: all live access stays on renderQueue.
+    // Mutex's `inout sending` storage also permits exclusive ownership transfer on retirement.
+    private let receiver = Mutex<AVSampleBufferAudioRenderer.Receiver?>(nil)
 
     /// Output gain (0...1) applied at the renderer. librespot's soft mixer is
     /// bypassed (NoOpVolume), so this is where playback volume is actually applied —
@@ -82,15 +86,14 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
     // MARK: - State
 
     private let renderQueue = DispatchQueue(label: "dev.spotty.app.audio-renderer", qos: .userInteractive)
-    private var currentPTS: CMTime = .zero
+    private var pump = AudioRendererPump()
+    private var pendingFeed: DispatchWorkItem?
     private var isRequestingData = false
     private var underrunCount: UInt64 = 0
     private var droppedSampleCount: UInt64 = 0
     private var throttleSeconds: TimeInterval = 0
 
-    // MARK: - Route Change Observation
-
-    private var routeChangeObserver: (any NSObjectProtocol)?
+    private var renderingEventTask: Task<Void, Never>?
 
     // MARK: - Audio Format (cached)
 
@@ -126,20 +129,16 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
             throw AudioRendererError.formatDescription(status)
         }
         formatDescription = formatDesc
-        synchronizer.addRenderer(renderer)
-
-        // Recover from output device changes (AirPlay ↔ local speaker)
-        observeRouteChanges()
+        receiver.withLock { $0 = synchronizer.sampleBufferReceiver(adding: renderer) }
 
         debugLog("AudioRenderer", "Initialized (44100Hz, 2ch, Float32)")
     }
 
     deinit {
-        if let observer = routeChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        renderer.stopRequestingMediaData()
-        synchronizer.removeRenderer(renderer, at: .invalid)
+        pendingFeed?.cancel()
+        renderingEventTask?.cancel()
+        receiver.withLock { $0?.flush() }
+        retireReceiver()
     }
 
     // MARK: - Volume
@@ -226,7 +225,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
         }
     }
 
-    // MARK: - Pull Side (called on renderQueue by AVSampleBufferAudioRenderer)
+    // MARK: - Receiver Pump (renderQueue only)
 
     private func startRequestingData() {
         bufferLock.lock()
@@ -237,15 +236,42 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
         isRequestingData = true
         bufferLock.unlock()
 
-        renderer.requestMediaDataWhenReady(on: renderQueue) { [weak self] in
-            self?.feedRenderer()
+        scheduleFeed(after: 0)
+    }
+
+    private func scheduleFeed(after delay: TimeInterval) {
+        let generation = pump.generation
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, pump.accepts(generation) else { return }
+            pendingFeed = nil
+            feedRenderer()
         }
+        pendingFeed = work
+        renderQueue.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func stopRequestingData(resetPresentationTime: Bool = false) {
+        pendingFeed?.cancel()
+        pendingFeed = nil
+        renderingEventTask?.cancel()
+        renderingEventTask = nil
+        pump.invalidate(resetPresentationTime: resetPresentationTime)
+        bufferLock.withLock { isRequestingData = false }
     }
 
     private func feedRenderer() {
-        while renderer.isReadyForMoreMediaData {
+        renderingEventTask?.cancel()
+        renderingEventTask = nil
+        // Cancellation cannot retract an event already dispatched to renderQueue.
+        pump.invalidate()
+        while true {
             // Read a chunk from ring buffer
             bufferLock.lock()
+            guard outputControl.isRendering, isRequestingData else {
+                bufferLock.unlock()
+                stopRequestingData()
+                return
+            }
             let requestedFrames = min(Self.feedChunkFrames, ringBuffer.availableFrames)
 
             if requestedFrames == 0 {
@@ -253,72 +279,64 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
                 if outputControl.isRendering { underrunCount &+= 1 }
                 isRequestingData = false
                 bufferLock.unlock()
-                renderer.stopRequestingMediaData()
+                observeRenderingEvents()
                 return
             }
 
-            // Allocate through the same allocator Core Media will use to release the block.
+            // Immediate enqueue has no readiness backpressure. Admit a whole chunk only
+            // if its end fits the existing two-second horizon, then sleep one chunk's
+            // duration. The ring remains the bounded producer/consumer bridge.
+            let chunkDuration = Double(requestedFrames) / Self.sampleRate
+            if !pump.canEnqueue(
+                duration: chunkDuration,
+                playhead: synchronizer.currentTime(),
+                maximumAhead: Self.maxBufferAheadSeconds)
+            {
+                bufferLock.unlock()
+                scheduleFeed(after: Double(Self.feedChunkFrames) / Self.sampleRate)
+                observeRenderingEvents()
+                return
+            }
+
+            // Unique mutable Core Media storage becomes immutable after the ring copy.
             let chunkSize = requestedFrames * Int(Self.channelCount) * Self.bytesPerSample
-            guard let chunk = CFAllocatorAllocate(kCFAllocatorDefault, chunkSize, 0) else {
+            var chunk = CMMutableDataBlockBuffer(count: chunkSize)
+            guard
+                let frameCount = chunk.withContiguousMutableStorageIfAvailable({ storage in
+                    ringBuffer.read(into: storage.bindMemory(to: Float.self))
+                })
+            else {
                 isRequestingData = false
                 bufferLock.unlock()
-                renderer.stopRequestingMediaData()
+                stopRequestingData()
                 debugLog("AudioRenderer", "Failed to allocate audio chunk")
                 return
             }
 
-            let frameCount = ringBuffer.read(
-                into: UnsafeMutableBufferPointer(
-                    start: chunk.bindMemory(to: Float.self, capacity: requestedFrames * Int(Self.channelCount)),
-                    count: requestedFrames * Int(Self.channelCount)))
             bufferLock.unlock()
             writerSpace.signalIfArmed()
 
-            // Create CMBlockBuffer from chunk data
-            var blockBuffer: CMBlockBuffer?
-            var status = CMBlockBufferCreateWithMemoryBlock(
-                allocator: kCFAllocatorDefault,
-                memoryBlock: chunk,
-                blockLength: chunkSize,
-                blockAllocator: kCFAllocatorDefault,  // Core Media will free the block
-                customBlockSource: nil,
-                offsetToData: 0,
-                dataLength: chunkSize,
-                flags: 0,
-                blockBufferOut: &blockBuffer,
-            )
-
-            guard status == kCMBlockBufferNoErr, let block = blockBuffer else {
-                CFAllocatorDeallocate(kCFAllocatorDefault, chunk)
-                debugLog("AudioRenderer", "Failed to create CMBlockBuffer: \(status)")
-                return
-            }
-
-            // Create CMSampleBuffer
-            var sampleBuffer: CMSampleBuffer?
-            status = CMAudioSampleBufferCreateReadyWithPacketDescriptions(
-                allocator: kCFAllocatorDefault,
-                dataBuffer: block,
+            // The immutable Core Media wrappers own the allocation without copying PCM.
+            let sample = CMReadySampleBuffer(
+                audioDataBuffer: CMReadOnlyDataBlockBuffer(chunk),
                 formatDescription: formatDescription,
                 sampleCount: frameCount,
-                presentationTimeStamp: currentPTS,
-                packetDescriptions: nil,
-                sampleBufferOut: &sampleBuffer,
+                presentationTimeStamp: pump.presentationTime,
             )
-
-            guard status == noErr, let sample = sampleBuffer else {
-                debugLog("AudioRenderer", "Failed to create CMSampleBuffer: \(status)")
+            guard let result = receiver.withLock({ $0?.enqueueImmediately(CMReadySampleBuffer(sample)) }) else {
+                stopRequestingData()
                 return
             }
-
-            // Advance presentation time
-            currentPTS = CMTimeAdd(
-                currentPTS,
-                CMTime(value: CMTimeValue(frameCount), timescale: CMTimeScale(Self.sampleRate)),
-            )
-
-            // Enqueue
-            renderer.enqueue(sample)
+            switch AudioRendererPump.action(for: result) {
+            case .advance:
+                pump.didEnqueue(frames: frameCount, sampleRate: CMTimeScale(Self.sampleRate))
+            case .recreate:
+                recoverRenderPipeline()
+                return
+            case .stop:
+                stopRequestingData()
+                return
+            }
         }
     }
 
@@ -380,7 +398,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
             guard applyStop else { return }
 
             synchronizer.setRate(0.0, time: synchronizer.currentTime())
-            renderer.stopRequestingMediaData()
+            stopRequestingData()
             let metrics = metricsDescriptionLocked()
             debugLog("AudioRenderer", "Stopped playback")
             SpottyLog.audio.info("Audio session metrics: \(metrics, privacy: .public)")
@@ -394,9 +412,8 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
 
         renderQueue.sync { [self] in
             debugLog("AudioRenderer", "Flushing audio buffer")
-            currentPTS = .zero
-            renderer.stopRequestingMediaData()
-            renderer.flush()
+            stopRequestingData(resetPresentationTime: true)
+            receiver.withLock { $0?.flush() }
 
             bufferLock.lock()
             let rendering = outputControl.isRendering
@@ -411,36 +428,54 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
 
     // MARK: - Route Change Recovery
 
-    /// Observe the renderer's auto-flush notification, which fires when the
-    /// output device changes (e.g. AirPlay ↔ local speaker). After an auto-flush
-    /// the renderer's internal CoreAudio context is broken (FigSync/timebase errors),
-    /// so we must recreate the renderer and synchronizer entirely.
-    private func observeRouteChanges() {
-        routeChangeObserver = NotificationCenter.default.addObserver(
-            forName: .AVSampleBufferAudioRendererWasFlushedAutomatically,
-            object: renderer,
-            queue: nil,
-        ) { [weak self] notification in
-            guard let self else { return }
-
-            let flushTime =
-                (notification.userInfo?[AVSampleBufferAudioRendererFlushTimeKey] as? NSValue)?
-                .timeValue ?? .zero
-            debugLog("AudioRenderer", "Renderer auto-flushed (output device changed, time: \(flushTime))")
-
-            // Recreate pipeline on renderQueue (async since this fires on an arbitrary thread)
-            renderQueue.async { [self] in
-                bufferLock.lock()
-                let rendering = outputControl.isRendering
-                bufferLock.unlock()
-
-                guard rendering else { return }
-
-                debugLog("AudioRenderer", "Recreating pipeline after output device change")
-                recreateRenderPipeline()
-                synchronizer.setRate(1.0, time: .zero)
-                startRequestingData()
+    /// Enqueue results report route changes during a burst. This supported, Sendable
+    /// event sequence covers the period after a burst, including an empty PCM ring.
+    /// Only the sequence crosses executors; the live receiver stays on renderQueue.
+    private func observeRenderingEvents() {
+        guard let events = receiver.withLock({ $0?.renderingEventsAfterFinishedEnqueuing }) else { return }
+        let generation = pump.generation
+        renderingEventTask = Task.detached { [weak self] in
+            for await event in events {
+                guard !Task.isCancelled else { return }
+                self?.renderQueue.async { [weak self] in
+                    guard let self, pump.accepts(generation) else { return }
+                    switch event {
+                    case .wasFlushedAutomatically, .outputConfigurationChanged, .failed:
+                        recoverRenderPipeline()
+                    @unknown default:
+                        recoverRenderPipeline()
+                    }
+                }
             }
+        }
+    }
+
+    private func recoverRenderPipeline() {
+        guard bufferLock.withLock({ outputControl.isRendering }) else { return }
+        debugLog("AudioRenderer", "Recreating pipeline after rendering event")
+        recreateRenderPipeline()
+        synchronizer.setRate(1.0, time: .zero)
+        startRequestingData()
+    }
+
+    /// Transfer only the retired receiver to the asynchronous removal operation. No
+    /// subsequent pump or control may access it; removal retains its old synchronizer.
+    private func retireReceiver() {
+        let retired = Mutex(
+            receiver.withLock { current in
+                let retired = current
+                current = nil
+                return retired
+            })
+        let retiredSynchronizer = synchronizer
+        Task.detached {
+            let transferred = retired.withLock { current in
+                let transferred = current
+                current = nil
+                return transferred
+            }
+            guard let retiredReceiver = transferred else { return }
+            _ = await retiredSynchronizer.removeReceiver(retiredReceiver, at: .invalid)
         }
     }
 
@@ -451,22 +486,17 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
     private func recreateRenderPipeline() {
         let interval = SpottyLog.audioSignposter.beginInterval("Route recreation")
         defer { SpottyLog.audioSignposter.endInterval("Route recreation", interval) }
-        renderer.stopRequestingMediaData()
-        renderer.flush()
-        synchronizer.removeRenderer(renderer, at: .invalid)
-
-        if let observer = routeChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-            routeChangeObserver = nil
-        }
+        stopRequestingData(resetPresentationTime: true)
+        receiver.withLock { $0?.flush() }
+        synchronizer.setRate(0.0, time: .invalid)
+        retireReceiver()
 
         renderer = AVSampleBufferAudioRenderer()
         renderer.volume = outputVolume
         synchronizer = AVSampleBufferRenderSynchronizer()
-        synchronizer.addRenderer(renderer)
+        receiver.withLock { $0 = synchronizer.sampleBufferReceiver(adding: renderer) }
 
         resetRingBuffer()
-        observeRouteChanges()
 
         debugLog("AudioRenderer", "Render pipeline recreated")
     }
@@ -488,7 +518,7 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
     /// Must be called on renderQueue.
     private func resetRingBuffer() {
         resetRingCursorAndWakeWriter()
-        currentPTS = .zero
+        pump.invalidate(resetPresentationTime: true)
     }
 
     /// Must be called on renderQueue. The ring-buffer counters are read under their lock so one
@@ -504,9 +534,46 @@ final nonisolated class AudioRenderer: @unchecked Sendable {
     /// Flushes the renderer and resets the ring buffer.
     /// Must be called on renderQueue.
     private func resetAudioPipeline() {
-        renderer.stopRequestingMediaData()
-        renderer.flush()
+        stopRequestingData(resetPresentationTime: true)
+        receiver.withLock { $0?.flush() }
         resetRingBuffer()
+    }
+}
+
+/// Queue-owned scheduling/timeline state, separable from system audio for synthetic checks.
+nonisolated struct AudioRendererPump {
+    enum EnqueueAction: Equatable {
+        case advance, recreate, stop
+    }
+
+    private(set) var generation: UInt64 = 0
+    private(set) var presentationTime: CMTime = .zero
+
+    mutating func invalidate(resetPresentationTime: Bool = false) {
+        generation &+= 1
+        if resetPresentationTime { presentationTime = .zero }
+    }
+
+    func accepts(_ captured: UInt64) -> Bool { captured == generation }
+
+    func canEnqueue(duration: TimeInterval, playhead: CMTime, maximumAhead: TimeInterval) -> Bool {
+        let end = presentationTime.seconds + duration
+        let now = playhead.seconds
+        return end.isFinite && now.isFinite && end - now <= maximumAhead
+    }
+
+    mutating func didEnqueue(frames: Int, sampleRate: CMTimeScale) {
+        presentationTime = CMTimeAdd(presentationTime, CMTime(value: CMTimeValue(frames), timescale: sampleRate))
+    }
+
+    static func action(for result: AVSampleBufferAudioRenderer.Receiver.EnqueueResult) -> EnqueueAction {
+        switch result {
+        case .enqueued: .advance
+        case let .enqueuedWithSuggestedFlush(reasons): reasons.isEmpty ? .advance : .recreate
+        case .cancelledDueToFlush: .stop
+        case .cancelledDueToError: .recreate
+        @unknown default: .stop
+        }
     }
 }
 

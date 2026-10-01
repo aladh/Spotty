@@ -148,7 +148,7 @@ jobs:
     name: macOS verification
     needs: [policy]
     if: needs.policy.result == 'success' && needs.policy.outputs.macos_needed == 'true'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 240
     outputs:
       engine_result: ${{ steps.engine_gate.outcome }}
@@ -184,9 +184,11 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/spotty-timings/engine"
           echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/engine/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 26.6
+      - name: Select Xcode 27.0
         if: needs.policy.outputs.rust_needed == 'true'
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
+          python3 Scripts/check_native_environment.py
       - name: Show Rust toolchain
         if: needs.policy.outputs.rust_needed == 'true'
         run: |
@@ -199,7 +201,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/spotty-cbindgen
-          key: macos-26-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}
+          key: xcode-27-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}
       - name: Install pinned cbindgen
         if: needs.policy.outputs.rust_needed == 'true'
         run: |
@@ -391,12 +393,14 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/spotty-timings/contracts"
           echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/contracts/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 26.6
+      - name: Select Xcode 27.0
         if: "!cancelled() && steps.contracts_initialize_timing_evidence.outcome == 'success'"
-        id: contracts_select_xcode_26_6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+        id: contracts_select_xcode_27_0
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
+          python3 Scripts/check_native_environment.py
       - name: Install verification tools
-        if: "!cancelled() && steps.contracts_select_xcode_26_6.outcome == 'success'"
+        if: "!cancelled() && steps.contracts_select_xcode_27_0.outcome == 'success'"
         id: contracts_install_verification_tools
         run: |
           if command -v rg >/dev/null 2>&1; then
@@ -415,7 +419,7 @@ jobs:
           } | tee "$RUNNER_TEMP/swift-toolchain.txt"
           xcrun --find swift-format
           xcrun swift-format --version
-          grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
+          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
           echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
       - name: Block Rust tools
         if: "!cancelled() && steps.contracts_show_toolchains.outcome == 'success'"
@@ -492,12 +496,14 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/spotty-timings/tests"
           echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/tests/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 26.6
+      - name: Select Xcode 27.0
         if: "!cancelled() && steps.tests_initialize_timing_evidence.outcome == 'success'"
-        id: tests_select_xcode_26_6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+        id: tests_select_xcode_27_0
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
+          python3 Scripts/check_native_environment.py
       - name: Install verification tools
-        if: "!cancelled() && steps.tests_select_xcode_26_6.outcome == 'success'"
+        if: "!cancelled() && steps.tests_select_xcode_27_0.outcome == 'success'"
         id: tests_install_verification_tools
         run: |
           if command -v rg >/dev/null 2>&1; then
@@ -516,7 +522,7 @@ jobs:
           } | tee "$RUNNER_TEMP/swift-toolchain.txt"
           xcrun --find swift-format
           xcrun swift-format --version
-          grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
+          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
           echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
       - name: Block Rust tools
         if: "!cancelled() && steps.tests_show_toolchains.outcome == 'success'"
@@ -573,7 +579,7 @@ jobs:
         if: "!cancelled() && steps.debug.outcome == 'success'"
         id: focused_smoke
         timeout-minutes: 5
-        run: python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.3.3
+        run: python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.4
 
       # This credential-free state-boundary corpus does not launch a GUI or attest a sandbox.
       - name: Run acceptance scenarios
@@ -619,7 +625,7 @@ jobs:
         timeout-minutes: 20
         env:
           SELECTION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 Scripts/focused_selection_evidence.py compatibility --source "$GITHUB_WORKSPACE" --head "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/compatibility" --swift-version 6.3.3
+        run: python3 Scripts/focused_selection_evidence.py compatibility --source "$GITHUB_WORKSPACE" --head "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/compatibility" --swift-version 6.4
       - name: Upload focused selection evidence
         id: selection_upload
         if: always()
@@ -712,12 +718,14 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/spotty-timings/release"
           echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/release/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 26.6
+      - name: Select Xcode 27.0
         if: "!cancelled() && steps.release_initialize_timing_evidence.outcome == 'success'"
-        id: release_select_xcode_26_6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+        id: release_select_xcode_27_0
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
+          python3 Scripts/check_native_environment.py
       - name: Install verification tools
-        if: "!cancelled() && steps.release_select_xcode_26_6.outcome == 'success'"
+        if: "!cancelled() && steps.release_select_xcode_27_0.outcome == 'success'"
         id: release_install_verification_tools
         run: |
           if command -v rg >/dev/null 2>&1; then
@@ -736,7 +744,7 @@ jobs:
           } | tee "$RUNNER_TEMP/swift-toolchain.txt"
           xcrun --find swift-format
           xcrun swift-format --version
-          grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
+          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
           echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
       - name: Block Rust tools
         if: "!cancelled() && steps.release_show_toolchains.outcome == 'success'"
@@ -861,7 +869,7 @@ jobs:
     name: Validated main caches
     needs: [quality_gate, macos_verify]
     if: github.ref == 'refs/heads/main' && needs.quality_gate.result == 'success'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 120
     steps:
       - name: Check out source

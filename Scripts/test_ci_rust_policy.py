@@ -198,7 +198,7 @@ class SequentialWorkflowTests(unittest.TestCase):
     def test_single_native_verification_and_serial_cache_publication_keep_one_required_check(self):
         jobs = workflow_jobs()
         verify = {"macos_verify", "macos_verify", "macos_verify", "macos_verify"}
-        self.assertEqual({key for key, job in jobs.items() if job["runs-on"].startswith("macos-")},
+        self.assertEqual({key for key, job in jobs.items() if job["runs-on"].startswith(("macos-", "xcode-"))},
                          verify | {"cache_publisher"})
         for key in verify:
             self.assertEqual(jobs[key]["needs"], ["policy"], key)

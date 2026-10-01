@@ -6,6 +6,26 @@ import Testing
 @Suite("Navigation search field")
 @MainActor
 struct NavigationSearchFieldChecks {
+    @Test func removalReleasesTheDepartedOwnerFromNativeBindingsAndActions() {
+        final class Owner {
+            var query = ""
+            var activations = 0
+        }
+        var owner: Owner? = Owner()
+        weak let departed = owner
+        let controller = NavigationSearchField.Controller()
+        let field = NSTextField()
+        controller.field = field
+        controller.text = Binding(
+            get: { [retained = owner!] in retained.query },
+            set: { [retained = owner!] in retained.query = $0 })
+        controller.onActivate = { [retained = owner!] in retained.activations += 1 }
+        owner = nil
+        #expect(departed != nil)
+        NavigationSearchField.dismantleNSView(field, coordinator: controller)
+        #expect(departed == nil, "Departed root/account owners must not remain in native editing callbacks")
+    }
+
     @Test func accountResetDiscardsProvisionalTextEvenWhenCommittedQueryIsAlreadyEmpty() throws {
         var query = ""
         var accountEpoch: UInt64 = 1

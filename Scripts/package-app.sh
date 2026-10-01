@@ -47,7 +47,7 @@ fi
 actool="$(xcrun --find actool 2>/dev/null || true)"
 if [[ -z "$actool" || ! -x "$actool" ]]; then
     print -u2 "Native Spotty icon packaging requires Apple's actool (Icon Composer compiler)"
-    print -u2 "Select Xcode 26.2 or newer with xcode-select -s, or set DEVELOPER_DIR, then retry packaging"
+    print -u2 "Select Xcode 27.0 or newer with xcode-select -s, or set DEVELOPER_DIR, then retry packaging"
     exit 1
 fi
 

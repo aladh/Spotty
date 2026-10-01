@@ -137,6 +137,9 @@ struct SpottyApp: App {
 /// Live and isolated demo builds use the same window, root view, commands, and lifecycle.
 struct SpottyScene: Scene {
     @State private var showsPlaybackInspector = false
+    @State private var toolbarActions = NavigationToolbarActions()
+    @State private var canGoBack = false
+    @State private var canGoForward = false
     let player: PlaybackStore
     let feedback: TransientFeedbackPresenter
     let appDelegate: SpottyAppDelegate
@@ -148,7 +151,8 @@ struct SpottyScene: Scene {
         Window(AppDisplayName.current, id: "main") {
             RootView(
                 player: player, catalog: player.catalog, feedback: feedback, navigation: navigation,
-                showsSidePanel: $showsPlaybackInspector
+                showsSidePanel: $showsPlaybackInspector, toolbarActions: toolbarActions,
+                canGoBack: $canGoBack, canGoForward: $canGoForward
             )
             .frame(minWidth: 960, minHeight: 640)
             .task {
@@ -164,7 +168,9 @@ struct SpottyScene: Scene {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands {
-            PlaybackInspectorCommands(presentation: $showsPlaybackInspector)
+            NavigationToolbarCommands(
+                actions: toolbarActions, canGoBack: $canGoBack, canGoForward: $canGoForward,
+                presentation: $showsPlaybackInspector)
             if let updater { UpdateCommands(updater: updater) }
             AccountCommands(player: player)
             PlaybackCommands(player: player)
@@ -172,17 +178,39 @@ struct SpottyScene: Scene {
     }
 }
 
-/// Toolbar focus can sit outside SwiftUI's inspector responder scope. Keep the
-/// standard window command attached to the scene's presentation owner instead.
-private struct PlaybackInspectorCommands: Commands {
-    @Binding var presentation: Bool
+/// Scene commands retain narrow actions while the root owns navigation and Search.
+@MainActor
+final class NavigationToolbarActions {
+    var focusSearch: () -> Void = {}
+    var goBack: () -> Void = {}
+    var goForward: () -> Void = {}
 
+    func clear() {
+        focusSearch = {}
+        goBack = {}
+        goForward = {}
+    }
+}
+
+private struct NavigationToolbarCommands: Commands {
+    let actions: NavigationToolbarActions
+    @Binding var canGoBack: Bool
+    @Binding var canGoForward: Bool
+    @Binding var presentation: Bool
     var body: some Commands {
         CommandGroup(after: .sidebar) {
-            Button(presentation ? "Hide Inspector" : "Show Inspector") {
-                presentation.toggle()
+            Button("Go back") { actions.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!canGoBack)
+            Button("Go forward") { actions.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!canGoForward)
+            Button("Search") {
+                actions.focusSearch()
             }
-            .keyboardShortcut("i", modifiers: [.command, .control])
+            .keyboardShortcut("l", modifiers: .command)
+            Button(presentation ? "Hide Inspector" : "Show Inspector") { presentation.toggle() }
+                .keyboardShortcut("i", modifiers: [.command, .control])
         }
     }
 }

@@ -32,6 +32,7 @@ extension View {
             for item in window.toolbar?.visibleItems ?? [] {
                 if let view = item.view { visit(view) }
             }
+            for accessory in window.titlebarAccessoryViewControllers { visit(accessory.view) }
             return result
         }
     }

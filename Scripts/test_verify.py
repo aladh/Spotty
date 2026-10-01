@@ -602,9 +602,8 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
                 self.log.unlink(missing_ok=True)
                 result, calls = self.invoke(action)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                sdk = Path("/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk")
                 self.assertEqual(calls[0]["build_environment"], {
-                    "SDKROOT": str(sdk if sdk.is_dir() else self.root / "MacOSX.sdk"),
+                    "SDKROOT": str(self.root / "MacOSX.sdk"),
                     "CLANG_MODULE_CACHE_PATH": str(self.root / ".build/module-cache"),
                     "SWIFTPM_MODULECACHE_OVERRIDE": str(self.root / ".build/module-cache"),
                 })

@@ -5,11 +5,7 @@ if [[ -z "${project_root:-}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
-sdk_path="$(xcrun --show-sdk-path)"
-compatible_sdk="/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
-if [[ -d "$compatible_sdk" ]]; then
-    sdk_path="$compatible_sdk"
-fi
+sdk_path="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)"
 
 mkdir -p "$project_root/.build/module-cache"
 export SDKROOT="$sdk_path"

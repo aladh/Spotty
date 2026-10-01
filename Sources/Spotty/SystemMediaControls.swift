@@ -237,11 +237,14 @@ final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
         info.playbackState = snapshot.playing ? .playing : .paused
     }
 
-    /// MediaPlayer's synchronous callback only returns already-loaded native pixels.
+    /// MediaPlayer can request pixels off MainActor. Capture only immutable pixels and create
+    /// a fresh native image per request, without sharing mutable AppKit images across queues.
     static func makeArtwork(_ asset: ArtworkAsset) -> MPMediaItemArtwork? {
         guard let pixels = asset.makeCGImage() else { return nil }
-        let image = NSImage(cgImage: pixels, size: NSSize(width: pixels.width, height: pixels.height))
-        return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        let size = NSSize(width: pixels.width, height: pixels.height)
+        return MPMediaItemArtwork(boundsSize: size) { @Sendable _ in
+            NSImage(cgImage: pixels, size: size)
+        }
     }
 
     func remove() {

@@ -2,6 +2,7 @@
 import SpottyTestSupport
 import AppKit
 import Foundation
+import MediaPlayer
 import SpottyDomain
 import SpottyRuntimeContracts
 import Testing
@@ -159,6 +160,27 @@ struct SystemMediaArtworkChecks {
                 == nil)
     }
 
+    @Test func nativeArtworkCallbackReturnsLoadedPixelsOffMainThread() async throws {
+        let native = try #require(MacSystemMediaControlsOutput.makeArtwork(asset))
+        let request = NativeArtworkRequest(native)
+        let result = try await Task.detached {
+            let offMainThread = Self.isOffMainThread()
+            let image = try #require(request.artwork.image(at: NSSize(width: 100, height: 100)))
+            let pixels = try #require(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+            let bytes = try #require(pixels.dataProvider?.data)
+            let originalSize = image.size
+            image.size = NSSize(width: 50, height: 50)
+            let nextImage = try #require(request.artwork.image(at: NSSize(width: 200, height: 200)))
+            return (offMainThread: offMainThread, size: originalSize, bytes: bytes as Data, nextSize: nextImage.size)
+        }.value
+        #expect(result.offMainThread)
+        #expect(result.size == NSSize(width: 1, height: 1))
+        #expect(result.bytes == asset.rgbaPixels)
+        #expect(result.nextSize == NSSize(width: 1, height: 1))
+    }
+
+    private nonisolated static func isOffMainThread() -> Bool { !Thread.isMainThread }
+
     private func present(_ player: PlaybackStore, uri: String, title: String, image: String?, position: Double = 5) {
         player.send(.session(.ready), source: .account)
         player.send(
@@ -172,4 +194,11 @@ struct SystemMediaArtworkChecks {
                     timing: PlaybackTiming(position: position, duration: 200, anchoredAt: HarnessDates.fixed))),
             source: .user)
     }
+}
+
+// MediaPlayer owns this legacy, non-Sendable object and requests its image on a background queue.
+// The test transfers one immutable request to that queue; it never publishes system metadata.
+private struct NativeArtworkRequest: @unchecked Sendable {
+    let artwork: MPMediaItemArtwork
+    init(_ artwork: MPMediaItemArtwork) { self.artwork = artwork }
 }

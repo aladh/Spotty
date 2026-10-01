@@ -454,25 +454,32 @@ final class BrowsingShellRegression {
             throw error
         }
         shortcutChecks.insert("toolbar.shortcut-search")
-        // History can change the catalog route while the native field retains
-        // focus. Command-L must explicitly restore Search in that state too.
+        // Repeated Command-L selects the query without replacing the active editor.
         let focusedEditor = window.firstResponder
-        try sendHistoryKey("[", keyCode: 33, window: window)
-        try await wait("toolbar.search-focused-history", deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
-            navigation.selection == .destination(.home)
-        }
-        guard window.firstResponder === focusedEditor else {
-            throw BrowsingFailure.checkpoint("toolbar.search-focused-history.lost-editor")
-        }
         NSApp.sendEvent(event)
         try await wait(
             "toolbar.shortcut-search-already-focused", deadline: min(deadline, .now.advanced(by: .seconds(3)))
         ) {
             guard let editor = window.firstResponder as? NSTextView else { return false }
-            return navigation.selection == .destination(.search) && editor.isFieldEditor
+            return window.firstResponder === focusedEditor && navigation.selection == .destination(.search)
                 && editor.string == "Signals" && editor.selectedRange() == NSRange(location: 0, length: 7)
         }
         shortcutChecks.insert("toolbar.shortcut-search-already-focused")
+        // Leaving Search can blur its editor. Command-L must restore the route and
+        // selection whether that native focus transition has already completed or not.
+        try sendHistoryKey("[", keyCode: 33, window: window)
+        try await wait("toolbar.search-focused-history", deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
+            navigation.selection == .destination(.home)
+        }
+        NSApp.sendEvent(event)
+        try await wait(
+            "toolbar.shortcut-search-after-history", deadline: min(deadline, .now.advanced(by: .seconds(3)))
+        ) {
+            guard let editor = window.firstResponder as? NSTextView else { return false }
+            return navigation.selection == .destination(.search) && editor.isFieldEditor
+                && editor.string == "Signals" && editor.selectedRange() == NSRange(location: 0, length: 7)
+        }
+        shortcutChecks.insert("toolbar.shortcut-search-after-history")
         navigation.searchText = ""
         navigation.updateSelection(.destination(.home))
         try await settle(window: window, deadline: deadline)
@@ -551,8 +558,13 @@ final class BrowsingShellRegression {
         check(
             "toolbar.shortcut-search-already-focused",
             shortcutChecks.contains("toolbar.shortcut-search-already-focused"),
-            expected: "Command-L restored Search after native history navigation with its editor still focused",
+            expected: "Repeated Command-L preserved the active native editor and selected its query",
             observed: String(shortcutChecks.contains("toolbar.shortcut-search-already-focused")))
+        check(
+            "toolbar.shortcut-search-after-history",
+            shortcutChecks.contains("toolbar.shortcut-search-after-history"),
+            expected: "Command-L restored Search and selected its query after native history navigation",
+            observed: String(shortcutChecks.contains("toolbar.shortcut-search-after-history")))
         if let requestedBodySize {
             check(
                 "window.requested-body-size",

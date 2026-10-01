@@ -141,8 +141,9 @@ struct HomeScrollChecks {
         await player.shutdownForTermination()
     }
 
-    @Test(arguments: [CGFloat(320), 2200])
-    func reconnectPlaceholdersDoNotReplaceTheRetainedPagePosition(offset: CGFloat) async throws {
+    @Test(arguments: [CGFloat(320), 2200], [NSScroller.Style.overlay, .legacy])
+    func reconnectPlaceholdersDoNotReplaceTheRetainedPagePosition(offset: CGFloat, style: NSScroller.Style) async throws
+    {
         let home = HarnessFixtures.home(sectionIDs: Array(0..<12))
         let provider = HarnessCatalog()
         provider.onHome = { home }
@@ -180,12 +181,18 @@ struct HomeScrollChecks {
             if let scroll = view as? NSScrollView { return scroll }
             return view.subviews.lazy.compactMap { page(in: $0) }.first
         }
-        try await requireEventually {
+        func layout() {
+            page(in: host)?.scrollerStyle = style
             host.layoutSubtreeIfNeeded()
+            page(in: host)?.scrollerStyle = style
+        }
+        try await requireEventually {
+            layout()
             return appeared && page(in: host)?.contentSize.height == 600
         }
         #expect(host.bounds.size == NSSize(width: 900, height: 600))
-        #expect(page(in: host)?.contentSize == NSSize(width: 900, height: 600))
+        #expect(page(in: host)?.bounds.width == 900)
+        #expect(page(in: host)?.contentSize.height == 600)
         #expect(interaction.scrollOffset == offset)
         for iteration in 0..<2 {
             player.withRuntime {
@@ -195,18 +202,19 @@ struct HomeScrollChecks {
             host.rootView = content()
             do {
                 try await requireEventually {
-                    host.layoutSubtreeIfNeeded()
+                    layout()
                     return observedPhase == .ready && abs((page(in: host)?.contentView.bounds.minY ?? 0) - offset) < 1
                 }
             } catch {
                 let scroll = page(in: host)
                 Issue.record(
-                    "Home restoration iteration=\(iteration), requested=\(offset), observedReady=\(observedPhase == .ready), playerReady=\(player.phase == .ready), connected=\(player.isConnected), retainedOffset=\(interaction.scrollOffset), clipOffset=\(scroll?.contentView.bounds.minY ?? -1), documentHeight=\(scroll?.documentView?.bounds.height ?? -1), viewportHeight=\(scroll?.contentSize.height ?? -1), hostHeight=\(host.frame.height), windowContentHeight=\(window.contentLayoutRect.height)"
+                    "Home restoration scrollerStyle=\(style.rawValue), iteration=\(iteration), requested=\(offset), observedReady=\(observedPhase == .ready), playerReady=\(player.phase == .ready), connected=\(player.isConnected), retainedOffset=\(interaction.scrollOffset), clipOffset=\(scroll?.contentView.bounds.minY ?? -1), documentHeight=\(scroll?.documentView?.bounds.height ?? -1), viewportHeight=\(scroll?.contentSize.height ?? -1), hostHeight=\(host.frame.height), windowContentHeight=\(window.contentLayoutRect.height)"
                 )
                 throw error
             }
             #expect(host.bounds.size == NSSize(width: 900, height: 600))
-            #expect(page(in: host)?.contentSize == NSSize(width: 900, height: 600))
+            #expect(page(in: host)?.bounds.width == 900)
+            #expect(page(in: host)?.contentSize.height == 600)
             #expect(interaction.scrollOffset == offset)
             player.withRuntime {
                 $0.accountStore.publishPhase(.recovering)
@@ -214,11 +222,12 @@ struct HomeScrollChecks {
             }
             host.rootView = content()
             try await requireEventually {
-                host.layoutSubtreeIfNeeded()
+                layout()
                 return observedPhase == .recovering && page(in: host)?.contentView.bounds.minY == 0
             }
             #expect(host.bounds.size == NSSize(width: 900, height: 600))
-            #expect(page(in: host)?.contentSize == NSSize(width: 900, height: 600))
+            #expect(page(in: host)?.bounds.width == 900)
+            #expect(page(in: host)?.contentSize.height == 600)
             #expect(interaction.scrollOffset == offset)
         }
         await player.shutdownForTermination()

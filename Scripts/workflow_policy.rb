@@ -355,13 +355,13 @@ module WorkflowPolicy
         'run' => './Scripts/check-gui-regression.sh --output "$RUNNER_TEMP/spotty-gui-regression" --expected-head "$GUI_REVISION"',
       },
       'gui_upload' => {
-        'name' => 'Upload Demo GUI evidence', 'if' => 'always()',
+        'name' => 'Upload Demo GUI evidence', 'if' => "always() && steps.gui.outcome != 'skipped'",
         'uses' => "actions/upload-artifact@#{UPLOAD_SHA}",
         'with' => { 'name' => 'gui-regression-${{ github.run_id }}-${{ github.run_attempt }}',
                     'path' => '${{ runner.temp }}/spotty-gui-regression', 'if-no-files-found' => 'error', 'retention-days' => 7 },
       },
     }
-    gui_positions = [debug_index]
+    gui_positions = [debug_index, swift_steps.index { |step| step['id'] == 'acceptance_upload' }]
     gui_spec.each do |id, fields|
       matches = swift_steps.select { |step| step['id'] == id || step['name'] == fields['name'] }
       check.call(matches.length == 1 && matches.first == fields.merge('id' => id),

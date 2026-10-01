@@ -181,7 +181,7 @@ final class BrowsingRun {
         workload = Task { [self] in
             do {
                 try await prepare()
-                if !launch.automated {
+                if !launch.automated && world.scenario.guiShellRegression == true {
                     statusPulse = Task { [weak self] in
                         while !Task.isCancelled {
                             guard let self else { return }
@@ -365,6 +365,10 @@ final class BrowsingRun {
 
     private func writeRunStatus(_ state: BrowsingRunStatus.State, failureCode: String? = nil) throws {
         runStatusState = state
+        if state == .workloadFinished || state == .failed {
+            statusPulse?.cancel()
+            statusPulse = nil
+        }
         try BrowsingRunStatus(
             launch: launch, state: state, failureCode: failureCode, window: window(),
             networkSandboxVerified: networkSandboxVerified, world: world

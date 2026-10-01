@@ -35,6 +35,7 @@ struct BrowsingRunStatus: Encodable {
     let recordedAtSeconds: Double
     let networkSandboxVerified: Bool
     let syntheticDependencies = true
+    /// The real Rust engine is never used; playback scenarios execute the synthetic command port.
     let engineUsedForPlayback = false
     let commandCount: Int
     let mutationAttempts: Int

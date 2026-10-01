@@ -485,6 +485,7 @@ private enum SyntheticUISmokeCommand {
         if let root {
             do { try data.write(to: root.appendingPathComponent("ui-smoke.json"), options: .atomic) } catch {
                 emitFailure("Could not save UI smoke evidence", category: "result")
+                exit(1)
             }
         }
         print(String(decoding: data, as: UTF8.self))

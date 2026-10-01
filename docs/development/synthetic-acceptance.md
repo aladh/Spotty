@@ -88,6 +88,13 @@ identity, failure reasons, and references to original reports and logs. Passing 
 browsing or four signed-out checkpoints, every declared geometry and rendered-chrome assertion,
 and zero commands, playing, and mutations throughout. Current-process own-window compositor PNGs
 bind the rendered padding checks to each window; separate view captures help diagnose failures.
+Before resizing, the fixture selects each target from its desired body size and the visible display
+minus native window overhead. It records both sizes and the display geometry; the runner recomputes
+the selection and rejects an observed clamp, unstable display, off-screen window, capacity below the
+960×640 minimum, or a display that cannot exercise a distinct resize. Small hosted displays may
+constrain height while exercising the default, minimum, and resized widths; local full-size evidence
+remains separate. The final browsing checkpoint also requires native Command-[ / Command-] events
+to restore Search, revisit the playlist, and return again through the production history buttons.
 These assertions do not establish full visual parity, live playback, or audible output.
 The inactive checkpoint transfers key ownership to an empty fixture window while the app stays active;
 switching between applications remains separate interactive verification.

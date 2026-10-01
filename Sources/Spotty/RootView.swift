@@ -86,19 +86,19 @@ struct RootView: View {
         .foregroundStyle(SpottyPalette.textPrimary)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                HistoryNavigationButton("Go back", symbol: "chevron.left", isEnabled: !navigation.backHistory.isEmpty) {
+                HistoryNavigationButton(
+                    "Go back", symbol: "chevron.left", shortcut: "[", isEnabled: !navigation.backHistory.isEmpty
+                ) {
                     navigation.goBack()
                     prepareSelectedRoute()
                 }
-                .keyboardShortcut("[", modifiers: .command)
                 .shellGeometry("shell.history.back")
                 HistoryNavigationButton(
-                    "Go forward", symbol: "chevron.right", isEnabled: !navigation.forwardHistory.isEmpty
+                    "Go forward", symbol: "chevron.right", shortcut: "]", isEnabled: !navigation.forwardHistory.isEmpty
                 ) {
                     navigation.goForward()
                     prepareSelectedRoute()
                 }
-                .keyboardShortcut("]", modifiers: .command)
                 .shellGeometry("shell.history.forward")
             }
             .sharedBackgroundVisibility(.hidden)

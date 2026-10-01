@@ -562,7 +562,7 @@ jobs:
         run: ./Scripts/check-gui-regression.sh --output "$RUNNER_TEMP/spotty-gui-regression" --expected-head "$GUI_REVISION"
       - name: Upload Demo GUI evidence
         id: gui_upload
-        if: always()
+        if: always() && steps.gui.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gui-regression-${{ github.run_id }}-${{ github.run_attempt }}

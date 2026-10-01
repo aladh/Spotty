@@ -99,4 +99,63 @@ struct BrowsingShellFixtureChecks {
         }
         await player.shutdownForTermination()
     }
+
+    @Test func displayEligibilityPreservesMinimumAndDistinctResizeCoverage() throws {
+        let defaultSize = CGSize(width: 1220, height: 780)
+        let minimumSize = CGSize(width: 960, height: 640)
+        let resizeSize = CGSize(width: 1080, height: 700)
+        let overhead = CGSize(width: 0, height: 52)
+        #expect(
+            try BrowsingShellRegression.targetBodySize(
+                desired: defaultSize, visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900), overhead: overhead)
+                == defaultSize)
+        // Hosted CI and secondary displays can have a short visible area and negative origins.
+        let ciDisplay = CGRect(x: -1440, y: -80, width: 1220, height: 692)
+        #expect(
+            try BrowsingShellRegression.targetBodySize(
+                desired: defaultSize, visibleFrame: ciDisplay, overhead: overhead)
+                == CGSize(width: 1220, height: 640))
+        #expect(
+            try BrowsingShellRegression.targetBodySize(
+                desired: minimumSize, visibleFrame: ciDisplay, overhead: overhead)
+                == minimumSize)
+        #expect(
+            try BrowsingShellRegression.targetBodySize(desired: resizeSize, visibleFrame: ciDisplay, overhead: overhead)
+                == CGSize(width: 1080, height: 640))
+        for display in [
+            CGRect(x: 0, y: 0, width: 959, height: 692),
+            CGRect(x: 0, y: 0, width: 1220, height: 691),
+        ] {
+            #expect(throws: (any Error).self) {
+                try BrowsingShellRegression.targetBodySize(
+                    desired: defaultSize, visibleFrame: display, overhead: overhead)
+            }
+        }
+        for (desired, display, invalidOverhead) in [
+            (CGSize(width: CGFloat.infinity, height: 780), ciDisplay, overhead),
+            (defaultSize, CGRect(x: CGFloat.nan, y: 0, width: 1220, height: 692), overhead),
+            (defaultSize, ciDisplay, CGSize(width: 0, height: CGFloat.nan)),
+            (defaultSize, ciDisplay, CGSize(width: -1, height: 52)),
+            (defaultSize, ciDisplay, CGSize(width: 0, height: -1)),
+        ] {
+            #expect(throws: (any Error).self) {
+                try BrowsingShellRegression.targetBodySize(
+                    desired: desired, visibleFrame: display, overhead: invalidOverhead)
+            }
+        }
+        // A display which can show only the minimum cannot establish a distinct resize.
+        for display in [
+            CGRect(x: 0, y: 0, width: 960, height: 692),
+            CGRect(x: 0, y: 0, width: 962, height: 694),
+        ] {
+            #expect(throws: (any Error).self) {
+                try BrowsingShellRegression.targetBodySize(
+                    desired: resizeSize, visibleFrame: display, overhead: overhead)
+            }
+        }
+        #expect(
+            try BrowsingShellRegression.targetBodySize(
+                desired: resizeSize, visibleFrame: CGRect(x: 0, y: 0, width: 963, height: 692), overhead: overhead)
+                == CGSize(width: 963, height: 640))
+    }
 }

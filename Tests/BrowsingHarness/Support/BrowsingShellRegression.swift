@@ -79,7 +79,10 @@ final class BrowsingShellRegression {
         let windowFrame: Rect
         let contentBounds: Rect
         let contentLayoutRect: Rect
+        let desiredBodySize: Rect?
         let requestedBodySize: Rect?
+        let screenVisibleFrame: Rect?
+        let frameToBodyOverhead: Rect?
         let captureContentRect: Rect?
         let capturePointPixelScale: Double?
         let markers: [String: Rect]
@@ -108,7 +111,12 @@ final class BrowsingShellRegression {
     private let started = ContinuousClock.now
     private var checkpoints: [Checkpoint] = []
     private var completed = false
+    private var desiredBodySize: CGSize?
     private var requestedBodySize: CGSize?
+    private var sizingScreenVisibleFrame: CGRect?
+    private var frameToBodyOverhead: CGSize?
+    private var minimumBodySize: CGSize?
+    private var shortcutChecks: Set<String> = []
     private var deadline = ContinuousClock.now
     private(set) var failure: String?
 
@@ -147,18 +155,22 @@ final class BrowsingShellRegression {
                 ("default", NSSize(width: 1220, height: 780)),
                 ("minimum", NSSize(width: 960, height: 640)),
             ] {
-                resize(window, bodySize: size)
+                try resize(window, bodySize: size)
                 NSApp.activate()
                 window.makeKeyAndOrderFront(nil)
                 try await settle(window: window, deadline: deadline)
                 let checkpoint = "\(signedOut ? "signed-out" : "home").\(name)"
                 try await capture(checkpoint, player: player, world: world, window: window, expectedKey: true)
+                if name == "minimum" {
+                    minimumBodySize = CGSize(
+                        width: window.contentView?.bounds.width ?? 0, height: window.contentLayoutRect.height)
+                }
                 try await sampled(checkpoint)
             }
             // Transfer native key ownership to an empty fixture window. Calling resignKey()
             // directly does not update AppKit's key-window bookkeeping for a later reactivation.
             let focusWindow = ShellFocusWindow(
-                contentRect: CGRect(x: window.frame.minX - 64, y: window.frame.minY, width: 32, height: 32),
+                contentRect: CGRect(x: window.frame.minX + 8, y: window.frame.minY + 8, width: 32, height: 32),
                 styleMask: [.titled], backing: .buffered, defer: false)
             focusWindow.isReleasedWhenClosed = false
             focusWindow.identifier = NSUserInterfaceItemIdentifier("spotty.gui.focus-fixture")
@@ -172,7 +184,7 @@ final class BrowsingShellRegression {
             window.makeKeyAndOrderFront(nil)
             try await wait("window.reactivated", deadline: deadline) { window.isKeyWindow && NSApp.isActive }
             focusWindow.orderOut(nil)
-            resize(window, bodySize: NSSize(width: 1080, height: 700))
+            try resize(window, bodySize: NSSize(width: 1080, height: 700))
             try await settle(window: window, deadline: deadline)
             try await capture("shell.resized", player: player, world: world, window: window, expectedKey: true)
             try await sampled("shell.resized")
@@ -207,7 +219,24 @@ final class BrowsingShellRegression {
                 try await settle(window: window, deadline: deadline)
                 try await capture("detail.playlist", player: player, world: world, window: window, expectedKey: true)
                 try await sampled("detail.playlist")
-                navigation.goBack()
+                let detailSelection = navigation.selection
+                try sendHistoryKey("[", keyCode: 33, window: window)
+                try await wait("history.shortcut-back", deadline: deadline) {
+                    navigation.selection == .destination(.search)
+                }
+                shortcutChecks.insert("history.shortcut-back")
+                try await settle(window: window, deadline: deadline, required: ["search.filters"])
+                try sendHistoryKey("]", keyCode: 30, window: window)
+                try await wait("history.shortcut-forward", deadline: deadline) {
+                    navigation.selection == detailSelection
+                }
+                shortcutChecks.insert("history.shortcut-forward")
+                try await settle(window: window, deadline: deadline)
+                try sendHistoryKey("[", keyCode: 33, window: window)
+                try await wait("history.shortcut-returned", deadline: deadline) {
+                    navigation.selection == .destination(.search)
+                }
+                shortcutChecks.insert("history.shortcut-returned")
                 try await settle(window: window, deadline: deadline, required: ["search.filters"])
                 try await capture("search.returned", player: player, world: world, window: window, expectedKey: true)
                 try await sampled("search.returned")
@@ -226,12 +255,59 @@ final class BrowsingShellRegression {
         }
     }
 
-    private func resize(_ window: NSWindow, bodySize: NSSize) {
-        requestedBodySize = bodySize
-        // SpottyScene's default/minimum sizes describe the root view. Public AppKit's
-        // contentLayoutRect excludes its toolbar; contentView includes that toolbar inset.
-        let inset = (window.contentView?.bounds.height ?? 0) - window.contentLayoutRect.height
-        window.setContentSize(NSSize(width: bodySize.width, height: bodySize.height + max(0, inset)))
+    /// Select the target before AppKit can constrain it. A small display may cap desired sizes,
+    /// but it must support the real minimum and a distinct resize; never admit an observed clamp.
+    static func targetBodySize(desired: CGSize, visibleFrame: CGRect, overhead: CGSize) throws -> CGSize {
+        guard
+            [
+                desired.width, desired.height, visibleFrame.minX, visibleFrame.minY,
+                visibleFrame.width, visibleFrame.height, overhead.width, overhead.height,
+            ].allSatisfy(\.isFinite),
+            desired.width >= 960, desired.height >= 640, overhead.width >= 0, overhead.height >= 0
+        else { throw BrowsingFailure.checkpoint("window.display-geometry") }
+        let available = CGSize(
+            width: floor(visibleFrame.width - overhead.width),
+            height: floor(visibleFrame.height - overhead.height))
+        guard available.width >= 960, available.height >= 640 else {
+            throw BrowsingFailure.checkpoint("window.display-below-minimum")
+        }
+        let target = CGSize(width: min(desired.width, available.width), height: min(desired.height, available.height))
+        if desired == CGSize(width: 1080, height: 700),
+            target.width - 960 <= 2, target.height - 640 <= 2
+        {
+            throw BrowsingFailure.checkpoint("window.display-cannot-exercise-resize")
+        }
+        return target
+    }
+
+    private func resize(_ window: NSWindow, bodySize: NSSize) throws {
+        guard let screen = window.screen, let content = window.contentView else {
+            throw BrowsingFailure.checkpoint("window.display-unavailable")
+        }
+        let overhead = CGSize(
+            width: window.frame.width - content.bounds.width,
+            height: window.frame.height - window.contentLayoutRect.height)
+        let target = try Self.targetBodySize(desired: bodySize, visibleFrame: screen.visibleFrame, overhead: overhead)
+        desiredBodySize = bodySize
+        requestedBodySize = target
+        sizingScreenVisibleFrame = screen.visibleFrame
+        frameToBodyOverhead = overhead
+        let inset = content.bounds.height - window.contentLayoutRect.height
+        window.setContentSize(NSSize(width: target.width, height: target.height + max(0, inset)))
+    }
+
+    private func sendHistoryKey(_ character: String, keyCode: UInt16, window: NSWindow) throws {
+        guard window.isKeyWindow, NSApp.isActive else {
+            throw BrowsingFailure.checkpoint("history.shortcut-window")
+        }
+        // Exercise the owned window's native key-equivalent dispatch, never global input.
+        guard
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: character, charactersIgnoringModifiers: character,
+                isARepeat: false, keyCode: keyCode), window.performKeyEquivalent(with: event)
+        else { throw BrowsingFailure.checkpoint("history.shortcut-unhandled.\(character)") }
     }
 
     private func settle(window: NSWindow, deadline: ContinuousClock.Instant, required: [String] = []) async throws {
@@ -289,6 +365,33 @@ final class BrowsingShellRegression {
                     && abs(window.contentLayoutRect.height - requestedBodySize.height) <= tolerance,
                 expected: "\(requestedBodySize.width)x\(requestedBodySize.height)pt root body",
                 observed: "\(content.bounds.width)x\(window.contentLayoutRect.height)pt")
+        }
+        if name == "shell.resized" {
+            check(
+                "window.distinct-resize",
+                minimumBodySize.map {
+                    abs(content.bounds.width - $0.width) > tolerance
+                        || abs(window.contentLayoutRect.height - $0.height) > tolerance
+                } == true,
+                expected: "An observed body dimension changes by more than 2pt from minimum",
+                observed: "\(content.bounds.width)x\(window.contentLayoutRect.height)pt")
+        }
+        if let sizingScreenVisibleFrame {
+            check(
+                "window.display-stable", window.screen?.visibleFrame == sizingScreenVisibleFrame,
+                expected: "Display geometry unchanged since sizing",
+                observed: NSStringFromRect(sizingScreenVisibleFrame))
+            check(
+                "window.fits-display",
+                sizingScreenVisibleFrame.insetBy(dx: -tolerance, dy: -tolerance).contains(window.frame),
+                expected: "Native window fits the visible display", observed: NSStringFromRect(window.frame))
+        }
+        if name == "search.returned" {
+            for label in ["history.shortcut-back", "history.shortcut-forward", "history.shortcut-returned"] {
+                check(
+                    label, shortcutChecks.contains(label), expected: "Owned native event navigated the expected route",
+                    observed: String(shortcutChecks.contains(label)))
+            }
         }
         for id in [
             "shell.sidebar", "shell.catalog", "shell.player", "shell.navigation", "shell.home", "shell.search",
@@ -459,7 +562,13 @@ final class BrowsingShellRegression {
                 "capture.own-window", false, expected: "Required current-process composite PNG",
                 observed: error.localizedDescription)
         }
-        captures.append(try png(content, name: "\(name).content.png", source: "NSWindow.contentView.cacheDisplay"))
+        do {
+            captures.append(try png(content, name: "\(name).content.png", source: "NSWindow.contentView.cacheDisplay"))
+        } catch {
+            check(
+                "capture.diagnostic-content", false, expected: "Public content-view diagnostic PNG",
+                observed: error.localizedDescription)
+        }
         var toolbarItems: [ToolbarItem] = []
         for (index, item) in (window.toolbar?.visibleItems ?? []).enumerated() {
             toolbarItems.append(
@@ -467,10 +576,16 @@ final class BrowsingShellRegression {
                     identifier: item.itemIdentifier.rawValue,
                     frame: item.view.map { Rect($0.convert($0.bounds, to: nil)) }))
             if let view = item.view, view.bounds.width > 0, view.bounds.height > 0 {
-                captures.append(
-                    try png(
-                        view, name: "\(name).toolbar-\(index).png",
-                        source: "NSToolbar.visibleItems[\(index)].view.cacheDisplay"))
+                do {
+                    captures.append(
+                        try png(
+                            view, name: "\(name).toolbar-\(index).png",
+                            source: "NSToolbar.visibleItems[\(index)].view.cacheDisplay"))
+                } catch {
+                    check(
+                        "capture.diagnostic-toolbar-\(index)", false, expected: "Public toolbar diagnostic PNG",
+                        observed: error.localizedDescription)
+                }
             }
         }
         let elapsed = started.duration(to: .now).components
@@ -487,7 +602,10 @@ final class BrowsingShellRegression {
                 mutationAttempts: world.snapshot().mutationAttempts,
                 windowFrame: Rect(window.frame),
                 contentBounds: Rect(content.bounds), contentLayoutRect: Rect(window.contentLayoutRect),
+                desiredBodySize: desiredBodySize.map { Rect(CGRect(origin: .zero, size: $0)) },
                 requestedBodySize: requestedBodySize.map { Rect(CGRect(origin: .zero, size: $0)) },
+                screenVisibleFrame: sizingScreenVisibleFrame.map(Rect.init),
+                frameToBodyOverhead: frameToBodyOverhead.map { Rect(CGRect(origin: .zero, size: $0)) },
                 captureContentRect: captureContentRect, capturePointPixelScale: capturePointPixelScale,
                 markers: frames.mapValues(Rect.init), toolbarItems: toolbarItems, captures: captures,
                 pixelSamples: pixelSamples,

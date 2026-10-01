@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -38,7 +39,7 @@ LIMIT = "Unsandboxed synthetic GUI test host; no App Sandbox, live Spotify, audi
 def required_assertions(name, signed_out):
     names = {"window.requested-body-size", "sidebar.width", "catalog.excludes-sidebar", "player.excludes-catalog",
              "toolbar.excludes-catalog", "player.height", "toolbar.controls-disjoint", "toolbar.search-height",
-             "window.key-state", "window.application-active-state", "safety.no-playing", "safety.no-commands", "capture.window-dimensions"}
+             "window.display-stable", "window.fits-display", "window.key-state", "window.application-active-state", "safety.no-playing", "safety.no-commands", "capture.window-dimensions"}
     names.update("shell." + item + ".visible" for item in ("sidebar", "catalog", "player", "navigation", "home", "search"))
     names.update("shell." + item + suffix for item in ("home", "search")
                  for suffix in (".chrome-sample-region", ".native-background-does-not-cover-padding"))
@@ -50,6 +51,10 @@ def required_assertions(name, signed_out):
     names.add("signed-out.no-engine" if signed_out else "restore.current-track-artwork")
     if name.startswith("search."):
         names.add("search.filters-contained")
+    if name == "shell.resized":
+        names.add("window.distinct-resize")
+    if name == "search.returned":
+        names.update(("history.shortcut-back", "history.shortcut-forward", "history.shortcut-returned"))
     if name == "detail.playlist":
         names.add("detail.native-scroll-contained")
     return names
@@ -76,21 +81,73 @@ def remaining(deadline):
 
 
 def retire_command(process):
-    # A leader can exit while descendants still hold its captured pipes. The session/group
-    # was created by this runner, so its retirement never depends on the leader's status.
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    try:
-        process.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    process.wait(timeout=2)
+    # The session/group remains owned when the leader exits before its descendants.
+    failures = []
+    for action in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, action)
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            failures.append(str(error))
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired as error:
+            if action == signal.SIGKILL:
+                failures.append(str(error))
+        except (OSError, subprocess.SubprocessError) as error:
+            failures.append(str(error))
+    return {"pid": process.pid, "verified": not failures, "failures": failures}
+
+
+def preserve_cleanup_failure(primary, process):
+    retirement = retire_command(process)
+    if not retirement["verified"]:
+        primary.cleanupFailure = retirement
+    return retirement
+
+
+def desired_body_size(name):
+    if name.endswith(".default"):
+        return {"width": 1220, "height": 780}
+    if name.endswith(".minimum") or name == "shell.inactive":
+        return {"width": 960, "height": 640}
+    return {"width": 1080, "height": 700}
+
+
+def rectangle(value, label):
+    require(isinstance(value, dict) and all(type(value.get(axis)) in (int, float)
+            and math.isfinite(value[axis]) for axis in ("x", "y", "width", "height"))
+            and value["width"] > 0 and value["height"] > 0, label)
+    return value
+
+
+def validate_display_size(point):
+    desired = rectangle(point.get("desiredBodySize"), "desired body rectangle")
+    screen = rectangle(point.get("screenVisibleFrame"), "screen visible rectangle")
+    requested = rectangle(point.get("requestedBodySize"), "requested body rectangle")
+    layout = rectangle(point.get("contentLayoutRect"), "actual layout rectangle")
+    content = rectangle(point.get("contentBounds"), "actual content rectangle")
+    actual = {"width": content["width"], "height": layout["height"]}
+    overhead = point.get("frameToBodyOverhead")
+    require(isinstance(overhead, dict) and overhead.get("x") == 0 and overhead.get("y") == 0
+            and all(number(overhead.get(axis)) for axis in ("width", "height")),
+            "nonnegative frame-to-body overhead")
+    fixed = desired_body_size(point["name"])
+    require(desired["x"] == 0 and desired["y"] == 0 and requested["x"] == 0 and requested["y"] == 0
+            and all(desired[axis] == fixed[axis] for axis in ("width", "height")), "fixed desired fixture size")
+    chosen = {axis: min(fixed[axis], math.floor(screen[axis] - overhead[axis])) for axis in ("width", "height")}
+    require(chosen["width"] >= 960 and chosen["height"] >= 640, "display supports minimum fixture body")
+    require(all(abs(requested[axis] - chosen[axis]) <= 0.01 for axis in ("width", "height")),
+            "independent display-aware target size")
+    require(all(abs(actual[axis] - chosen[axis]) <= 2 for axis in ("width", "height")), "actual body matches target size")
+    frame = rectangle(point.get("windowFrame"), "window frame rectangle")
+    require(all(abs(frame[axis] - chosen[axis] - overhead[axis]) <= 2 for axis in ("width", "height")),
+            "window frame/body overhead")
+    require(frame["x"] >= screen["x"] - 2 and frame["y"] >= screen["y"] - 2
+            and frame["x"] + frame["width"] <= screen["x"] + screen["width"] + 2
+            and frame["y"] + frame["height"] <= screen["y"] + screen["height"] + 2, "window fits visible display")
+    return chosen
 
 
 def png_dimensions(path):
@@ -130,8 +187,8 @@ print(json.dumps(result))
                                stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
         stdout, stderr = process.communicate(timeout=timeout)
-    except BaseException:
-        retire_command(process)
+    except BaseException as primary:
+        preserve_cleanup_failure(primary, process)
         raise
     if process.returncode:
         raise RuntimeError(f"Provenance {operation} failed: {stderr[-4000:].strip()}")
@@ -155,8 +212,11 @@ def bounded_command(command, root, log, deadline):
                                    stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             result = process.wait(timeout=remaining(deadline))
-        except BaseException:
-            retire_command(process)
+        except BaseException as primary:
+            retirement = preserve_cleanup_failure(primary, process)
+            if not retirement["verified"]:
+                output.write(("Cleanup unverified: " + json.dumps(retirement) + "\n").encode())
+                output.flush()
             raise
     if result:
         raise RuntimeError(f"Command exited {result}; see {log.name}")
@@ -253,7 +313,9 @@ def validate_reports(run_root, manifest, fixture, owned, expected_names):
     require(isinstance(checkpoints, list) and all(isinstance(point, dict) for point in checkpoints)
             and tuple(point.get("name") for point in checkpoints) == expected_names,
             "complete GUI checkpoints")
+    sizes = {}
     for point in checkpoints:
+        sizes[point["name"]] = validate_display_size(point)
         for key, value in (("runID", manifest["runID"]), ("host", HOST_ID),
                            ("sourceSHA256", manifest["source"]["sourceSHA256"]),
                            ("buildProductSHA256", manifest["build"]["buildProductSHA256"])):
@@ -319,6 +381,18 @@ def validate_reports(run_root, manifest, fixture, owned, expected_names):
             require(rect["x"] + rect["width"] <= composite_dimensions[0]
                     and rect["y"] + rect["height"] <= composite_dimensions[1]
                     and sample["pixelCount"] == rect["width"] * rect["height"], "pixel sample bounds/count")
+    minimum = next(sizes[name] for name in sizes if name.endswith(".minimum"))
+    resized = sizes["shell.resized"]
+    require(minimum == {"width": 960, "height": 640}, "exact minimum fixture size")
+    require(any(resized[axis] - minimum[axis] > 2 for axis in ("width", "height")),
+            "resized fixture exercises a distinct size change")
+    actual_minimum = next(point for point in checkpoints if point["name"].endswith(".minimum"))
+    actual_resized = next(point for point in checkpoints if point["name"] == "shell.resized")
+    require(actual_resized["contentBounds"]["width"] - actual_minimum["contentBounds"]["width"] > 2
+            or actual_resized["contentLayoutRect"]["height"] - actual_minimum["contentLayoutRect"]["height"] > 2,
+            "observed body exercises a distinct size change")
+    require(all(point["screenVisibleFrame"] == checkpoints[0]["screenVisibleFrame"] for point in checkpoints),
+            "fixture display remains stable")
     status = read_json(run_root / "run-status.json")
     require(status.get("runID") == manifest["runID"] and status.get("pid") == owned["pid"], "status process identity")
     require(status.get("state") == "workload-finished" and status.get("failureCode") is None, "status completion")
@@ -366,6 +440,8 @@ def run_host(root, run_root, executable, manifest, fixture, expected_names, dead
                     break
                 if status.get("state") == "failed" or status.get("failureCode") is not None:
                     raise RuntimeError("GUI workload status failed: " + str(status.get("failureCode") or "failed"))
+                if not browsing_process.matches(owned):
+                    raise RuntimeError("The owned GUI test host exited before publishing final status")
                 if time.monotonic() >= run_deadline:
                     raise TimeoutError("GUI test host did not publish final status before its deadline")
                 time.sleep(0.05)
@@ -391,7 +467,9 @@ def run_host(root, run_root, executable, manifest, fixture, expected_names, dead
                 try:
                     outcome["openWrapperExitCode"] = process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    retire_command(process)
+                    retirement = retire_command(process)
+                    if not retirement["verified"]:
+                        raise RuntimeError("Owned wrapper retirement unverified: " + json.dumps(retirement))
                 outcome["openWrapperCleanup"] = "owned wrapper reaped"
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
             outcome["passed"] = False
@@ -438,6 +516,8 @@ def execute(root, output, expected_head=None):
     except EVIDENCE_ERRORS as error:
         problem = error
         summary["failure"] = str(error)
+        if getattr(error, "cleanupFailure", None):
+            summary["cleanupFailure"] = error.cleanupFailure
     finally:
         if snapshot is not None:
             try:
@@ -447,6 +527,8 @@ def execute(root, output, expected_head=None):
                 summary["sourceStable"] = False
                 summary["passed"] = False
                 summary["trailingFailure"] = str(error)
+                if getattr(error, "cleanupFailure", None):
+                    summary["trailingCleanupFailure"] = error.cleanupFailure
                 problem = problem or error
         write_json(output / "summary.json", summary)
         if problem:

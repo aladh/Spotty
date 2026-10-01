@@ -100,13 +100,15 @@ struct NavigationBar: View {
 struct HistoryNavigationButton: View {
     let title: String
     let symbol: String
+    let shortcut: KeyEquivalent
     let isEnabled: Bool
     let action: () -> Void
     @State private var isHovered = false
 
-    init(_ title: String, symbol: String, isEnabled: Bool, action: @escaping () -> Void) {
+    init(_ title: String, symbol: String, shortcut: KeyEquivalent, isEnabled: Bool, action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
+        self.shortcut = shortcut
         self.isEnabled = isEnabled
         self.action = action
     }
@@ -118,12 +120,13 @@ struct HistoryNavigationButton: View {
                 .foregroundStyle(
                     isEnabled
                         ? (isHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary)
-                        : Color(white: 0.3)
+                        : SpottyPalette.textDisabled
                 )
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(shortcut, modifiers: .command)
         .disabled(!isEnabled)
         .onHover { isHovered = $0 }
         .pointingHandCursor(enabled: isEnabled)

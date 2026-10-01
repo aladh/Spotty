@@ -1,5 +1,6 @@
 """Failure sensitivity and exact ownership of the synthetic GUI runner; no GUI is launched."""
 from copy import deepcopy
+from functools import lru_cache
 import json
 from pathlib import Path
 import subprocess
@@ -12,8 +13,16 @@ import gui_regression as gui
 from harness_fixtures import launch_manifest
 
 
+@lru_cache(maxsize=8)
+def fixture_png(width, height):
+    def chunk(kind, data):
+        return gui.struct.pack(">I", len(data)) + kind + data + gui.struct.pack(">I", gui.zlib.crc32(kind + data))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", gui.struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", gui.zlib.compress((b"\0" + b"\0" * (width * 3)) * height)) + chunk(b"IEND", b""))
+
+
 class GUIRegressionChecks(unittest.TestCase):
-    def fixture(self, root, signed_out=False):
+    def fixture(self, root, signed_out=False, screen_size=(1920, 1080)):
         fixture = root / "fixture.json"
         scenario = {"version": 2, "mode": "signed-out" if signed_out else "browsing", "guiShellRegression": True, "forceSynchronousLayout": False}
         gui.write_json(fixture, scenario)
@@ -27,12 +36,13 @@ class GUIRegressionChecks(unittest.TestCase):
         names = gui.FIXTURES["gui-signed-out" if signed_out else "gui-shell"]
         directory = root / "shell-captures"
         directory.mkdir()
-        def chunk(kind, data):
-            return gui.struct.pack(">I", len(data)) + kind + data + gui.struct.pack(">I", gui.zlib.crc32(kind + data))
-        png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", gui.struct.pack(">IIBBBBB", 200, 200, 8, 2, 0, 0, 0))
-               + chunk(b"IDAT", gui.zlib.compress((b"\0" + b"\0" * 600) * 200)) + chunk(b"IEND", b""))
         points = []
         for name in names:
+            desired = gui.desired_body_size(name)
+            target = {"width": min(desired["width"], gui.math.floor(screen_size[0])),
+                      "height": min(desired["height"], gui.math.floor(screen_size[1] - 100))}
+            width, height = target["width"], target["height"]
+            png = fixture_png(width * 2, (height + 100) * 2)
             (directory / (name + ".png")).write_bytes(png)
             points.append({
                 "name": name, "runID": manifest["runID"], "host": gui.HOST_ID,
@@ -41,11 +51,19 @@ class GUIRegressionChecks(unittest.TestCase):
                 "playing": False, "commandCount": 0, "mutationAttempts": 0, "visible": True,
                 "assertions": [{"name": key, "passed": True} for key in sorted(gui.required_assertions(name, signed_out))],
                 "appActive": True, "keyWindow": name != "shell.inactive", "windowNumber": 12, "capturePointPixelScale": 2,
-                "backingScale": 2, "windowFrame": {"width": 100, "height": 100},
-                "captureContentRect": {"width": 100, "height": 100}, "requestedBodySize": {"width": 100, "height": 100},
+                "backingScale": 2, "windowFrame": {"x": -1920 + min(8, screen_size[0] - width),
+                                                    "y": -300 + min(8, screen_size[1] - height - 100),
+                                                    "width": width, "height": height + 100},
+                "captureContentRect": {"x": 0, "y": 0, "width": width, "height": height + 100},
+                "desiredBodySize": {"x": 0, "y": 0, **desired},
+                "screenVisibleFrame": {"x": -1920, "y": -300, "width": screen_size[0], "height": screen_size[1]},
+                "frameToBodyOverhead": {"x": 0, "y": 0, "width": 0, "height": 100},
+                "requestedBodySize": {"x": 0, "y": 0, **target},
+                "contentLayoutRect": {"x": 0, "y": 0, **target},
+                "contentBounds": {"x": 0, "y": 0, "width": width, "height": height + 60},
                 "pixelSamples": [{"name": key, "maximumRGB": 0, "meanRGB": 0, "minimumAlpha": 255, "pixelCount": 10, "pixelRect": {"x": 0, "y": 0, "width": 2, "height": 5}}
                                  for key in ("shell.home", "shell.search", "shell.history.back", "shell.history.forward")],
-                "captures": [{"file": "shell-captures/" + name + ".png", "pixelWidth": 200, "pixelHeight": 200,
+                "captures": [{"file": "shell-captures/" + name + ".png", "pixelWidth": width * 2, "pixelHeight": (height + 100) * 2,
                               "source": "ScreenCaptureKit.currentProcess.own-window.12",
                               "byteCount": len(png),
                               "sha256": browsing_provenance.sha256_file(directory / (name + ".png"))}],
@@ -131,6 +149,7 @@ class GUIRegressionChecks(unittest.TestCase):
         process = Mock(pid=81, returncode=0)
         process.poll.return_value = 0
         process.communicate.side_effect = subprocess.TimeoutExpired("descendant pipe", 3)
+        process.wait.side_effect = [subprocess.TimeoutExpired("TERM wait", 2), 0]
         with (
             patch.object(gui.subprocess, "Popen", return_value=process) as launch,
             patch.object(gui.os, "killpg") as kill,
@@ -141,6 +160,7 @@ class GUIRegressionChecks(unittest.TestCase):
         launch.assert_called_once()
         self.assertEqual(kill.call_args_list, [unittest.mock.call(81, gui.signal.SIGTERM),
                                                unittest.mock.call(81, gui.signal.SIGKILL)])
+        self.assertEqual(process.wait.call_args_list, [unittest.mock.call(timeout=2), unittest.mock.call(timeout=2)])
 
     def test_corrupt_png_header_dimension_and_roi_fail_closed(self):
         for problem in ("garbage", "dimensions", "bounds", "count"):
@@ -156,7 +176,7 @@ class GUIRegressionChecks(unittest.TestCase):
                 elif problem == "dimensions":
                     capture["pixelWidth"] = 1
                 elif problem == "bounds":
-                    point["pixelSamples"][0]["pixelRect"]["x"] = 200
+                    point["pixelSamples"][0]["pixelRect"]["x"] = capture["pixelWidth"]
                 else:
                     point["pixelSamples"][0]["pixelCount"] = 11
                 self.write_reports(root, report, shell, status)
@@ -171,6 +191,97 @@ class GUIRegressionChecks(unittest.TestCase):
             self.write_reports(root, report, shell, status)
             with self.assertRaisesRegex(ValueError, "opaque chrome padding"):
                 gui.validate_reports(root, manifest, fixture, owned, names)
+
+    def test_timeout_primary_survives_unverified_command_retirement(self):
+        for owner in ("metadata", "bounded_command"):
+            with self.subTest(owner=owner), TemporaryDirectory() as directory:
+                process = Mock(pid=81)
+                primary = subprocess.TimeoutExpired("primary operation", 3)
+                process.communicate.side_effect = primary
+                process.wait.side_effect = subprocess.TimeoutExpired("cleanup wait", 2)
+                with (
+                    patch.object(gui.subprocess, "Popen", return_value=process),
+                    patch.object(gui.os, "killpg"),
+                    patch.object(gui, "remaining", return_value=3),
+                    self.assertRaises(subprocess.TimeoutExpired) as failed,
+                ):
+                    if owner == "metadata":
+                        gui.metadata(Path(directory), 300, "source")
+                    else:
+                        process.wait.side_effect = [primary, subprocess.TimeoutExpired("term", 2),
+                                                    subprocess.TimeoutExpired("kill", 2)]
+                        gui.bounded_command(["synthetic"], Path(directory), Path(directory) / "command.log", 300)
+                self.assertIs(failed.exception, primary)
+                self.assertFalse(primary.cleanupFailure["verified"])
+                self.assertEqual(primary.cleanupFailure["pid"], 81)
+                self.assertEqual(len(primary.cleanupFailure["failures"]), 1)
+                self.assertEqual(process.wait.call_count, 2 if owner == "metadata" else 3)
+
+    def test_summary_retains_primary_timeout_and_unverified_retirement(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshot = {"source": {"revision": "a" * 40}}
+            primary = subprocess.TimeoutExpired("primary build", 3)
+            primary.cleanupFailure = {"pid": 81, "verified": False, "failures": ["cleanup wait exceeded 2 seconds"]}
+            with (
+                patch.object(gui, "metadata", return_value=snapshot),
+                patch.object(gui, "stable_source", return_value=snapshot["source"]),
+                patch.object(gui, "build", side_effect=primary),
+            ):
+                self.assertEqual(gui.execute(root, root / "evidence"), 1)
+            summary = gui.read_json(root / "evidence/summary.json")
+            self.assertIn("primary build", summary["failure"])
+            self.assertEqual(summary["cleanupFailure"], primary.cleanupFailure)
+            self.assertFalse(summary["passed"])
+
+    def test_display_target_admission_rejects_shrinkage_and_invalid_geometry(self):
+        changes = (
+            lambda point: point["desiredBodySize"].update(width=1000),
+            lambda point: point["requestedBodySize"].update(width=1000),
+            lambda point: point["screenVisibleFrame"].update(height=700),
+            lambda point: point["screenVisibleFrame"].update(height=740),
+            lambda point: point["screenVisibleFrame"].update(width=900),
+            lambda point: point["screenVisibleFrame"].update(x=float("nan")),
+            lambda point: point["frameToBodyOverhead"].update(width=-1),
+            lambda point: point["frameToBodyOverhead"].update(height=float("inf")),
+            lambda point: point["windowFrame"].update(x=0),
+            lambda point: point["contentLayoutRect"].update(height=630),
+        )
+        for change in changes:
+            with self.subTest(change=change), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest, fixture, owned, names, report, shell, status = self.fixture(root)
+                change(shell["checkpoints"][0])
+                self.write_reports(root, report, shell, status)
+                with self.assertRaises(ValueError):
+                    gui.validate_reports(root, manifest, fixture, owned, names)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, fixture, owned, names, report, shell, status = self.fixture(root, screen_size=(960, 740))
+            with self.assertRaisesRegex(ValueError, "distinct size change"):
+                gui.validate_reports(root, manifest, fixture, owned, names)
+
+    def test_identical_observed_body_sizes_cannot_pass_tolerant_distinct_targets(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, fixture, owned, names, report, shell, status = self.fixture(root, screen_size=(963, 740))
+            self.assertTrue(gui.validate_reports(root, manifest, fixture, owned, names)["passed"])
+            minimum = next(point for point in shell["checkpoints"] if point["name"] == "home.minimum")
+            resized = next(point for point in shell["checkpoints"] if point["name"] == "shell.resized")
+            self.assertEqual(minimum["requestedBodySize"]["width"], 960)
+            self.assertEqual(resized["requestedBodySize"]["width"], 963)
+            minimum["contentBounds"]["width"] = 961
+            resized["contentBounds"]["width"] = 961
+            self.write_reports(root, report, shell, status)
+            with self.assertRaisesRegex(ValueError, "observed body exercises a distinct size change"):
+                gui.validate_reports(root, manifest, fixture, owned, names)
+
+    def test_short_display_declared_width_only_resize_and_fractional_floor_pass(self):
+        for screen_size in ((1440, 740), (1440, 770.7)):
+            with self.subTest(screen_size=screen_size), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest, fixture, owned, names, *_ = self.fixture(root, screen_size=screen_size)
+                self.assertTrue(gui.validate_reports(root, manifest, fixture, owned, names)["passed"])
 
     def test_wrong_expected_head_and_source_change_fail_before_build(self):
         source = {"revision": "a" * 40, "sourceSHA256": "b" * 64}
@@ -274,6 +385,38 @@ class GUIRegressionChecks(unittest.TestCase):
             evidence = gui.read_json(root / "gui-evidence.json")
             self.assertIn("report.json", evidence["artifacts"])
             self.assertIn("capture.own-window", evidence["failure"])
+
+    def test_owned_app_exit_before_final_status_fails_without_waiting_deadline(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = launch_manifest()
+            gui.write_json(root / "manifest.json", manifest)
+            executable = root / "unique.app/Contents/MacOS/SpottyDemo"
+            owned = {"pid": 42, "startIdentity": "Thu Oct 1 12:00:00 2026", "executable": str(executable)}
+            process = Mock(pid=91)
+            process.wait.return_value = 0
+
+            def launch_host(*args, **kwargs):
+                gui.write_json(root / "report.json", {"passed": True})
+                gui.write_json(root / "run-status.json", {"state": "workload-running"})
+                return process
+
+            with (
+                patch.object(gui.subprocess, "Popen", side_effect=launch_host) as launch,
+                patch.object(gui.browsing_process, "discover", return_value=owned),
+                patch.object(gui.browsing_process, "matches", return_value=False) as matches,
+                patch.object(gui.browsing_process, "terminate") as terminate,
+                patch.object(gui.time, "sleep") as sleep,
+                self.assertRaisesRegex(RuntimeError, "exited before publishing final status"),
+            ):
+                gui.run_host(root, root, executable, manifest, root / "fixture.json", (), gui.time.monotonic() + 300)
+            launch.assert_called_once()
+            matches.assert_called_once_with(owned)
+            terminate.assert_called_once_with(owned)
+            sleep.assert_not_called()
+            evidence = gui.read_json(root / "gui-evidence.json")
+            self.assertFalse(evidence["passed"])
+            self.assertIn("exited before publishing final status", evidence["failure"])
 
     def test_failed_discovery_never_signals_an_unverified_app_and_reaps_wrapper(self):
         with TemporaryDirectory() as directory:

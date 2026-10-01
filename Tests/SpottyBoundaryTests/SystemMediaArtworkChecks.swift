@@ -209,6 +209,8 @@ struct SystemMediaArtworkChecks {
         #expect(delivered.count("unexpected") == 0)
 
         admission.update(nil)
+        // This phase proves rejection before scheduling. It does not claim an admitted callback
+        // was deterministically retired between its admission and MainActor delivery.
         let retiredStatus = await Task.detached { accepted(nil) }.value
         #expect(retiredStatus == .commandFailed)
         #expect(delivered.count("toggle") == 1)

@@ -30,6 +30,7 @@ struct RemoteArtwork: View {
     let cornerRadius: CGFloat
     var showsBorder = true
     var contentMode: ContentMode = .fill
+    var geometryIdentifier: String? = nil
     @Environment(\.artworkAccess) private var artwork
     @Environment(\.displayScale) private var displayScale
     @State private var loaded: LoadedArtwork?
@@ -51,6 +52,7 @@ struct RemoteArtwork: View {
                     Image(decorative: loaded.image, scale: displayScale)
                         .resizable()
                         .aspectRatio(contentMode: contentMode)
+                        .shellGeometry(geometryIdentifier.map { $0 + ".loaded" })
                 } else {
                     placeholder
                 }

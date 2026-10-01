@@ -63,18 +63,63 @@ Follow [PR declarations](../../CONTRIBUTING.md#pull-request-execution) and
 [review evidence requirements](agent-reviews.md#evidence-and-coverage). Pending, dirty, stale, or
 missing evidence cannot establish passing behavior.
 
+## GUI shell regression
+
+```bash
+./Scripts/check-gui-regression.sh --output .build/gui-regression-local --expected-head "$(git rev-parse HEAD)"
+```
+
+Use a new output directory and logged-in macOS desktop. After the Swift gate, this builds the
+Debug harness in shared `.build` and runs browsing/signed-out fixtures through the actual Spotty
+scene. Disposable `dev.spotty.gui-test-host` bundles use synthetic dependencies without transport,
+mutation, audio, or network. These unsandboxed, ad-hoc-signed hosts cannot attest App Sandbox;
+the separately signed, network-denied Demo owns that evidence.
+
+Each attempt is bounded to 90 seconds; the invocation to five minutes. Missing GUI fails without
+skips, retries, or reused success. Retirement targets only verified LaunchServices PID/path/start
+identities and owned `open -W -n` wrappers. Failed discovery never guesses ownership; existing
+Demo/Spotty processes are excluded. Separate runtime/launcher logs and partial reports survive failures.
+
+`summary.json` and `gui-evidence.json` retain stable source, launch/fixture/build/engine identities,
+failures and original artifacts. All eight browsing or four signed-out checkpoints must pass geometry
+and chrome assertions with zero commands, playing, or mutations. Current-process compositor PNGs
+bind padding checks to the owned window; view captures provide diagnostics.
+
+Before resizing, targets derive from desired body sizes and visible display capacity minus native
+overhead. Records include desired/requested sizes, display geometry and overhead; the runner
+independently recomputes them. Owned fixture windows are centered within that visible frame.
+Observed clamps, unstable/off-screen geometry, capacity below
+960×640 or indistinct resize fail. Constrained-height width coverage and local full-size evidence
+remain separate. Native Command-[ / Command-] must restore Search, revisit the playlist, then return.
+
+CI requests `--qualify-hosted-display` exclusively on disposable GitHub-hosted macOS runners.
+A guarded helper records advertised logical/pixel modes and initial geometry, holds one supported
+eligible mode through both fixtures, and requires bounded retirement plus verified post-exit
+original mode/frame/scale restoration. Dock work-area changes remain recorded separately. Missing modes or usable capacity fail; no private virtual displays or permission changes
+are used. Local invocations never change display modes.
+
+These checks establish neither full visual parity nor live playback/audible output. The inactive
+checkpoint transfers key ownership within an active app; application switching needs separate QA.
+
 ## Semantic UI smoke
 
 ```bash
 ./Scripts/smoke-synthetic-ui.sh
 ```
 
-This requires a logged-in macOS desktop and Accessibility permission for the invoking terminal or
-Codex, without Screen Recording. Preflight reports missing permission before building or launching.
-The [public Accessibility driver](../../Scripts/synthetic_ui_smoke.swift) revalidates Demo identity
-before actions: expand Focus, open Deep Work, await the playlist, press Play then Pause, and assert
-Play is available again. Readiness waits allow 15 seconds per checkpoint within the driver's
-75-second action deadline. The [wrapper](../../Scripts/smoke-synthetic-ui.sh) bounds the driver
-process to 90 seconds. Read the outcome in `.build/browsing-runs/run.*/ui-smoke.json`.
-Close the Demo after pass or failure.
-This proves that flow, not visual parity or live playback.
+This uses the signed, isolated Demo with the GUI browsing fixture. It requires a logged-in macOS
+desktop and existing Accessibility permission for the invoking terminal or Codex, without Screen
+Recording or permission changes. `--preflight` compiles the driver and checks permission without
+launching an app. `--run-root RUN_ROOT` attaches only to the exact owned signed Demo process;
+the unsandboxed CI GUI test host is not accepted.
+
+The [public Accessibility driver](../../Scripts/synthetic_ui_smoke.swift) exercises Home, Search
+filters, selection-only Songs, album detail, repeated Back/Forward, rapid query replacement and
+clear/recovery, then Focus/Deep Work. It revalidates process/run identity, synthetic dependencies,
+verified network sandbox, and fresh status before actions, with a post-action status barrier proving
+command and mutation counts remain unchanged. It never activates transport or media keys.
+
+Readiness waits allow 15 seconds per checkpoint within a 120-second action deadline. The wrapper
+bounds the single driver attempt to 135 seconds and retains partial checkpoints and baseline/observed
+safety state in `.build/browsing-runs/run.*/ui-smoke.json`. Reusing same-run evidence fails.
+Close the Demo after pass or failure. This proves the declared flow, not visual parity or live playback.

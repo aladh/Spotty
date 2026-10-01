@@ -48,6 +48,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var detailRefreshMilliseconds: Int? = nil
     /// Keep historical stress runs comparable; false lets AppKit schedule layout normally.
     var forceSynchronousLayout: Bool? = nil
+    /// A bounded full-scene geometry workload; it restores paused observations and never sends playback commands.
+    var guiShellRegression: Bool? = nil
     /// Added by the versioned acceptance manifest; historical workloads remain valid.
     var acceptanceScenarioID: String? = nil
     var acceptanceScenarioVersion: Int? = nil
@@ -56,6 +58,7 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
 
     func validate() throws {
         guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),
+            (guiShellRegression != true || (version == 2 && mode != .playback)),
             (combinedHydration != true || mode == .playback), (1...96).contains(artworkCount),
             [64, 640, 1_280].contains(artworkPixels),
             (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds),

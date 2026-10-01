@@ -179,6 +179,43 @@ struct SystemMediaArtworkChecks {
         #expect(result.nextSize == NSSize(width: 1, height: 1))
     }
 
+    @Test func nativeRemoteCommandCallbackAdmitsOffMainAndDeliversOnMainActor() async throws {
+        let admission = SystemMediaAdmission()
+        admission.update(
+            SystemMediaSnapshot(
+                title: "Fixture", artist: "Fixture", duration: 60,
+                position: 0, playing: false, canToggle: true, canSkip: false))
+        let delivered = HarnessCounters()
+        let handler: @MainActor @Sendable (SystemMediaCommand) -> Bool = { command in
+            MainActor.assertIsolated()
+            delivered.record(command == .toggle ? "toggle" : "unexpected")
+            return true
+        }
+        let denied = MacSystemMediaControlsOutput.makeCommandHandler(.next, admission: admission, handler: handler)
+        let accepted = MacSystemMediaControlsOutput.makeCommandHandler(.toggle, admission: admission, handler: handler)
+
+        let result = await Task.detached {
+            (
+                offMainThread: Self.isOffMainThread(),
+                denied: denied(nil),
+                accepted: accepted(nil)
+            )
+        }.value
+
+        #expect(result.offMainThread)
+        #expect(result.denied == .commandFailed)
+        #expect(result.accepted == .success)
+        try await requireEventually { delivered.count("toggle") == 1 }
+        #expect(delivered.count("unexpected") == 0)
+
+        admission.update(nil)
+        // This phase proves rejection before scheduling. It does not claim an admitted callback
+        // was deterministically retired between its admission and MainActor delivery.
+        let retiredStatus = await Task.detached { accepted(nil) }.value
+        #expect(retiredStatus == .commandFailed)
+        #expect(delivered.count("toggle") == 1)
+    }
+
     private nonisolated static func isOffMainThread() -> Bool { !Thread.isMainThread }
 
     private func present(_ player: PlaybackStore, uri: String, title: String, image: String?, position: Double = 5) {

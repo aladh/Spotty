@@ -39,12 +39,14 @@ struct RootView: View {
                 )
                 .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
                 .frame(maxHeight: .infinity)
+                .shellGeometry("shell.sidebar")
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .padding(.leading, 8)
                 .padding(.trailing, 4)
                 // Keep the split pane stable across routes and connection placeholders.
                 ZStack { detail }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .shellGeometry("shell.catalog")
                     .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .padding(.leading, 4)
@@ -73,7 +75,9 @@ struct RootView: View {
             }
 
             NowPlayingBar(
-                player: player, onSelect: select, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel)
+                player: player, onSelect: select, showsSidePanel: $showsSidePanel, playbackPanel: $playbackPanel
+            )
+            .shellGeometry("shell.player")
         }
         .environment(
             \.artworkAccess,
@@ -82,21 +86,22 @@ struct RootView: View {
         .foregroundStyle(SpottyPalette.textPrimary)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
-                Button("Go back", systemImage: "chevron.left") {
+                HistoryNavigationButton(
+                    "Go back", symbol: "chevron.left", shortcut: "[", isEnabled: !navigation.backHistory.isEmpty
+                ) {
                     navigation.goBack()
                     prepareSelectedRoute()
                 }
-                .disabled(navigation.backHistory.isEmpty)
-                .pointingHandCursor(enabled: !navigation.backHistory.isEmpty)
-                .keyboardShortcut("[", modifiers: .command)
-                Button("Go forward", systemImage: "chevron.right") {
+                .shellGeometry("shell.history.back")
+                HistoryNavigationButton(
+                    "Go forward", symbol: "chevron.right", shortcut: "]", isEnabled: !navigation.forwardHistory.isEmpty
+                ) {
                     navigation.goForward()
                     prepareSelectedRoute()
                 }
-                .disabled(navigation.forwardHistory.isEmpty)
-                .pointingHandCursor(enabled: !navigation.forwardHistory.isEmpty)
-                .keyboardShortcut("]", modifiers: .command)
+                .shellGeometry("shell.history.forward")
             }
+            .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .principal) {
                 NavigationBar(
                     searchText: $navigation.searchText,
@@ -106,6 +111,7 @@ struct RootView: View {
                     showSearch: { navigation.updateSelection(.destination(.search)) }
                 )
             }
+            .sharedBackgroundVisibility(.hidden)
         }
         .toolbarBackground(SpottyPalette.windowChrome, for: .windowToolbar)
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)

@@ -9,6 +9,7 @@ enum SpottyPalette {
     static let windowChrome = Color.black
     static let textPrimary = Color.white
     static let textSecondary = Color(white: 0.7)
+    static let textDisabled = Color(white: 0.3)
     static let navigationControl = Color(white: 0.122)
     static let elevatedHighlight = Color(white: 0.165)
     static let selectedControl = Color(white: 0.157)

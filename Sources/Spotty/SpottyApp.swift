@@ -136,6 +136,7 @@ struct SpottyApp: App {
 
 /// Live and isolated demo builds use the same window, root view, commands, and lifecycle.
 struct SpottyScene: Scene {
+    @State private var showsPlaybackInspector = false
     let player: PlaybackStore
     let feedback: TransientFeedbackPresenter
     let appDelegate: SpottyAppDelegate
@@ -145,25 +146,43 @@ struct SpottyScene: Scene {
 
     var body: some Scene {
         Window(AppDisplayName.current, id: "main") {
-            RootView(player: player, catalog: player.catalog, feedback: feedback, navigation: navigation)
-                .frame(minWidth: 960, minHeight: 640)
-                .task {
-                    appDelegate.installTerminationHandler { await player.shutdownForTermination() }
-                    appDelegate.installKeyboardControls(player: player)
-                    if enablesSystemMediaControls { appDelegate.installMediaControls(player: player) }
-                    updater?.start()
-                    await player.restore()
-                }
+            RootView(
+                player: player, catalog: player.catalog, feedback: feedback, navigation: navigation,
+                showsSidePanel: $showsPlaybackInspector
+            )
+            .frame(minWidth: 960, minHeight: 640)
+            .task {
+                appDelegate.installTerminationHandler { await player.shutdownForTermination() }
+                appDelegate.installKeyboardControls(player: player)
+                if enablesSystemMediaControls { appDelegate.installMediaControls(player: player) }
+                updater?.start()
+                await player.restore()
+            }
         }
         .defaultSize(width: 1220, height: 780)
         .defaultLaunchBehavior(.presented)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands {
-            InspectorCommands()
+            PlaybackInspectorCommands(presentation: $showsPlaybackInspector)
             if let updater { UpdateCommands(updater: updater) }
             AccountCommands(player: player)
             PlaybackCommands(player: player)
+        }
+    }
+}
+
+/// Toolbar focus can sit outside SwiftUI's inspector responder scope. Keep the
+/// standard window command attached to the scene's presentation owner instead.
+private struct PlaybackInspectorCommands: Commands {
+    @Binding var presentation: Bool
+
+    var body: some Commands {
+        CommandGroup(after: .sidebar) {
+            Button(presentation ? "Hide Inspector" : "Show Inspector") {
+                presentation.toggle()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .control])
         }
     }
 }

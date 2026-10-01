@@ -102,6 +102,7 @@ final class BrowsingShellRegression {
         let coordinateSpace = "NSWindow base coordinates, bottom-left origin"
         let networkSandboxVerified: Bool
         let checkpoints: [Checkpoint]
+        let inspectorMenuDiagnostics: [String]
         let passed: Bool
         let failure: String?
     }
@@ -110,6 +111,7 @@ final class BrowsingShellRegression {
     private let networkSandboxVerified: Bool
     private let started = ContinuousClock.now
     private var checkpoints: [Checkpoint] = []
+    private var inspectorMenuDiagnostics: [String] = []
     private var completed = false
     private var desiredBodySize: CGSize?
     private var requestedBodySize: CGSize?
@@ -130,6 +132,7 @@ final class BrowsingShellRegression {
             launch: launch, host: Bundle.main.bundleIdentifier ?? "unknown",
             os: ProcessInfo.processInfo.operatingSystemVersionString,
             networkSandboxVerified: networkSandboxVerified, checkpoints: checkpoints,
+            inspectorMenuDiagnostics: inspectorMenuDiagnostics,
             passed: completed && failure == nil && !checkpoints.isEmpty, failure: failure)
     }
 
@@ -191,6 +194,29 @@ final class BrowsingShellRegression {
             try await settle(window: window, deadline: deadline)
             try await capture("shell.resized", player: player, world: world, window: window, expectedKey: true)
             try await sampled("shell.resized")
+            try toggleInspector(window: window)
+            try await wait("inspector.presented", deadline: min(deadline, .now.advanced(by: .seconds(5)))) {
+                ShellGeometry.frames(in: window)["shell.inspector"].map { $0.width > 0 } == true
+            }
+            for (name, size) in [
+                ("resized", NSSize(width: 1080, height: 700)),
+                ("minimum", NSSize(width: 960, height: 640)),
+                ("default", NSSize(width: 1220, height: 780)),
+            ] {
+                try resize(window, bodySize: size)
+                try await settle(window: window, deadline: deadline, required: ["shell.inspector"])
+                let checkpoint = "inspector.\(name)"
+                try await capture(checkpoint, player: player, world: world, window: window, expectedKey: true)
+                try await sampled(checkpoint)
+            }
+            try toggleInspector(window: window)
+            try await wait("inspector.dismissed", deadline: deadline) {
+                ShellGeometry.frames(in: window)["shell.inspector"] == nil
+            }
+            try resize(window, bodySize: NSSize(width: 1080, height: 700))
+            try await settle(window: window, deadline: deadline)
+            try await capture("inspector.closed", player: player, world: world, window: window, expectedKey: true)
+            try await sampled("inspector.closed")
             if !signedOut {
                 navigation.updateSelection(.destination(.search))
                 navigation.searchText = "Signals"
@@ -305,6 +331,34 @@ final class BrowsingShellRegression {
             CGPoint(
                 x: visibleFrame.midX - window.frame.width / 2,
                 y: visibleFrame.midY - window.frame.height / 2))
+    }
+
+    private func toggleInspector(window: NSWindow) throws {
+        guard window.isKeyWindow, NSApp.isActive else {
+            throw BrowsingFailure.checkpoint("inspector.shortcut-window")
+        }
+        // Dispatch InspectorCommands through the synthetic app's native menu, never global input.
+        func inspectorMenuItems(_ menu: NSMenu) -> [String] {
+            menu.update()
+            return menu.items.flatMap { item in
+                let own =
+                    item.title.hasSuffix("Inspector")
+                    ? [
+                        "\(item.title): enabled=\(item.isEnabled), key=\(item.keyEquivalent), modifiers=\(item.keyEquivalentModifierMask.rawValue)"
+                    ]
+                    : []
+                return own + (item.submenu.map(inspectorMenuItems) ?? [])
+            }
+        }
+        NSApp.mainMenu?.update()
+        if let menu = NSApp.mainMenu { inspectorMenuDiagnostics.append(contentsOf: inspectorMenuItems(menu)) }
+        guard
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [.command, .control],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: "i", charactersIgnoringModifiers: "i",
+                isARepeat: false, keyCode: 34), NSApp.mainMenu?.performKeyEquivalent(with: event) == true
+        else { throw BrowsingFailure.checkpoint("inspector.shortcut-unhandled") }
     }
 
     private func sendHistoryKey(_ character: String, keyCode: UInt16, window: NSWindow) throws {
@@ -437,7 +491,37 @@ final class BrowsingShellRegression {
                 "player.height", shelf.height >= 72 - tolerance,
                 expected: "At least 72pt", observed: "\(shelf.height)")
         }
+        if let navigation = frames["shell.navigation"] {
+            check(
+                "toolbar.group-centered", abs(navigation.midX - contentFrame.midX) <= tolerance,
+                expected: "Home and Search group centered across the entire window, including inspector",
+                observed: "group=\(navigation.midX), window=\(contentFrame.midX)")
+        }
+        let expectsInspector = name.hasPrefix("inspector.") && name != "inspector.closed"
+        let inspector = frames["shell.inspector"]
+        check(
+            "inspector.presentation", expectsInspector == (inspector.map { $0.width > 0 } == true),
+            expected: "Inspector presented=\(expectsInspector)", observed: inspector.map(NSStringFromRect) ?? "absent")
+        if expectsInspector, let inspector, let catalog = frames["shell.catalog"] {
+            check(
+                "inspector.excludes-catalog", catalog.maxX <= inspector.minX + tolerance,
+                expected: "Inspector follows catalog without overlap",
+                observed: "catalog=\(catalog.maxX), inspector=\(inspector.minX)")
+        }
         if let home = frames["shell.home"], let search = frames["shell.search"] {
+            let rowHeight = contentFrame.maxY - window.contentLayoutRect.maxY
+            check(
+                "toolbar.row-height", abs(rowHeight - 64) <= tolerance,
+                expected: "Spotify's 64pt row, allowing the native unified label row's 2pt difference",
+                observed: "\(rowHeight)")
+            check(
+                "toolbar.control-margins",
+                [home, search].allSatisfy {
+                    abs(contentFrame.maxY - $0.maxY - 8) <= tolerance
+                        && abs($0.minY - window.contentLayoutRect.maxY - 8) <= tolerance
+                },
+                expected: "48pt controls with 8pt top/bottom margins (native tolerance 2pt)",
+                observed: "home=\(NSStringFromRect(home)), search=\(NSStringFromRect(search))")
             check(
                 "toolbar.controls-disjoint", !home.intersects(search),
                 expected: "Home and Search do not overlap",
@@ -445,6 +529,42 @@ final class BrowsingShellRegression {
             check(
                 "toolbar.search-height", abs(search.height - 48) <= tolerance,
                 expected: "48pt", observed: "\(search.height)")
+            check(
+                "toolbar.home-size", abs(home.width - 48) <= tolerance && abs(home.height - 48) <= tolerance,
+                expected: "48x48pt", observed: NSStringFromRect(home))
+            check(
+                "toolbar.search-width", abs(search.width - min(474, contentFrame.width / 2 - 72)) <= tolerance,
+                expected: "Capsule max474pt, shrinking with full-window width",
+                observed: "\(search.width) at windowWidth=\(contentFrame.width)")
+            check(
+                "toolbar.control-alignment",
+                abs(home.midY - search.midY) <= tolerance
+                    && abs(search.minX - home.maxX - 8) <= tolerance,
+                expected: "Common vertical center and 8pt Home/Search gap",
+                observed: "homeY=\(home.midY), searchY=\(search.midY), gap=\(search.minX - home.maxX)")
+        }
+        for (controlID, glyphID) in [
+            ("shell.home", "shell.home.glyph"), ("shell.search", "shell.search.glyph"),
+        ] {
+            let control = frames[controlID] ?? .zero
+            let glyph = frames[glyphID] ?? .zero
+            check(
+                "\(glyphID).aligned",
+                abs(glyph.width - 24) <= tolerance && abs(glyph.height - 24) <= tolerance
+                    && abs(glyph.midY - control.midY) <= tolerance && control.contains(glyph)
+                    && (controlID == "shell.home"
+                        ? abs(glyph.midX - control.midX) <= tolerance
+                        : abs(glyph.minX - control.minX - 12) <= tolerance),
+                expected: "24pt glyph vertically centered with matching inset",
+                observed: "control=\(NSStringFromRect(control)), glyph=\(NSStringFromRect(glyph))")
+        }
+        if let search = frames["shell.search"], let field = frames["shell.search.field"] {
+            check(
+                "toolbar.search-field-inset", search.contains(field) && abs(field.minX - search.minX - 48) <= tolerance,
+                expected: "Native search text field starts 48pt inside the capsule",
+                observed: "search=\(NSStringFromRect(search)), field=\(NSStringFromRect(field))")
+        } else {
+            check("toolbar.search-field-inset", false, expected: "Native search field marker", observed: "Missing")
         }
         for id in ["shell.history.back", "shell.history.forward"] {
             let frame = frames[id] ?? .zero
@@ -455,6 +575,13 @@ final class BrowsingShellRegression {
         if let back = frames["shell.history.back"], let forward = frames["shell.history.forward"],
             let navigation = frames["shell.navigation"]
         {
+            check(
+                "toolbar.history-alignment",
+                abs(forward.midX - back.midX - 34) <= tolerance
+                    && abs(back.midY - forward.midY) <= tolerance
+                    && frames["shell.home"].map { abs(back.midY - $0.midY) <= tolerance } == true,
+                expected: "History arrow centers 34pt apart on the same row",
+                observed: "back=\(NSStringFromRect(back)), forward=\(NSStringFromRect(forward))")
             check(
                 "toolbar.history-controls-disjoint",
                 !back.intersects(forward)

@@ -10,66 +10,140 @@ struct RootView: View {
     @State private var navigation: CatalogNavigation
     @State private var queueSelection: Set<QueueEntry.ID> = []
     @State private var historySelection: Set<HistoryEntry.ID> = []
-    @SceneStorage("showsPlaybackInspector") private var showsSidePanel = false
+    @State private var windowWidth: CGFloat = 1220
+    @Binding private var showsSidePanel: Bool
+    @SceneStorage("showsPlaybackInspector") private var restoredShowsSidePanel = false
     @SceneStorage("playbackInspectorPanel") private var playbackPanel = PlaybackPanel.queue
 
     init(
         player: PlaybackStore, catalog: CatalogStore, feedback: TransientFeedbackPresenter,
-        navigation: CatalogNavigation? = nil
+        navigation: CatalogNavigation? = nil,
+        showsSidePanel: Binding<Bool>
     ) {
         self.player = player
         self.catalog = catalog
         self.feedback = feedback
         _navigation = State(initialValue: navigation ?? CatalogNavigation())
+        _showsSidePanel = showsSidePanel
     }
 
     var body: some View {
-        @Bindable var navigation = navigation
+        shellContent
+            .environment(
+                \.artworkAccess,
+                ArtworkAccess(provider: player.artworkProvider, accountEpoch: player.accountEpoch)
+            )
+            .foregroundStyle(SpottyPalette.textPrimary)
+            .background(WindowToolbarLayout().frame(width: 0, height: 0))
+            .toolbar { navigationToolbar }
+            .toolbarBackground(SpottyPalette.windowChrome, for: .windowToolbar)
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+            .onAppear { showsSidePanel = restoredShowsSidePanel }
+            .onChange(of: showsSidePanel) { _, isPresented in restoredShowsSidePanel = isPresented }
+            .onOpenURL { url in
+                if navigation.open(url) { prepareSelectedRoute() }
+            }
+            .onChange(of: player.accountEpoch) {
+                navigation.reset()
+                queueSelection.removeAll()
+                historySelection.removeAll()
+            }
+            .onChange(of: queueRowIDs) { _, ids in
+                queueSelection.formIntersection(ids)
+            }
+            .onChange(of: player.history.map(\.id)) { _, ids in
+                historySelection.formIntersection(ids)
+            }
+            .onChange(of: navigation.rawValue) {
+                SpottyLog.ui.info("Navigation state updated: \(mediaSelection.diagnosticLabel, privacy: .public)")
+            }
+    }
+
+    @ToolbarContentBuilder
+    private var navigationToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            HStack(spacing: 2) {
+                HistoryNavigationButton(
+                    "Go back", symbol: "chevron.left", shortcut: "[", isEnabled: !navigation.backHistory.isEmpty
+                ) {
+                    navigation.goBack()
+                    prepareSelectedRoute()
+                }
+                .shellGeometry("shell.history.back")
+                HistoryNavigationButton(
+                    "Go forward", symbol: "chevron.right", shortcut: "]",
+                    isEnabled: !navigation.forwardHistory.isEmpty
+                ) {
+                    navigation.goForward()
+                    prepareSelectedRoute()
+                }
+                .shellGeometry("shell.history.forward")
+            }
+            .padding(.top, 12)
+        }
+        .sharedBackgroundVisibility(.hidden)
+        ToolbarItem(placement: .principal) {
+            NavigationBar(
+                searchText: Bindable(navigation).searchText, availableWidth: windowWidth,
+                accountEpoch: player.accountEpoch,
+                isHome: selection == .destination(.home),
+                isSearch: selection == .destination(.search),
+                goHome: { navigation.updateSelection(.destination(.home)) },
+                showSearch: { navigation.updateSelection(.destination(.search)) }
+            )
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+
+    private var shellContent: some View {
         VStack(spacing: 0) {
-            HSplitView {
-                SidebarView(
-                    selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary,
-                    playback: catalogPlayback,
-                    isLoading: catalog.homeLibrary.isLoadingInitialPlaylists,
-                    hasLoaded: catalog.homeLibrary.loadedSections.contains(.playlists),
-                    isCached: catalog.homeLibrary.playlistLibraryIsCached,
-                    isRefreshing: catalog.homeLibrary.isLoading(.playlists),
-                    error: catalog.homeLibrary.error(for: .playlists),
-                    retry: retryPlaylists
-                )
-                .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
-                .frame(maxHeight: .infinity)
-                .shellGeometry("shell.sidebar")
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .padding(.leading, 8)
-                .padding(.trailing, 4)
-                // Keep the split pane stable across routes and connection placeholders.
-                ZStack { detail }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .shellGeometry("shell.catalog")
-                    .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+            PlaybackInspectorSplit(isPresented: showsSidePanel) {
+                HSplitView {
+                    SidebarView(
+                        selection: selectionBinding, library: catalog.homeLibrary.playlistLibrary,
+                        playback: catalogPlayback,
+                        isLoading: catalog.homeLibrary.isLoadingInitialPlaylists,
+                        hasLoaded: catalog.homeLibrary.loadedSections.contains(.playlists),
+                        isCached: catalog.homeLibrary.playlistLibraryIsCached,
+                        isRefreshing: catalog.homeLibrary.isLoading(.playlists),
+                        error: catalog.homeLibrary.error(for: .playlists),
+                        retry: retryPlaylists
+                    )
+                    .frame(minWidth: 180, idealWidth: 208, maxWidth: 260)
+                    .frame(maxHeight: .infinity)
+                    .shellGeometry("shell.sidebar")
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(.leading, 4)
+                    .padding(.leading, 8)
+                    .padding(.trailing, 4)
+                    // Keep the split pane stable across routes and connection placeholders.
+                    ZStack { detail }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .shellGeometry("shell.catalog")
+                        .background { SpottyPalette.catalogCanvas.ignoresSafeArea() }
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.leading, 4)
+                        .padding(.trailing, 8)
+                }
+            } inspector: {
+                if showsSidePanel {
+                    SidePanelView(
+                        metadata: catalog.metadata,
+                        player: player,
+                        panel: playbackPanel,
+                        selection: $queueSelection,
+                        historySelection: $historySelection,
+                        onSelect: select,
+                        onClose: { showsSidePanel = false }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .shellGeometry("shell.inspector")
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     .padding(.trailing, 8)
+                    .background(SpottyPalette.windowChrome)
+                }
             }
             .padding(.bottom, 8)
             .background { SpottyPalette.windowChrome.ignoresSafeArea() }
-            .inspector(isPresented: $showsSidePanel) {
-                SidePanelView(
-                    metadata: catalog.metadata,
-                    player: player,
-                    panel: playbackPanel,
-                    selection: $queueSelection,
-                    historySelection: $historySelection,
-                    onSelect: select,
-                    onClose: { showsSidePanel = false }
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .padding(.trailing, 8)
-                .padding(.bottom, 8)
-                .background(SpottyPalette.windowChrome)
-                .inspectorColumnWidth(min: 260, ideal: 280, max: 360)
-            }
             .overlay(alignment: .bottom) {
                 TransientFeedbackBanner(feedback: feedback)
             }
@@ -79,58 +153,11 @@ struct RootView: View {
             )
             .shellGeometry("shell.player")
         }
-        .environment(
-            \.artworkAccess,
-            ArtworkAccess(provider: player.artworkProvider, accountEpoch: player.accountEpoch)
-        )
-        .foregroundStyle(SpottyPalette.textPrimary)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                HistoryNavigationButton(
-                    "Go back", symbol: "chevron.left", shortcut: "[", isEnabled: !navigation.backHistory.isEmpty
-                ) {
-                    navigation.goBack()
-                    prepareSelectedRoute()
-                }
-                .shellGeometry("shell.history.back")
-                HistoryNavigationButton(
-                    "Go forward", symbol: "chevron.right", shortcut: "]", isEnabled: !navigation.forwardHistory.isEmpty
-                ) {
-                    navigation.goForward()
-                    prepareSelectedRoute()
-                }
-                .shellGeometry("shell.history.forward")
-            }
-            .sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .principal) {
-                NavigationBar(
-                    searchText: $navigation.searchText,
-                    isHome: selection == .destination(.home),
-                    isSearch: selection == .destination(.search),
-                    goHome: { navigation.updateSelection(.destination(.home)) },
-                    showSearch: { navigation.updateSelection(.destination(.search)) }
-                )
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
-        .toolbarBackground(SpottyPalette.windowChrome, for: .windowToolbar)
-        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
-        .onOpenURL { url in
-            if navigation.open(url) { prepareSelectedRoute() }
-        }
-        .onChange(of: player.accountEpoch) {
-            navigation.reset()
-            queueSelection.removeAll()
-            historySelection.removeAll()
-        }
-        .onChange(of: queueRowIDs) { _, ids in
-            queueSelection.formIntersection(ids)
-        }
-        .onChange(of: player.history.map(\.id)) { _, ids in
-            historySelection.formIntersection(ids)
-        }
-        .onChange(of: navigation.rawValue) {
-            SpottyLog.ui.info("Navigation state updated: \(mediaSelection.diagnosticLabel, privacy: .public)")
+        .shellGeometry(showsSidePanel ? "shell.inspector.requested" : "shell.inspector.dismissed")
+        .onGeometryChange(for: CGFloat.self) {
+            $0.size.width
+        } action: {
+            windowWidth = $0
         }
     }
 

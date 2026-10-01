@@ -301,9 +301,10 @@ final class BrowsingShellRegression {
         let inset = content.bounds.height - window.contentLayoutRect.height
         window.setContentSize(NSSize(width: target.width, height: target.height + max(0, inset)))
         // Place only the owned fixture window; AppKit still owns its controls and geometry.
-        window.setFrameOrigin(CGPoint(
-            x: visibleFrame.midX - window.frame.width / 2,
-            y: visibleFrame.midY - window.frame.height / 2))
+        window.setFrameOrigin(
+            CGPoint(
+                x: visibleFrame.midX - window.frame.width / 2,
+                y: visibleFrame.midY - window.frame.height / 2))
     }
 
     private func sendHistoryKey(_ character: String, keyCode: UInt16, window: NSWindow) throws {

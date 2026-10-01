@@ -1,5 +1,6 @@
 """Keep the native suite serial while preserving phase products and evidence owners."""
 import copy
+import re
 import unittest
 
 from ci_workflow_fixtures import WorkflowCheck, WorkflowFixtureMixin
@@ -33,7 +34,7 @@ class SequentialNativeWorkflowTests(WorkflowFixtureMixin, unittest.TestCase):
                 else:
                     steps.remove(step)
                     steps.append(step)
-                checks.append(WorkflowCheck(variant, diagnostic='checkout',
+                checks.append(WorkflowCheck(variant, diagnostic=('phase-local condition' if mutation == 'conditional' and phase != 'engine' else 'checkout'),
                                             label={'phase': phase, 'mutation': mutation}))
         self.check_workflows(checks)
 
@@ -83,6 +84,67 @@ class SequentialNativeWorkflowTests(WorkflowFixtureMixin, unittest.TestCase):
             step = self.phase_step(variant, phase, upload_name)
             step['with']['path'] = '${{ runner.temp }}/spotty-timings'
             checks.append(WorkflowCheck(variant, diagnostic='required run-attempt archive'))
+        self.check_workflows(checks)
+
+    def test_required_phase_conditions_cannot_skip_or_depend_on_earlier_failures(self):
+        checks = []
+        for phase in ('contracts', 'tests', 'release'):
+            steps = self.workflow['jobs']['macos_verify']['steps']
+            start = next(i for i, step in enumerate(steps) if step.get('id') == phase + '_checkout')
+            end = next((i for i in range(start + 1, len(steps))
+                        if steps[i].get('id', '').endswith('_checkout')), len(steps))
+            for original in steps[start:end]:
+                if not original.get('if', '').startswith('!cancelled()'):
+                    continue
+                for condition in (None, 'success()', 'false', 'always()'):
+                    variant = copy.deepcopy(self.workflow)
+                    step = next(step for step in variant['jobs']['macos_verify']['steps']
+                                if step.get('id') == original['id'])
+                    if condition is None:
+                        step.pop('if')
+                    else:
+                        step['if'] = condition
+                    checks.append(WorkflowCheck(variant, diagnostic='phase-local condition',
+                                                label={'id': original['id'], 'condition': condition}))
+        self.check_workflows(checks)
+
+    def test_real_guards_restart_after_prior_failure_but_fail_fast_locally(self):
+        # Execute the deliberately small guard grammar from the actual workflow, rather than
+        # assuming GitHub's default success() is reset by a checkout (it is not).
+        steps = self.workflow['jobs']['macos_verify']['steps']
+        for failed_phase in ('engine', 'contracts', 'tests'):
+            outcomes = {failed_phase + '_checkout': 'failure'}
+            for step in steps:
+                condition = step.get('if', '')
+                if not condition.startswith('!cancelled()') or step.get('id') == 'selection_experiment':
+                    continue
+                self.assertRegex(condition, r"^!cancelled\(\)(?: && steps\.[a-z0-9_]+\.outcome == 'success')?$")
+                dependency = re.search(r'steps\.([a-z0-9_]+)\.outcome', condition)
+                allowed = dependency is None or outcomes.get(dependency[1]) == 'success'
+                identity = step['id']
+                phase = identity.split('_')[0]
+                if identity == failed_phase + '_checkout':
+                    outcomes[identity] = 'failure'
+                else:
+                    outcomes[identity] = 'success' if allowed else 'skipped'
+                if identity.endswith('_checkout'):
+                    self.assertTrue(allowed, identity)
+            if failed_phase != 'tests':
+                self.assertEqual(outcomes['debug'], 'success')
+                self.assertEqual(outcomes['gui'], 'success')
+            else:
+                self.assertEqual(outcomes['debug'], 'skipped')
+            self.assertEqual(outcomes['release'], 'success')
+
+    def test_engine_checkout_exception_cannot_escape_native_job(self):
+        checks = []
+        for job_id in ('policy', 'domain_linux', 'playback_python', 'cache_publisher'):
+            variant = copy.deepcopy(self.workflow)
+            step = next(step for step in variant['jobs'][job_id]['steps']
+                        if step.get('uses', '').startswith('actions/checkout@'))
+            step['id'] = 'engine_checkout'
+            step['if'] = "needs.policy.outputs.rust_needed == 'true'"
+            checks.append(WorkflowCheck(variant, diagnostic='read-only pinned source contract'))
         self.check_workflows(checks)
 
     def test_duplicate_evidence_in_another_phase_is_rejected(self):

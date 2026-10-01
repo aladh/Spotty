@@ -149,7 +149,7 @@ jobs:
     needs: [policy]
     if: needs.policy.result == 'success' && needs.policy.outputs.macos_needed == 'true'
     runs-on: macos-26
-    timeout-minutes: 120
+    timeout-minutes: 240
     outputs:
       engine_result: ${{ steps.engine_gate.outcome }}
       contracts_result: ${{ steps.contracts.outcome }}
@@ -379,18 +379,25 @@ jobs:
           retention-days: 7
 
       - name: Check out contracts source
+        if: "!cancelled()"
         id: contracts_checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           clean: true
       - name: Initialize timing evidence
+        if: "!cancelled() && steps.contracts_checkout.outcome == 'success'"
+        id: contracts_initialize_timing_evidence
         run: |
           mkdir -p "$RUNNER_TEMP/spotty-timings/contracts"
           echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/contracts/phases.jsonl" >> "$GITHUB_ENV"
       - name: Select Xcode 26.6
+        if: "!cancelled() && steps.contracts_initialize_timing_evidence.outcome == 'success'"
+        id: contracts_select_xcode_26_6
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
       - name: Install verification tools
+        if: "!cancelled() && steps.contracts_select_xcode_26_6.outcome == 'success'"
+        id: contracts_install_verification_tools
         run: |
           if command -v rg >/dev/null 2>&1; then
             rg --version
@@ -398,6 +405,8 @@ jobs:
             brew install ripgrep
           fi
       - name: Show toolchains
+        if: "!cancelled() && steps.contracts_install_verification_tools.outcome == 'success'"
+        id: contracts_show_toolchains
         run: |
           set -euo pipefail
           {
@@ -409,6 +418,8 @@ jobs:
           grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
           echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
       - name: Block Rust tools
+        if: "!cancelled() && steps.contracts_show_toolchains.outcome == 'success'"
+        id: contracts_block_rust_tools
         run: |
           set -euo pipefail
           blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
@@ -419,9 +430,12 @@ jobs:
           done
           echo "$blocked_tools" >> "$GITHUB_PATH"
       - name: Identify Swift cache compatibility
+        if: "!cancelled() && steps.contracts_block_rust_tools.outcome == 'success'"
+        id: contracts_identify_swift_cache_compatibility
         run: |
           python3 Scripts/ci_cache_keys.py swift --lane contracts --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/contracts/toolchain.json"
       - name: Restore SwiftPM build directory
+        if: "!cancelled() && steps.contracts_identify_swift_cache_compatibility.outcome == 'success'"
         id: contracts_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -431,10 +445,15 @@ jobs:
           key: ${{ env.SWIFT_CACHE_KEY }}
           restore-keys: ${{ env.SWIFT_CACHE_PREFIX }}
       - name: Restore unchanged Swift input timestamps
+        if: "!cancelled() && steps.contracts_cache.outcome == 'success'"
+        id: contracts_restore_unchanged_swift_input_timestamps
         run: python3 Scripts/ci_source_mtimes.py restore
       - name: Snapshot Swift input timestamps
+        if: "!cancelled() && steps.contracts_restore_unchanged_swift_input_timestamps.outcome == 'success'"
+        id: contracts_snapshot_swift_input_timestamps
         run: python3 Scripts/ci_source_mtimes.py save
       - name: Run Swift contracts
+        if: "!cancelled() && steps.contracts_snapshot_swift_input_timestamps.outcome == 'success'"
         id: contracts
         timeout-minutes: 15
         run: |
@@ -461,18 +480,25 @@ jobs:
           retention-days: 7
 
       - name: Check out tests source
+        if: "!cancelled()"
         id: tests_checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           clean: true
       - name: Initialize timing evidence
+        if: "!cancelled() && steps.tests_checkout.outcome == 'success'"
+        id: tests_initialize_timing_evidence
         run: |
           mkdir -p "$RUNNER_TEMP/spotty-timings/tests"
           echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/tests/phases.jsonl" >> "$GITHUB_ENV"
       - name: Select Xcode 26.6
+        if: "!cancelled() && steps.tests_initialize_timing_evidence.outcome == 'success'"
+        id: tests_select_xcode_26_6
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
       - name: Install verification tools
+        if: "!cancelled() && steps.tests_select_xcode_26_6.outcome == 'success'"
+        id: tests_install_verification_tools
         run: |
           if command -v rg >/dev/null 2>&1; then
             rg --version
@@ -480,6 +506,8 @@ jobs:
             brew install ripgrep
           fi
       - name: Show toolchains
+        if: "!cancelled() && steps.tests_install_verification_tools.outcome == 'success'"
+        id: tests_show_toolchains
         run: |
           set -euo pipefail
           {
@@ -491,6 +519,8 @@ jobs:
           grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
           echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
       - name: Block Rust tools
+        if: "!cancelled() && steps.tests_show_toolchains.outcome == 'success'"
+        id: tests_block_rust_tools
         run: |
           set -euo pipefail
           blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
@@ -501,9 +531,12 @@ jobs:
           done
           echo "$blocked_tools" >> "$GITHUB_PATH"
       - name: Identify Swift cache compatibility
+        if: "!cancelled() && steps.tests_block_rust_tools.outcome == 'success'"
+        id: tests_identify_swift_cache_compatibility
         run: |
           python3 Scripts/ci_cache_keys.py swift --lane tests --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/tests/toolchain.json"
       - name: Restore SwiftPM build directory
+        if: "!cancelled() && steps.tests_identify_swift_cache_compatibility.outcome == 'success'"
         id: tests_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -513,10 +546,15 @@ jobs:
           key: ${{ env.SWIFT_CACHE_KEY }}
           restore-keys: ${{ env.SWIFT_CACHE_PREFIX }}
       - name: Restore unchanged Swift input timestamps
+        if: "!cancelled() && steps.tests_cache.outcome == 'success'"
+        id: tests_restore_unchanged_swift_input_timestamps
         run: python3 Scripts/ci_source_mtimes.py restore
       - name: Snapshot Swift input timestamps
+        if: "!cancelled() && steps.tests_restore_unchanged_swift_input_timestamps.outcome == 'success'"
+        id: tests_snapshot_swift_input_timestamps
         run: python3 Scripts/ci_source_mtimes.py save
       - name: Run checks
+        if: "!cancelled() && steps.tests_snapshot_swift_input_timestamps.outcome == 'success'"
         id: debug
         timeout-minutes: 15
         env:
@@ -532,12 +570,14 @@ jobs:
           esac
 
       - name: Prove focused test selection
+        if: "!cancelled() && steps.debug.outcome == 'success'"
         id: focused_smoke
         timeout-minutes: 5
         run: python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.3.3
 
       # This credential-free state-boundary corpus does not launch a GUI or attest a sandbox.
       - name: Run acceptance scenarios
+        if: "!cancelled() && steps.focused_smoke.outcome == 'success'"
         id: acceptance
         timeout-minutes: 10
         env:
@@ -558,6 +598,7 @@ jobs:
           retention-days: 7
       # The shared production scene supplies native toolbar and compositor evidence without sign-in.
       - name: Run Demo GUI regression
+        if: "!cancelled() && steps.acceptance.outcome == 'success'"
         id: gui
         timeout-minutes: 6
         env:
@@ -574,7 +615,7 @@ jobs:
           retention-days: 7
       - name: Collect supported-toolchain selection evidence
         id: selection_experiment
-        if: success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence') && steps.acceptance.outcome == 'success' && steps.acceptance_summary.outcome == 'success' && steps.acceptance_upload.outcome == 'success'
+        if: "!cancelled() && steps.gui.outcome == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence') && steps.acceptance.outcome == 'success' && steps.acceptance_summary.outcome == 'success' && steps.acceptance_upload.outcome == 'success'"
         timeout-minutes: 20
         env:
           SELECTION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -659,18 +700,25 @@ jobs:
           retention-days: 7
 
       - name: Check out release source
+        if: "!cancelled()"
         id: release_checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           clean: true
       - name: Initialize timing evidence
+        if: "!cancelled() && steps.release_checkout.outcome == 'success'"
+        id: release_initialize_timing_evidence
         run: |
           mkdir -p "$RUNNER_TEMP/spotty-timings/release"
           echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/release/phases.jsonl" >> "$GITHUB_ENV"
       - name: Select Xcode 26.6
+        if: "!cancelled() && steps.release_initialize_timing_evidence.outcome == 'success'"
+        id: release_select_xcode_26_6
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
       - name: Install verification tools
+        if: "!cancelled() && steps.release_select_xcode_26_6.outcome == 'success'"
+        id: release_install_verification_tools
         run: |
           if command -v rg >/dev/null 2>&1; then
             rg --version
@@ -678,6 +726,8 @@ jobs:
             brew install ripgrep
           fi
       - name: Show toolchains
+        if: "!cancelled() && steps.release_install_verification_tools.outcome == 'success'"
+        id: release_show_toolchains
         run: |
           set -euo pipefail
           {
@@ -689,6 +739,8 @@ jobs:
           grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
           echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
       - name: Block Rust tools
+        if: "!cancelled() && steps.release_show_toolchains.outcome == 'success'"
+        id: release_block_rust_tools
         run: |
           set -euo pipefail
           blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
@@ -699,9 +751,12 @@ jobs:
           done
           echo "$blocked_tools" >> "$GITHUB_PATH"
       - name: Identify Swift cache compatibility
+        if: "!cancelled() && steps.release_block_rust_tools.outcome == 'success'"
+        id: release_identify_swift_cache_compatibility
         run: |
           python3 Scripts/ci_cache_keys.py swift --lane release --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/release/toolchain.json"
       - name: Restore SwiftPM build directory
+        if: "!cancelled() && steps.release_identify_swift_cache_compatibility.outcome == 'success'"
         id: release_cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -711,17 +766,26 @@ jobs:
           key: ${{ env.SWIFT_CACHE_KEY }}
           restore-keys: ${{ env.SWIFT_CACHE_PREFIX }}
       - name: Restore unchanged Swift input timestamps
+        if: "!cancelled() && steps.release_cache.outcome == 'success'"
+        id: release_restore_unchanged_swift_input_timestamps
         run: python3 Scripts/ci_source_mtimes.py restore
       - name: Snapshot Swift input timestamps
+        if: "!cancelled() && steps.release_restore_unchanged_swift_input_timestamps.outcome == 'success'"
+        id: release_snapshot_swift_input_timestamps
         run: python3 Scripts/ci_source_mtimes.py save
       - name: Compile release Spotty with SPOTTY_DISTRIBUTION
+        if: "!cancelled() && steps.release_snapshot_swift_input_timestamps.outcome == 'success'"
         id: release
         run: ./Scripts/compile-release-spotty.sh
       - name: Report release build size
+        if: "!cancelled() && steps.release.outcome == 'success'"
+        id: release_report_release_build_size
         run: |
           set -euo pipefail
           ./Scripts/report-size.sh --out-dir "$RUNNER_TEMP"
       - name: Upload size report
+        if: "!cancelled() && steps.release_report_release_build_size.outcome == 'success'"
+        id: release_upload_size_report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report

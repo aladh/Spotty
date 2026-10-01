@@ -8,6 +8,54 @@ module WorkflowPolicy
   PHASES = %w[engine contracts tests release].freeze
   QUALITY_JOBS = %w[policy domain_linux playback_python macos_verify].freeze
 
+  # Required steps fail fast within their own phase, independent of earlier phase failures.
+  SERIAL_STEPS = {
+    'contracts' => [
+      ["Check out contracts source", 'contracts_checkout', true],
+      ["Initialize timing evidence", 'contracts_initialize_timing_evidence', false],
+      ["Select Xcode 26.6", 'contracts_select_xcode_26_6', false],
+      ["Install verification tools", 'contracts_install_verification_tools', false],
+      ["Show toolchains", 'contracts_show_toolchains', false],
+      ["Block Rust tools", 'contracts_block_rust_tools', false],
+      ["Identify Swift cache compatibility", 'contracts_identify_swift_cache_compatibility', false],
+      ["Restore SwiftPM build directory", 'contracts_cache', true],
+      ["Restore unchanged Swift input timestamps", 'contracts_restore_unchanged_swift_input_timestamps', false],
+      ["Snapshot Swift input timestamps", 'contracts_snapshot_swift_input_timestamps', false],
+      ["Run Swift contracts", 'contracts', true],
+    ],
+    'tests' => [
+      ["Check out tests source", 'tests_checkout', true],
+      ["Initialize timing evidence", 'tests_initialize_timing_evidence', false],
+      ["Select Xcode 26.6", 'tests_select_xcode_26_6', false],
+      ["Install verification tools", 'tests_install_verification_tools', false],
+      ["Show toolchains", 'tests_show_toolchains', false],
+      ["Block Rust tools", 'tests_block_rust_tools', false],
+      ["Identify Swift cache compatibility", 'tests_identify_swift_cache_compatibility', false],
+      ["Restore SwiftPM build directory", 'tests_cache', true],
+      ["Restore unchanged Swift input timestamps", 'tests_restore_unchanged_swift_input_timestamps', false],
+      ["Snapshot Swift input timestamps", 'tests_snapshot_swift_input_timestamps', false],
+      ["Run checks", 'debug', true],
+      ["Prove focused test selection", 'focused_smoke', true],
+      ["Run acceptance scenarios", 'acceptance', true],
+      ["Run Demo GUI regression", 'gui', true],
+    ],
+    'release' => [
+      ["Check out release source", 'release_checkout', true],
+      ["Initialize timing evidence", 'release_initialize_timing_evidence', false],
+      ["Select Xcode 26.6", 'release_select_xcode_26_6', false],
+      ["Install verification tools", 'release_install_verification_tools', false],
+      ["Show toolchains", 'release_show_toolchains', false],
+      ["Block Rust tools", 'release_block_rust_tools', false],
+      ["Identify Swift cache compatibility", 'release_identify_swift_cache_compatibility', false],
+      ["Restore SwiftPM build directory", 'release_cache', true],
+      ["Restore unchanged Swift input timestamps", 'release_restore_unchanged_swift_input_timestamps', false],
+      ["Snapshot Swift input timestamps", 'release_snapshot_swift_input_timestamps', false],
+      ["Compile release Spotty with SPOTTY_DISTRIBUTION", 'release', true],
+      ["Report release build size", 'release_report_release_build_size', false],
+      ["Upload size report", 'release_upload_size_report', false],
+    ],
+  }.freeze
+
   def self.one_step(check, steps, name)
     matches = steps.select { |step| step['name'] == name }
     check.call(matches.length == 1, "#{name} must run exactly once in its owning lane")
@@ -48,9 +96,39 @@ module WorkflowPolicy
   end
 
   def self.validate(workflow:, standalone:, policy_script:, candidate_script:, review_package:)
-    jobs = workflow.fetch('jobs')
     errors = []
     check = ->(condition, message) { errors << message unless condition }
+    # Validate actual execution conditions before removing only the serial guards for the
+    # existing command/evidence checks below. This keeps standalone acceptance unchanged.
+    workflow = Marshal.load(Marshal.dump(workflow))
+    jobs = workflow.fetch('jobs')
+    serial = jobs.fetch('macos_verify', {}).fetch('steps', [])
+    serial_ids = serial.map { |step| step['id'] }.compact
+    check.call(serial_ids.uniq.length == serial_ids.length, 'macos_verify step IDs must be unique')
+    SERIAL_STEPS.each do |phase, specifications|
+      previous = nil
+      positions = []
+      specifications.each do |name, identity, existing_id|
+        matches = serial.select { |step| step['name'] == name && step['id'] == identity }
+        step = matches.first || {}
+        condition = previous ? "!cancelled() && steps.#{previous}.outcome == 'success'" : '!cancelled()'
+        check.call(matches.length == 1 && step['if'] == condition,
+                   "#{phase} #{name} must retain its failure-independent phase-local condition")
+        positions << serial.index(matches.first)
+        step.delete('if')
+        step.delete('id') unless existing_id
+        previous = identity
+      end
+      check.call(positions.none?(&:nil?) && positions == positions.sort && positions.uniq.length == positions.length,
+                 "#{phase} required phase-local steps must remain ordered")
+    end
+    experiment = serial.find { |step| step['id'] == 'selection_experiment' }
+    if experiment
+      prefix = "!cancelled() && steps.gui.outcome == 'success'"
+      check.call(experiment.fetch('if', '').start_with?(prefix + ' && '),
+                 'selection experiment must retain its failure-independent phase-local condition')
+      experiment['if'] = experiment.fetch('if', '').sub(prefix, 'success()')
+    end
     steps = jobs.values.flat_map { |job| job.fetch('steps', []) }
     runs = steps.map { |step| step.fetch('run', '') }
     all_runs = runs.join("\n")
@@ -117,14 +195,14 @@ module WorkflowPolicy
       ids = job.fetch('steps', []).map { |step| step['id'] }.compact
       check.call(ids.uniq.length == ids.length, "#{id} step IDs must be unique")
       job.fetch('steps', []).select { |step| step.fetch('uses', '').start_with?('actions/checkout@') }.each do |step|
-        check.call(step['uses'] == 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' && step.dig('with', 'persist-credentials') == false && (step['id'] == 'engine_checkout' ? step['if'] == "needs.policy.outputs.rust_needed == 'true'" : !step.key?('if')), "#{id} checkout must retain its read-only pinned source contract")
+        check.call(step['uses'] == 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' && step.dig('with', 'persist-credentials') == false && (id == 'macos_verify' && step['id'] == 'engine_checkout' ? step['if'] == "needs.policy.outputs.rust_needed == 'true'" : !step.key?('if')), "#{id} checkout must retain its read-only pinned source contract")
       end
     end
     native = jobs.fetch('macos_verify', {})
     check.call(native['runs-on'] == 'macos-26', 'macos_verify macOS image must remain macos-26')
     check.call(Array(native['needs']) == ['policy'] && native['if'] == "needs.policy.result == 'success' && needs.policy.outputs.macos_needed == 'true'", 'macos_verify must start only after successful source policy and explicit classification')
     check.call(native.fetch('env', {}).values.none? { |value| value.to_s.include?('runner.') }, 'macos_verify job environment must not use unavailable runner context')
-    check.call(native['name'] == 'macOS verification' && native['timeout-minutes'] == 120, 'native suite must retain its bounded unique producer job identity')
+    check.call(native['name'] == 'macOS verification' && native['timeout-minutes'] == 240, 'native suite must retain its bounded unique producer job identity')
     native_steps = native.fetch('steps', [])
     boundaries = PHASES.map { |scope| native_steps.index { |step| step['id'] == "#{scope}_checkout" } }
     check.call(boundaries.none?(&:nil?) && boundaries == boundaries.sort && boundaries.uniq.length == PHASES.length && boundaries.first == 0,

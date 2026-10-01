@@ -51,15 +51,15 @@ source policies, domain build/tests, and playback/harness/watchdog/formatter-wra
 macOS verification starts after source policies as one sequential job: classified Rust/header
 checks and candidate production, contracts (shipping Debug, format, package, ABI, compiler and
 packaging checks), complete Swift tests plus acceptance and native GUI regression, then
-distribution Release plus size reporting. Pinned clean checkouts isolate each phase's products.
+distribution Release plus size reporting. Pinned clean checkouts isolate phase products. Later phases run after earlier failures, with
+phase-local setup guards; cancellation stops new work.
 Swift phases validate published engines with Rust blocked. The quality
 aggregate requires every Linux job, the selected native job and its actual phase outcomes.
 Missing, failed, cancelled or inconsistent outcomes fail closed; only classified skips are accepted.
 
 `SPOTTY_CHECK_PHASE` partitions only CI's `swift-compiled` scope. Normal verification remains
-complete. Sequential phases share one macOS runner while clean checkouts preserve configuration isolation;
-the complete native suite and each semantic/compiler assertion still execute once per PR.
-Main retains three native repetitions. Acceptance reuses its own lane's Debug products and settings.
+complete. Each native and semantic/compiler assertion executes once per PR.
+Main retains three native repetitions. Acceptance reuses the tests phase's Debug products and settings.
 
 Swift's contracts, tests and Release caches bind compiler, configuration, package, immutable pin
 and both SDK identities: wrapper-selected (`sdk`, labelled `wrapper-selected`) and Xcode default
@@ -94,7 +94,7 @@ artifacts, and require execution, summary, and upload success. These synthetic c
 GUI, sandbox, or live-account behavior.
 
 Historical timing evidence remains in [#587](https://github.com/aladh/Spotty/issues/587);
-runner consolidation changes elapsed time without a new speed target. The macOS verification job has a 120-minute ceiling.
+runner consolidation changes elapsed time without a new speed target. The sequential macOS job has a 240-minute ceiling.
 `Run Swift contracts` and `Run checks` each have a
 15-minute step limit. Per-invocation test deadlines and diagnostics are in
 [verification](../../development/verification.md#normal-verification).

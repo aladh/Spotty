@@ -22,7 +22,11 @@ def producer_definition(workflow):
     producer = text[:positions[3]]
     # These six outputs belong to later Swift phases, not candidate production. The workflow
     # policy separately binds and whitelists them; their changes must not invalidate an engine.
-    producer = re.sub(r"(?m)^      (?:contracts_result|swift_result|release_result|contracts_key|tests_key|release_key):[^\n]*\n", "", producer)
+    consumer_outputs = ("contracts_result", "swift_result", "release_result", "contracts_key", "tests_key", "release_key")
+    for name in consumer_outputs:
+        producer, count = re.subn(rf"(?m)^      {name}:[^\n]*\n", "", producer)
+        if count != 1:
+            raise ValueError("Unrecognized CI consumer output; update the definition policy")
     # Linux image selection cannot change the macOS-produced archive. Keep the source-policy
     # commands and their trust boundary; only normalize this runner label.
     return re.sub(r"(?m)^    runs-on: ubuntu-(?:latest|[0-9]+\.[0-9]+)$",

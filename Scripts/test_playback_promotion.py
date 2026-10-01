@@ -148,6 +148,16 @@ class PromotionTests(unittest.TestCase):
                 changed = WORKFLOW.replace(original, original.replace(b"${{", b"${{ # consumer change "))
                 promote(**{**self.promotion_inputs(), "trusted_ci": changed})
 
+    def test_missing_duplicated_or_reindented_consumer_outputs_fail_closed(self):
+        for binding in (b"contracts_result", b"swift_result", b"release_result",
+                        b"contracts_key", b"tests_key", b"release_key"):
+            original = next(line for line in WORKFLOW.splitlines(keepends=True)
+                            if line.startswith(b"      " + binding + b":"))
+            for replacement in (b"", original * 2, b"  " + original):
+                with self.subTest(binding=binding, replacement=replacement), self.assertRaisesRegex(
+                        ValueError, "Unrecognized CI consumer output"):
+                    promote(**{**self.promotion_inputs(), "trusted_ci": WORKFLOW.replace(original, replacement)})
+
     def test_producer_checkout_identity_or_classification_invalidates_candidate(self):
         for old, new in ((b"id: engine_checkout", b"id: engine_checkout # changed"),
                          (b"name: macOS verification", b"name: untrusted native job"),

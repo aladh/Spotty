@@ -15,7 +15,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
 
     def test_current_topology_passes_and_added_dynamic_or_missing_lanes_fail(self):
         checks = [WorkflowCheck(self.workflow)]
-        for mutation in ('extra_macos', 'dynamic', 'missing', 'permissions', 'triggers'):
+        for mutation in ('extra_macos', 'dynamic', 'missing', 'permissions', 'triggers', 'timeout'):
             variant = copy.deepcopy(self.workflow)
             if mutation == 'extra_macos':
                 variant['jobs']['extra'] = {'runs-on': 'macos-26', 'steps': []}
@@ -26,6 +26,9 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
             elif mutation == 'missing':
                 variant['jobs'].pop('macos_verify')
                 expected = 'exactly the classified verification'
+            elif mutation == 'timeout':
+                variant['jobs']['macos_verify']['timeout-minutes'] = 120
+                expected = 'bounded unique producer job identity'
             elif mutation == 'permissions':
                 variant['permissions']['contents'] = 'write'
                 expected = 'read-only contents permissions'

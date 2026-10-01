@@ -11,7 +11,7 @@ class WorkflowGUITests(WorkflowFixtureMixin, unittest.TestCase):
         for identity in ('gui', 'gui_upload'):
             for mutation in ('remove', 'conditional', 'optional', 'duplicate', 'move', 'mask_failure'):
                 variant = copy.deepcopy(self.workflow)
-                steps = variant['jobs']['macos_swift']['steps']
+                steps = variant['jobs']['macos_verify']['steps']
                 step = next(item for item in steps if item.get('id') == identity)
                 if mutation == 'remove':
                     steps.remove(step)
@@ -20,7 +20,7 @@ class WorkflowGUITests(WorkflowFixtureMixin, unittest.TestCase):
                 elif mutation == 'optional':
                     step['continue-on-error'] = True
                 elif mutation == 'duplicate':
-                    steps.append(copy.deepcopy(step))
+                    steps.insert(steps.index(step) + 1, copy.deepcopy(step))
                 elif mutation == 'move':
                     steps.remove(step)
                     steps.insert(0, step)
@@ -36,7 +36,7 @@ class WorkflowGUITests(WorkflowFixtureMixin, unittest.TestCase):
         checks = []
         for mutation in ('revision', 'deadline', 'artifact_attempt', 'artifact_path', 'fabricated', 'ignored', 'missing_gui', 'missing_upload', 'before_acceptance', 'display_qualification'):
             variant = copy.deepcopy(self.workflow)
-            steps = variant['jobs']['macos_swift']['steps']
+            steps = variant['jobs']['macos_verify']['steps']
             run = next(item for item in steps if item.get('id') == 'gui')
             upload = next(item for item in steps if item.get('id') == 'gui_upload')
             gate = next(item for item in steps if item['name'] == 'Require Swift test evidence')

@@ -24,7 +24,7 @@ class WorkflowSuiteTests(WorkflowFixtureMixin, unittest.TestCase):
                     if mutation in ('remove', 'move'):
                         job['steps'].remove(step)
                         if mutation == 'move':
-                            variant['jobs']['macos_contracts']['steps'].append(step)
+                            variant['jobs']['macos_verify']['steps'].append(step)
                     elif mutation == 'conditional':
                         step['if'] = 'false'
                     elif mutation == 'optional':
@@ -64,7 +64,7 @@ class WorkflowSuiteTests(WorkflowFixtureMixin, unittest.TestCase):
                 else:
                     steps.remove(scan)
                     if mutation == 'move':
-                        variant['jobs']['macos_contracts']['steps'].append(scan)
+                        variant['jobs']['macos_verify']['steps'].append(scan)
                 checks.append(WorkflowCheck(variant, diagnostic='independent source scan must run once without a condition', label={'mutation': mutation}))
         self.check_workflows(checks)
 

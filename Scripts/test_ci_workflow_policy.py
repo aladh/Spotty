@@ -4,7 +4,7 @@ import unittest
 
 from ci_workflow_fixtures import WorkflowCheck, WorkflowFixtureMixin
 
-VERIFY = ('macos_engine', 'macos_contracts', 'macos_swift', 'macos_release')
+VERIFY = ('macos_verify',)
 CACHE_SCOPES = ('contracts', 'tests', 'release', 'cbindgen', 'rust-debug', 'rust-release')
 
 
@@ -19,12 +19,12 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
             variant = copy.deepcopy(self.workflow)
             if mutation == 'extra_macos':
                 variant['jobs']['extra'] = {'runs-on': 'macos-26', 'steps': []}
-                expected = 'exactly four macOS verification lanes'
+                expected = 'one sequential macOS verification job'
             elif mutation == 'dynamic':
-                variant['jobs']['macos_swift']['runs-on'] = '${{ matrix.os }}'
+                variant['jobs']['macos_verify']['runs-on'] = '${{ matrix.os }}'
                 expected = 'runner selection must remain static'
             elif mutation == 'missing':
-                variant['jobs'].pop('macos_engine')
+                variant['jobs'].pop('macos_verify')
                 expected = 'exactly the classified verification'
             elif mutation == 'permissions':
                 variant['permissions']['contents'] = 'write'
@@ -63,10 +63,10 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
     def test_compiled_commands_timeouts_and_repeats_remain_owned_once(self):
         checks = []
         for job, name, outcome in (
-            ('macos_contracts', 'Run Swift contracts', 'contracts'),
-            ('macos_swift', 'Run checks', 'debug'),
-            ('macos_release', 'Compile release Spotty with SPOTTY_DISTRIBUTION', 'release'),
-            ('macos_engine', 'Run Rust checks', 'rust'),
+            ('macos_verify', 'Run Swift contracts', 'contracts'),
+            ('macos_verify', 'Run checks', 'debug'),
+            ('macos_verify', 'Compile release Spotty with SPOTTY_DISTRIBUTION', 'release'),
+            ('macos_verify', 'Run Rust checks', 'rust'),
         ):
             for mutation in ('command', 'duplicate', 'moved', 'masked', 'optional'):
                 variant = copy.deepcopy(self.workflow)
@@ -85,7 +85,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 expected = ('verification must propagate failures' if mutation == 'optional' else
                             'exactly one CI owner' if mutation == 'duplicate' else f'{outcome} verification command')
                 checks.append(WorkflowCheck(variant, diagnostic=expected, label={'job': job, 'mutation': mutation}))
-        for job, name in (('macos_swift', 'Run checks'), ('macos_contracts', 'Run Swift contracts')):
+        for job, name in (('macos_verify', 'Run checks'), ('macos_verify', 'Run Swift contracts')):
             for value in (None, 14, 16):
                 variant = copy.deepcopy(self.workflow)
                 step = self.step(variant, job, name)
@@ -95,7 +95,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                     step['timeout-minutes'] = value
                 checks.append(WorkflowCheck(variant, diagnostic='retain its 15-minute timeout'))
         variant = copy.deepcopy(self.workflow)
-        self.step(variant, 'macos_swift', 'Run checks').pop('env')
+        self.step(variant, 'macos_verify', 'Run checks').pop('env')
         checks.append(WorkflowCheck(variant, diagnostic='repeat boundary checks three times'))
         self.check_workflows(checks)
 
@@ -111,7 +111,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 self.assertIn(old, step['run'])
                 step['run'] = step['run'].replace(old, new)
             elif mutation == 'candidate_base':
-                self.step(variant, 'macos_engine', 'Identify playback inputs')['env']['INPUT_BASE_SHA'] = 'HEAD'
+                self.step(variant, 'macos_verify', 'Identify playback inputs')['env']['INPUT_BASE_SHA'] = 'HEAD'
                 expected = 'candidate selection must receive'
             else:
                 name, expected = {
@@ -119,26 +119,26 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                     'build_id': ('Build candidate playback XCFramework', 'candidate build must retain'),
                     'upload_id': ('Upload candidate playback artifact', 'candidate upload must retain'),
                 }[mutation]
-                self.step(variant, 'macos_engine', name).pop('id')
+                self.step(variant, 'macos_verify', name).pop('id')
             checks.append(WorkflowCheck(variant, diagnostic=expected, label={'mutation': mutation}))
         for name in ('Restore Rust release build products', 'Restore unchanged Rust release input timestamps',
                      'Snapshot Rust release input timestamps', 'Build candidate playback XCFramework',
                      'Upload candidate playback artifact'):
             variant = copy.deepcopy(self.workflow)
-            self.step(variant, 'macos_engine', name)['if'] = 'success()'
+            self.step(variant, 'macos_verify', name)['if'] = 'success()'
             checks.append(WorkflowCheck(variant, diagnostic=f'{name} must follow the candidate-needed decision'))
         for output in ('candidate_needed', 'rust_result', 'candidate_selection_result',
                        'candidate_build_result', 'candidate_upload_result'):
             variant = copy.deepcopy(self.workflow)
-            variant['jobs']['macos_engine']['outputs'][output] = 'success'
+            variant['jobs']['macos_verify']['outputs'][output] = 'success'
             checks.append(WorkflowCheck(variant, diagnostic=f'actual {output} output'))
         for step_id in ('inputs', 'candidate_build', 'candidate_upload'):
             variant = copy.deepcopy(self.workflow)
-            variant['jobs']['macos_engine']['steps'].append({'name': 'Duplicate', 'id': step_id, 'run': 'true'})
-            checks.append(WorkflowCheck(variant, diagnostic='macos_engine step IDs must be unique'))
+            variant['jobs']['macos_verify']['steps'].append({'name': 'Duplicate', 'id': step_id, 'run': 'true'})
+            checks.append(WorkflowCheck(variant, diagnostic='macos_verify step IDs must be unique'))
         variant = copy.deepcopy(self.workflow)
-        steps = variant['jobs']['macos_engine']['steps']
-        identify = self.step(variant, 'macos_engine', 'Identify playback inputs')
+        steps = variant['jobs']['macos_verify']['steps']
+        identify = self.step(variant, 'macos_verify', 'Identify playback inputs')
         steps.remove(identify)
         steps.append(identify)
         checks.append(WorkflowCheck(variant, diagnostic='candidate selection, timestamps, build, and upload must remain ordered'))
@@ -147,7 +147,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
     def test_outcome_gates_bind_real_results_and_reject_permissive_cases_or_shell(self):
         checks = []
         gates = (
-            ('macos_engine', 'Require engine results'), ('macos_swift', 'Require Swift test evidence'),
+            ('macos_verify', 'Require engine results'), ('macos_verify', 'Require Swift test evidence'),
             ('quality_gate', 'Require every quality lane'), ('macos', 'Require completed verification and cache publication'),
         )
         for job, name in gates:
@@ -171,8 +171,8 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 checks.append(WorkflowCheck(variant, diagnostic=expected, label={'job': job, 'mutation': mutation}))
         for valid, permissive, label in (
             ('true:true|true:false|false:false', 'false:true', 'compiler selection aggregate'),
-            ('true:success:success:success|false:skipped:skipped:skipped', 'true:success:skipped:success', 'Swift lane aggregate'),
-            ('true:success:success:success:true:success:success', 'true:success:failure:success:true:success:success', 'Rust and candidate aggregate'),
+            ('true:success:success:success|false:::', 'true:success:skipped:success', 'Swift lane aggregate'),
+            ('true:true:success:success:success:true:success:success', 'true:true:success:failure:success:true:success:success', 'Rust and candidate aggregate'),
         ):
             variant = copy.deepcopy(self.workflow)
             gate = self.step(variant, 'quality_gate', 'Require every quality lane')
@@ -187,15 +187,15 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 ('Prove focused test selection', 'focused_smoke'),
                 ('Collect supported-toolchain selection evidence', 'selection_experiment'),
                 ('Upload focused selection evidence', 'selection_upload')):
-            original = self.step(self.workflow, 'macos_swift', name)
+            original = self.step(self.workflow, 'macos_verify', name)
             for mutation in ('removed', 'duplicated', 'optional', 'contract'):
                 variant = copy.deepcopy(self.workflow)
-                steps = variant['jobs']['macos_swift']['steps']
-                step = self.step(variant, 'macos_swift', name)
+                steps = variant['jobs']['macos_verify']['steps']
+                step = self.step(variant, 'macos_verify', name)
                 if mutation == 'removed':
                     steps.remove(step)
                 elif mutation == 'duplicated':
-                    steps.append(copy.deepcopy(step))
+                    steps.insert(steps.index(step) + 1, copy.deepcopy(step))
                 elif mutation == 'optional':
                     step['continue-on-error'] = True
                 elif 'run' in original:
@@ -205,7 +205,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 checks.append(WorkflowCheck(variant, diagnostic=f'{identity} must retain',
                                             label={'identity': identity, 'mutation': mutation}))
         variant = copy.deepcopy(self.workflow)
-        step = self.step(variant, 'macos_swift', 'Collect supported-toolchain selection evidence')
+        step = self.step(variant, 'macos_verify', 'Collect supported-toolchain selection evidence')
         step['run'] = step['run'].replace(' compatibility ', ' experiment ').replace(
             '--head "$SELECTION_HEAD_SHA"', '--before cb67cd0d808868d0484cb5786ff46926a81c7852 --after "$SELECTION_HEAD_SHA"')
         checks.append(WorkflowCheck(variant, diagnostic='selection_experiment must retain',
@@ -215,18 +215,18 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 'github.event.pull_request.head.repo.full_name == github.repository && ',
                 "steps.acceptance_upload.outcome == 'success'"):
             variant = copy.deepcopy(self.workflow)
-            step = self.step(variant, 'macos_swift', 'Collect supported-toolchain selection evidence')
+            step = self.step(variant, 'macos_verify', 'Collect supported-toolchain selection evidence')
             step['if'] = step['if'].replace(clause, 'true')
             checks.append(WorkflowCheck(variant, diagnostic='selection_experiment must retain'))
         for name in ('Prove focused test selection', 'Collect supported-toolchain selection evidence'):
             variant = copy.deepcopy(self.workflow)
-            steps = variant['jobs']['macos_swift']['steps']
-            step = self.step(variant, 'macos_swift', name)
+            steps = variant['jobs']['macos_verify']['steps']
+            step = self.step(variant, 'macos_verify', name)
             steps.remove(step)
             steps.insert(0, step)
             checks.append(WorkflowCheck(variant, diagnostic='preserve successful corpus ordering'))
         variant = copy.deepcopy(self.workflow)
-        gate = self.step(variant, 'macos_swift', 'Require Swift test evidence')
+        gate = self.step(variant, 'macos_verify', 'Require Swift test evidence')
         gate['run'] = gate['run'].replace('true:success|false:skipped', 'true:success|true:skipped|false:skipped')
         checks.append(WorkflowCheck(variant, diagnostic='focused selection aggregate must retain its exact fail-closed truth table'))
         self.check_workflows(checks)
@@ -235,9 +235,9 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
         checks = [WorkflowCheck(self.workflow)]
         for mutation in ('request', 'command', 'deadline-missing', 'deadline-no-margin', 'upload-optional', 'upload-condition', 'upload-path', 'gate-binding', 'gate-skip'):
             variant = copy.deepcopy(self.workflow)
-            debug = self.step(variant, 'macos_swift', 'Run checks')
-            upload = self.step(variant, 'macos_swift', 'Upload executing-host observation')
-            gate = self.step(variant, 'macos_swift', 'Require Swift test evidence')
+            debug = self.step(variant, 'macos_verify', 'Run checks')
+            upload = self.step(variant, 'macos_verify', 'Upload executing-host observation')
+            gate = self.step(variant, 'macos_verify', 'Require Swift test evidence')
             expected = 'host observation'
             if mutation == 'request':
                 debug['env']['HOST_OBSERVATION_REQUESTED'] = '${{ true }}'
@@ -272,8 +272,8 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                          'after_release', 'condition', 'main_only', 'candidate_only', 'masked',
                          'optional', 'gate_binding', 'gate_omitted', 'gate_skipped'):
             variant = copy.deepcopy(self.workflow)
-            steps = variant['jobs']['macos_engine']['steps']
-            proof = self.step(variant, 'macos_engine', 'Preflight public Cargo source proof')
+            steps = variant['jobs']['macos_verify']['steps']
+            proof = self.step(variant, 'macos_verify', 'Preflight public Cargo source proof')
             expected = 'exact proof command and outcome identity'
             if mutation == 'removed':
                 steps.remove(proof)
@@ -291,7 +291,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 expected = 'Preflight public Cargo source proof must run exactly once'
             elif mutation in ('before_rust', 'after_release'):
                 steps.remove(proof)
-                anchor = self.step(variant, 'macos_engine', 'Run Rust checks' if mutation == 'before_rust'
+                anchor = self.step(variant, 'macos_verify', 'Run Rust checks' if mutation == 'before_rust'
                                    else 'Restore Rust release build products')
                 steps.insert(steps.index(anchor) + (mutation == 'after_release'), proof)
                 expected = 'follow Rust verification and precede Release restoration'
@@ -303,9 +303,9 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 proof['run'] += ' || true'
             elif mutation == 'optional':
                 proof['continue-on-error'] = True
-                expected = 'macos_engine verification must propagate failures'
+                expected = 'macos_verify verification must propagate failures'
             else:
-                gate = self.step(variant, 'macos_engine', 'Require engine results')
+                gate = self.step(variant, 'macos_verify', 'Require engine results')
                 if mutation == 'gate_binding':
                     gate['env']['SOURCE_PROOF_RESULT'] = 'success'
                 elif mutation == 'gate_omitted':
@@ -329,7 +329,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 'macos': 'always join quality and cache publication',
             }[job]))
         for scope in CACHE_SCOPES:
-            owner = {'contracts': 'macos_contracts', 'tests': 'macos_swift', 'release': 'macos_release'}.get(scope, 'macos_engine')
+            owner = {'contracts': 'macos_verify', 'tests': 'macos_verify', 'release': 'macos_verify'}.get(scope, 'macos_verify')
             for mutation in ('pr_export', 'failed_main_export', 'wrong_attempt', 'wrong_revision', 'wrong_key', 'wrong_scope', 'optional_download', 'before_validation'):
                 variant = copy.deepcopy(self.workflow)
                 export = self.step(variant, owner, f'Export {scope} cache products')
@@ -366,51 +366,52 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
         variant = copy.deepcopy(self.workflow)
         save = self.step(variant, 'cache_publisher', 'Save contracts validated cache')
         variant['jobs']['cache_publisher']['steps'].remove(save)
-        variant['jobs']['macos_contracts']['steps'].append(save)
+        variant['jobs']['macos_verify']['steps'].append(save)
         checks.append(WorkflowCheck(variant, diagnostic='only the post-aggregate publisher may save caches'))
         variant = copy.deepcopy(self.workflow)
-        self.step(variant, 'macos_swift', 'Restore SwiftPM build directory')['uses'] = 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
+        self.step(variant, 'macos_verify', 'Restore SwiftPM build directory')['uses'] = 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
         checks.append(WorkflowCheck(variant, diagnostic='without implicit PR writes'))
         self.check_workflows(checks)
 
     def test_each_cache_uses_configuration_compatible_roots_and_keys(self):
         checks = []
-        for job in ('macos_contracts', 'macos_swift', 'macos_release'):
+        for phase in ('contracts', 'tests', 'release'):
             for field in ('key', 'restore-keys'):
                 variant = copy.deepcopy(self.workflow)
-                self.step(variant, job, 'Restore SwiftPM build directory')['with'][field] = 'macos-swift-'
+                self.phase_step(variant, phase, 'Restore SwiftPM build directory')['with'][field] = 'macos-swift-'
                 checks.append(WorkflowCheck(variant, diagnostic='exact configuration-safe isolation'))
             variant = copy.deepcopy(self.workflow)
-            self.step(variant, job, 'Restore SwiftPM build directory')['with']['path'] = '.build'
+            self.phase_step(variant, phase, 'Restore SwiftPM build directory')['with']['path'] = '.build'
             checks.append(WorkflowCheck(variant, diagnostic='guarded restore paths'))
         for name, expected in (('Restore Rust verification products', 'actual Debug toolchain'),
                                ('Restore Rust release build products', 'bounded dependency compatibility'),
                                ('Restore pinned cbindgen', 'exact architecture and parser version')):
             variant = copy.deepcopy(self.workflow)
-            self.step(variant, 'macos_engine', name)['with']['restore-keys'] = 'macos-'
+            self.step(variant, 'macos_verify', name)['with']['restore-keys'] = 'macos-'
             checks.append(WorkflowCheck(variant, diagnostic=expected))
-        for job in ('macos_contracts', 'macos_swift', 'macos_release'):
+        for phase in ('contracts', 'tests', 'release'):
             variant = copy.deepcopy(self.workflow)
-            self.step(variant, job, 'Show toolchains')['run'] = 'swift --version'
+            self.phase_step(variant, phase, 'Show toolchains')['run'] = 'swift --version'
             checks.append(WorkflowCheck(variant, diagnostic='actual pinned Swift toolchain'))
         variant = copy.deepcopy(self.workflow)
-        self.step(variant, 'macos_engine', 'Identify Rust Debug cache compatibility')['run'] = 'echo RUST_DEBUG_TOOLCHAIN_KEY=guessed >> "$GITHUB_ENV"'
+        self.step(variant, 'macos_verify', 'Identify Rust Debug cache compatibility')['run'] = 'echo RUST_DEBUG_TOOLCHAIN_KEY=guessed >> "$GITHUB_ENV"'
         checks.append(WorkflowCheck(variant, diagnostic='actual verification SDK'))
         self.check_workflows(checks)
 
     def test_timing_evidence_remains_required_and_available_before_compilation(self):
         checks = []
         for job, upload_name in (
-            ('macos_engine', 'Upload engine timing evidence'),
-            ('macos_contracts', 'Upload contracts timing evidence'),
-            ('macos_swift', 'Upload Swift timing evidence'),
-            ('macos_release', 'Upload Release timing evidence'),
+            ('macos_verify', 'Upload engine timing evidence'),
+            ('macos_verify', 'Upload contracts timing evidence'),
+            ('macos_verify', 'Upload Swift timing evidence'),
+            ('macos_verify', 'Upload Release timing evidence'),
         ):
             for mutation in ('missing_init', 'job_context', 'conditional_upload', 'optional_archive'):
                 variant = copy.deepcopy(self.workflow)
                 if mutation == 'missing_init':
                     steps = variant['jobs'][job]['steps']
-                    steps.remove(self.step(variant, job, 'Initialize timing evidence'))
+                    phase = {'Upload engine timing evidence': 'engine', 'Upload contracts timing evidence': 'contracts', 'Upload Swift timing evidence': 'tests', 'Upload Release timing evidence': 'release'}[upload_name]
+                    steps.remove(self.phase_step(variant, phase, 'Initialize timing evidence'))
                     expected = 'initialize required timing evidence'
                 elif mutation == 'job_context':
                     variant['jobs'][job].setdefault('env', {})['SPOTTY_CI_TIMINGS_REPORT'] = '${{ runner.temp }}/phases.jsonl'
@@ -423,7 +424,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                     expected = 'required run-attempt archive'
                 checks.append(WorkflowCheck(variant, diagnostic=expected, label={'job': job, 'mutation': mutation}))
         variant = copy.deepcopy(self.workflow)
-        self.step(variant, 'macos_engine', 'Preserve Cargo timing evidence')['run'] += ' || true'
+        self.step(variant, 'macos_verify', 'Preserve Cargo timing evidence')['run'] += ' || true'
         checks.append(WorkflowCheck(variant, diagnostic='fail successful candidates with missing reports'))
         self.check_workflows(checks)
 
@@ -431,8 +432,8 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
         checks = []
         for mutation in ('removed', 'failure_only', 'no_attempt', 'partial_path', 'missing_error', 'moved'):
             variant = copy.deepcopy(self.workflow)
-            steps = variant['jobs']['macos_swift']['steps']
-            upload = self.step(variant, 'macos_swift', 'Upload Swift test diagnostics')
+            steps = variant['jobs']['macos_verify']['steps']
+            upload = self.step(variant, 'macos_verify', 'Upload Swift test diagnostics')
             if mutation == 'removed':
                 steps.remove(upload)
             elif mutation == 'failure_only':

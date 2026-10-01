@@ -47,13 +47,13 @@ ordering and skips. Swift CI accepts only canonical, versioned release URLs befo
 Publication requires explicit authorization. It promotes the exact candidate from a completed
 main-branch push CI run, without rebuilding. The source must be merged and an ancestor of the
 publisher checkout; PR and fork candidates cannot be published. Source policies, playback script
-checks, and the unique `macOS engine` job's Rust verification, public Cargo source proof preflight,
+checks, and the unique `macOS verification` job's Rust verification, public Cargo source proof preflight,
 candidate build, and upload steps must pass in the selected run attempt. The artifact
 creation time must fall inside that upload step. Later Swift checks and cache work validate the
 published app pin and reusable products independently; they do not gate engine publication.
 The tested commit becomes the release target.
-Expired artifacts or a changed producer CI definition require a fresh main CI run. The split-lane
-producer definition deliberately makes older single-job candidates ineligible; use a completed
+Expired artifacts or a changed producer CI definition require a fresh main CI run. The sequential-suite
+producer definition deliberately makes older workflow-layout candidates ineligible; use a completed
 current main run after source merge, retaining its exact attempt and successful upload interval.
 
 CI builds candidates for engine-input or engine build/validation script changes relative to the

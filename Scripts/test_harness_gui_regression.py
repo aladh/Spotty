@@ -444,6 +444,244 @@ class GUIRegressionChecks(unittest.TestCase):
             self.assertNotIn("ownedAppPID", evidence)
             self.assertEqual(evidence["openWrapperCleanup"], "owned wrapper reaped")
 
+    hosted_environment = {"GITHUB_ACTIONS": "true", "CI": "true", "RUNNER_ENVIRONMENT": "github-hosted",
+                          "RUNNER_OS": "macOS"}
+
+    def display_report(self, pid=73):
+        original = {"id": 1, "width": 1024, "height": 768, "pixelWidth": 1024, "pixelHeight": 768,
+                    "refreshRate": 60, "desktopUsable": True}
+        selected = {**original, "id": 2, "width": 1280, "height": 900, "pixelWidth": 1280, "pixelHeight": 900}
+        def screen(width, height, visible_height):
+            return {"displayID": 1, "backingScale": 1,
+                    "frame": {"x": 0, "y": 0, "width": width, "height": height},
+                    "visibleFrame": {"x": 0, "y": 60, "width": width, "height": visible_height}}
+        return {"schemaVersion": 1, "ownerPID": pid, "displayID": 1, "phase": "ready",
+                "originalMode": original, "selectedMode": selected, "observedMode": selected,
+                "availableModes": [original, selected], "changed": True,
+                "beforeScreens": [screen(1024, 768, 680)], "afterScreens": [screen(1280, 900, 800)]}
+
+    def test_display_opt_in_refuses_local_and_self_hosted_before_build_or_launch(self):
+        for environment in ({}, {**self.hosted_environment, "RUNNER_ENVIRONMENT": "self-hosted"}):
+            with self.subTest(environment=environment), TemporaryDirectory() as directory:
+                root = Path(directory)
+                with (
+                    patch.dict(gui.os.environ, environment, clear=True),
+                    patch.object(gui, "metadata") as metadata,
+                    patch.object(gui.subprocess, "Popen") as launch,
+                ):
+                    self.assertEqual(gui.execute(root, root / "output", qualify_hosted_display=True), 1)
+                metadata.assert_not_called()
+                launch.assert_not_called()
+                summary = gui.read_json(root / "output/summary.json")
+                self.assertIn("GitHub-hosted macOS CI", summary["failure"])
+                self.assertFalse(summary["displayQualification"]["passed"])
+
+    def test_display_admission_requires_advertised_logical_mode_and_visible_capacity(self):
+        self.assertTrue(gui.validate_display_qualification(self.display_report(), 73)["passed"])
+        mutations = (
+            lambda report: report.update(ownerPID=99),
+            lambda report: report.update(availableModes=[]),
+            lambda report: report.update(availableModes=[report["originalMode"]]),
+            lambda report: report["selectedMode"].update(width=1024),
+            lambda report: report["selectedMode"].update(desktopUsable=False),
+            lambda report: report["afterScreens"][0]["visibleFrame"].update(height=700),
+            lambda report: report["afterScreens"][0]["frame"].update(width=1024),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                report = deepcopy(self.display_report())
+                mutate(report)
+                with self.assertRaises(ValueError):
+                    gui.validate_display_qualification(report, 73)
+
+    def test_no_advertised_mode_retains_initial_record_and_prevents_fixture_launch(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "output"
+            snapshot = {"source": {"revision": "a" * 40}}
+            process = Mock(pid=73)
+            process.poll.return_value = None
+            failure = self.display_report()
+            failure.update(phase="failed", failure="No advertised desktop display mode provides at least 1280x900 logical points")
+            failure["availableModes"] = [failure["originalMode"]]
+
+            def launch_guardian(*args, **kwargs):
+                gui.write_json(output / "hosted-display.json", failure)
+                return process
+
+            def inspect(*args, **kwargs):
+                gui.write_json(output / "hosted-display-restored.json", {
+                    "phase": "inspected", "displayID": 1, "originalMode": failure["originalMode"],
+                    "beforeScreens": failure["beforeScreens"],
+                })
+
+            with (
+                patch.dict(gui.os.environ, self.hosted_environment, clear=True),
+                patch.object(gui, "metadata", return_value=snapshot),
+                patch.object(gui, "stable_source", return_value=snapshot["source"]),
+                patch.object(gui, "build", return_value=root / ".build/debug"),
+                patch.object(gui, "compile_display_guardian", return_value=root / "guardian"),
+                patch.object(gui.subprocess, "Popen", side_effect=launch_guardian) as launch,
+                patch.object(gui, "bounded_command", side_effect=inspect) as inspect_command,
+                patch.object(gui, "retire_command", return_value={"verified": True, "failures": []}) as retire,
+                patch.object(gui, "assemble") as assemble,
+                patch.object(gui, "run_host") as run_host,
+            ):
+                self.assertEqual(gui.execute(root, output, qualify_hosted_display=True), 1)
+            launch.assert_called_once()
+            retire.assert_called_once_with(process)
+            assemble.assert_not_called()
+            run_host.assert_not_called()
+            self.assertEqual(gui.read_json(output / "hosted-display.json"), failure)
+            summary = gui.read_json(output / "summary.json")
+            self.assertIn("No advertised", summary["failure"])
+            self.assertTrue(summary["displayRestoration"]["verified"])
+            inspect_command.assert_called_once()
+
+    def test_failed_readiness_after_mode_selection_records_post_exit_restoration_and_primary_error(self):
+        for mismatch in (False, True):
+            with self.subTest(mismatch=mismatch), TemporaryDirectory() as directory:
+                root = Path(directory)
+                output = root / "output"
+                snapshot = {"source": {"revision": "a" * 40}}
+                process = Mock(pid=73)
+                process.poll.return_value = None
+                failed = self.display_report()
+                failed.update(phase="failed", failure="AppKit geometry did not stabilize", changed=True)
+
+                def launch(*args, **kwargs):
+                    gui.write_json(output / "hosted-display.json", failed)
+                    return process
+
+                def inspect(*args, **kwargs):
+                    post = {"phase": "inspected", "displayID": 1, "originalMode": deepcopy(failed["originalMode"]),
+                            "beforeScreens": deepcopy(failed["beforeScreens"])}
+                    if mismatch:
+                        post["originalMode"]["id"] = 99
+                    gui.write_json(output / "hosted-display-restored.json", post)
+
+                with (
+                    patch.dict(gui.os.environ, self.hosted_environment, clear=True),
+                    patch.object(gui, "metadata", return_value=snapshot),
+                    patch.object(gui, "stable_source", return_value=snapshot["source"]),
+                    patch.object(gui, "build", return_value=root / ".build/debug"),
+                    patch.object(gui, "compile_display_guardian", return_value=root / "guardian"),
+                    patch.object(gui.subprocess, "Popen", side_effect=launch) as launched,
+                    patch.object(gui, "bounded_command", side_effect=inspect) as inspected,
+                    patch.object(gui, "retire_command", return_value={"verified": True, "failures": []}) as retire,
+                    patch.object(gui, "assemble") as assemble,
+                ):
+                    self.assertEqual(gui.execute(root, output, qualify_hosted_display=True), 1)
+                launched.assert_called_once()
+                retire.assert_called_once_with(process)
+                inspected.assert_called_once()
+                self.assertEqual(inspected.call_args.args[0][1], "--inspect")
+                assemble.assert_not_called()
+                self.assertEqual(gui.read_json(output / "hosted-display.json"), failed)
+                summary = gui.read_json(output / "summary.json")
+                self.assertEqual(summary["failure"], "Display qualification failed: AppKit geometry did not stabilize")
+                self.assertEqual(summary["displayRestoration"]["verified"], not mismatch)
+                self.assertFalse(summary["passed"])
+                if mismatch:
+                    self.assertIn("post-exit", summary["displayRestorationFailure"])
+                else:
+                    self.assertNotIn("displayRestorationFailure", summary)
+
+    def test_display_guardian_exit_aborts_owned_fixture_without_another_launch(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = launch_manifest()
+            gui.write_json(root / "manifest.json", manifest)
+            executable = root / "unique.app/Contents/MacOS/SpottyDemo"
+            owned = {"pid": 42, "startIdentity": "Thu Oct 1 12:00:00 2026", "executable": str(executable)}
+            guardian = Mock(pid=73)
+            guardian.poll.side_effect = [None, 0]
+            wrapper = Mock(pid=91)
+            wrapper.wait.return_value = 0
+            with (
+                patch.object(gui.subprocess, "Popen", return_value=wrapper) as launch,
+                patch.object(gui.browsing_process, "discover", return_value=owned),
+                patch.object(gui.browsing_process, "terminate") as terminate,
+                patch.object(gui.time, "sleep") as sleep,
+                self.assertRaisesRegex(RuntimeError, "display guardian exited"),
+            ):
+                gui.run_host(root, root, executable, manifest, root / "fixture", (), gui.time.monotonic() + 300,
+                             guardian=guardian)
+            launch.assert_called_once()
+            terminate.assert_called_once_with(owned)
+            sleep.assert_not_called()
+            self.assertIn("display guardian exited", gui.read_json(root / "gui-evidence.json")["failure"])
+
+    def test_display_restoration_requires_post_owner_exit_inspection(self):
+        for mismatch in (False, True):
+            with self.subTest(mismatch=mismatch), TemporaryDirectory() as directory:
+                root = Path(directory)
+                process = Mock(pid=73)
+                process.poll.return_value = None
+                process.wait.return_value = 0
+                report = self.display_report()
+                report.update(phase="restored", restorationAttempted=True, restorationVerified=True,
+                              restoredMode=report["originalMode"])
+                gui.write_json(root / "hosted-display.json", report)
+
+                def inspect(*args, **kwargs):
+                    post = {"phase": "inspected", "displayID": 1, "originalMode": deepcopy(report["originalMode"]),
+                            "beforeScreens": deepcopy(report["beforeScreens"])}
+                    if mismatch:
+                        post["originalMode"]["id"] = 99
+                    gui.write_json(root / "hosted-display-restored.json", post)
+
+                with (
+                    patch.object(gui, "bounded_command", side_effect=inspect) as command,
+                    patch.object(gui, "retire_command", return_value={"verified": True, "failures": []}) as retire,
+                ):
+                    restored = gui.restore_display_guardian(process, root, root, root / "guardian")
+                self.assertEqual(restored["verified"], not mismatch)
+                command.assert_called_once()
+                self.assertEqual(command.call_args.args[0][1], "--inspect")
+                process.stdin.write.assert_called_once_with("restore\n")
+                if mismatch:
+                    retire.assert_called_once_with(process)
+                    self.assertIn("post-exit", restored["failure"])
+                else:
+                    retire.assert_not_called()
+
+    def test_display_restoration_timeout_is_unverified_and_cannot_mask_fixture_failure(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            process = Mock(pid=73)
+            process.poll.return_value = None
+            process.wait.side_effect = subprocess.TimeoutExpired("guardian restoration", 5)
+            with patch.object(gui, "retire_command", return_value={"verified": False, "failures": ["kill wait"]}) as retire:
+                restoration = gui.restore_display_guardian(process, root, root, root / "guardian")
+            retire.assert_called_once_with(process)
+            self.assertFalse(restoration["verified"])
+            self.assertFalse(restoration["ownedGuardianRetirement"]["verified"])
+            self.assertIn("guardian restoration", restoration["failure"])
+
+            snapshot = {"source": {"revision": "a" * 40}}
+            guardian = Mock(pid=73)
+            guardian.poll.return_value = None
+            output = root / "output"
+            def start(*args, **kwargs):
+                gui.write_json(output / "hosted-display.json", self.display_report())
+                return guardian
+            with (
+                patch.dict(gui.os.environ, self.hosted_environment, clear=True),
+                patch.object(gui, "metadata", return_value=snapshot),
+                patch.object(gui, "stable_source", return_value=snapshot["source"]),
+                patch.object(gui, "build", return_value=root / ".build/debug"),
+                patch.object(gui, "compile_display_guardian", return_value=root / "guardian"),
+                patch.object(gui, "start_display_guardian", side_effect=start),
+                patch.object(gui, "assemble", side_effect=RuntimeError("primary fixture failure")),
+                patch.object(gui, "restore_display_guardian", return_value=restoration),
+            ):
+                self.assertEqual(gui.execute(root, output, qualify_hosted_display=True), 1)
+            summary = gui.read_json(output / "summary.json")
+            self.assertEqual(summary["failure"], "primary fixture failure")
+            self.assertIn("guardian restoration", summary["displayRestorationFailure"])
+            self.assertFalse(summary["displayRestoration"]["verified"])
+
     def test_stale_output_rejects_launch_and_cleanup(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

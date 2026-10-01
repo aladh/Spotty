@@ -69,35 +69,36 @@ missing evidence cannot establish passing behavior.
 ./Scripts/check-gui-regression.sh --output .build/gui-regression-local --expected-head "$(git rev-parse HEAD)"
 ```
 
-Use a new output directory and a logged-in macOS GUI session. This development gate builds the
-Debug browsing harness in the shared `.build` after the Swift gate, then runs the browsing and
-signed-out fixtures through the actual Spotty scene. Each disposable `dev.spotty.gui-test-host`
-bundle uses injected synthetic dependencies, with no transport, mutation, audio, or network use.
-It is an unsandboxed, ad-hoc-signed test host; it cannot attest App Sandbox isolation. The separately
-signed, network-denied Demo workflow remains the owner of that evidence.
+Use a new output directory and logged-in macOS desktop. After the Swift gate, this builds the
+Debug harness in shared `.build` and runs browsing/signed-out fixtures through the actual Spotty
+scene. Disposable `dev.spotty.gui-test-host` bundles use synthetic dependencies without transport,
+mutation, audio, or network. These unsandboxed, ad-hoc-signed hosts cannot attest App Sandbox;
+the separately signed, network-denied Demo owns that evidence.
 
-The runner bounds each GUI attempt to 90 seconds and the complete invocation to five minutes.
-Missing GUI access fails; it never substitutes a skip or a previous report. It captures the exact
-LaunchServices app PID and executable/start identity for the unique bundle, then retires only that
-verified host and its own bounded `open -W -n` wrapper. Runtime stdout/stderr are retained separately
-from launcher/signing logs. Failed discovery never guesses an app PID. Existing Demo and live Spotty
-processes remain outside its ownership.
+Each attempt is bounded to 90 seconds; the invocation to five minutes. Missing GUI fails without
+skips, retries, or reused success. Retirement targets only verified LaunchServices PID/path/start
+identities and owned `open -W -n` wrappers. Failed discovery never guesses ownership; existing
+Demo/Spotty processes are excluded. Separate runtime/launcher logs and partial reports survive failures.
 
-`summary.json` and each run's `gui-evidence.json` retain source stability, launch/fixture/build/engine
-identity, failure reasons, and references to original reports and logs. Passing requires all eight
-browsing or four signed-out checkpoints, every declared geometry and rendered-chrome assertion,
-and zero commands, playing, and mutations throughout. Current-process own-window compositor PNGs
-bind the rendered padding checks to each window; separate view captures help diagnose failures.
-Before resizing, the fixture selects each target from its desired body size and the visible display
-minus native window overhead. It records both sizes and the display geometry; the runner recomputes
-the selection and rejects an observed clamp, unstable display, off-screen window, capacity below the
-960×640 minimum, or a display that cannot exercise a distinct resize. Small hosted displays may
-constrain height while exercising the default, minimum, and resized widths; local full-size evidence
-remains separate. The final browsing checkpoint also requires native Command-[ / Command-] events
-to restore Search, revisit the playlist, and return again through the production history buttons.
-These assertions do not establish full visual parity, live playback, or audible output.
-The inactive checkpoint transfers key ownership to an empty fixture window while the app stays active;
-switching between applications remains separate interactive verification.
+`summary.json` and `gui-evidence.json` retain stable source, launch/fixture/build/engine identities,
+failures and original artifacts. All eight browsing or four signed-out checkpoints must pass geometry
+and chrome assertions with zero commands, playing, or mutations. Current-process compositor PNGs
+bind padding checks to the owned window; view captures provide diagnostics.
+
+Before resizing, targets derive from desired body sizes and visible display capacity minus native
+overhead. Records include desired/requested sizes, display geometry and overhead; the runner
+independently recomputes them. Observed clamps, unstable/off-screen geometry, capacity below
+960×640 or indistinct resize fail. Constrained-height width coverage and local full-size evidence
+remain separate. Native Command-[ / Command-] must restore Search, revisit the playlist, then return.
+
+CI requests `--qualify-hosted-display` exclusively on disposable GitHub-hosted macOS runners.
+A guarded helper records advertised logical/pixel modes and initial geometry, holds one supported
+eligible mode through both fixtures, and requires bounded retirement plus verified post-exit
+restoration. Missing modes or usable capacity fail; no private virtual displays or permission changes
+are used. Local invocations never change display modes.
+
+These checks establish neither full visual parity nor live playback/audible output. The inactive
+checkpoint transfers key ownership within an active app; application switching needs separate QA.
 
 ## Semantic UI smoke
 

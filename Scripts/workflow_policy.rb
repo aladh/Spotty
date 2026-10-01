@@ -352,7 +352,7 @@ module WorkflowPolicy
       'gui' => {
         'name' => 'Run Demo GUI regression', 'timeout-minutes' => 6,
         'env' => { 'GUI_REVISION' => '${{ github.sha }}' },
-        'run' => './Scripts/check-gui-regression.sh --output "$RUNNER_TEMP/spotty-gui-regression" --expected-head "$GUI_REVISION"',
+        'run' => './Scripts/check-gui-regression.sh --output "$RUNNER_TEMP/spotty-gui-regression" --expected-head "$GUI_REVISION" --qualify-hosted-display',
       },
       'gui_upload' => {
         'name' => 'Upload Demo GUI evidence', 'if' => "always() && steps.gui.outcome != 'skipped'",

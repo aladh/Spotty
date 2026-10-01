@@ -34,7 +34,7 @@ class WorkflowGUITests(WorkflowFixtureMixin, unittest.TestCase):
 
     def test_gui_binding_deadline_and_original_artifacts_are_required(self):
         checks = []
-        for mutation in ('revision', 'deadline', 'artifact_attempt', 'artifact_path', 'fabricated', 'ignored', 'missing_gui', 'missing_upload', 'before_acceptance'):
+        for mutation in ('revision', 'deadline', 'artifact_attempt', 'artifact_path', 'fabricated', 'ignored', 'missing_gui', 'missing_upload', 'before_acceptance', 'display_qualification'):
             variant = copy.deepcopy(self.workflow)
             steps = variant['jobs']['macos_swift']['steps']
             run = next(item for item in steps if item.get('id') == 'gui')
@@ -50,6 +50,8 @@ class WorkflowGUITests(WorkflowFixtureMixin, unittest.TestCase):
                 upload['with']['path'] += '/summary.json'
             elif mutation == 'fabricated':
                 gate['env']['GUI_RESULT'] = 'success'
+            elif mutation == 'display_qualification':
+                run['run'] = run['run'].replace(' --qualify-hosted-display', '')
             elif mutation == 'missing_gui':
                 gate['env'].pop('GUI_RESULT')
             elif mutation == 'missing_upload':

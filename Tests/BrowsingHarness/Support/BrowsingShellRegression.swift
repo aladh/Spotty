@@ -287,11 +287,13 @@ final class BrowsingShellRegression {
         let overhead = CGSize(
             width: window.frame.width - content.bounds.width,
             height: window.frame.height - window.contentLayoutRect.height)
-        let target = try Self.targetBodySize(desired: bodySize, visibleFrame: screen.visibleFrame, overhead: overhead)
+        // Preserve the display prerequisite in failure-state evidence even if no target is eligible.
         desiredBodySize = bodySize
-        requestedBodySize = target
+        requestedBodySize = nil
         sizingScreenVisibleFrame = screen.visibleFrame
         frameToBodyOverhead = overhead
+        let target = try Self.targetBodySize(desired: bodySize, visibleFrame: screen.visibleFrame, overhead: overhead)
+        requestedBodySize = target
         let inset = content.bounds.height - window.contentLayoutRect.height
         window.setContentSize(NSSize(width: target.width, height: target.height + max(0, inset)))
     }
@@ -379,8 +381,8 @@ final class BrowsingShellRegression {
         if let sizingScreenVisibleFrame {
             check(
                 "window.display-stable", window.screen?.visibleFrame == sizingScreenVisibleFrame,
-                expected: "Display geometry unchanged since sizing",
-                observed: NSStringFromRect(sizingScreenVisibleFrame))
+                expected: "Display geometry unchanged since sizing: \(NSStringFromRect(sizingScreenVisibleFrame))",
+                observed: window.screen.map { NSStringFromRect($0.visibleFrame) } ?? "Display unavailable")
             check(
                 "window.fits-display",
                 sizingScreenVisibleFrame.insetBy(dx: -tolerance, dy: -tolerance).contains(window.frame),

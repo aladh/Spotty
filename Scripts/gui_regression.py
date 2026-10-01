@@ -222,6 +222,139 @@ def bounded_command(command, root, log, deadline):
         raise RuntimeError(f"Command exited {result}; see {log.name}")
 
 
+
+def hosted_display_environment():
+    require(all(os.environ.get(key) == value for key, value in
+                (("GITHUB_ACTIONS", "true"), ("CI", "true"), ("RUNNER_ENVIRONMENT", "github-hosted"),
+                 ("RUNNER_OS", "macOS"))), "Display qualification requires GitHub-hosted macOS CI")
+
+
+def compile_display_guardian(root, output, deadline):
+    executable = root / ".build/gui-display-guardian"
+    bounded_command(["xcrun", "swiftc", "-parse-as-library", "-swift-version", "6", "-warnings-as-errors",
+                     "-sdk", os.environ["SDKROOT"], str(root / "Scripts/gui_display_guardian.swift"),
+                     "-o", str(executable)], root, output / "hosted-display.log", deadline)
+    return executable
+
+
+def validate_display_qualification(report, pid):
+    require(report.get("schemaVersion") == 1 and report.get("ownerPID") == pid and report.get("phase") == "ready",
+            "owned display guardian readiness")
+    require(type(report.get("displayID")) is int and report["displayID"] > 0, "qualified display identity")
+    modes = report.get("availableModes")
+    require(isinstance(modes, list) and bool(modes), "advertised display modes")
+    for mode in [report.get("originalMode"), report.get("selectedMode"), report.get("observedMode"), *modes]:
+        require(isinstance(mode, dict) and type(mode.get("id")) is int
+                and all(number(mode.get(key), positive=True, integer=True)
+                        for key in ("width", "height", "pixelWidth", "pixelHeight"))
+                and type(mode.get("desktopUsable")) is bool and number(mode.get("refreshRate")),
+                "display mode shape")
+    selected = report["selectedMode"]
+    require(selected in modes and selected["desktopUsable"] is True
+            and selected["width"] >= 1280 and selected["height"] >= 900, "advertised eligible logical display mode")
+    require(report["observedMode"] == selected, "observed selected display mode")
+    for key in ("beforeScreens", "afterScreens"):
+        screens = report.get(key)
+        require(isinstance(screens, list) and bool(screens), "display screen geometry")
+        for screen in screens:
+            require(isinstance(screen, dict) and type(screen.get("displayID")) is int
+                    and number(screen.get("backingScale"), positive=True), "screen identity/scale")
+            rectangle(screen.get("frame"), "screen frame")
+            rectangle(screen.get("visibleFrame"), "visible screen frame")
+    screen = next((item for item in report["afterScreens"] if item["displayID"] == report["displayID"]), None)
+    require(screen is not None and abs(screen["frame"]["width"] - selected["width"]) <= 1
+            and abs(screen["frame"]["height"] - selected["height"]) <= 1
+            and screen["visibleFrame"]["width"] >= 1080 and screen["visibleFrame"]["height"] >= 752,
+            "qualified mode/AppKit visible capacity")
+    return {"passed": True, "guardianPID": pid, "artifact": "hosted-display.json"}
+
+
+def ensure_display_guardian(process):
+    if process is not None and process.poll() is not None:
+        raise RuntimeError("The owned display guardian exited before fixture completion")
+
+
+
+def inspect_original_display(root, output, executable, report):
+    require(isinstance(report.get("originalMode"), dict) and bool(report["originalMode"])
+            and isinstance(report.get("beforeScreens"), list) and bool(report["beforeScreens"]),
+            "original display state available for restoration attestation")
+    # App-lifetime mode selection reverts to the permanent configuration on owner exit.
+    # Reinspect afterward: a previously volatile initial mode must not claim exact restoration.
+    post_path = output / "hosted-display-restored.json"
+    bounded_command([str(executable), "--inspect", str(post_path)], root, output / "hosted-display.log",
+                    time.monotonic() + 5)
+    post = read_json(post_path)
+    require(post.get("phase") == "inspected" and post.get("displayID") == report.get("displayID")
+            and post.get("originalMode") == report.get("originalMode")
+            and post.get("beforeScreens") == report.get("beforeScreens"), "post-exit original display restoration")
+    return {"verified": True, "artifact": "hosted-display.json", "postExitArtifact": post_path.name}
+
+
+def start_display_guardian(root, output, executable, deadline):
+    hosted_display_environment()  # Refuse local/self-hosted mutation before creating a process.
+    report_path = output / "hosted-display.json"
+    process = None
+    try:
+        with (output / "hosted-display.log").open("ab") as log:
+            process = subprocess.Popen([str(executable), "--guard", str(report_path)], cwd=root,
+                                       stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT,
+                                       text=True, start_new_session=True)
+        ready_deadline = min(deadline, time.monotonic() + 15)
+        while True:
+            if report_path.exists():
+                report = read_json(report_path)
+                if report.get("phase") == "failed":
+                    raise RuntimeError("Display qualification failed: " + str(report.get("failure")))
+                if report.get("phase") == "ready":
+                    ensure_display_guardian(process)
+                    validate_display_qualification(report, process.pid)
+                    return process
+            ensure_display_guardian(process)
+            if time.monotonic() >= ready_deadline:
+                raise TimeoutError("Hosted display qualification did not finish within its deadline")
+            time.sleep(0.05)
+    except BaseException as primary:
+        if process is not None:
+            retirement = preserve_cleanup_failure(primary, process)
+            if process.stdin is not None:
+                try:
+                    process.stdin.close()
+                except OSError:
+                    pass
+            try:
+                require(retirement["verified"], "owned display guardian exit verified before restoration inspection")
+                report = read_json(report_path)
+                require(report.get("ownerPID") == process.pid, "failed qualification report owner")
+                primary.displayRestoration = inspect_original_display(root, output, executable, report)
+                primary.displayRestoration["ownedGuardianRetirement"] = retirement
+            except EVIDENCE_ERRORS as cleanup_error:
+                primary.displayRestoration = {"verified": False, "failure": str(cleanup_error),
+                                              "ownedGuardianRetirement": retirement, "artifact": "hosted-display.json"}
+                if getattr(cleanup_error, "cleanupFailure", None):
+                    primary.displayRestoration["inspectionCleanupFailure"] = cleanup_error.cleanupFailure
+        raise
+
+
+def restore_display_guardian(process, root, output, executable):
+    report_path = output / "hosted-display.json"
+    try:
+        ensure_display_guardian(process)
+        process.stdin.write("restore\n")
+        process.stdin.flush()
+        process.stdin.close()
+        process.wait(timeout=5)
+        report = read_json(report_path)
+        require(report.get("ownerPID") == process.pid and report.get("phase") == "restored"
+                and report.get("restorationAttempted") is True and report.get("restorationVerified") is True
+                and report.get("restoredMode") == report.get("originalMode"), "verified original display restoration")
+        return inspect_original_display(root, output, executable, report)
+    except EVIDENCE_ERRORS as primary:
+        retirement = preserve_cleanup_failure(primary, process)
+        return {"verified": False, "failure": str(primary), "ownedGuardianRetirement": retirement,
+                "artifact": "hosted-display.json"}
+
+
 def build(root, output, deadline):
     # Use the normal SDK, full graph, validated engine and module cache. Reuse the Swift gate's .build.
     program = '''set -euo pipefail
@@ -403,7 +536,7 @@ def validate_reports(run_root, manifest, fixture, owned, expected_names):
     return {"runID": manifest["runID"], "host": HOST_ID, "checkpointCount": len(checkpoints), "passed": True}
 
 
-def run_host(root, run_root, executable, manifest, fixture, expected_names, deadline):
+def run_host(root, run_root, executable, manifest, fixture, expected_names, deadline, guardian=None):
     """Launch once with LaunchServices, discover exact app ownership, and retain every outcome."""
     require(not any((run_root / name).exists() for name in ("report.json", "shell-regression.json", "process.json")),
             "fresh GUI run directory")
@@ -413,6 +546,7 @@ def run_host(root, run_root, executable, manifest, fixture, expected_names, dead
     problem = None
     run_deadline = min(deadline, time.monotonic() + RUN_TIMEOUT_SECONDS)
     try:
+        ensure_display_guardian(guardian)
         with (run_root / "host.log").open("ab") as log:
             app = executable.parent.parent.parent
             process = subprocess.Popen(["/usr/bin/open", "-W", "-n",
@@ -425,16 +559,19 @@ def run_host(root, run_root, executable, manifest, fixture, expected_names, dead
             outcome["ownedAppPID"] = owned["pid"]
             browsing_process.write_record(run_root, owned)
             while not (run_root / "report.json").exists():
+                ensure_display_guardian(guardian)
                 if not browsing_process.matches(owned):
                     raise RuntimeError("The owned GUI test host exited without a report")
                 if time.monotonic() >= run_deadline:
                     raise TimeoutError("GUI test host did not finish within its 90-second deadline; GUI may be unavailable")
                 time.sleep(min(0.1, max(0, run_deadline - time.monotonic())))
+            ensure_display_guardian(guardian)
             completed = read_json(run_root / "report.json")
             if completed.get("passed") is not True or completed.get("failure") is not None:
                 raise RuntimeError("GUI workload failed: " + str(completed.get("failure") or "report did not pass"))
             # report.json precedes the final status write by one atomic write.
             while True:
+                ensure_display_guardian(guardian)
                 status = read_json(run_root / "run-status.json")
                 if status.get("state") == "workload-finished":
                     break
@@ -446,6 +583,7 @@ def run_host(root, run_root, executable, manifest, fixture, expected_names, dead
                     raise TimeoutError("GUI test host did not publish final status before its deadline")
                 time.sleep(0.05)
             outcome.update(validate_reports(run_root, manifest, fixture, owned, expected_names))
+            ensure_display_guardian(guardian)
     except EVIDENCE_ERRORS as error:
         problem = error
         outcome["failure"] = str(error)
@@ -485,30 +623,42 @@ def run_host(root, run_root, executable, manifest, fixture, expected_names, dead
     return outcome
 
 
-def execute(root, output, expected_head=None):
+def execute(root, output, expected_head=None, qualify_hosted_display=False):
     # Creating the output itself is the single-attempt lock; never reuse prior success.
     output.mkdir(parents=True, exist_ok=False)
-    # Reserve fifteen seconds for bounded app/wrapper retirement and final evidence.
-    deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS - 15
+    # Reserve twenty-five seconds for app/wrapper/display retirement and final evidence.
+    deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS - 25
     summary = {"schemaVersion": 1, "passed": False, "runs": [], "limit": LIMIT}
     snapshot = None
     problem = None
+    guardian = None
+    display_executable = None
+    if qualify_hosted_display:
+        summary["displayQualification"] = {"requested": True, "passed": False, "artifact": "hosted-display.json"}
     try:
+        if qualify_hosted_display:
+            hosted_display_environment()
         snapshot = metadata(root, deadline, "snapshot")
         summary["source"] = snapshot["source"]
         stable_source(root, snapshot["source"], expected_head, deadline=deadline)
         write_json(output / "build-start.json", snapshot)
         binary_dir = build(root, output, deadline)
         require(metadata(root, deadline, "snapshot") == snapshot, "source/compiler/SDK/engine changed during build")
+        if qualify_hosted_display:
+            display_executable = compile_display_guardian(root, output, deadline)
+            guardian = start_display_guardian(root, output, display_executable, deadline)
+            summary["displayQualification"].update(validate_display_qualification(
+                read_json(output / "hosted-display.json"), guardian.pid))
         for name, expected_names in FIXTURES.items():
             remaining(deadline)
+            ensure_display_guardian(guardian)
             stable_source(root, snapshot["source"], expected_head, deadline=deadline)
             run_root = output / (name + "-" + str(uuid.uuid4()))
             run_root.mkdir()
             summary["runs"].append({"fixture": name, "directory": run_root.name, "passed": False})
             fixture = root / "Tests/BrowsingHarness/Scenarios" / (name + ".json")
             executable, manifest = assemble(root, run_root, binary_dir, fixture, snapshot, deadline)
-            outcome = run_host(root, run_root, executable, manifest, fixture, expected_names, deadline)
+            outcome = run_host(root, run_root, executable, manifest, fixture, expected_names, deadline, guardian=guardian)
             summary["runs"][-1].update(outcome)
             stable_source(root, snapshot["source"], expected_head, deadline=deadline)
         remaining(deadline)
@@ -518,7 +668,19 @@ def execute(root, output, expected_head=None):
         summary["failure"] = str(error)
         if getattr(error, "cleanupFailure", None):
             summary["cleanupFailure"] = error.cleanupFailure
+        if getattr(error, "displayRestoration", None):
+            summary["displayRestoration"] = error.displayRestoration
+            if not error.displayRestoration["verified"]:
+                summary["displayRestorationFailure"] = error.displayRestoration["failure"]
     finally:
+        if guardian is not None:
+            restoration = restore_display_guardian(guardian, root, output, display_executable)
+            summary["displayRestoration"] = restoration
+            if not restoration["verified"]:
+                summary["passed"] = False
+                summary["displayRestorationFailure"] = restoration["failure"]
+                summary.setdefault("failure", restoration["failure"])
+                problem = problem or RuntimeError(restoration["failure"])
         if snapshot is not None:
             try:
                 summary["sourceAtEnd"] = stable_source(root, snapshot["source"], expected_head, deadline=deadline)
@@ -540,10 +702,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True, help="new, unused evidence directory")
     parser.add_argument("--expected-head", help="exact checkout revision required by CI")
+    parser.add_argument("--qualify-hosted-display", action="store_true",
+                        help="qualify a supported logical mode on an explicit GitHub-hosted macOS CI runner")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     try:
-        code = execute(root, args.output.resolve(), args.expected_head)
+        code = execute(root, args.output.resolve(), args.expected_head, args.qualify_hosted_display)
     except (OSError, ValueError) as error:
         parser.exit(1, f"GUI regression: {error}\n")
     print(f"GUI regression {'passed' if code == 0 else 'failed'}: {args.output.resolve() / 'summary.json'}")

@@ -10,7 +10,7 @@ def validate(os_version, architecture, xcode_version, sdk_version):
         raise ValueError("Native CI requires macOS 27")
     if architecture != "arm64":
         raise ValueError("Native CI requires Apple Silicon")
-    if not re.fullmatch(r"Xcode 27\.0\nBuild version [A-Za-z0-9]+", xcode_version):
+    if not re.fullmatch(r"Xcode 27\.0(?:\.[0-9]+)?\nBuild version [A-Za-z0-9]+", xcode_version):
         raise ValueError("Native CI requires Xcode 27.0")
     if sdk_version != "27.0":
         raise ValueError("Native CI requires the macOS 27.0 SDK")

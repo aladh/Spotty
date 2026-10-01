@@ -40,6 +40,7 @@ struct PlaybackInspectorSplit<Content: View, Inspector: View>: NSViewControllerR
             // Preserve the pane before the content's default 250 priority on a
             // window resize, without overriding AppKit's divider tracking.
             inspectorItem.holdingPriority = .init(rawValue: 251)
+            inspectorItem.canCollapse = false
             addSplitViewItem(inspectorItem)
             inspectorItem.isCollapsed = !isPresented
         }

@@ -540,7 +540,9 @@ final class BrowsingShellRegression {
                 label, hitTargetChecks.contains(label) && frames[marker].map(Rect.init) == hitTargetFrames[marker],
                 expected:
                     "Lower-edge native input was verified at this control's current geometry in the active window",
-                observed: String(hitTargetFrames[marker] == frames[marker].map(Rect.init)))
+                observed:
+                    "verified=\(String(describing: hitTargetFrames[marker])), captured=\(String(describing: frames[marker].map(Rect.init)))"
+            )
         }
         check(
             "toolbar.shortcut-search", shortcutChecks.contains("toolbar.shortcut-search"),

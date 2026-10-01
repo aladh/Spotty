@@ -47,8 +47,8 @@ owns runtime ports and desktop presentation boundaries.
 
 [CI](../../../.github/workflows/ci.yml) and [workflow assertions](../../../Scripts/check-ci-workflow.rb)
 own tool selection, cache integrity, and complete verification. Three unconditional Linux jobs run
-source policies, domain build/tests, and playback/harness/watchdog/formatter-wrapper tests. The
-One ARM64 `xcode-27` job verifies macOS 27, Xcode 27.0, and SDK 27.0 before sequential: classified Rust/header
+source policies, domain build/tests, and playback/harness/watchdog/formatter-wrapper tests.
+One ARM64 `xcode-27` job verifies macOS 27, Xcode 27.0, and SDK 27.0, then runs phases sequentially: classified Rust/header
 checks and candidate production, contracts (shipping Debug, format, package, ABI, compiler and
 packaging checks), complete Swift tests plus acceptance and native GUI regression, then
 distribution Release plus size reporting. Pinned clean checkouts isolate phase products. Later phases run after earlier failures, with
@@ -59,7 +59,7 @@ Missing, failed, cancelled or inconsistent outcomes fail closed; only classified
 
 `SPOTTY_CHECK_PHASE` partitions only CI's `swift-compiled` scope. Normal verification remains
 complete. Each native and semantic/compiler assertion executes once per PR.
-Main repeats native checks three times; acceptance reuses Debug products and settings.
+Main runs the native Swift test suite three times; acceptance reuses Debug products and settings.
 
 Swift's contracts, tests and Release caches bind compiler, configuration, package, immutable pin
 and both SDK identities: wrapper-selected (`sdk`, labelled `wrapper-selected`) and Xcode default

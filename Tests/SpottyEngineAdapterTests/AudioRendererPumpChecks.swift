@@ -82,7 +82,7 @@ struct AudioRendererPumpChecks {
         #expect(
             AudioRendererPump.action(for: .enqueuedWithSuggestedFlush([.wasFlushedAutomatically(at: .zero)]))
                 == .recreate)
-        #expect(AudioRendererPump.action(for: .cancelledDueToFlush) == .stop)
+        #expect(AudioRendererPump.action(for: .cancelledDueToFlush) == .recreate)
         #expect(AudioRendererPump.action(for: .cancelledDueToError(SyntheticRendererError())) == .recreate)
     }
 }

@@ -570,7 +570,7 @@ nonisolated struct AudioRendererPump {
         switch result {
         case .enqueued: .advance
         case let .enqueuedWithSuggestedFlush(reasons): reasons.isEmpty ? .advance : .recreate
-        case .cancelledDueToFlush: .stop
+        case .cancelledDueToFlush: .recreate
         case .cancelledDueToError: .recreate
         @unknown default: .stop
         }

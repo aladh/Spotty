@@ -169,6 +169,8 @@ struct HomeScrollChecks {
             .onChange(of: player.phase) { _, phase in observedPhase = phase }
         }
         let host = NSHostingView(rootView: content())
+        // The app's viewport is window-owned; reconnecting content must not resize the test window.
+        host.sizingOptions = []
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
             backing: .buffered, defer: false)
@@ -182,17 +184,29 @@ struct HomeScrollChecks {
             host.layoutSubtreeIfNeeded()
             return appeared && page(in: host)?.contentSize.height == 600
         }
+        #expect(host.bounds.size == NSSize(width: 900, height: 600))
+        #expect(page(in: host)?.contentSize == NSSize(width: 900, height: 600))
         #expect(interaction.scrollOffset == offset)
-        for _ in 0..<2 {
+        for iteration in 0..<2 {
             player.withRuntime {
                 $0.accountStore.publishPhase(.ready)
                 _ = $0.send(.session(.ready), source: .account)
             }
             host.rootView = content()
-            try await requireEventually {
-                host.layoutSubtreeIfNeeded()
-                return observedPhase == .ready && abs((page(in: host)?.contentView.bounds.minY ?? 0) - offset) < 1
+            do {
+                try await requireEventually {
+                    host.layoutSubtreeIfNeeded()
+                    return observedPhase == .ready && abs((page(in: host)?.contentView.bounds.minY ?? 0) - offset) < 1
+                }
+            } catch {
+                let scroll = page(in: host)
+                Issue.record(
+                    "Home restoration iteration=\(iteration), requested=\(offset), observedReady=\(observedPhase == .ready), playerReady=\(player.phase == .ready), connected=\(player.isConnected), retainedOffset=\(interaction.scrollOffset), clipOffset=\(scroll?.contentView.bounds.minY ?? -1), documentHeight=\(scroll?.documentView?.bounds.height ?? -1), viewportHeight=\(scroll?.contentSize.height ?? -1), hostHeight=\(host.frame.height), windowContentHeight=\(window.contentLayoutRect.height)"
+                )
+                throw error
             }
+            #expect(host.bounds.size == NSSize(width: 900, height: 600))
+            #expect(page(in: host)?.contentSize == NSSize(width: 900, height: 600))
             #expect(interaction.scrollOffset == offset)
             player.withRuntime {
                 $0.accountStore.publishPhase(.recovering)
@@ -203,6 +217,8 @@ struct HomeScrollChecks {
                 host.layoutSubtreeIfNeeded()
                 return observedPhase == .recovering && page(in: host)?.contentView.bounds.minY == 0
             }
+            #expect(host.bounds.size == NSSize(width: 900, height: 600))
+            #expect(page(in: host)?.contentSize == NSSize(width: 900, height: 600))
             #expect(interaction.scrollOffset == offset)
         }
         await player.shutdownForTermination()

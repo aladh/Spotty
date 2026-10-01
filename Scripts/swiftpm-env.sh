@@ -6,6 +6,10 @@ if [[ -z "${project_root:-}" ]]; then
 fi
 
 sdk_path="$(env -u SDKROOT xcrun --sdk macosx --show-sdk-path)"
+if [[ -z "$sdk_path" ]]; then
+    print -u2 "xcrun returned no macOS SDK path"
+    return 1 2>/dev/null || exit 1
+fi
 
 mkdir -p "$project_root/.build/module-cache"
 export SDKROOT="$sdk_path"

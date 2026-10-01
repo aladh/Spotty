@@ -63,18 +63,54 @@ Follow [PR declarations](../../CONTRIBUTING.md#pull-request-execution) and
 [review evidence requirements](agent-reviews.md#evidence-and-coverage). Pending, dirty, stale, or
 missing evidence cannot establish passing behavior.
 
+## GUI shell regression
+
+```bash
+./Scripts/check-gui-regression.sh --output .build/gui-regression-local --expected-head "$(git rev-parse HEAD)"
+```
+
+Use a new output directory and a logged-in macOS GUI session. This development gate builds the
+Debug browsing harness in the shared `.build` after the Swift gate, then runs the browsing and
+signed-out fixtures through the actual Spotty scene. Each disposable `dev.spotty.gui-test-host`
+bundle uses injected synthetic dependencies, with no transport, mutation, audio, or network use.
+It is an unsandboxed, ad-hoc-signed test host; it cannot attest App Sandbox isolation. The separately
+signed, network-denied Demo workflow remains the owner of that evidence.
+
+The runner bounds each GUI attempt to 90 seconds and the complete invocation to five minutes.
+Missing GUI access fails; it never substitutes a skip or a previous report. It captures the exact
+LaunchServices app PID and executable/start identity for the unique bundle, then retires only that
+verified host and its own bounded `open -W -n` wrapper. Runtime stdout/stderr are retained separately
+from launcher/signing logs. Failed discovery never guesses an app PID. Existing Demo and live Spotty
+processes remain outside its ownership.
+
+`summary.json` and each run's `gui-evidence.json` retain source stability, launch/fixture/build/engine
+identity, failure reasons, and references to original reports and logs. Passing requires all eight
+browsing or four signed-out checkpoints, every declared geometry and rendered-chrome assertion,
+and zero commands, playing, and mutations throughout. Current-process own-window compositor PNGs
+bind the rendered padding checks to each window; separate view captures help diagnose failures.
+These assertions do not establish full visual parity, live playback, or audible output.
+The inactive checkpoint transfers key ownership to an empty fixture window while the app stays active;
+switching between applications remains separate interactive verification.
+
 ## Semantic UI smoke
 
 ```bash
 ./Scripts/smoke-synthetic-ui.sh
 ```
 
-This requires a logged-in macOS desktop and Accessibility permission for the invoking terminal or
-Codex, without Screen Recording. Preflight reports missing permission before building or launching.
-The [public Accessibility driver](../../Scripts/synthetic_ui_smoke.swift) revalidates Demo identity
-before actions: expand Focus, open Deep Work, await the playlist, press Play then Pause, and assert
-Play is available again. Readiness waits allow 15 seconds per checkpoint within the driver's
-75-second action deadline. The [wrapper](../../Scripts/smoke-synthetic-ui.sh) bounds the driver
-process to 90 seconds. Read the outcome in `.build/browsing-runs/run.*/ui-smoke.json`.
-Close the Demo after pass or failure.
-This proves that flow, not visual parity or live playback.
+This uses the signed, isolated Demo with the GUI browsing fixture. It requires a logged-in macOS
+desktop and existing Accessibility permission for the invoking terminal or Codex, without Screen
+Recording or permission changes. `--preflight` compiles the driver and checks permission without
+launching an app. `--run-root RUN_ROOT` attaches only to the exact owned signed Demo process;
+the unsandboxed CI GUI test host is not accepted.
+
+The [public Accessibility driver](../../Scripts/synthetic_ui_smoke.swift) exercises Home, Search
+filters, selection-only Songs, album detail, repeated Back/Forward, rapid query replacement and
+clear/recovery, then Focus/Deep Work. It revalidates process/run identity, synthetic dependencies,
+verified network sandbox, and fresh status before actions, with a post-action status barrier proving
+command and mutation counts remain unchanged. It never activates transport or media keys.
+
+Readiness waits allow 15 seconds per checkpoint within a 120-second action deadline. The wrapper
+bounds the single driver attempt to 135 seconds and retains partial checkpoints and baseline/observed
+safety state in `.build/browsing-runs/run.*/ui-smoke.json`. Reusing same-run evidence fails.
+Close the Demo after pass or failure. This proves the declared flow, not visual parity or live playback.

@@ -93,7 +93,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     func events() -> AsyncStream<SystemLifecycleEvent> { AsyncStream { $0.finish() } }
     func initialize() -> PlaybackEngineResult {
         record("engine.synthetic-initialize")
-        if scenario.mode == .playback { playback.publish() }
+        if scenario.mode == .playback || scenario.guiShellRegression == true { playback.publish() }
         return .ok
     }
     func authorizeStreaming(with _: String) -> Int32 { _ = rejectMutation(); return -1 }
@@ -122,7 +122,9 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         try playback.send(command, to: target)
     }
     func trackMetadata(for uri: String) async throws -> SpotifyConnectTrackMetadata {
-        guard scenario.mode == .playback, uri.hasPrefix("spotify:track:synthetic") else {
+        guard scenario.mode == .playback || scenario.guiShellRegression == true,
+            uri.hasPrefix("spotify:track:synthetic")
+        else {
             throw BrowsingFailure.unsupportedAction
         }
         record("playback.metadata")
@@ -146,9 +148,10 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     func setShuffleHistory(_ value: [String: TimeInterval]) async { lock.withLock { history = value } }
     func now() -> Date { scenario.mode == .playback ? Date() : Date(timeIntervalSince1970: 1_800_000_000) }
 
-    /// Browsing has no playback time events. Park background timers until their owner cancels.
+    /// GUI browsing needs real search admission timers without enabling playback time events.
+    /// Legacy measured browsing parks background timers until their owner cancels.
     func sleep(seconds: TimeInterval) async throws {
-        if scenario.mode == .playback {
+        if scenario.mode == .playback || scenario.guiShellRegression == true {
             try await ContinuousClock().sleep(for: .seconds(seconds))
             return
         }

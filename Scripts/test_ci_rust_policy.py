@@ -434,7 +434,7 @@ class AggregateGateTests(unittest.TestCase):
     def test_swift_gate_requires_tests_and_complete_acceptance_evidence(self):
         required = {key: "success" for key in (
             "CHECKS_RESULT", "ACCEPTANCE_RESULT", "ACCEPTANCE_SUMMARY_RESULT", "ACCEPTANCE_UPLOAD_RESULT",
-            "FOCUSED_SMOKE_RESULT", "SELECTION_UPLOAD_RESULT")}
+            "FOCUSED_SMOKE_RESULT", "SELECTION_UPLOAD_RESULT", "GUI_RESULT", "GUI_UPLOAD_RESULT")}
         for requested, result in (("false", "skipped"), ("true", "success")):
             for host_requested, host_result in (("false", "skipped"), ("true", "success")):
                 valid = {**required, "SELECTION_EXPERIMENT_REQUESTED": requested,

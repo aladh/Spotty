@@ -195,17 +195,28 @@ final class MacSystemMediaControlsOutput: SystemMediaControlsOutput {
             (commands.previousTrackCommand, .previous),
         ]
         for (command, action) in bindings {
-            let token = command.addTarget { [admission] _ in
-                guard let generation = admission.admit(action) else { return .commandFailed }
-                // The cached projection admits without blocking MediaPlayer. The store handler
-                // revalidates current readiness on MainActor before dispatching any command.
-                Task { @MainActor in
-                    guard admission.isCurrent(generation) else { return }
-                    _ = handler(action)
-                }
-                return .success
-            }
+            let token = command.addTarget(
+                handler: Self.makeCommandHandler(action, admission: admission, handler: handler))
             targets.append((command, token))
+        }
+    }
+
+    /// MediaPlayer owns event construction. The ignored optional payload lets tests invoke this
+    /// same callback without claiming system media keys or fabricating framework events.
+    /// Explicit Sendable isolation keeps its admission work independent of MainActor.
+    static func makeCommandHandler(
+        _ action: SystemMediaCommand, admission: SystemMediaAdmission,
+        handler: @escaping @MainActor @Sendable (SystemMediaCommand) -> Bool
+    ) -> @Sendable (MPRemoteCommandEvent?) -> MPRemoteCommandHandlerStatus {
+        { @Sendable _ in
+            guard let generation = admission.admit(action) else { return .commandFailed }
+            // The cached projection admits without blocking MediaPlayer. The store handler
+            // revalidates current readiness on MainActor before dispatching any command.
+            Task { @MainActor in
+                guard admission.isCurrent(generation) else { return }
+                _ = handler(action)
+            }
+            return .success
         }
     }
 

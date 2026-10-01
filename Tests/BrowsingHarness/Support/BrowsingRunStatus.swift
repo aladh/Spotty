@@ -32,15 +32,28 @@ struct BrowsingRunStatus: Encodable {
     let pid: Int32
     let state: State
     let failureCode: String?
+    let recordedAtSeconds: Double
+    let networkSandboxVerified: Bool
+    let syntheticDependencies = true
+    let engineUsedForPlayback = false
+    let commandCount: Int
+    let mutationAttempts: Int
     let window: Window
     let display: Display
 
     @MainActor
-    init(launch: BrowsingLaunch, state: State, failureCode: String?, window: NSWindow?) {
+    init(
+        launch: BrowsingLaunch, state: State, failureCode: String?, window: NSWindow?,
+        networkSandboxVerified: Bool, world: BrowsingWorld
+    ) {
         runID = launch.runID
         pid = ProcessInfo.processInfo.processIdentifier
         self.state = state
         self.failureCode = failureCode
+        recordedAtSeconds = Date().timeIntervalSince1970
+        self.networkSandboxVerified = networkSandboxVerified
+        commandCount = world.playback.snapshot().commandCount
+        mutationAttempts = world.snapshot().mutationAttempts
         self.window = Window(
             visible: window?.occlusionState.contains(.visible) == true,
             miniaturized: window?.isMiniaturized ?? false,

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "mode": "browsing",
+  "trackCount": 80,
+  "artworkCount": 12,
+  "artworkPixels": 640,
+  "cycles": 1,
+  "dwellMilliseconds": 250,
+  "expandedLibrary": true,
+  "forceSynchronousLayout": false,
+  "guiShellRegression": true
+}

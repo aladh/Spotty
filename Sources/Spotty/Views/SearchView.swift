@@ -92,6 +92,7 @@ struct SearchView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, CatalogLayout.contentPadding)
         .padding(.vertical, 16)
+        .shellGeometry("search.filters")
     }
 
     private var filterButtons: some View {

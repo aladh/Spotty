@@ -21,16 +21,19 @@ struct BrowsingLaunch: Codable {
     let layout: BrowsingLayoutIdentity
     let automated: Bool
     var waitForProfiler: Bool? = nil
+    /// CI's synthetic full-scene host is separate from the network-sandboxed Demo.
+    var guiTestHost: Bool? = nil
 
     static func read() throws -> (Self, BrowsingScenario) {
-        guard let root = Bundle.main.resourceURL,
-            Bundle.main.bundleIdentifier == "dev.spotty.demo"
-        else { throw BrowsingFailure.invalidScenario }
+        guard let root = Bundle.main.resourceURL else { throw BrowsingFailure.invalidScenario }
         let launch = try JSONDecoder().decode(
             Self.self, from: Data(contentsOf: root.appendingPathComponent("launch.json")))
         let scenario = try BrowsingScenario.decode(Data(contentsOf: root.appendingPathComponent("scenario.json")))
         let execution = BrowsingExecutionConfiguration.current
         guard launch.schemaVersion == 1, UUID(uuidString: launch.runID) != nil,
+            (launch.guiTestHost == true
+                ? Bundle.main.bundleIdentifier == "dev.spotty.gui-test-host" && scenario.guiShellRegression == true
+                : Bundle.main.bundleIdentifier == "dev.spotty.demo"),
             launch.runRoot.hasPrefix("/"), FileManager.default.fileExists(atPath: launch.runRoot),
             launch.build.configuration == execution.configuration,
             launch.build.optimization == execution.optimization, launch.build.testabilityEnabled,
@@ -117,6 +120,7 @@ private struct BrowsingReport: Encodable {
     let playback: SyntheticPlayback.Snapshot
     let playbackCheckpoints: [PlaybackTraceCheckpoint]
     let acceptanceRuntime: AcceptanceRuntimeReport?
+    let shellRegression: BrowsingShellRegression.Report?
     let responsiveness: BrowsingResponsivenessReport?
     let queueHydration: [QueueHydrationMeasurement]
     let queueRefresh: QueueRefreshDiagnostics
@@ -138,6 +142,9 @@ final class BrowsingRun {
     @ObservationIgnored private var playbackClock: Task<Void, Never>?
     @ObservationIgnored private var playbackCheckpoints: [PlaybackTraceCheckpoint] = []
     @ObservationIgnored private var acceptanceRuntime: AcceptanceRuntimeReport?
+    @ObservationIgnored private var shellRegression: BrowsingShellRegression?
+    @ObservationIgnored private var statusPulse: Task<Void, Never>?
+    @ObservationIgnored private var runStatusState: BrowsingRunStatus.State = .ready
     @ObservationIgnored private var queueHydration: [QueueHydrationMeasurement] = []
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var samples: [BrowsingSample] = []
@@ -171,9 +178,18 @@ final class BrowsingRun {
             }
         }
         // The finite workload retains its app-owned model until the report is written.
-        workload = Task {
+        workload = Task { [self] in
             do {
                 try await prepare()
+                if !launch.automated {
+                    statusPulse = Task { [weak self] in
+                        while !Task.isCancelled {
+                            guard let self else { return }
+                            try? self.writeRunStatus(self.runStatusState)
+                            do { try await ContinuousClock().sleep(for: .milliseconds(100)) } catch { return }
+                        }
+                    }
+                }
                 if launch.automated { await perform() }
             } catch {
                 status = error.localizedDescription
@@ -184,8 +200,10 @@ final class BrowsingRun {
     }
 
     private func prepare() async throws {
-        try verifyNetworkSandbox()
-        networkSandboxVerified = true
+        if launch.guiTestHost != true {
+            try verifyNetworkSandbox()
+            networkSandboxVerified = true
+        }
         for _ in 0..<200 {
             if window() != nil, world.snapshot().requests["account.has-grant"] != nil,
                 player.accountStore.phase == (world.scenario.mode != .signedOut ? .ready : .signedOut)
@@ -230,7 +248,15 @@ final class BrowsingRun {
                 measurement.start(window: window)
             }
             try writeRunStatus(.workloadRunning)
-            if world.scenario.acceptanceScenarioID != nil {
+            if world.scenario.guiShellRegression == true {
+                guard let window = window() else { throw BrowsingFailure.checkpoint("shell.window") }
+                let recorder = BrowsingShellRegression(launch: launch, networkSandboxVerified: networkSandboxVerified)
+                shellRegression = recorder
+                try await recorder.run(player: player, world: world, navigation: navigation, window: window) {
+                    checkpoint in
+                    try await self.sample(checkpoint, started: started)
+                }
+            } else if world.scenario.acceptanceScenarioID != nil {
                 let acceptance = await AcceptanceScenarioRuntime.runWithDeadline(
                     player: player, world: world, navigation: navigation,
                     timeoutSeconds: world.scenario.acceptanceTimeoutSeconds ?? 120,
@@ -239,7 +265,11 @@ final class BrowsingRun {
                 playbackCheckpoints = acceptance.playbackCheckpoints
                 if let failure = acceptance.failure { throw BrowsingFailure.checkpoint(failure.checkpoint) }
             }
-            if world.scenario.mode == .signedOut {
+            if world.scenario.guiShellRegression == true {
+                guard !player.isPlaying, world.playback.snapshot().commandCount == 0 else {
+                    throw BrowsingFailure.checkpoint("shell.no-playback")
+                }
+            } else if world.scenario.mode == .signedOut {
                 guard player.accountStore.phase == .signedOut else { throw BrowsingFailure.checkpoint("signed-out") }
                 try await sample("signed-out.ready", started: started)
             } else {
@@ -334,7 +364,11 @@ final class BrowsingRun {
     }
 
     private func writeRunStatus(_ state: BrowsingRunStatus.State, failureCode: String? = nil) throws {
-        try BrowsingRunStatus(launch: launch, state: state, failureCode: failureCode, window: window()).write(
+        runStatusState = state
+        try BrowsingRunStatus(
+            launch: launch, state: state, failureCode: failureCode, window: window(),
+            networkSandboxVerified: networkSandboxVerified, world: world
+        ).write(
             to: URL(fileURLWithPath: launch.runRoot).appendingPathComponent("run-status.json"))
     }
 
@@ -399,7 +433,12 @@ final class BrowsingRun {
         let responsivenessReport = responsiveness?.stop()
         let window = window()
         let process = ProcessInfo.processInfo
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        // Only the signed Demo's sandbox makes the user-domain URL fixture-owned. The GUI test
+        // host intentionally has no sandbox attestation and must not enumerate the user's caches.
+        let cache =
+            launch.guiTestHost == true
+            ? URL(fileURLWithPath: launch.runRoot).appendingPathComponent("cache")
+            : FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         let cacheBytes = await BrowsingCacheMeasurement().bytes(at: cache)
         let report = BrowsingReport(
             launch: launch, scenario: world.scenario, os: process.operatingSystemVersionString,
@@ -411,6 +450,7 @@ final class BrowsingRun {
             networkSandboxVerified: networkSandboxVerified,
             samples: samples, world: world.snapshot(), playback: world.playback.snapshot(),
             playbackCheckpoints: playbackCheckpoints, acceptanceRuntime: acceptanceRuntime,
+            shellRegression: shellRegression?.report,
             responsiveness: responsivenessReport,
             queueHydration: queueHydration, queueRefresh: await player.queueService.refreshDiagnostics,
             passed: failure == nil, failure: failure

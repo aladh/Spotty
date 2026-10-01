@@ -553,6 +553,22 @@ jobs:
           path: ${{ runner.temp }}/spotty-acceptance
           if-no-files-found: error
           retention-days: 7
+      # The shared production scene supplies native toolbar and compositor evidence without sign-in.
+      - name: Run Demo GUI regression
+        id: gui
+        timeout-minutes: 6
+        env:
+          GUI_REVISION: ${{ github.sha }}
+        run: ./Scripts/check-gui-regression.sh --output "$RUNNER_TEMP/spotty-gui-regression" --expected-head "$GUI_REVISION"
+      - name: Upload Demo GUI evidence
+        id: gui_upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-regression-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/spotty-gui-regression
+          if-no-files-found: error
+          retention-days: 7
       - name: Collect supported-toolchain selection evidence
         id: selection_experiment
         if: success() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence') && steps.acceptance.outcome == 'success' && steps.acceptance_summary.outcome == 'success' && steps.acceptance_upload.outcome == 'success'
@@ -593,6 +609,8 @@ jobs:
           ACCEPTANCE_RESULT: ${{ steps.acceptance.outcome }}
           ACCEPTANCE_SUMMARY_RESULT: ${{ steps.acceptance_summary.outcome }}
           ACCEPTANCE_UPLOAD_RESULT: ${{ steps.acceptance_upload.outcome }}
+          GUI_RESULT: ${{ steps.gui.outcome }}
+          GUI_UPLOAD_RESULT: ${{ steps.gui_upload.outcome }}
           FOCUSED_SMOKE_RESULT: ${{ steps.focused_smoke.outcome }}
           SELECTION_UPLOAD_RESULT: ${{ steps.selection_upload.outcome }}
           SELECTION_EXPERIMENT_REQUESTED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence') }}
@@ -604,6 +622,8 @@ jobs:
           test "$ACCEPTANCE_RESULT" = success
           test "$ACCEPTANCE_SUMMARY_RESULT" = success
           test "$ACCEPTANCE_UPLOAD_RESULT" = success
+          test "$GUI_RESULT" = success
+          test "$GUI_UPLOAD_RESULT" = success
           test "$FOCUSED_SMOKE_RESULT" = success
           test "$SELECTION_UPLOAD_RESULT" = success
           case "$SELECTION_EXPERIMENT_REQUESTED:$SELECTION_EXPERIMENT_RESULT" in

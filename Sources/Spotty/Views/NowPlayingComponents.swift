@@ -59,8 +59,11 @@ struct NowPlayingTrackIdentity: View {
     }
 
     private var artwork: some View {
-        RemoteArtwork(url: player.displayedArtworkURL, kind: .track, cornerRadius: 3)
-            .frame(width: 56, height: 56)
+        RemoteArtwork(
+            url: player.displayedArtworkURL, kind: .track, cornerRadius: 3,
+            geometryIdentifier: "shell.track-artwork"
+        )
+        .frame(width: 56, height: 56)
     }
 }
 

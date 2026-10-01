@@ -348,6 +348,36 @@ module WorkflowPolicy
     debug_index = swift_steps.index(debug_step)
     check.call(acceptance_index && debug_index && debug_index < acceptance_index,
                'acceptance corpus must run after Swift checks in its owning lane')
+    gui_spec = {
+      'gui' => {
+        'name' => 'Run Demo GUI regression', 'timeout-minutes' => 6,
+        'env' => { 'GUI_REVISION' => '${{ github.sha }}' },
+        'run' => './Scripts/check-gui-regression.sh --output "$RUNNER_TEMP/spotty-gui-regression" --expected-head "$GUI_REVISION"',
+      },
+      'gui_upload' => {
+        'name' => 'Upload Demo GUI evidence', 'if' => 'always()',
+        'uses' => "actions/upload-artifact@#{UPLOAD_SHA}",
+        'with' => { 'name' => 'gui-regression-${{ github.run_id }}-${{ github.run_attempt }}',
+                    'path' => '${{ runner.temp }}/spotty-gui-regression', 'if-no-files-found' => 'error', 'retention-days' => 7 },
+      },
+    }
+    gui_positions = [debug_index]
+    gui_spec.each do |id, fields|
+      matches = swift_steps.select { |step| step['id'] == id || step['name'] == fields['name'] }
+      check.call(matches.length == 1 && matches.first == fields.merge('id' => id),
+                 "#{id} GUI regression must retain its required bounded execution and evidence contract")
+      gui_positions << swift_steps.index(matches.first)
+    end
+    gui_positions << swift_steps.index(swift_gate)
+    check.call(gui_positions.none?(&:nil?) && gui_positions == gui_positions.sort && gui_positions.uniq.length == gui_positions.length,
+               'GUI regression must follow Swift checks and upload before the outcome gate')
+    check.call(runs.count { |run| run.include?('check-gui-regression.sh') } == 1,
+               'GUI regression must execute once in its owning lane without retries')
+    %w[GUI_RESULT GUI_UPLOAD_RESULT].zip(gui_spec.keys).each do |result, id|
+      check.call(swift_gate.dig('env', result) == "${{ steps.#{id}.outcome }}" &&
+                 swift_gate.fetch('run', '').lines.map(&:strip).include?("test \"$#{result}\" = success"),
+                 "GUI regression aggregate must require #{result} success")
+    end
     debug_evidence = one_step(check, swift_steps, 'Upload Swift test diagnostics')
     debug_evidence_spec = {
       'name' => 'Upload Swift test diagnostics',

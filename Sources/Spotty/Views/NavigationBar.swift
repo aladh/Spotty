@@ -32,6 +32,7 @@ struct NavigationBar: View {
             .help("Home")
             .focusable()
             .focused($homeIsFocused)
+            .shellGeometry("shell.home")
             HStack(spacing: 12) {
                 Button {
                     searchField.focus()
@@ -77,12 +78,15 @@ struct NavigationBar: View {
                 Capsule().strokeBorder(searchField.isFocused ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
                     .allowsHitTesting(false)
             }
+            .shellGeometry("shell.search")
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.plain)
         .font(.system(size: 18))
         .frame(width: 530)
-        .padding(.vertical, 8)
+        // AppKit's unified row is 52pt. Keep the 48pt controls inside that native geometry.
+        .padding(.vertical, 2)
+        .shellGeometry("shell.navigation")
         .onChange(of: searchText) {
             if !searchText.isEmpty { showSearch() }
         }
@@ -90,6 +94,41 @@ struct NavigationBar: View {
             if !isSearch { searchField.blur() }
         }
         .defaultFocus($homeIsFocused, true)
+    }
+}
+
+struct HistoryNavigationButton: View {
+    let title: String
+    let symbol: String
+    let isEnabled: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    init(_ title: String, symbol: String, isEnabled: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.symbol = symbol
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 20))
+                .foregroundStyle(
+                    isEnabled
+                        ? (isHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary)
+                        : Color(white: 0.3)
+                )
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .onHover { isHovered = $0 }
+        .pointingHandCursor(enabled: isEnabled)
+        .accessibilityLabel(title)
+        .help(title)
     }
 }
 

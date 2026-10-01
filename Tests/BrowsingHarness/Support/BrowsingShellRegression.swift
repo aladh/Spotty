@@ -1,0 +1,601 @@
+import AppKit
+import CryptoKit
+import Foundation
+import ScreenCaptureKit
+import SpottyDomain
+@testable import SpottyCore
+
+/// The full app scene is the host. This recorder samples product-owned markers and public
+/// AppKit toolbar views; it never searches the internal SwiftUI view hierarchy.
+@MainActor
+final class BrowsingShellRegression {
+    struct Rect: Codable, Equatable {
+        let x: Double
+        let y: Double
+        let width: Double
+        let height: Double
+
+        init(_ value: CGRect) {
+            x = Double(value.minX)
+            y = Double(value.minY)
+            width = Double(value.width)
+            height = Double(value.height)
+        }
+    }
+
+    struct Assertion: Codable {
+        let name: String
+        let passed: Bool
+        let expected: String
+        let observed: String
+    }
+
+    struct Capture: Codable {
+        let file: String
+        let source: String
+        let pixelWidth: Int
+        let pixelHeight: Int
+        let byteCount: Int
+        let sha256: String
+    }
+
+    struct ToolbarItem: Codable {
+        let identifier: String
+        let frame: Rect?
+    }
+
+    struct PixelSample: Codable {
+        let name: String
+        let windowRect: Rect
+        let pixelRect: Rect
+        let pixelCount: Int
+        let minimumAlpha: Int
+        let maximumRGB: Int
+        let meanRGB: Double
+    }
+
+    private struct WindowRaster {
+        let capture: Capture
+        let bitmap: NSBitmapImageRep
+        let filterRect: CGRect
+        let filterScale: Float
+    }
+
+    struct Checkpoint: Codable {
+        let name: String
+        let runID: String
+        let host: String
+        let sourceSHA256: String
+        let buildProductSHA256: String
+        let elapsedSeconds: Double
+        let keyWindow: Bool
+        let appActive: Bool
+        let visible: Bool
+        let backingScale: Double
+        let windowNumber: Int
+        let playing: Bool
+        let commandCount: Int
+        let mutationAttempts: Int
+        let windowFrame: Rect
+        let contentBounds: Rect
+        let contentLayoutRect: Rect
+        let requestedBodySize: Rect?
+        let captureContentRect: Rect?
+        let capturePointPixelScale: Double?
+        let markers: [String: Rect]
+        let toolbarItems: [ToolbarItem]
+        let captures: [Capture]
+        let pixelSamples: [PixelSample]
+        let assertions: [Assertion]
+    }
+
+    struct Report: Encodable {
+        let schemaVersion = 1
+        let launch: BrowsingLaunch
+        let host: String
+        let os: String
+        let captureLimit =
+            "Required ScreenCaptureKit current-process capture of this synthetic window includes the native toolbar. Additional public NSView cacheDisplay images are separate diagnostic surfaces. Screenshots do not establish visual parity."
+        let coordinateSpace = "NSWindow base coordinates, bottom-left origin"
+        let networkSandboxVerified: Bool
+        let checkpoints: [Checkpoint]
+        let passed: Bool
+        let failure: String?
+    }
+
+    private let launch: BrowsingLaunch
+    private let networkSandboxVerified: Bool
+    private let started = ContinuousClock.now
+    private var checkpoints: [Checkpoint] = []
+    private var completed = false
+    private var requestedBodySize: CGSize?
+    private var deadline = ContinuousClock.now
+    private(set) var failure: String?
+
+    init(launch: BrowsingLaunch, networkSandboxVerified: Bool) {
+        self.launch = launch
+        self.networkSandboxVerified = networkSandboxVerified
+    }
+
+    var report: Report {
+        Report(
+            launch: launch, host: Bundle.main.bundleIdentifier ?? "unknown",
+            os: ProcessInfo.processInfo.operatingSystemVersionString,
+            networkSandboxVerified: networkSandboxVerified, checkpoints: checkpoints,
+            passed: completed && failure == nil && !checkpoints.isEmpty, failure: failure)
+    }
+
+    func run(
+        player: PlaybackStore, world: BrowsingWorld, navigation: CatalogNavigation, window: NSWindow,
+        sampled: (String) async throws -> Void
+    ) async throws {
+        deadline = ContinuousClock.now.advanced(by: .seconds(60))
+        do {
+            // SwiftUI must create its application before a direct-launched fixture requests activation.
+            guard NSApp.activationPolicy() == .regular || NSApp.setActivationPolicy(.regular) else {
+                throw BrowsingFailure.checkpoint("shell.activation-policy")
+            }
+            let signedOut = world.scenario.mode == .signedOut
+            if !signedOut {
+                try await wait("restore.paused-artwork", deadline: deadline) {
+                    player.hasCurrentTrack && !player.isPlaying && player.displayedArtworkURL != nil
+                        && ShellGeometry.frames(in: window)["shell.track-artwork.loaded"] != nil
+                }
+            }
+            navigation.updateSelection(.destination(.home))
+            for (name, size) in [
+                ("default", NSSize(width: 1220, height: 780)),
+                ("minimum", NSSize(width: 960, height: 640)),
+            ] {
+                resize(window, bodySize: size)
+                NSApp.activate()
+                window.makeKeyAndOrderFront(nil)
+                try await settle(window: window, deadline: deadline)
+                let checkpoint = "\(signedOut ? "signed-out" : "home").\(name)"
+                try await capture(checkpoint, player: player, world: world, window: window, expectedKey: true)
+                try await sampled(checkpoint)
+            }
+            // Transfer native key ownership to an empty fixture window. Calling resignKey()
+            // directly does not update AppKit's key-window bookkeeping for a later reactivation.
+            let focusWindow = ShellFocusWindow(
+                contentRect: CGRect(x: window.frame.minX - 64, y: window.frame.minY, width: 32, height: 32),
+                styleMask: [.titled], backing: .buffered, defer: false)
+            focusWindow.isReleasedWhenClosed = false
+            focusWindow.identifier = NSUserInterfaceItemIdentifier("spotty.gui.focus-fixture")
+            defer { focusWindow.close() }
+            focusWindow.makeKeyAndOrderFront(nil)
+            try await wait("window.inactive", deadline: deadline) { focusWindow.isKeyWindow && !window.isKeyWindow }
+            try await settle(window: window, deadline: deadline)
+            try await capture("shell.inactive", player: player, world: world, window: window, expectedKey: false)
+            try await sampled("shell.inactive")
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+            try await wait("window.reactivated", deadline: deadline) { window.isKeyWindow && NSApp.isActive }
+            focusWindow.orderOut(nil)
+            resize(window, bodySize: NSSize(width: 1080, height: 700))
+            try await settle(window: window, deadline: deadline)
+            try await capture("shell.resized", player: player, world: world, window: window, expectedKey: true)
+            try await sampled("shell.resized")
+            if !signedOut {
+                navigation.updateSelection(.destination(.search))
+                navigation.searchText = "Signals"
+                await player.catalog.searchStore.search("Signals")
+                try await wait("search.ready", deadline: deadline) {
+                    !player.catalog.searchStore.isAwaitingResults(for: "Signals")
+                        && !player.catalog.searchStore.albums.isEmpty
+                }
+                try await settle(window: window, deadline: deadline, required: ["search.filters"])
+                try await capture("search.all", player: player, world: world, window: window, expectedKey: true)
+                try await sampled("search.all")
+                navigation.searchInteraction.filter = .albums
+                try await settle(window: window, deadline: deadline, required: ["search.filters"])
+                try await capture("search.albums", player: player, world: world, window: window, expectedKey: true)
+                try await sampled("search.albums")
+                try await wait("detail.library-ready", deadline: deadline) {
+                    !player.catalog.homeLibrary.playlists.isEmpty
+                }
+                guard let item = player.catalog.homeLibrary.playlists.first else {
+                    throw BrowsingFailure.checkpoint("detail.fixture")
+                }
+                await player.catalog.playlistStore.load(item)
+                navigation.select(item)
+                try await wait("detail.ready", deadline: deadline) {
+                    player.catalog.playlistStore.loadedURI == item.uri
+                        && player.catalog.playlistStore.tracks.count == world.scenario.trackCount
+                        && window.contentView.map { BrowsingRun.findPlaylistScrollView(in: $0) != nil } == true
+                }
+                try await settle(window: window, deadline: deadline)
+                try await capture("detail.playlist", player: player, world: world, window: window, expectedKey: true)
+                try await sampled("detail.playlist")
+                navigation.goBack()
+                try await settle(window: window, deadline: deadline, required: ["search.filters"])
+                try await capture("search.returned", player: player, world: world, window: window, expectedKey: true)
+                try await sampled("search.returned")
+            }
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("shell.deadline") }
+            completed = true
+            try write()
+        } catch {
+            failure = error.localizedDescription
+            // Preserve observed geometry and safety state even when a readiness deadline fails.
+            try? await capture(
+                "failure-state", player: player, world: world, window: window, expectedKey: window.isKeyWindow)
+            try? write()
+            throw error
+        }
+    }
+
+    private func resize(_ window: NSWindow, bodySize: NSSize) {
+        requestedBodySize = bodySize
+        // SpottyScene's default/minimum sizes describe the root view. Public AppKit's
+        // contentLayoutRect excludes its toolbar; contentView includes that toolbar inset.
+        let inset = (window.contentView?.bounds.height ?? 0) - window.contentLayoutRect.height
+        window.setContentSize(NSSize(width: bodySize.width, height: bodySize.height + max(0, inset)))
+    }
+
+    private func settle(window: NSWindow, deadline: ContinuousClock.Instant, required: [String] = []) async throws {
+        var previous: [String: Rect] = [:]
+        var stableSince = ContinuousClock.now
+        try await wait("shell.geometry-ready", deadline: deadline) {
+            let frames = ShellGeometry.frames(in: window)
+            guard
+                (["shell.sidebar", "shell.catalog", "shell.player", "shell.navigation"] + required)
+                    .allSatisfy({ frames[$0].map { $0.width > 0 && $0.height > 0 } == true })
+            else { return false }
+            let current = frames.mapValues(Rect.init)
+            if current != previous {
+                previous = current
+                stableSince = .now
+                return false
+            }
+            return stableSince.duration(to: .now) >= .milliseconds(250)
+        }
+    }
+
+    private func wait(
+        _ checkpoint: String, deadline: ContinuousClock.Instant, ready: () -> Bool
+    ) async throws {
+        while true {
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint(checkpoint) }
+            if ready() { return }
+            try await ContinuousClock().sleep(for: .milliseconds(40))
+        }
+    }
+
+    private func capture(
+        _ name: String, player: PlaybackStore, world: BrowsingWorld, window: NSWindow, expectedKey: Bool
+    ) async throws {
+        if name != "failure-state" {
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("shell.deadline") }
+        }
+        guard let content = window.contentView else { throw BrowsingFailure.checkpoint("shell.content-view") }
+        var frames = ShellGeometry.frames(in: window)
+        if name == "detail.playlist", let scroll = BrowsingRun.findPlaylistScrollView(in: content) {
+            frames["detail.native-scroll"] = scroll.convert(scroll.bounds, to: nil)
+        }
+        var assertions: [Assertion] = []
+        func check(_ label: String, _ passed: Bool, expected: String, observed: String) {
+            assertions.append(Assertion(name: label, passed: passed, expected: expected, observed: observed))
+        }
+        let contentFrame = content.convert(content.bounds, to: nil)
+        let tolerance: CGFloat = 2
+        if let requestedBodySize {
+            check(
+                "window.requested-body-size",
+                abs(content.bounds.width - requestedBodySize.width) <= tolerance
+                    && abs(window.contentLayoutRect.height - requestedBodySize.height) <= tolerance,
+                expected: "\(requestedBodySize.width)x\(requestedBodySize.height)pt root body",
+                observed: "\(content.bounds.width)x\(window.contentLayoutRect.height)pt")
+        }
+        for id in [
+            "shell.sidebar", "shell.catalog", "shell.player", "shell.navigation", "shell.home", "shell.search",
+            "shell.history.back", "shell.history.forward",
+        ] {
+            let frame = frames[id] ?? .zero
+            check(
+                "\(id).visible",
+                frame.width > 0 && frame.height > 0
+                    && contentFrame.insetBy(dx: -tolerance, dy: -tolerance).contains(frame),
+                expected: "Nonempty and contained by window content", observed: NSStringFromRect(frame))
+        }
+        if let sidebar = frames["shell.sidebar"], let catalog = frames["shell.catalog"],
+            let shelf = frames["shell.player"], let toolbar = frames["shell.navigation"]
+        {
+            check(
+                "sidebar.width", (180 - tolerance...260 + tolerance).contains(sidebar.width),
+                expected: "180...260pt", observed: "\(sidebar.width)")
+            check(
+                "catalog.excludes-sidebar", sidebar.maxX <= catalog.minX + tolerance,
+                expected: "Sidebar ends before catalog", observed: "\(sidebar.maxX), \(catalog.minX)")
+            check(
+                "player.excludes-catalog", shelf.maxY <= catalog.minY + tolerance,
+                expected: "Player below catalog", observed: "\(shelf.maxY), \(catalog.minY)")
+            check(
+                "toolbar.excludes-catalog", catalog.maxY <= toolbar.minY + tolerance,
+                expected: "Toolbar above catalog", observed: "\(catalog.maxY), \(toolbar.minY)")
+            check(
+                "player.height", shelf.height >= 72 - tolerance,
+                expected: "At least 72pt", observed: "\(shelf.height)")
+        }
+        if let home = frames["shell.home"], let search = frames["shell.search"] {
+            check(
+                "toolbar.controls-disjoint", !home.intersects(search),
+                expected: "Home and Search do not overlap",
+                observed: "\(NSStringFromRect(home)), \(NSStringFromRect(search))")
+            check(
+                "toolbar.search-height", abs(search.height - 48) <= tolerance,
+                expected: "48pt", observed: "\(search.height)")
+        }
+        for id in ["shell.history.back", "shell.history.forward"] {
+            let frame = frames[id] ?? .zero
+            check(
+                "\(id).hitbox-size", abs(frame.width - 32) <= tolerance && abs(frame.height - 32) <= tolerance,
+                expected: "32x32pt history arrow hitbox", observed: NSStringFromRect(frame))
+        }
+        if let back = frames["shell.history.back"], let forward = frames["shell.history.forward"],
+            let navigation = frames["shell.navigation"]
+        {
+            check(
+                "toolbar.history-controls-disjoint",
+                !back.intersects(forward)
+                    && !back.intersects(navigation) && !forward.intersects(navigation),
+                expected: "History arrows do not overlap each other or Home/Search",
+                observed:
+                    "back=\(NSStringFromRect(back)), forward=\(NSStringFromRect(forward)), navigation=\(NSStringFromRect(navigation))"
+            )
+        }
+        if let filters = frames["search.filters"], let catalog = frames["shell.catalog"] {
+            check(
+                "search.filters-contained", catalog.insetBy(dx: -tolerance, dy: -tolerance).contains(filters),
+                expected: "Search filters inside catalog", observed: NSStringFromRect(filters))
+        }
+        if name == "detail.playlist" {
+            let frame = frames["detail.native-scroll"] ?? .zero
+            let catalog = frames["shell.catalog"] ?? .zero
+            check(
+                "detail.native-scroll-contained",
+                frame.width > 0 && frame.height > 0
+                    && catalog.insetBy(dx: -tolerance, dy: -tolerance).contains(frame),
+                expected: "Attached native detail scroll surface inside catalog", observed: NSStringFromRect(frame))
+        }
+        check(
+            "window.key-state", window.isKeyWindow == expectedKey,
+            expected: "\(expectedKey)", observed: "\(window.isKeyWindow)")
+        check(
+            "window.application-active-state", NSApp.isActive,
+            expected: "Active fixture application; key-window state is tested separately", observed: "\(NSApp.isActive)"
+        )
+        check(
+            "safety.no-playing", !player.isPlaying && !world.playback.snapshot().playing,
+            expected: "Paused", observed: "store=\(player.isPlaying), fixture=\(world.playback.snapshot().playing)")
+        check(
+            "safety.no-commands", world.playback.snapshot().commandCount == 0 && world.snapshot().mutationAttempts == 0,
+            expected: "0 commands,0 mutations",
+            observed: "\(world.playback.snapshot().commandCount), \(world.snapshot().mutationAttempts)")
+        if world.scenario.mode != .signedOut {
+            check(
+                "restore.current-track-artwork", player.hasCurrentTrack && frames["shell.track-artwork.loaded"] != nil,
+                expected: "Restored track with loaded artwork",
+                observed: "track=\(player.hasCurrentTrack), artwork=\(frames["shell.track-artwork.loaded"] != nil)")
+        } else {
+            check(
+                "signed-out.no-engine", (world.snapshot().requests["engine.synthetic-initialize"] ?? 0) == 0,
+                expected: "0 engine initializations",
+                observed: "\(world.snapshot().requests["engine.synthetic-initialize"] ?? 0)")
+        }
+        var captures: [Capture] = []
+        var pixelSamples: [PixelSample] = []
+        var captureContentRect: Rect?
+        var capturePointPixelScale: Double?
+        do {
+            let raster = try await windowPNG(window, name: "\(name).window.png")
+            if name != "failure-state" {
+                try Task.checkCancellation()
+                guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("capture.deadline") }
+            }
+            captures.append(raster.capture)
+            captureContentRect = Rect(raster.filterRect)
+            capturePointPixelScale = Double(raster.filterScale)
+            check(
+                "capture.window-dimensions",
+                abs(raster.filterRect.width - window.frame.width) <= tolerance
+                    && abs(raster.filterRect.height - window.frame.height) <= tolerance,
+                expected: "Own-window capture covers the complete window frame",
+                observed: NSStringFromRect(raster.filterRect))
+            for id in ["shell.home", "shell.search"] {
+                guard let navigation = frames["shell.navigation"], let control = frames[id] else { continue }
+                let inset: CGFloat = id == "shell.home" ? 8 : 24
+                let padding = control.minY - navigation.minY
+                let region = CGRect(
+                    x: control.minX + inset, y: navigation.minY + padding / 4,
+                    width: control.width - inset * 2, height: min(4, padding / 2))
+                let valid =
+                    padding >= 2 && region.width > 0 && region.height > 0
+                    && navigation.contains(region) && !region.intersects(control)
+                check(
+                    "\(id).chrome-sample-region", valid,
+                    expected: "Nonempty padding strip inside navigation and outside controls",
+                    observed: NSStringFromRect(region))
+                guard valid else { continue }
+                let sample = try samplePixels(raster.bitmap, windowSize: window.frame.size, region: region, name: id)
+                pixelSamples.append(sample)
+                check(
+                    "\(id).chrome-opaque", sample.minimumAlpha >= 250,
+                    expected: "Opaque window chrome, alpha minimum >=250/255",
+                    observed: "alpha minimum=\(sample.minimumAlpha), pixels=\(sample.pixelCount)")
+                check(
+                    "\(id).native-background-does-not-cover-padding", sample.maximumRGB <= 12,
+                    expected: "Black window chrome padding, RGB maximum <=12/255",
+                    observed: "max=\(sample.maximumRGB), mean=\(sample.meanRGB), pixels=\(sample.pixelCount)")
+            }
+            for id in ["shell.history.back", "shell.history.forward"] {
+                guard let control = frames[id] else { continue }
+                // History arrows use a centered symbol in their 32pt hitbox. This thin
+                // interior edge is outside the centered 14x16pt glyph allowance.
+                let region = CGRect(x: control.minX + 2, y: control.midY - 6, width: 2, height: 12)
+                let glyphAllowance = CGRect(x: control.midX - 7, y: control.midY - 8, width: 14, height: 16)
+                let valid = control.contains(region) && !region.intersects(glyphAllowance)
+                check(
+                    "\(id).chrome-sample-region", valid,
+                    expected: "Nonempty interior edge strip outside centered arrow glyph",
+                    observed: NSStringFromRect(region))
+                guard valid else { continue }
+                let sample = try samplePixels(raster.bitmap, windowSize: window.frame.size, region: region, name: id)
+                pixelSamples.append(sample)
+                check(
+                    "\(id).chrome-opaque", sample.minimumAlpha >= 250,
+                    expected: "Opaque history arrow edge, alpha minimum >=250/255",
+                    observed: "alpha minimum=\(sample.minimumAlpha), pixels=\(sample.pixelCount)")
+                check(
+                    "\(id).native-background-does-not-cover-edge", sample.maximumRGB <= 12,
+                    expected: "Black history arrow edge, RGB maximum <=12/255",
+                    observed: "max=\(sample.maximumRGB), mean=\(sample.meanRGB), pixels=\(sample.pixelCount)")
+            }
+        } catch {
+            check(
+                "capture.own-window", false, expected: "Required current-process composite PNG",
+                observed: error.localizedDescription)
+        }
+        captures.append(try png(content, name: "\(name).content.png", source: "NSWindow.contentView.cacheDisplay"))
+        var toolbarItems: [ToolbarItem] = []
+        for (index, item) in (window.toolbar?.visibleItems ?? []).enumerated() {
+            toolbarItems.append(
+                ToolbarItem(
+                    identifier: item.itemIdentifier.rawValue,
+                    frame: item.view.map { Rect($0.convert($0.bounds, to: nil)) }))
+            if let view = item.view, view.bounds.width > 0, view.bounds.height > 0 {
+                captures.append(
+                    try png(
+                        view, name: "\(name).toolbar-\(index).png",
+                        source: "NSToolbar.visibleItems[\(index)].view.cacheDisplay"))
+            }
+        }
+        let elapsed = started.duration(to: .now).components
+        checkpoints.append(
+            Checkpoint(
+                name: name, runID: launch.runID, host: Bundle.main.bundleIdentifier ?? "unknown",
+                sourceSHA256: launch.source.sourceSHA256, buildProductSHA256: launch.build.buildProductSHA256,
+                elapsedSeconds: Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18,
+                keyWindow: window.isKeyWindow, appActive: NSApp.isActive,
+                visible: window.occlusionState.contains(.visible),
+                backingScale: Double(window.backingScaleFactor), windowNumber: window.windowNumber,
+                playing: player.isPlaying,
+                commandCount: world.playback.snapshot().commandCount,
+                mutationAttempts: world.snapshot().mutationAttempts,
+                windowFrame: Rect(window.frame),
+                contentBounds: Rect(content.bounds), contentLayoutRect: Rect(window.contentLayoutRect),
+                requestedBodySize: requestedBodySize.map { Rect(CGRect(origin: .zero, size: $0)) },
+                captureContentRect: captureContentRect, capturePointPixelScale: capturePointPixelScale,
+                markers: frames.mapValues(Rect.init), toolbarItems: toolbarItems, captures: captures,
+                pixelSamples: pixelSamples,
+                assertions: assertions))
+        try write()
+        if let failed = assertions.first(where: { !$0.passed }) {
+            throw BrowsingFailure.checkpoint("\(name).\(failed.name)")
+        }
+    }
+
+    private func png(_ view: NSView, name: String, source: String) throws -> Capture {
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            throw BrowsingFailure.checkpoint("capture.\(name)")
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return try save(bitmap, name: name, source: source)
+    }
+
+    private func windowPNG(_ window: NSWindow, name: String) async throws -> WindowRaster {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        var selected: SCWindow?
+        while selected == nil {
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("capture.resize-ready") }
+            let available = try await SCShareableContent.currentProcess
+            guard let shared = available.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }),
+                shared.owningApplication.map({ $0.processID == ownPID }) ?? true
+            else { throw BrowsingFailure.checkpoint("capture.own-window") }
+            // Layout can settle before WindowServer publishes its new capture bounds.
+            if abs(shared.frame.width - window.frame.width) <= 1 && abs(shared.frame.height - window.frame.height) <= 1
+            {
+                selected = shared
+            } else {
+                try await ContinuousClock().sleep(for: .milliseconds(50))
+            }
+        }
+        guard let shared = selected else { throw BrowsingFailure.checkpoint("capture.own-window") }
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int((window.frame.width * window.backingScaleFactor).rounded())
+        configuration.height = Int((window.frame.height * window.backingScaleFactor).rounded())
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        configuration.captureResolution = .best
+        let filter = SCContentFilter(desktopIndependentWindow: shared)
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        return WindowRaster(
+            capture: try save(
+                bitmap, name: name, source: "ScreenCaptureKit.currentProcess.own-window.\(window.windowNumber)"),
+            bitmap: bitmap, filterRect: filter.contentRect, filterScale: filter.pointPixelScale)
+    }
+
+    private func samplePixels(_ bitmap: NSBitmapImageRep, windowSize: CGSize, region: CGRect, name: String) throws
+        -> PixelSample
+    {
+        let scaleX = CGFloat(bitmap.pixelsWide) / windowSize.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / windowSize.height
+        let pixels = CGRect(
+            x: (region.minX * scaleX).rounded(.up), y: (CGFloat(bitmap.pixelsHigh) - region.maxY * scaleY).rounded(.up),
+            width: (region.width * scaleX).rounded(.down), height: (region.height * scaleY).rounded(.down))
+        guard pixels.width > 0, pixels.height > 0,
+            CGRect(x: 0, y: 0, width: bitmap.pixelsWide, height: bitmap.pixelsHigh).contains(pixels)
+        else { throw BrowsingFailure.checkpoint("capture.pixel-region.\(name)") }
+        var maximum = 0
+        var minimumAlpha = 255
+        var sum = 0
+        var count = 0
+        for y in Int(pixels.minY)..<Int(pixels.maxY) {
+            for x in Int(pixels.minX)..<Int(pixels.maxX) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                    throw BrowsingFailure.checkpoint("capture.pixel-color.\(name)")
+                }
+                let channels = [color.redComponent, color.greenComponent, color.blueComponent].map {
+                    Int(($0 * 255).rounded())
+                }
+                maximum = max(maximum, channels.max() ?? 0)
+                minimumAlpha = min(minimumAlpha, Int((color.alphaComponent * 255).rounded()))
+                sum += channels.reduce(0, +)
+                count += 1
+            }
+        }
+        return PixelSample(
+            name: name, windowRect: Rect(region), pixelRect: Rect(pixels), pixelCount: count,
+            minimumAlpha: minimumAlpha, maximumRGB: maximum, meanRGB: Double(sum) / Double(count * 3))
+    }
+
+    private func save(_ bitmap: NSBitmapImageRep, name: String, source: String) throws -> Capture {
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw BrowsingFailure.checkpoint("capture.\(name)")
+        }
+        let directory = URL(fileURLWithPath: launch.runRoot).appendingPathComponent("shell-captures")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: directory.appendingPathComponent(name), options: .atomic)
+        return Capture(
+            file: "shell-captures/\(name)", source: source, pixelWidth: bitmap.pixelsWide,
+            pixelHeight: bitmap.pixelsHigh, byteCount: data.count,
+            sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+    }
+
+    private func write() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(report).write(
+            to: URL(fileURLWithPath: launch.runRoot).appendingPathComponent("shell-regression.json"), options: .atomic)
+    }
+}
+
+@MainActor
+private final class ShellFocusWindow: NSWindow {
+    override var canBecomeMain: Bool { false }
+}

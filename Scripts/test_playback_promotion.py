@@ -60,7 +60,7 @@ class PromotionTests(unittest.TestCase):
         self.jobs = [
             {"name": "Source policies", "conclusion": "success"},
             {"name": "Playback script checks", "conclusion": "success"},
-            {"name": "macOS engine", "conclusion": "failure", "steps": [
+            {"name": "macOS verification", "conclusion": "failure", "steps": [
                 {"name": name, "conclusion": "success", "started_at": "2026-09-05T12:00:00Z",
                  "completed_at": "2026-09-05T12:10:00Z"} for name in PRODUCER_STEPS
             ] + [{"name": "Run checks", "conclusion": "failure"}],
@@ -102,13 +102,14 @@ class PromotionTests(unittest.TestCase):
 
     def test_promotion_rejects_legacy_or_ambiguous_producer_jobs(self):
         for jobs in ([{**self.jobs[2], "name": "macOS checks"}] + self.jobs[:2],
+                     [{**self.jobs[2], "name": "macOS engine"}] + self.jobs[:2],
                      self.jobs + [copy.deepcopy(self.jobs[2])]):
-            with self.subTest(jobs=jobs), self.assertRaisesRegex(ValueError, "one macOS engine"):
+            with self.subTest(jobs=jobs), self.assertRaisesRegex(ValueError, "one macOS verification"):
                 validate_run(self.run, jobs, "owner/repo", HEAD)
 
     def test_legacy_producer_definition_requires_a_fresh_candidate(self):
         args = self.promotion_inputs()
-        legacy = WORKFLOW.replace(b"  macos_engine:\n", b"  macos:\n")
+        legacy = WORKFLOW.replace(b"  macos_verify:\n", b"  macos_engine:\n")
         with self.assertRaisesRegex(ValueError, "Unrecognized CI producer boundary"):
             promote(**{**args, "workflow_bytes": legacy})
 
@@ -137,6 +138,32 @@ class PromotionTests(unittest.TestCase):
         args["trusted_ci"] = WORKFLOW.replace(b"ubuntu-latest", b"ubuntu-24.04").replace(
             b"id: debug", b"id: debug # consumer change")
         promote(**args)
+
+    def test_consumer_output_binding_does_not_change_tested_producer(self):
+        for binding in (b"contracts_result", b"swift_result", b"release_result",
+                        b"contracts_key", b"tests_key", b"release_key"):
+            with self.subTest(binding=binding):
+                lines = WORKFLOW.splitlines(keepends=True)
+                original = next(line for line in lines if line.startswith(b"      " + binding + b":"))
+                changed = WORKFLOW.replace(original, original.replace(b"${{", b"${{ # consumer change "))
+                promote(**{**self.promotion_inputs(), "trusted_ci": changed})
+
+    def test_missing_duplicated_or_reindented_consumer_outputs_fail_closed(self):
+        for binding in (b"contracts_result", b"swift_result", b"release_result",
+                        b"contracts_key", b"tests_key", b"release_key"):
+            original = next(line for line in WORKFLOW.splitlines(keepends=True)
+                            if line.startswith(b"      " + binding + b":"))
+            for replacement in (b"", original * 2, b"  " + original):
+                with self.subTest(binding=binding, replacement=replacement), self.assertRaisesRegex(
+                        ValueError, "Unrecognized CI consumer output"):
+                    promote(**{**self.promotion_inputs(), "trusted_ci": WORKFLOW.replace(original, replacement)})
+
+    def test_producer_checkout_identity_or_classification_invalidates_candidate(self):
+        for old, new in ((b"id: engine_checkout", b"id: engine_checkout # changed"),
+                         (b"name: macOS verification", b"name: untrusted native job"),
+                         (b"needs.policy.outputs.macos_needed == 'true'", b"needs.policy.outputs.macos_needed != 'false'")):
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                promote(**{**self.promotion_inputs(), "trusted_ci": WORKFLOW.replace(old, new)})
 
     def test_changed_producer_or_source_policy_invalidates_candidate(self):
         for old, new in ((b"--for-publish", b"--for-publish --changed"),

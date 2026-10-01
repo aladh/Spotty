@@ -46,6 +46,15 @@ class WorkflowFixtureMixin:
         for workflow in (cls.workflow, cls.acceptance_workflow):
             workflow['on'] = workflow.pop('true')
 
+    @staticmethod
+    def phase_step(workflow, phase, name):
+        # Locate the actual step dictionary so mutations affect the submitted workflow.
+        steps = workflow['jobs']['macos_verify']['steps']
+        start = next(i for i, step in enumerate(steps) if step.get('id') == phase + '_checkout')
+        end = next((i for i in range(start + 1, len(steps))
+                    if steps[i].get('id', '').endswith('_checkout')), len(steps))
+        return next(step for step in steps[start:end] if step['name'] == name)
+
     def policy_inputs(self, check):
         assets = {name: (self.scripts / name).read_text() for name in (
             'check-source-policy.sh', 'playback-candidate-needed.sh', 'agent-review-tests/package.json')}

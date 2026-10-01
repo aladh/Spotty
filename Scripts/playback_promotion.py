@@ -33,8 +33,8 @@ PRODUCER_STEPS = (
 
 
 def producer_job(jobs):
-    matches = [job for job in jobs if job["name"] == "macOS engine"]
-    require(len(matches) == 1, "Expected one macOS engine job in this run attempt")
+    matches = [job for job in jobs if job["name"] == "macOS verification"]
+    require(len(matches) == 1, "Expected one macOS verification job in this run attempt")
     job = matches[0]
     for name in PRODUCER_STEPS:
         steps = [step for step in job.get("steps", []) if step["name"] == name]

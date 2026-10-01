@@ -13,7 +13,7 @@ class WorkflowAcceptanceTests(WorkflowFixtureMixin, unittest.TestCase):
                 for mutation in ('remove', 'conditional', 'optional', 'duplicate', 'mask_failure', 'move'):
                     with self.subTest(standalone=standalone, step=step_id, mutation=mutation):
                         variant = copy.deepcopy(self.acceptance_workflow if standalone else self.workflow)
-                        job = variant['jobs']['acceptance' if standalone else 'macos_swift']
+                        job = variant['jobs']['acceptance' if standalone else 'macos_verify']
                         step = next(s for s in job['steps'] if s.get('id') == step_id)
                         if mutation == 'remove':
                             job['steps'].remove(step)
@@ -22,7 +22,7 @@ class WorkflowAcceptanceTests(WorkflowFixtureMixin, unittest.TestCase):
                         elif mutation == 'optional':
                             step['continue-on-error'] = True
                         elif mutation == 'duplicate':
-                            job['steps'].append(copy.deepcopy(step))
+                            job['steps'].insert(job['steps'].index(step) + 1, copy.deepcopy(step))
                         elif mutation == 'move':
                             job['steps'].remove(step)
                             job['steps'].append(step)
@@ -40,7 +40,7 @@ class WorkflowAcceptanceTests(WorkflowFixtureMixin, unittest.TestCase):
                 for mutation in ('fabricated', 'missing', 'ignored'):
                     with self.subTest(standalone=standalone, binding=binding, mutation=mutation):
                         variant = copy.deepcopy(self.acceptance_workflow if standalone else self.workflow)
-                        job = variant['jobs']['acceptance' if standalone else 'macos_swift']
+                        job = variant['jobs']['acceptance' if standalone else 'macos_verify']
                         gate = next(s for s in job['steps'] if s['name'] in (
                             'Require Swift test evidence', 'Require acceptance evidence'))
                         if mutation == 'fabricated':
@@ -93,7 +93,7 @@ class WorkflowAcceptanceTests(WorkflowFixtureMixin, unittest.TestCase):
     def test_acceptance_execution_remains_after_swift_checks_in_existing_lane(self):
         checks = []
         variant = copy.deepcopy(self.workflow)
-        steps = variant['jobs']['macos_swift']['steps']
+        steps = variant['jobs']['macos_verify']['steps']
         acceptance = next(s for s in steps if s.get('id') == 'acceptance')
         steps.remove(acceptance)
         steps.insert(0, acceptance)

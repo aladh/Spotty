@@ -48,17 +48,18 @@ owns runtime ports and desktop presentation boundaries.
 [CI](../../../.github/workflows/ci.yml) and [workflow assertions](../../../Scripts/check-ci-workflow.rb)
 own tool selection, cache integrity, and complete verification. Three unconditional Linux jobs run
 source policies, domain build/tests, and playback/harness/watchdog/formatter-wrapper tests. The
-macOS work starts after source policies in four independent lanes: contracts (shipping Debug,
-format, package, ABI, compiler and packaging checks), complete Swift tests plus acceptance,
-distribution Release plus size reporting, and classified Rust/header verification plus candidate
-production. Each Swift consumer resolves and validates its own published engine. The internal
-quality aggregate requires every Linux lane and every explicitly selected macOS lane. Missing,
-failed, cancelled or inconsistent outcomes fail closed; only classified skips are accepted.
+macOS verification starts after source policies as one sequential job: classified Rust/header
+checks and candidate production, contracts (shipping Debug, format, package, ABI, compiler and
+packaging checks), complete Swift tests plus acceptance and native GUI regression, then
+distribution Release plus size reporting. Pinned clean checkouts isolate phase products. Later phases run after earlier failures, with
+phase-local setup guards; cancellation stops new work.
+Swift phases validate published engines with Rust blocked. The quality
+aggregate requires every Linux job, the selected native job and its actual phase outcomes.
+Missing, failed, cancelled or inconsistent outcomes fail closed; only classified skips are accepted.
 
 `SPOTTY_CHECK_PHASE` partitions only CI's `swift-compiled` scope. Normal verification remains
-complete. Compilation in independent checkouts trades additional runner work for shorter elapsed
-time; the complete native suite and each semantic/compiler assertion still execute once per PR.
-Main retains three native repetitions. Acceptance reuses its own lane's Debug products and settings.
+complete. Each native and semantic/compiler assertion executes once per PR.
+Main retains three native repetitions. Acceptance reuses the tests phase's Debug products and settings.
 
 Swift's contracts, tests and Release caches bind compiler, configuration, package, immutable pin
 and both SDK identities: wrapper-selected (`sdk`, labelled `wrapper-selected`) and Xcode default
@@ -66,17 +67,14 @@ and both SDK identities: wrapper-selected (`sdk`, labelled `wrapper-selected`) a
 SDKROOT; matching metadata does not identify the consumed SDK. Rust's exact engine-input key has
 a compiler/SDK/profile/locked-dependency compatibility prefix so Cargo reuses unchanged dependencies
 and rebuilds changed bridge sources. Both toolchains bind the scoped transfer policy; a changed
-policy cannot restore older, incomplete trees. Timestamps are restored only for matching content;
-missing or incompatible caches compile normally.
+policy cannot restore older, incomplete trees. Only matching content restores timestamps; cache misses compile normally.
 
-Successful main lanes export scoped bundles. After every quality lane succeeds, a separate publisher
+Successful main phases export scoped bundles. After every quality job succeeds, a separate publisher
 validates source/scope/content, restores owned products in a fresh runner, and saves caches. Required
-`macOS checks` also requires this publication on main; PR and fork code skip the publisher. Optional
-phase JSONL and Cargo artifacts describe costs. Compiler/cache owners stay isolated.
+`macOS checks` also requires this publication on main; PR and fork code skip the publisher. Phase JSONL and Cargo artifacts retain timing evidence. The publisher follows the native job, so this CI run never occupies two macOS runners concurrently.
 The transfer permits dependency source directories named `credentials` within Cargo Git checkouts
 only when their files or links exactly match tracked HEAD blobs at the checkout's revision.
-Both PR and main engine lanes preflight the actual admitted Cargo Git inputs after Rust verification,
-before restoring or compiling Release products. A rejected proof stops production and reports only
+Both PR and main preflight admitted Cargo Git inputs after Rust verification, before Release restoration. A rejected proof stops production and reports only
 a fixed failure stage and process status. Export and staged restoration repeat the proof before
 publication or cleanup; the preflight does not authorize later changed bytes. Unproved existing
 inputs remain protected during owned replacement. Registry credential directories, credential
@@ -95,9 +93,9 @@ reusable calls. Both run representative and holdout corpora once with a deadline
 artifacts, and require execution, summary, and upload success. These synthetic checks do not prove
 GUI, sandbox, or live-account behavior.
 
-Ordinary non-candidate PRs target five minutes on macOS; the measured engine-changing target and cold/cache costs are tracked in
-[#587](https://github.com/aladh/Spotty/issues/587). Each macOS verification lane has a 120-minute job ceiling.
-`Run Swift contracts` in the contracts lane and `Run checks` in the Swift-tests lane each have a
+Historical timing evidence remains in [#587](https://github.com/aladh/Spotty/issues/587);
+runner consolidation changes elapsed time without a new speed target. The sequential macOS job has a 240-minute ceiling.
+`Run Swift contracts` and `Run checks` each have a
 15-minute step limit. Per-invocation test deadlines and diagnostics are in
 [verification](../../development/verification.md#normal-verification).
 

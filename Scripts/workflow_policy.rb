@@ -4,8 +4,57 @@ module WorkflowPolicy
   CACHE_SHA = '55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
   UPLOAD_SHA = '043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'
   DOWNLOAD_SHA = '3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c'
-  VERIFY_JOBS = %w[macos_engine macos_contracts macos_swift macos_release].freeze
-  QUALITY_JOBS = %w[policy domain_linux playback_python macos_engine macos_contracts macos_swift macos_release].freeze
+  VERIFY_JOBS = %w[macos_verify].freeze
+  PHASES = %w[engine contracts tests release].freeze
+  QUALITY_JOBS = %w[policy domain_linux playback_python macos_verify].freeze
+
+  # Required steps fail fast within their own phase, independent of earlier phase failures.
+  SERIAL_STEPS = {
+    'contracts' => [
+      ["Check out contracts source", 'contracts_checkout', true],
+      ["Initialize timing evidence", 'contracts_initialize_timing_evidence', false],
+      ["Select Xcode 26.6", 'contracts_select_xcode_26_6', false],
+      ["Install verification tools", 'contracts_install_verification_tools', false],
+      ["Show toolchains", 'contracts_show_toolchains', false],
+      ["Block Rust tools", 'contracts_block_rust_tools', false],
+      ["Identify Swift cache compatibility", 'contracts_identify_swift_cache_compatibility', false],
+      ["Restore SwiftPM build directory", 'contracts_cache', true],
+      ["Restore unchanged Swift input timestamps", 'contracts_restore_unchanged_swift_input_timestamps', false],
+      ["Snapshot Swift input timestamps", 'contracts_snapshot_swift_input_timestamps', false],
+      ["Run Swift contracts", 'contracts', true],
+    ],
+    'tests' => [
+      ["Check out tests source", 'tests_checkout', true],
+      ["Initialize timing evidence", 'tests_initialize_timing_evidence', false],
+      ["Select Xcode 26.6", 'tests_select_xcode_26_6', false],
+      ["Install verification tools", 'tests_install_verification_tools', false],
+      ["Show toolchains", 'tests_show_toolchains', false],
+      ["Block Rust tools", 'tests_block_rust_tools', false],
+      ["Identify Swift cache compatibility", 'tests_identify_swift_cache_compatibility', false],
+      ["Restore SwiftPM build directory", 'tests_cache', true],
+      ["Restore unchanged Swift input timestamps", 'tests_restore_unchanged_swift_input_timestamps', false],
+      ["Snapshot Swift input timestamps", 'tests_snapshot_swift_input_timestamps', false],
+      ["Run checks", 'debug', true],
+      ["Prove focused test selection", 'focused_smoke', true],
+      ["Run acceptance scenarios", 'acceptance', true],
+      ["Run Demo GUI regression", 'gui', true],
+    ],
+    'release' => [
+      ["Check out release source", 'release_checkout', true],
+      ["Initialize timing evidence", 'release_initialize_timing_evidence', false],
+      ["Select Xcode 26.6", 'release_select_xcode_26_6', false],
+      ["Install verification tools", 'release_install_verification_tools', false],
+      ["Show toolchains", 'release_show_toolchains', false],
+      ["Block Rust tools", 'release_block_rust_tools', false],
+      ["Identify Swift cache compatibility", 'release_identify_swift_cache_compatibility', false],
+      ["Restore SwiftPM build directory", 'release_cache', true],
+      ["Restore unchanged Swift input timestamps", 'release_restore_unchanged_swift_input_timestamps', false],
+      ["Snapshot Swift input timestamps", 'release_snapshot_swift_input_timestamps', false],
+      ["Compile release Spotty with SPOTTY_DISTRIBUTION", 'release', true],
+      ["Report release build size", 'release_report_release_build_size', false],
+      ["Upload size report", 'release_upload_size_report', false],
+    ],
+  }.freeze
 
   def self.one_step(check, steps, name)
     matches = steps.select { |step| step['name'] == name }
@@ -47,9 +96,39 @@ module WorkflowPolicy
   end
 
   def self.validate(workflow:, standalone:, policy_script:, candidate_script:, review_package:)
-    jobs = workflow.fetch('jobs')
     errors = []
     check = ->(condition, message) { errors << message unless condition }
+    # Validate actual execution conditions before removing only the serial guards for the
+    # existing command/evidence checks below. This keeps standalone acceptance unchanged.
+    workflow = Marshal.load(Marshal.dump(workflow))
+    jobs = workflow.fetch('jobs')
+    serial = jobs.fetch('macos_verify', {}).fetch('steps', [])
+    serial_ids = serial.map { |step| step['id'] }.compact
+    check.call(serial_ids.uniq.length == serial_ids.length, 'macos_verify step IDs must be unique')
+    SERIAL_STEPS.each do |phase, specifications|
+      previous = nil
+      positions = []
+      specifications.each do |name, identity, existing_id|
+        matches = serial.select { |step| step['name'] == name && step['id'] == identity }
+        step = matches.first || {}
+        condition = previous ? "!cancelled() && steps.#{previous}.outcome == 'success'" : '!cancelled()'
+        check.call(matches.length == 1 && step['if'] == condition,
+                   "#{phase} #{name} must retain its failure-independent phase-local condition")
+        positions << serial.index(matches.first)
+        step.delete('if')
+        step.delete('id') unless existing_id
+        previous = identity
+      end
+      check.call(positions.none?(&:nil?) && positions == positions.sort && positions.uniq.length == positions.length,
+                 "#{phase} required phase-local steps must remain ordered")
+    end
+    experiment = serial.find { |step| step['id'] == 'selection_experiment' }
+    if experiment
+      prefix = "!cancelled() && steps.gui.outcome == 'success'"
+      check.call(experiment.fetch('if', '').start_with?(prefix + ' && '),
+                 'selection experiment must retain its failure-independent phase-local condition')
+      experiment['if'] = experiment.fetch('if', '').sub(prefix, 'success()')
+    end
     steps = jobs.values.flat_map { |job| job.fetch('steps', []) }
     runs = steps.map { |step| step.fetch('run', '') }
     all_runs = runs.join("\n")
@@ -109,34 +188,59 @@ module WorkflowPolicy
     check.call(jobs.keys.sort == (QUALITY_JOBS + %w[quality_gate cache_publisher macos]).sort, 'CI must contain exactly the classified verification, quality, cache, and required lanes')
     check.call(jobs.values.all? { |job| job['runs-on'].is_a?(String) && !job['runs-on'].include?('${{') }, 'CI runner selection must remain static')
     macos_ids = jobs.select { |_id, job| job['runs-on'].to_s.downcase.include?('macos') }.keys
-    check.call(macos_ids.sort == (VERIFY_JOBS + ['cache_publisher']).sort, 'CI must use exactly four macOS verification lanes and the main cache publisher')
+    check.call(macos_ids.sort == (VERIFY_JOBS + ['cache_publisher']).sort, 'CI must use one sequential macOS verification job and the downstream main cache publisher')
     jobs.each do |id, job|
       check.call(!job.key?('continue-on-error') && job.fetch('steps', []).none? { |step| step.key?('continue-on-error') }, "#{id} verification must propagate failures")
       check.call((%w[strategy secrets environment permissions] & job.keys).empty?, "#{id} must not add fanout, secrets, environments, or permission overrides")
       ids = job.fetch('steps', []).map { |step| step['id'] }.compact
       check.call(ids.uniq.length == ids.length, "#{id} step IDs must be unique")
       job.fetch('steps', []).select { |step| step.fetch('uses', '').start_with?('actions/checkout@') }.each do |step|
-        check.call(step['uses'] == 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' && step.dig('with', 'persist-credentials') == false && !step.key?('if'), "#{id} checkout must retain its read-only pinned source contract")
+        check.call(step['uses'] == 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' && step.dig('with', 'persist-credentials') == false && (id == 'macos_verify' && step['id'] == 'engine_checkout' ? step['if'] == "needs.policy.outputs.rust_needed == 'true'" : !step.key?('if')), "#{id} checkout must retain its read-only pinned source contract")
       end
     end
-    VERIFY_JOBS.each do |id|
-      lane = jobs.fetch(id, {})
-      selector = id == 'macos_engine' ? 'rust_needed' : 'macos_needed'
-      check.call(lane['runs-on'] == 'macos-26', "#{id} macOS image must remain macos-26")
-      check.call(Array(lane['needs']) == ['policy'] && lane['if'] == "needs.policy.result == 'success' && needs.policy.outputs.#{selector} == 'true'", "#{id} must start only after successful source policy and explicit classification")
-      lane_steps = lane.fetch('steps', [])
-      check.call(lane.fetch('env', {}).values.none? { |value| value.to_s.include?('runner.') }, "#{id} job environment must not use unavailable runner context")
-      initialize = one_step(check, lane_steps, 'Initialize timing evidence')
-      initialize_command = "mkdir -p \"$RUNNER_TEMP/spotty-timings\"\necho \"SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/phases.jsonl\" >> \"$GITHUB_ENV\""
-      check.call(initialize['run'].to_s.strip == initialize_command && !initialize.key?('if') && lane_steps.index(initialize) == 1, "#{id} must initialize required timing evidence immediately after checkout")
-      xcode = one_step(check, lane_steps, 'Select Xcode 26.6')
-      check.call(xcode['run'] == 'sudo xcode-select -s /Applications/Xcode_26.6.app' && !xcode.key?('if'), "#{id} must select the pinned Xcode before compilation")
+    native = jobs.fetch('macos_verify', {})
+    check.call(native['runs-on'] == 'macos-26', 'macos_verify macOS image must remain macos-26')
+    check.call(Array(native['needs']) == ['policy'] && native['if'] == "needs.policy.result == 'success' && needs.policy.outputs.macos_needed == 'true'", 'macos_verify must start only after successful source policy and explicit classification')
+    check.call(native.fetch('env', {}).values.none? { |value| value.to_s.include?('runner.') }, 'macos_verify job environment must not use unavailable runner context')
+    check.call(native['name'] == 'macOS verification' && native['timeout-minutes'] == 240, 'native suite must retain its bounded unique producer job identity')
+    native_steps = native.fetch('steps', [])
+    boundaries = PHASES.map { |scope| native_steps.index { |step| step['id'] == "#{scope}_checkout" } }
+    check.call(boundaries.none?(&:nil?) && boundaries == boundaries.sort && boundaries.uniq.length == PHASES.length && boundaries.first == 0,
+               'native phases must retain ordered engine/contracts/tests/release checkout boundaries')
+    check.call(native_steps.count { |step| step.fetch('uses', '').start_with?('actions/checkout@') } == PHASES.length,
+               'native phases must retain exactly four fresh pinned checkouts')
+    phases = PHASES.each_with_index.to_h do |scope, index|
+      first = boundaries[index]
+      last = boundaries[index + 1] || native_steps.length
+      [scope, first && last && first < last ? native_steps[first...last] : []]
     end
-    engine = jobs.fetch('macos_engine', {})
-    engine_steps = engine.fetch('steps', [])
-    contracts_steps = jobs.fetch('macos_contracts', {}).fetch('steps', [])
-    swift_steps = jobs.fetch('macos_swift', {}).fetch('steps', [])
-    release_steps = jobs.fetch('macos_release', {}).fetch('steps', [])
+    phases.each do |scope, lane_steps|
+      rust_if = scope == 'engine' ? "needs.policy.outputs.rust_needed == 'true'" : nil
+      initialize = one_step(check, lane_steps, 'Initialize timing evidence')
+      initialize_command = "mkdir -p \"$RUNNER_TEMP/spotty-timings/#{scope}\"\necho \"SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/#{scope}/phases.jsonl\" >> \"$GITHUB_ENV\""
+      check.call(initialize['run'].to_s.strip == initialize_command && initialize['if'] == rust_if && lane_steps.index(initialize) == 1,
+                 "#{scope} must initialize required timing evidence immediately after checkout")
+      xcode = one_step(check, lane_steps, 'Select Xcode 26.6')
+      check.call(xcode['run'] == 'sudo xcode-select -s /Applications/Xcode_26.6.app' && xcode['if'] == rust_if,
+                 "#{scope} must select the pinned Xcode before compilation")
+      if scope == 'engine'
+        lane_steps.each do |step|
+          check.call(step.fetch('if', '').include?("needs.policy.outputs.rust_needed == 'true'"),
+                     'every engine phase step must follow explicit Rust classification')
+        end
+      end
+    end
+    PHASES.each do |scope|
+      checkout = phases.fetch(scope).first || {}
+      check.call(checkout['id'] == "#{scope}_checkout" && checkout['name'] == "Check out #{scope} source" &&
+                 checkout.dig('with', 'clean') == true && checkout.fetch('with', {}).keys.sort == %w[clean persist-credentials],
+                 "#{scope} checkout must isolate the exact tested revision without overrides")
+    end
+    engine = native
+    engine_steps = phases.fetch('engine')
+    contracts_steps = phases.fetch('contracts')
+    swift_steps = phases.fetch('tests')
+    release_steps = phases.fetch('release')
     host_request = "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence')"
     debug_command = <<~'SH'.strip
       case "$HOST_OBSERVATION_REQUESTED" in
@@ -148,12 +252,12 @@ module WorkflowPolicy
       esac
     SH
     {
-      'macos_contracts' => ['contracts', 'Run Swift contracts', 'SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh'],
-      'macos_swift' => ['debug', 'Run checks', debug_command],
-      'macos_release' => ['release', 'Compile release Spotty with SPOTTY_DISTRIBUTION', './Scripts/compile-release-spotty.sh'],
-      'macos_engine' => ['rust', 'Run Rust checks', 'SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh'],
+      'contracts' => ['contracts', 'Run Swift contracts', 'SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh'],
+      'tests' => ['debug', 'Run checks', debug_command],
+      'release' => ['release', 'Compile release Spotty with SPOTTY_DISTRIBUTION', './Scripts/compile-release-spotty.sh'],
+      'engine' => ['rust', 'Run Rust checks', 'SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh'],
     }.each do |id, (step_id, name, command)|
-      lane_steps = jobs.fetch(id, {}).fetch('steps', [])
+      lane_steps = phases.fetch(id, [])
       matches = lane_steps.select { |step| step['id'] == step_id || step['name'] == name }
       step = matches.first || {}
       check.call(matches.length == 1 && step['id'] == step_id && step['run'].to_s.strip == command, "#{step_id} verification command must run once in its owning macOS lane")
@@ -166,9 +270,10 @@ module WorkflowPolicy
     debug_step = swift_steps.find { |step| step['id'] == 'debug' } || {}
     check.call(debug_step.dig('env', 'SPOTTY_CHECK_REPEATS') == "${{ github.ref == 'refs/heads/main' && '3' || '1' }}", 'main must repeat boundary checks three times')
     check.call(debug_step.dig('env', 'HOST_OBSERVATION_REQUESTED') == "${{ #{host_request} }}", 'host observation must bind its trusted explicit request')
-    %w[macos_contracts macos_swift macos_release].zip(%w[contracts tests release]).each do |id, scope|
-      lane = jobs.fetch(id, {})
-      lane_steps = lane.fetch('steps', [])
+    %w[contracts tests release].each do |scope|
+      id = scope
+      lane = native
+      lane_steps = phases.fetch(scope, [])
       tools = one_step(check, lane_steps, 'Show toolchains')
       check.call(tools.fetch('run', '').include?("grep -q 'Apple Swift version 6.3.3'") && !tools.key?('if'), "#{id} must verify the actual pinned Swift toolchain")
       blocked = one_step(check, lane_steps, 'Block Rust tools')
@@ -176,9 +281,9 @@ module WorkflowPolicy
       install = one_step(check, lane_steps, 'Install verification tools')
       check.call(install.fetch('run', '').include?('command -v rg') && install.fetch('run', '').include?('brew install ripgrep'), "#{id} must use runner ripgrep before installation")
       identify = one_step(check, lane_steps, 'Identify Swift cache compatibility')
-      command = "python3 Scripts/ci_cache_keys.py swift --lane #{scope} --revision \"$GITHUB_SHA\" --github-env \"$GITHUB_ENV\" --report \"$RUNNER_TEMP/spotty-timings/toolchain.json\""
+      command = "python3 Scripts/ci_cache_keys.py swift --lane #{scope} --revision \"$GITHUB_SHA\" --github-env \"$GITHUB_ENV\" --report \"$RUNNER_TEMP/spotty-timings/#{scope}/toolchain.json\""
       check.call(identify['run'].to_s.strip == command && !identify.key?('if'), "#{id} must identify its own exact compiler and build contract")
-      check.call(lane.dig('outputs', 'cache_key') == '${{ env.SWIFT_CACHE_KEY }}', "#{id} must export its actual cache identity")
+      check.call(lane.dig('outputs', "#{scope}_key") == "${{ steps.#{scope}_cache.outputs.cache-primary-key }}", "#{id} must export its actual cache identity")
       restore = one_step(check, lane_steps, 'Restore unchanged Swift input timestamps')
       snapshot = one_step(check, lane_steps, 'Snapshot Swift input timestamps')
       check.call(restore['run'] == 'python3 Scripts/ci_source_mtimes.py restore' && snapshot['run'] == 'python3 Scripts/ci_source_mtimes.py save' && !restore.key?('if') && !snapshot.key?('if') && lane_steps.index(restore).to_i < lane_steps.index(snapshot).to_i, "#{id} must preserve hash-checked source timestamp restoration before snapshot")
@@ -195,16 +300,16 @@ module WorkflowPolicy
     check.call(candidate['id'] == 'inputs' && candidate['run'] == './Scripts/playback-candidate-needed.sh', 'candidate selection must retain its inputs step identity')
     check.call(candidate.dig('env', 'INPUT_BASE_SHA') == '${{ github.event.pull_request.base.sha || github.event.before }}', 'candidate selection must receive the PR or push base SHA')
     rust_identity = one_step(check, engine_steps, 'Identify Rust cache compatibility')
-    check.call(rust_identity['run'].to_s.strip == 'python3 Scripts/ci_cache_keys.py rust --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/toolchain.json"' && !rust_identity.key?('if'), 'Rust Release cache must identify its actual SDK and compiler contract')
+    check.call(rust_identity['run'].to_s.strip == 'python3 Scripts/ci_cache_keys.py rust --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/engine/toolchain.json"' && rust_identity['if'] == "needs.policy.outputs.rust_needed == 'true'", 'Rust Release cache must identify its actual SDK and compiler contract')
     rust_debug_identity = one_step(check, engine_steps, 'Identify Rust Debug cache compatibility')
     debug_identity_lines = rust_debug_identity.fetch('run', '').lines.map(&:strip)
-    check.call(rust_debug_identity['shell'] == 'zsh {0}' && !rust_debug_identity.key?('if') &&
+    check.call(rust_debug_identity['shell'] == 'zsh {0}' && rust_debug_identity['if'] == "needs.policy.outputs.rust_needed == 'true'" &&
                debug_identity_lines.include?('source Scripts/swiftpm-env.sh') &&
-               debug_identity_lines.include?('python3 Scripts/ci_cache_keys.py rust --revision "$GITHUB_SHA" --report "$RUNNER_TEMP/spotty-timings/debug-toolchain.json"') &&
+               debug_identity_lines.include?('python3 Scripts/ci_cache_keys.py rust --revision "$GITHUB_SHA" --report "$RUNNER_TEMP/spotty-timings/engine/debug-toolchain.json"') &&
                debug_identity_lines.last.to_s.include?('RUST_DEBUG_TOOLCHAIN_KEY=') && debug_identity_lines.last.to_s.end_with?('>> "$GITHUB_ENV"'), 'Rust Debug cache must identify the actual verification SDK and publish its isolated key')
     candidate_steps = ['Restore Rust release build products', 'Restore unchanged Rust release input timestamps', 'Snapshot Rust release input timestamps', 'Build candidate playback XCFramework', 'Upload candidate playback artifact'].map do |name|
       step = one_step(check, engine_steps, name)
-      check.call(step['if'] == "steps.inputs.outputs.candidate_needed == 'true'", "#{name} must follow the candidate-needed decision")
+      check.call(step['if'] == "needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'", "#{name} must follow the candidate-needed decision")
       step
     end
     positions = [candidate, *candidate_steps].map { |step| engine_steps.index(step) }
@@ -223,9 +328,18 @@ module WorkflowPolicy
     }.each do |output, binding|
       check.call(engine.dig('outputs', output) == "${{ steps.#{binding} }}", "engine must bind its actual #{output} output")
     end
+    {'engine_result' => 'engine_gate.outcome', 'contracts_result' => 'contracts.outcome',
+     'swift_result' => 'debug.outcome', 'release_result' => 'release.outcome'}.each do |output, binding|
+      check.call(native.dig('outputs', output) == "${{ steps.#{binding} }}", "native job must bind its actual #{output} output")
+    end
+    expected_outputs = %w[engine_result contracts_result swift_result release_result contracts_key tests_key release_key
+                          candidate_needed rust_result candidate_selection_result candidate_build_result candidate_upload_result
+                          cbindgen_key rust_debug_key rust_release_key]
+    check.call(native.fetch('outputs', {}).keys.sort == expected_outputs.sort,
+               'native outputs must retain exactly the producer and consumer outcome/cache bindings')
     engine_gate = one_step(check, engine_steps, 'Require engine results')
     gate_shell(check, engine_gate, 'engine gate')
-    check.call(engine_gate['if'] == 'always()', 'engine outcome gate must run even after failures')
+    check.call(engine_gate['id'] == 'engine_gate' && engine_gate['if'] == "always() && needs.policy.outputs.rust_needed == 'true'", 'engine outcome gate must run even after failures')
     success_binding(check, engine_gate, 'RUST_RESULT', '${{ steps.rust.outcome }}', 'engine gate')
     success_binding(check, engine_gate, 'SOURCE_PROOF_RESULT', '${{ steps.source_proof.outcome }}', 'engine gate')
     {'SELECTION_RESULT' => 'inputs.outcome', 'CANDIDATE_NEEDED' => 'inputs.outputs.candidate_needed', 'BUILD_RESULT' => 'candidate_build.outcome', 'UPLOAD_RESULT' => 'candidate_upload.outcome'}.each do |result, binding|
@@ -233,14 +347,14 @@ module WorkflowPolicy
     end
     case_table(check, engine_gate, 'SELECTION_RESULT:$CANDIDATE_NEEDED:$BUILD_RESULT:$UPLOAD_RESULT', %w[success:true:success:success success:false:skipped:skipped], '*) echo "Engine candidate results disagree with selection" >&2; exit 1 ;;', 'engine gate')
     cargo_evidence = one_step(check, engine_steps, 'Preserve Cargo timing evidence')
-    cargo_command = "set -euo pipefail\nif [[ -d Backend/spotty-playback/target/cargo-timings ]]; then\n  cp -R Backend/spotty-playback/target/cargo-timings \"$RUNNER_TEMP/spotty-timings/cargo\"\nelif [[ \"$CANDIDATE_BUILD_RESULT\" == success ]]; then\n  echo \"Successful timed Cargo build has no compiler timing report\" >&2\n  exit 1\nfi"
-    check.call(cargo_evidence['if'] == "always() && steps.inputs.outputs.candidate_needed == 'true'" && cargo_evidence.dig('env', 'CANDIDATE_BUILD_RESULT') == '${{ steps.candidate_build.outcome }}' && cargo_evidence['run'].to_s.strip == cargo_command, 'Cargo timing evidence must preserve diagnostics and fail successful candidates with missing reports')
+    cargo_command = "set -euo pipefail\nif [[ -d Backend/spotty-playback/target/cargo-timings ]]; then\n  cp -R Backend/spotty-playback/target/cargo-timings \"$RUNNER_TEMP/spotty-timings/engine/cargo\"\nelif [[ \"$CANDIDATE_BUILD_RESULT\" == success ]]; then\n  echo \"Successful timed Cargo build has no compiler timing report\" >&2\n  exit 1\nfi"
+    check.call(cargo_evidence['if'] == "always() && needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'" && cargo_evidence.dig('env', 'CANDIDATE_BUILD_RESULT') == '${{ steps.candidate_build.outcome }}' && cargo_evidence['run'].to_s.strip == cargo_command, 'Cargo timing evidence must preserve diagnostics and fail successful candidates with missing reports')
     timing_upload_names = ['Upload engine timing evidence', 'Upload contracts timing evidence', 'Upload Swift timing evidence', 'Upload Release timing evidence']
-    VERIFY_JOBS.zip(%w[engine contracts tests release], timing_upload_names).each do |id, scope, name|
-      lane_steps = jobs.fetch(id, {}).fetch('steps', [])
+    PHASES.zip(timing_upload_names).each do |scope, name|
+      lane_steps = phases.fetch(scope, [])
       upload = one_step(check, lane_steps, name)
-      check.call(upload['if'] == 'always()' && upload['uses'] == "actions/upload-artifact@#{UPLOAD_SHA}" && upload['with'] == {'name' => "timings-#{scope}-${{ github.run_id }}-${{ github.run_attempt }}", 'path' => '${{ runner.temp }}/spotty-timings', 'if-no-files-found' => 'error', 'retention-days' => 7}, "#{scope} timing evidence must retain its required run-attempt archive")
-      if id == 'macos_engine'
+      check.call(upload['if'] == (scope == 'engine' ? "always() && needs.policy.outputs.rust_needed == 'true'" : 'always()') && upload['uses'] == "actions/upload-artifact@#{UPLOAD_SHA}" && upload['with'] == {'name' => "timings-#{scope}-${{ github.run_id }}-${{ github.run_attempt }}", 'path' => "${{ runner.temp }}/spotty-timings/#{scope}", 'if-no-files-found' => 'error', 'retention-days' => 7}, "#{scope} timing evidence must retain its required run-attempt archive")
+      if scope == 'engine'
         positions = [engine_gate, cargo_evidence, upload].map { |step| lane_steps.index(step) }
         check.call(positions.none?(&:nil?) && positions == positions.sort && positions.uniq.length == positions.length, 'Cargo evidence must be preserved after the engine gate and before upload')
       end
@@ -425,16 +539,17 @@ module WorkflowPolicy
     end
     {
       'MACOS_NEEDED' => 'policy.outputs.macos_needed', 'RUST_NEEDED' => 'policy.outputs.rust_needed',
-      'CONTRACTS_RESULT' => 'macos_contracts.result', 'SWIFT_RESULT' => 'macos_swift.result', 'RELEASE_RESULT' => 'macos_release.result',
-      'ENGINE_RESULT' => 'macos_engine.result', 'RUST_RESULT' => 'macos_engine.outputs.rust_result',
-      'CANDIDATE_SELECTION_RESULT' => 'macos_engine.outputs.candidate_selection_result', 'CANDIDATE_NEEDED' => 'macos_engine.outputs.candidate_needed',
-      'CANDIDATE_BUILD_RESULT' => 'macos_engine.outputs.candidate_build_result', 'CANDIDATE_UPLOAD_RESULT' => 'macos_engine.outputs.candidate_upload_result',
+      'MACOS_RESULT' => 'macos_verify.result', 'CONTRACTS_RESULT' => 'macos_verify.outputs.contracts_result', 'SWIFT_RESULT' => 'macos_verify.outputs.swift_result', 'RELEASE_RESULT' => 'macos_verify.outputs.release_result',
+      'ENGINE_RESULT' => 'macos_verify.outputs.engine_result', 'RUST_RESULT' => 'macos_verify.outputs.rust_result',
+      'CANDIDATE_SELECTION_RESULT' => 'macos_verify.outputs.candidate_selection_result', 'CANDIDATE_NEEDED' => 'macos_verify.outputs.candidate_needed',
+      'CANDIDATE_BUILD_RESULT' => 'macos_verify.outputs.candidate_build_result', 'CANDIDATE_UPLOAD_RESULT' => 'macos_verify.outputs.candidate_upload_result',
     }.each do |result, binding|
       check.call(gate.dig('env', result) == "${{ needs.#{binding} }}", "quality aggregate must bind actual #{result}")
     end
+    case_table(check, gate, 'MACOS_NEEDED:$MACOS_RESULT', %w[true:success false:skipped], '*) echo "macOS results disagree with verification selection" >&2; exit 1 ;;', 'native job aggregate')
     case_table(check, gate, 'MACOS_NEEDED:$RUST_NEEDED', %w[true:true true:false false:false], '*) echo "Invalid compiler verification selection" >&2; exit 1 ;;', 'compiler selection aggregate')
-    case_table(check, gate, 'MACOS_NEEDED:$CONTRACTS_RESULT:$SWIFT_RESULT:$RELEASE_RESULT', %w[true:success:success:success false:skipped:skipped:skipped], '*) echo "Swift lane results disagree with verification selection" >&2; exit 1 ;;', 'Swift lane aggregate')
-    case_table(check, gate, 'RUST_NEEDED:$ENGINE_RESULT:$RUST_RESULT:$CANDIDATE_SELECTION_RESULT:$CANDIDATE_NEEDED:$CANDIDATE_BUILD_RESULT:$CANDIDATE_UPLOAD_RESULT', %w[true:success:success:success:true:success:success true:success:success:success:false:skipped:skipped false:skipped:::::], '*) echo "Rust or candidate results disagree with verification selection" >&2; exit 1 ;;', 'Rust and candidate aggregate')
+    case_table(check, gate, 'MACOS_NEEDED:$CONTRACTS_RESULT:$SWIFT_RESULT:$RELEASE_RESULT', %w[true:success:success:success false:::], '*) echo "Swift lane results disagree with verification selection" >&2; exit 1 ;;', 'Swift lane aggregate')
+    case_table(check, gate, 'MACOS_NEEDED:$RUST_NEEDED:$ENGINE_RESULT:$RUST_RESULT:$CANDIDATE_SELECTION_RESULT:$CANDIDATE_NEEDED:$CANDIDATE_BUILD_RESULT:$CANDIDATE_UPLOAD_RESULT', %w[true:true:success:success:success:true:success:success true:true:success:success:success:false:skipped:skipped true:false:skipped:skipped:skipped::skipped:skipped false:false::::::], '*) echo "Rust or candidate results disagree with verification selection" >&2; exit 1 ;;', 'Rust and candidate aggregate')
     stable = jobs.fetch('macos', {})
     check.call(stable['name'] == 'macOS checks', 'required aggregate must retain the macOS checks name')
     check.call(stable['runs-on'] == 'ubuntu-latest', 'required aggregate must use its portable Ubuntu runner')
@@ -449,23 +564,30 @@ module WorkflowPolicy
     check.call(publisher['runs-on'] == 'macos-26' && publisher['if'] == "github.ref == 'refs/heads/main' && needs.quality_gate.result == 'success'" && Array(publisher['needs']).sort == (VERIFY_JOBS + ['quality_gate']).sort, 'cache publisher must follow successful aggregate verification on main only')
     publisher_steps = publisher.fetch('steps', [])
     specs = {
-      'contracts' => ['macos_contracts', 'swift', 'swift_cache', nil, '.build/*\n!.build/spotty-signing', '${{ needs.macos_contracts.outputs.cache_key }}'],
-      'tests' => ['macos_swift', 'swift', 'swift_cache', nil, '.build/*\n!.build/spotty-signing', '${{ needs.macos_swift.outputs.cache_key }}'],
-      'release' => ['macos_release', 'swift', 'swift_cache', nil, '.build/*\n!.build/spotty-signing', '${{ needs.macos_release.outputs.cache_key }}'],
-      'cbindgen' => ['macos_engine', 'cbindgen', 'cbindgen_cache', "needs.policy.outputs.rust_needed == 'true'", '${{ runner.temp }}/spotty-cbindgen', '${{ needs.macos_engine.outputs.cbindgen_key }}'],
-      'rust-debug' => ['macos_engine', 'rust-debug', 'rust_debug_cache', "needs.policy.outputs.rust_needed == 'true'", '~/.cargo/git\n~/.cargo/registry\nBackend/spotty-playback/target/debug\nBackend/spotty-playback/target/.rustc_info.json', '${{ needs.macos_engine.outputs.rust_debug_key }}'],
-      'rust-release' => ['macos_engine', 'rust-release', 'rust_release_cache', "steps.inputs.outputs.candidate_needed == 'true'", 'Backend/spotty-playback/target/aarch64-apple-darwin/release\nBackend/spotty-playback/target/release', '${{ needs.macos_engine.outputs.rust_release_key }}'],
+      'contracts' => ['contracts', 'swift', 'contracts_cache', nil, '.build/*\n!.build/spotty-signing', '${{ needs.macos_verify.outputs.contracts_key }}'],
+      'tests' => ['tests', 'swift', 'tests_cache', nil, '.build/*\n!.build/spotty-signing', '${{ needs.macos_verify.outputs.tests_key }}'],
+      'release' => ['release', 'swift', 'release_cache', nil, '.build/*\n!.build/spotty-signing', '${{ needs.macos_verify.outputs.release_key }}'],
+      'cbindgen' => ['engine', 'cbindgen', 'cbindgen_cache', "needs.policy.outputs.rust_needed == 'true'", '${{ runner.temp }}/spotty-cbindgen', '${{ needs.macos_verify.outputs.cbindgen_key }}'],
+      'rust-debug' => ['engine', 'rust-debug', 'rust_debug_cache', "needs.policy.outputs.rust_needed == 'true'", '~/.cargo/git\n~/.cargo/registry\nBackend/spotty-playback/target/debug\nBackend/spotty-playback/target/.rustc_info.json', '${{ needs.macos_verify.outputs.rust_debug_key }}'],
+      'rust-release' => ['engine', 'rust-release', 'rust_release_cache', "needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'", 'Backend/spotty-playback/target/aarch64-apple-darwin/release\nBackend/spotty-playback/target/release', '${{ needs.macos_verify.outputs.rust_release_key }}'],
     }
     restores = steps.select { |step| step.fetch('uses', '').start_with?('actions/cache/restore@') }
     saves = steps.select { |step| step.fetch('uses', '').start_with?('actions/cache/save@') }
     check.call(restores.length == specs.length && saves.length == specs.length && steps.none? { |step| step.fetch('uses', '').start_with?('actions/cache@') }, 'CI must retain exactly six explicit cache restores and publisher saves without implicit PR writes')
     specs.each do |name, (job_id, scope, restore_id, restore_if, paths, save_key)|
-      lane_steps = jobs.fetch(job_id, {}).fetch('steps', [])
+      lane_steps = phases.fetch(job_id, [])
       restore_matches = lane_steps.select { |step| step['id'] == restore_id }
       restore = restore_matches.first || {}
       expected_paths = paths.split('\n')
       check.call(restore_matches.length == 1 && restore['uses'] == "actions/cache/restore@#{CACHE_SHA}" && restore['if'] == restore_if && restore.dig('with', 'path').to_s.lines.map(&:strip) == expected_paths, "#{name} cache must retain its guarded restore paths")
       if scope == 'swift'
+        ordered = ["Check out #{name} source", 'Identify Swift cache compatibility', 'Restore SwiftPM build directory',
+                   'Restore unchanged Swift input timestamps', 'Snapshot Swift input timestamps',
+                   { 'contracts' => 'Run Swift contracts', 'tests' => 'Run checks', 'release' => 'Compile release Spotty with SPOTTY_DISTRIBUTION' }.fetch(name)].map do |name|
+          lane_steps.index { |step| step['name'] == name }
+        end
+        check.call(ordered.none?(&:nil?) && ordered == ordered.sort && ordered.uniq.length == ordered.length,
+                   "#{name} must checkout, identify, restore, and snapshot its isolated build products in order")
         check.call(restore.dig('with', 'key') == '${{ env.SWIFT_CACHE_KEY }}' && restore.dig('with', 'restore-keys') == '${{ env.SWIFT_CACHE_PREFIX }}', "#{name} Swift cache must retain exact configuration-safe isolation")
       elsif name == 'rust-release'
         check.call(restore.dig('with', 'key') == '${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}' && restore.dig('with', 'restore-keys') == '${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-', 'Rust release cache must retain exact inputs and bounded dependency compatibility')
@@ -477,6 +599,7 @@ module WorkflowPolicy
         check.call(restore.dig('with', 'key') == 'macos-26-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}' && !restore.fetch('with', {}).key?('restore-keys'), 'cbindgen cache must retain its exact architecture and parser version')
       end
       export_if = "success() && github.ref == 'refs/heads/main'"
+      export_if += " && needs.policy.outputs.rust_needed == 'true'" if job_id == 'engine'
       export_if += " && steps.inputs.outputs.candidate_needed == 'true'" if name == 'rust-release'
       export = one_step(check, lane_steps, "Export #{name} cache products")
       upload = one_step(check, lane_steps, "Upload #{name} cache products")
@@ -486,10 +609,14 @@ module WorkflowPolicy
       check.call(export['if'] == export_if && export['run'].to_s.strip == export_command, "#{name} cache export must remain successful-main-only and revision-bound")
       check.call(upload['if'] == export_if && upload['uses'] == "actions/upload-artifact@#{UPLOAD_SHA}" && upload['with'] == {'name' => "cache-#{name}-${{ github.run_id }}-${{ github.run_attempt }}", 'path' => "${{ runner.temp }}/spotty-cache/#{name}.tar.gz", 'if-no-files-found' => 'error', 'retention-days' => 7}, "#{name} cache upload must retain attempt-bound complete products")
       check.call(lane_steps.index(export) && lane_steps.index(upload) && lane_steps.index(export) < lane_steps.index(upload), "#{name} cache export must precede its upload")
+      verification_id = { 'engine' => 'engine_gate', 'contracts' => 'contracts', 'tests' => 'debug', 'release' => 'release' }.fetch(job_id)
+      verification = lane_steps.find { |step| step['id'] == verification_id }
+      check.call(verification && lane_steps.index(verification) < lane_steps.index(export).to_i,
+                 "#{name} cache export must follow its successful verification")
       download = one_step(check, publisher_steps, "Download #{name} cache products")
       unpack = one_step(check, publisher_steps, "Restore #{name} owned cache products")
       save = one_step(check, publisher_steps, "Save #{name} validated cache")
-      publish_if = name == 'rust-release' ? "needs.macos_engine.outputs.candidate_needed == 'true'" : nil
+      publish_if = name == 'rust-release' ? "needs.macos_verify.outputs.candidate_needed == 'true'" : nil
       check.call(download['if'] == publish_if && download['uses'] == "actions/download-artifact@#{DOWNLOAD_SHA}" && download['with'] == {'name' => "cache-#{name}-${{ github.run_id }}-${{ github.run_attempt }}", 'path' => "${{ runner.temp }}/spotty-cache/#{name}"}, "#{name} publisher must download the exact run-attempt export")
       unpack_command = "python3 Scripts/ci_cache_bundle.py restore --scope #{scope} --archive \"$RUNNER_TEMP/spotty-cache/#{name}/#{name}.tar.gz\" --revision \"$GITHUB_SHA\" --replace-owned-scope"
       unpack_command += ' --runner-temp "$RUNNER_TEMP"' if name == 'cbindgen'

@@ -194,10 +194,10 @@ class RustSelectionTests(unittest.TestCase):
                 verification_needed("pull_request", self.base, self.root)["rust_needed"]
 
 
-class ParallelWorkflowTests(unittest.TestCase):
-    def test_parallel_verification_and_serial_cache_publication_keep_one_required_check(self):
+class SequentialWorkflowTests(unittest.TestCase):
+    def test_single_native_verification_and_serial_cache_publication_keep_one_required_check(self):
         jobs = workflow_jobs()
-        verify = {"macos_engine", "macos_contracts", "macos_swift", "macos_release"}
+        verify = {"macos_verify", "macos_verify", "macos_verify", "macos_verify"}
         self.assertEqual({key for key, job in jobs.items() if job["runs-on"].startswith("macos-")},
                          verify | {"cache_publisher"})
         for key in verify:
@@ -221,19 +221,19 @@ class ParallelWorkflowTests(unittest.TestCase):
         self.assertEqual(debug.count(normal_debug), 1)
         self.assertIn(f"false) {normal_debug} ;;", debug)
         self.assertIn("-- ./Scripts/check.sh", debug)
-        expected = {
-            "macos_contracts": "SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh",
-            "macos_swift": debug,
-            "macos_release": "./Scripts/compile-release-spotty.sh",
-            "macos_engine": "SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh",
-        }
+        expected = [
+            "SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh",
+            debug,
+            "./Scripts/compile-release-spotty.sh",
+            "SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh",
+        ]
         all_commands = [step.get("run", "").strip() for job in jobs.values() for step in job.get("steps", [])]
-        for key, command in expected.items():
+        for command in expected:
             self.assertEqual(all_commands.count(command), 1)
-            self.assertIn(command, [step.get("run", "").strip() for step in jobs[key]["steps"]])
+            self.assertIn(command, [step.get("run", "").strip() for step in jobs["macos_verify"]["steps"]])
         self.assertIn("--corpus all", workflow_script("Run acceptance scenarios"))
         self.assertIn("candidate_needed == 'true'", next(
-            step["if"] for step in jobs["macos_engine"]["steps"] if step.get("id") == "candidate_build"))
+            step["if"] for step in jobs["macos_verify"]["steps"] if step.get("id") == "candidate_build"))
 
 
 class CheckScopeOwnershipTests(unittest.TestCase):
@@ -370,17 +370,18 @@ class AggregateGateTests(unittest.TestCase):
     @staticmethod
     def valid_quality_outcomes():
         portable = {"POLICY_RESULT": "success", "DOMAIN_LINUX_RESULT": "success", "PLAYBACK_PYTHON_RESULT": "success"}
-        absent_engine = {"RUST_NEEDED": "false", "ENGINE_RESULT": "skipped", "RUST_RESULT": "",
-                         "CANDIDATE_SELECTION_RESULT": "", "CANDIDATE_NEEDED": "",
-                         "CANDIDATE_BUILD_RESULT": "", "CANDIDATE_UPLOAD_RESULT": ""}
-        swift = {"MACOS_NEEDED": "true", "CONTRACTS_RESULT": "success", "SWIFT_RESULT": "success", "RELEASE_RESULT": "success"}
-        docs = {"MACOS_NEEDED": "false", "CONTRACTS_RESULT": "skipped", "SWIFT_RESULT": "skipped", "RELEASE_RESULT": "skipped"}
+        absent_engine = {"RUST_NEEDED": "false", "ENGINE_RESULT": "skipped", "RUST_RESULT": "skipped",
+                         "CANDIDATE_SELECTION_RESULT": "skipped", "CANDIDATE_NEEDED": "",
+                         "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"}
+        no_native = {key: "false" if key == "RUST_NEEDED" else "" for key in absent_engine}
+        swift = {"MACOS_NEEDED": "true", "MACOS_RESULT": "success", "CONTRACTS_RESULT": "success", "SWIFT_RESULT": "success", "RELEASE_RESULT": "success"}
+        docs = {"MACOS_NEEDED": "false", "MACOS_RESULT": "skipped", "CONTRACTS_RESULT": "", "SWIFT_RESULT": "", "RELEASE_RESULT": ""}
         engine = {"RUST_NEEDED": "true", "ENGINE_RESULT": "success", "RUST_RESULT": "success",
                   "CANDIDATE_SELECTION_RESULT": "success"}
         candidate = {"CANDIDATE_NEEDED": "true", "CANDIDATE_BUILD_RESULT": "success", "CANDIDATE_UPLOAD_RESULT": "success"}
         no_candidate = {"CANDIDATE_NEEDED": "false", "CANDIDATE_BUILD_RESULT": "skipped", "CANDIDATE_UPLOAD_RESULT": "skipped"}
         return [
-            {**portable, **absent_engine, **docs},
+            {**portable, **no_native, **docs},
             {**portable, **absent_engine, **swift},
             {**portable, **swift, **engine, **candidate},
             {**portable, **swift, **engine, **no_candidate},

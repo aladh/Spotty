@@ -452,8 +452,8 @@ class RustCacheWorkflowTests(unittest.TestCase):
         mutations = (
             workflow.replace("macos-rust-debug-lean-v3-", "macos-rust-debug-lean-v2-"),
             workflow.replace("${{ env.RUST_CACHE_TRANSFER_KEY }}-", ""),
-            workflow.replace('--github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/toolchain.json"',
-                             '--report "$RUNNER_TEMP/spotty-timings/toolchain.json"'),
+            workflow.replace('--github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/engine/toolchain.json"',
+                             '--report "$RUNNER_TEMP/spotty-timings/engine/toolchain.json"'),
             workflow.replace("restore-keys: ${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-",
                              "restore-keys: macos-rust-release-"),
         )

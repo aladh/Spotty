@@ -38,8 +38,7 @@ python3 Scripts/swift_test_host_observation.py \
 
 The outer deadline is at most 900 seconds; each native watchdog has 300 seconds. Use normal tool setup. CI limits the observer to 840 seconds inside its unchanged
 15-minute step, reserving 60 seconds for owned cleanup and receipt writes. Do not extend deadlines or retry merely to hide a failure.
-For a bounded Gateway investigation, pass the verified target selector after `--` and use its actual
-isolated build root. `--help` describes arguments; existing output directories are refused.
+For Gateway investigations, use the verified target selector and isolated build root. `--help` describes arguments; existing output directories are refused.
 
 An enabled diagnostic function immediately writes its invocation nonce, function identity and
 PID/parent/group, then returns. Ordinary gates intentionally skip this opt-in function. Observation
@@ -73,7 +72,7 @@ extend deadlines, enable live dependencies or retry for green.
 Use an interactive, optimized, network-denied Demo with `homePresentedProbeSections: 12`, browsing
 mode, eight uniquely labeled albums per shelf and nil artwork. Default mode diagnoses traversal/navigation, not performance.
 
-Compile the controller before launch:
+Compile before launch:
 
 ```sh
 xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors \
@@ -86,18 +85,19 @@ xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors \
 Existing Accessibility access is required. Fresh connected, visible,
 zero-command safety pulses, atomic non-replacing nonce publication and a shared ten-second deadline
 admit one exact public detail action. Retire only owned Demo processes; restore the desktop.
+Failure receipts preserve rejected values/predicates. Allow bounded cooperative capture shutdown before owned termination.
 
 After launch, call `synthetic_home_startup.wait_for_ready` with `min(batchDeadline, startupOrigin+10s)`
 before controller invocation. Missing/stale pulses wait; malformed/unsafe pulses fail. Revalidate
 identity afterward. Startup consumes batch time without starting the separate request deadline.
 
 Add `homePresentedMeasurement: true` with 12 or 120 shelves for controlled initial-response measurement.
-The synthetic Home provider stays suspended until own-window ScreenCaptureKit capture is primed.
+Home stays suspended until own-window ScreenCaptureKit capture is primed.
 Capture and external AX bind the same main window using PID, window number, a temporary run-and-nonce
 identifier, and normalized primary-display geometry. The bounded inventory rejects duplicate matches,
 malformed values and overflow; missing marker export waits within the original deadline. The identifier
 is restored on exit.
-The external controller confirms an enabled, visible, unique detail target after sections arrive, then
+External AX confirms an enabled, visible, unique detail target after sections arrive, then
 waits for Home sampling and capture to finish before pressing it. A pre-navigation stage receipt is
 `home-presented-measurement.json`; functional acceptance requires
 `home-measurement-accepted.json` and passing `home-ax-external.json`.

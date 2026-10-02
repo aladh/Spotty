@@ -159,6 +159,53 @@ class HomeStartupTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             startup.retirement_proof(self.process, deadline=1, clock=lambda: self.elapsed, exists=late_absence)
 
+    def cleanup_wait(self, reader, external=None, owned=lambda _: True):
+        if external is None:
+            external = {"runID": self.process["runID"], "pid": 42, "nonce": "owned-nonce", "passed": False,
+                        "rejectedSafetyObservation": {"pulse": self.pulse}}
+        return startup.wait_for_capture_shutdown(Path("/synthetic"), self.process, external,
+                                                  deadline=0.1, clock=lambda: self.elapsed,
+                                                  sleep=self.sleep, owned=owned, read_failure=reader)
+
+    def test_delayed_cooperative_failure_reports_capture_stop_before_retirement(self):
+        def reader():
+            if self.elapsed < 0.05:
+                raise FileNotFoundError()
+            return {"launchRunID": "synthetic-run", "externalRequestNonce": "owned-nonce",
+                    "captureWasStarted": True, "captureStoppedAndDrained": True}
+        result = self.cleanup_wait(reader)
+        self.assertTrue(result["confirmed"])
+        self.assertEqual(self.elapsed, 0.05)
+
+    def test_unsafe_rejection_skips_cooperative_wait_and_never_claims_drain(self):
+        pulse = dict(self.pulse, networkSandboxVerified=False)
+        external = {"runID": "synthetic-run", "pid": 42, "nonce": "owned-nonce", "passed": False,
+                    "rejectedSafetyObservation": {"pulse": pulse}}
+        def forbidden():
+            self.fail("unsafe isolation must not wait for capture evidence")
+        result = self.cleanup_wait(forbidden, external=external)
+        self.assertFalse(result["confirmed"])
+        self.assertFalse(result["waited"])
+
+    def test_missing_cleanup_receipt_expires_and_identity_loss_cannot_prove_drain(self):
+        def missing():
+            raise FileNotFoundError()
+        self.assertFalse(self.cleanup_wait(missing)["confirmed"])
+        self.assertEqual(self.elapsed, 0.1)
+        self.elapsed = 0
+        self.assertFalse(self.cleanup_wait(missing, owned=lambda _: False)["confirmed"])
+
+    def test_foreign_malformed_or_failed_capture_stop_receipts_never_qualify_cleanup(self):
+        for failure in [None, [], {"launchRunID": "foreign", "externalRequestNonce": "owned-nonce"},
+                        {"launchRunID": "synthetic-run", "externalRequestNonce": "foreign"}]:
+            with self.subTest(failure=failure), self.assertRaises(ValueError):
+                self.cleanup_wait(lambda: failure)
+        failure = {"launchRunID": "synthetic-run", "externalRequestNonce": "owned-nonce",
+                   "captureWasStarted": True, "captureStoppedAndDrained": False, "captureStopError": "synthetic"}
+        result = self.cleanup_wait(lambda: failure)
+        self.assertFalse(result["confirmed"])
+        self.assertIn("captureStopError", result["receipt"])
+
 
 if __name__ == "__main__":
     unittest.main()

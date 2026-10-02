@@ -111,3 +111,46 @@ def retirement_proof(process, *, deadline, clock=time.monotonic, exists=None,
     if first == second and first != process["startIdentity"]:
         return {"retired": True, "method": "observed replacement birth identity", "replacementBirth": first}
     return {"retired": False, "method": "recorded owner still present or birth unstable"}
+
+
+def wait_for_capture_shutdown(run_root, process, external, *, deadline, clock=time.monotonic,
+                              sleep=time.sleep, owned=browsing_process.matches, read_failure=None):
+    """After controller failure, observe bounded cooperative cleanup without any further action."""
+    started = clock()
+    if not started < deadline <= started + 13:
+        raise ValueError("invalid cooperative capture cleanup deadline")
+    pulse = external.get("rejectedSafetyObservation", {}).get("pulse", external.get("lastSafetyPulse", {}))
+    if (external.get("passed") is not False or external.get("runID") != process["runID"]
+            or external.get("pid") != process["pid"] or not isinstance(pulse, dict)
+            or pulse.get("runID") != process["runID"] or pulse.get("pid") != process["pid"]
+            or pulse.get("networkSandboxVerified") is not True or pulse.get("syntheticDependencies") is not True
+            or pulse.get("engineUsedForPlayback") is not False
+            or any(type(pulse.get(key)) is not int or pulse[key] != 0
+                   for key in ("commandCount", "mutationAttempts"))):
+        return {"confirmed": False, "waited": False, "reason": "synthetic isolation unavailable; retire directly"}
+    if read_failure is None:
+        def read_failure():
+            return json.loads((run_root / "home-presented-measurement.failure.json").read_text())
+    while clock() < deadline:
+        if not owned(process):
+            return {"confirmed": False, "waited": True, "reason": "owned identity unavailable during cleanup"}
+        try:
+            failure = read_failure()
+        except FileNotFoundError:
+            missing = True
+        else:
+            missing = False
+        if not missing:
+            if (not isinstance(failure, dict) or failure.get("launchRunID") != process["runID"]
+                    or failure.get("externalRequestNonce") != external.get("nonce")):
+                raise ValueError("cooperative capture receipt identity mismatch")
+            if clock() >= deadline or not owned(process) or clock() >= deadline:
+                raise ValueError("cooperative capture cleanup deadline or identity changed")
+            return {"confirmed": failure.get("captureWasStarted") is True
+                    and failure.get("captureStoppedAndDrained") is True,
+                    "waited": True, "receipt": failure}
+        remaining = deadline - clock()
+        if remaining <= 0:
+            break
+        sleep(min(0.025, remaining))
+    return {"confirmed": False, "waited": True, "reason": "cooperative capture cleanup deadline reached"}

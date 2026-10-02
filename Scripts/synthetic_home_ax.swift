@@ -97,20 +97,22 @@ private final class HomeAXDiagnostic {
 
     func safety() throws -> [String: Any] {
         let status = try json(root.appendingPathComponent("run-status.json"))
-        let home = status["homeProbe"] as? [String: Any]
-        let window = status["window"] as? [String: Any]
-        let fresh = HomeAXProtocol.pulseIsFresh(
-            recordedAt: status["recordedAtSeconds"] as? Double, now: Date().timeIntervalSince1970)
-        guard status["runID"] as? String == identity.runID, status["pid"] as? Int32 == identity.pid,
-            ["ready", "workload-running", "workload-finished"].contains(status["state"] as? String ?? ""),
-            fresh, status["networkSandboxVerified"] as? Bool == true,
-            status["syntheticDependencies"] as? Bool == true, status["engineUsedForPlayback"] as? Bool == false,
-            status["commandCount"] as? Int == 0, status["mutationAttempts"] as? Int == 0,
-            (home?["sectionCount"] as? Int == sections
-                || (measurement && !homePublicationAdmitted && home?["sectionCount"] as? Int == 0)),
-            home?["connected"] as? Bool == true,
-            window?["visible"] as? Bool == true, window?["miniaturized"] as? Bool == false
-        else { throw Failure(reason: "fresh connected, visible, zero-command synthetic safety pulse unavailable") }
+        let observedAt = Date().timeIntervalSince1970
+        let predicates = HomeAXProtocol.safetyPredicates(
+            status, runID: identity.runID, pid: identity.pid, sections: sections,
+            measurement: measurement, populatedAlready: homePublicationAdmitted, now: observedAt)
+        let failed = predicates.filter { !$0.value }.map(\.key).sorted()
+        let observation: [String: Any] = [
+            "pulse": status, "observedAtSeconds": observedAt, "observedMachTime": mach_absolute_time(),
+            "pulseAgeSeconds": (status["recordedAtSeconds"] as? Double).map { observedAt - $0 } as Any? ?? NSNull(),
+            "predicates": predicates, "failedPredicates": failed, "expectedSections": sections,
+            "measurement": measurement, "homePublicationAdmitted": homePublicationAdmitted,
+        ]
+        evidence["lastSafetyObservation"] = observation
+        guard failed.isEmpty else {
+            evidence["rejectedSafetyObservation"] = observation
+            throw Failure(reason: "synthetic safety pulse rejected: \(failed.joined(separator: ", "))")
+        }
         evidence["lastSafetyPulse"] = status
         return status
     }
@@ -430,8 +432,9 @@ private final class HomeAXDiagnostic {
     func save(error: Error? = nil) throws {
         if let error { evidence["passed"] = false; evidence["error"] = String(describing: error) }
         evidence["attributeErrors"] = attributeErrors
-        try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys])
-            .write(to: root.appendingPathComponent("home-ax-external.json"), options: .withoutOverwriting)
+        try HomeAXProtocol.publish(
+            JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]),
+            to: root.appendingPathComponent("home-ax-external.json"))
     }
 }
 

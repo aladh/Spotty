@@ -24,6 +24,7 @@ enum BrowsingHomePresentedMeasurement {
         let queue = DispatchQueue(label: "dev.spotty.actual-home-frames")
         var stream: SCStream?
         var capturing = false
+        var captureWasStarted = false
         var contentAdmitted = false
         var measuredIdentity: HomeAXProtocol.MeasuredWindow?
         var phase = "request admission"
@@ -68,13 +69,25 @@ enum BrowsingHomePresentedMeasurement {
             )
             try request.validate(
                 runID: launch.runID, pid: ProcessInfo.processInfo.processIdentifier, now: mach_absolute_time())
+            func controllerRejection() throws {
+                let path = root.appendingPathComponent("home-ax-external.json")
+                guard FileManager.default.fileExists(atPath: path.path) else { return }
+                let data = try Data(contentsOf: path)
+                let result = try JSONDecoder().decode(HomeAXProtocol.ControllerResult.self, from: data)
+                if result.rejects(request) {
+                    evidence["externalControllerRejection"] = try JSONSerialization.jsonObject(with: data)
+                    throw BrowsingFailure.checkpoint("home-measurement.external-controller-rejected")
+                }
+            }
             func prerequisite(onHome: Bool = true, _ condition: () -> Bool) async throws {
                 while !condition() {
+                    try controllerRejection()
                     try request.validate(
                         runID: launch.runID, pid: ProcessInfo.processInfo.processIdentifier, now: mach_absolute_time())
                     try safety(onHome: onHome)
                     try await ContinuousClock().sleep(for: .milliseconds(25))
                 }
+                try controllerRejection()
                 try request.validate(
                     runID: launch.runID, pid: ProcessInfo.processInfo.processIdentifier, now: mach_absolute_time())
                 try safety(onHome: onHome)
@@ -167,6 +180,7 @@ enum BrowsingHomePresentedMeasurement {
             stream = owned
             try await owned.startCapture()
             capturing = true
+            captureWasStarted = true
             phase = "capture priming"
             try await prerequisite { !collector.snapshot.frames.isEmpty }
             evidence["beforeHomePhysicalFootprintBytes"] = try footprint()
@@ -231,6 +245,8 @@ enum BrowsingHomePresentedMeasurement {
         } catch {
             let primary = error
             do { try await stop() } catch { evidence["captureStopError"] = String(describing: error) }
+            evidence["captureWasStarted"] = captureWasStarted
+            evidence["captureStoppedAndDrained"] = captureWasStarted && !capturing
             evidence["failurePhase"] = phase
             evidence["error"] = String(describing: primary)
             evidence["frames"] = try? JSONSerialization.jsonObject(

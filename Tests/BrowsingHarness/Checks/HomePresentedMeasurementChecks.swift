@@ -225,6 +225,60 @@ struct BrowsingHomeMeasurementChecks {
             axFrame: CGRect(x: 0, y: 33, width: 1728, height: 1084))
     }
 
+    @Test func safetyRejectionNamesTheObservedPredicateWithoutChangingAdmission() {
+        let status: [String: Any] = [
+            "runID": "owned", "pid": Int32(42), "state": "workload-running", "recordedAtSeconds": 100.0,
+            "networkSandboxVerified": true, "syntheticDependencies": true, "engineUsedForPlayback": false,
+            "commandCount": 0, "mutationAttempts": 0,
+            "homeProbe": ["sectionCount": 0, "connected": true],
+            "window": ["visible": true, "miniaturized": false],
+        ]
+        func failed(_ pulse: [String: Any], now: Double = 100, populated: Bool = false) -> [String] {
+            HomeAXProtocol.safetyPredicates(
+                pulse, runID: "owned", pid: 42, sections: 120, measurement: true,
+                populatedAlready: populated, now: now
+            ).filter { !$0.value }.map(\.key).sorted()
+        }
+        #expect(failed(status).isEmpty)
+        #expect(failed(status, now: 103).isEmpty)
+        #expect(failed(status, now: 103.001) == ["pulseFresh"])
+        #expect(failed(status, populated: true) == ["sectionsReadyOrInitialGate"])
+        for (key, value, predicate): (String, Any, String) in [
+            ("runID", "foreign", "runID"), ("pid", Int32(43), "pid"), ("state", "failed", "state"),
+            ("networkSandboxVerified", false, "networkDenied"),
+            ("syntheticDependencies", false, "syntheticDependencies"),
+            ("engineUsedForPlayback", true, "engineUnused"), ("commandCount", 1, "commandsZero"),
+            ("mutationAttempts", 1, "mutationsZero"),
+        ] {
+            var changed = status
+            changed[key] = value
+            #expect(failed(changed) == [predicate])
+        }
+        var changed = status
+        changed["homeProbe"] = ["sectionCount": 120, "connected": false]
+        #expect(failed(changed, populated: true) == ["connected"])
+        changed = status
+        changed["window"] = ["visible": false, "miniaturized": true]
+        #expect(failed(changed) == ["windowNotMiniaturized", "windowVisible"])
+    }
+
+    @Test func onlyMatchingAtomicControllerFailureRequestsCooperativeCaptureCleanup() throws {
+        let request = HomeAXProtocol.Request(
+            runID: "owned", pid: 42, nonce: UUID().uuidString, startedMachTime: 100, deadlineMachTime: 200)
+        let result = HomeAXProtocol.ControllerResult(
+            runID: request.runID, pid: request.pid, nonce: request.nonce, passed: false,
+            deadlineMachTime: request.deadlineMachTime)
+        #expect(result.rejects(request))
+        for other in [
+            HomeAXProtocol.ControllerResult(
+                runID: "foreign", pid: 42, nonce: request.nonce, passed: false, deadlineMachTime: 200),
+            .init(runID: "owned", pid: 43, nonce: request.nonce, passed: false, deadlineMachTime: 200),
+            .init(runID: "owned", pid: 42, nonce: "foreign", passed: false, deadlineMachTime: 200),
+            .init(runID: "owned", pid: 42, nonce: request.nonce, passed: true, deadlineMachTime: 200),
+            .init(runID: "owned", pid: 42, nonce: request.nonce, passed: false, deadlineMachTime: 201),
+        ] { #expect(!other.rejects(request)) }
+    }
+
     private func frame(_ display: UInt64, _ received: UInt64, _ digest: String, new: Bool = true)
         -> HomePresentedFrameCollector.Frame
     {

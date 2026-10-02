@@ -125,6 +125,43 @@ enum HomeAXProtocol {
         return (-1...3).contains(now - recordedAt)
     }
 
+    static func safetyPredicates(
+        _ status: [String: Any], runID: String, pid: Int32, sections: Int,
+        measurement: Bool, populatedAlready: Bool, now: Double
+    ) -> [String: Bool] {
+        let home = status["homeProbe"] as? [String: Any]
+        let window = status["window"] as? [String: Any]
+        return [
+            "runID": status["runID"] as? String == runID,
+            "pid": status["pid"] as? Int32 == pid,
+            "state": ["ready", "workload-running", "workload-finished"].contains(status["state"] as? String ?? ""),
+            "pulseFresh": pulseIsFresh(recordedAt: status["recordedAtSeconds"] as? Double, now: now),
+            "networkDenied": status["networkSandboxVerified"] as? Bool == true,
+            "syntheticDependencies": status["syntheticDependencies"] as? Bool == true,
+            "engineUnused": status["engineUsedForPlayback"] as? Bool == false,
+            "commandsZero": status["commandCount"] as? Int == 0,
+            "mutationsZero": status["mutationAttempts"] as? Int == 0,
+            "sectionsReadyOrInitialGate": home?["sectionCount"] as? Int == sections
+                || (measurement && !populatedAlready && home?["sectionCount"] as? Int == 0),
+            "connected": home?["connected"] as? Bool == true,
+            "windowVisible": window?["visible"] as? Bool == true,
+            "windowNotMiniaturized": window?["miniaturized"] as? Bool == false,
+        ]
+    }
+
+    struct ControllerResult: Decodable {
+        let runID: String
+        let pid: Int32
+        let nonce: String
+        let passed: Bool
+        let deadlineMachTime: UInt64
+
+        func rejects(_ request: Request) -> Bool {
+            !passed && runID == request.runID && pid == request.pid && nonce == request.nonce
+                && deadlineMachTime == request.deadlineMachTime
+        }
+    }
+
     struct Observation: Codable {
         let nonce: String
         let observedMachTime: UInt64

@@ -51,6 +51,7 @@ actor LoopbackCallbackServer {
     }
     private var connections: [ObjectIdentifier: AcceptedConnection] = [:]
     var activeConnectionCount: Int { connections.count }
+    var isAwaitingCallback: Bool { waiter != nil }
     private let expectedState: String
     private let maximumConnections: Int
     private let requestClock: any PlaybackClock

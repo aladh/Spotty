@@ -149,6 +149,20 @@ enum HomeAXProtocol {
         ]
     }
 
+    /// Passive waiting admits no AX query or action. Freshness stays mandatory for publication admission.
+    static func mayWaitForPublicationPulse(
+        _ status: [String: Any], predicates: [String: Bool], measurement: Bool,
+        populatedAlready: Bool, now: Double
+    ) -> Bool {
+        guard measurement, !populatedAlready, predicates.count == 13,
+            predicates.filter({ !$0.value }).map(\.key) == ["pulseFresh"],
+            let recorded = status["recordedAtSeconds"] as? Double,
+            recorded.isFinite, now.isFinite, now - recorded > 3,
+            (status["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true
+        else { return false }
+        return true
+    }
+
     struct ControllerResult: Decodable {
         let runID: String
         let pid: Int32

@@ -159,6 +159,49 @@ class HomeStartupTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             startup.retirement_proof(self.process, deadline=1, clock=lambda: self.elapsed, exists=late_absence)
 
+    def test_exit_between_presence_and_either_birth_query_requires_fresh_kernel_absence(self):
+        for failed_query in (1, 2):
+            probes = []
+            births = []
+            def exists(_):
+                probes.append(True)
+                if len(probes) == 2:
+                    raise ProcessLookupError()
+            def birth(*_, **__):
+                births.append(True)
+                if len(births) == failed_query:
+                    raise ProcessLookupError("birth unavailable")
+                return "synthetic-start"
+            with self.subTest(failed_query=failed_query):
+                result = startup.retirement_proof(self.process, deadline=1, clock=lambda: 0,
+                                                  exists=exists, birth=birth)
+                self.assertTrue(result["retired"])
+                self.assertEqual(len(probes), 2)
+                self.assertEqual(len(births), failed_query)
+
+    def test_unavailable_birth_reprobe_cannot_prove_exit_if_present_denied_or_late(self):
+        for outcome in ("present", "denied", "late", "already-expired"):
+            self.elapsed = 0
+            probes = []
+            def exists(_):
+                probes.append(True)
+                if len(probes) == 2:
+                    if outcome == "denied":
+                        raise PermissionError()
+                    if outcome == "late":
+                        self.elapsed = 1
+                        raise ProcessLookupError()
+            def birth(*_, **__):
+                if outcome == "already-expired":
+                    self.elapsed = 1
+                raise ProcessLookupError("birth unavailable")
+            expected = PermissionError if outcome == "denied" else (
+                ValueError if outcome in ("late", "already-expired") else ProcessLookupError)
+            with self.subTest(outcome=outcome), self.assertRaises(expected):
+                startup.retirement_proof(self.process, deadline=1, clock=lambda: self.elapsed,
+                                         exists=exists, birth=birth)
+            self.assertEqual(len(probes), 1 if outcome == "already-expired" else 2)
+
     def cleanup_wait(self, reader, external=None, owned=lambda _: True):
         if external is None:
             external = {"runID": self.process["runID"], "pid": 42, "nonce": "owned-nonce", "passed": False,

@@ -279,6 +279,52 @@ struct BrowsingHomeMeasurementChecks {
         ] { #expect(!other.rejects(request)) }
     }
 
+    @Test func passivePublicationWaitNeverAdmitsStaleUnsafeMalformedOrLaterPhaseActions() {
+        let status: [String: Any] = [
+            "runID": "owned", "pid": Int32(42), "state": "workload-running", "recordedAtSeconds": 100.0,
+            "networkSandboxVerified": true, "syntheticDependencies": true, "engineUsedForPlayback": false,
+            "commandCount": 0, "mutationAttempts": 0,
+            "homeProbe": ["sectionCount": 0, "connected": true, "onHome": true],
+            "window": ["visible": true, "miniaturized": false],
+        ]
+        func pending(_ pulse: [String: Any], now: Double = 103.1, measured: Bool = true, populated: Bool = false)
+            -> Bool
+        {
+            HomeAXProtocol.mayWaitForPublicationPulse(
+                pulse,
+                predicates: HomeAXProtocol.safetyPredicates(
+                    pulse, runID: "owned", pid: 42, sections: 120, measurement: measured,
+                    populatedAlready: populated, now: now),
+                measurement: measured, populatedAlready: populated, now: now)
+        }
+        #expect(pending(status))
+        #expect(!HomeAXProtocol.pulseIsFresh(recordedAt: 100, now: 103.1))
+        #expect(!pending(status, now: 103))
+        #expect(!pending(status, measured: false))
+        #expect(!pending(status, populated: true))
+        #expect(!pending(status, now: 98))
+        for (key, value): (String, Any) in [
+            ("runID", "foreign"), ("pid", Int32(43)), ("state", "failed"),
+            ("networkSandboxVerified", false), ("syntheticDependencies", false),
+            ("engineUsedForPlayback", true), ("commandCount", 1), ("mutationAttempts", 1),
+            ("recordedAtSeconds", Double.nan), ("recordedAtSeconds", "malformed"),
+            ("homeProbe", ["sectionCount": 120, "connected": false, "onHome": true]),
+            ("homeProbe", ["sectionCount": 120, "connected": true, "onHome": false]),
+            ("window", ["visible": false, "miniaturized": false]),
+            ("window", ["visible": true, "miniaturized": true]),
+        ] {
+            var changed = status
+            changed[key] = value
+            #expect(!pending(changed))
+        }
+        var published = status
+        published["homeProbe"] = ["sectionCount": 120, "connected": true, "onHome": true]
+        #expect(pending(published))
+        #expect(!pending(published, populated: true))
+        published["recordedAtSeconds"] = 103.1
+        #expect(!pending(published), "fresh publication proceeds through strict admission")
+    }
+
     private func frame(_ display: UInt64, _ received: UInt64, _ digest: String, new: Bool = true)
         -> HomePresentedFrameCollector.Frame
     {

@@ -82,10 +82,10 @@ xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors \
 /tmp/home-ax RUN_ROOT HEAD SOURCE_SHA256 SIGNED_EXECUTABLE_SHA256
 ```
 
-Existing Accessibility access is required. Fresh connected, visible,
-zero-command safety pulses, atomic non-replacing nonce publication and a shared ten-second deadline
-admit one exact public detail action. Retire only owned Demo processes; restore the desktop.
-Failure receipts preserve rejected values/predicates. Allow bounded cooperative capture shutdown before owned termination.
+Require existing AX access, atomic nonce publication and the original ten-second deadline.
+Post-armed, pre-publication measurement may passively wait for freshness; other safety predicates
+must hold. No AX query/action admits stale pulses. Preserve pending/rejected evidence and bounded
+cooperative capture shutdown. Retire owned Demo with independent exit proof; restore desktop.
 
 After launch, call `synthetic_home_startup.wait_for_ready` with `min(batchDeadline, startupOrigin+10s)`
 before controller invocation. Missing/stale pulses wait; malformed/unsafe pulses fail. Revalidate

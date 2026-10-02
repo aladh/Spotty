@@ -104,8 +104,21 @@ def retirement_proof(process, *, deadline, clock=time.monotonic, exists=None,
         if clock() >= deadline:
             raise ValueError("retirement proof exceeded deadline")
         return {"retired": True, "method": "kernel ESRCH"}
-    first = birth(process["pid"], deadline=deadline)
-    second = birth(process["pid"], deadline=deadline)
+    try:
+        first = birth(process["pid"], deadline=deadline)
+        second = birth(process["pid"], deadline=deadline)
+    except (ProcessLookupError, TimeoutError):
+        # The owner may exit between the presence and birth queries. Missing birth
+        # alone is inconclusive; only a fresh kernel ESRCH within this same bound proves exit.
+        if clock() >= deadline:
+            raise ValueError("retirement proof exceeded deadline")
+        try:
+            exists(process["pid"])
+        except ProcessLookupError:
+            if clock() >= deadline:
+                raise ValueError("retirement proof exceeded deadline")
+            return {"retired": True, "method": "kernel ESRCH after unavailable birth query"}
+        raise
     if clock() >= deadline:
         raise ValueError("retirement proof exceeded deadline")
     if first == second and first != process["startIdentity"]:

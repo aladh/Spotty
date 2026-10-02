@@ -48,7 +48,7 @@ private final class HomeAXDiagnostic {
         return value
     }
 
-    func validateTarget() throws {
+    func validateTarget(verifySafety: Bool = true) throws {
         try checkDeadline()
         guard AXIsProcessTrusted(), identity.pid > 0,
             let running = NSRunningApplication(processIdentifier: identity.pid), !running.isTerminated,
@@ -91,11 +91,11 @@ private final class HomeAXDiagnostic {
             scenario["acceptanceScenarioID"] == nil
         else { throw Failure(reason: "only the exact admitted interactive synthetic Home run is admitted") }
         evidence["performanceMeasurement"] = measurement
-        _ = try safety()
+        if verifySafety { _ = try safety() }
         try checkDeadline()
     }
 
-    func safety() throws -> [String: Any] {
+    func safetyObservation() throws -> (status: [String: Any], predicates: [String: Bool], observation: [String: Any]) {
         let status = try json(root.appendingPathComponent("run-status.json"))
         let observedAt = Date().timeIntervalSince1970
         let predicates = HomeAXProtocol.safetyPredicates(
@@ -109,6 +109,36 @@ private final class HomeAXDiagnostic {
             "measurement": measurement, "homePublicationAdmitted": homePublicationAdmitted,
         ]
         evidence["lastSafetyObservation"] = observation
+        return (status, predicates, observation)
+    }
+
+    func safety() throws -> [String: Any] {
+        let (status, predicates, observation) = try safetyObservation()
+        let failed = predicates.filter { !$0.value }.map(\.key).sorted()
+        guard failed.isEmpty else {
+            evidence["rejectedSafetyObservation"] = observation
+            throw Failure(reason: "synthetic safety pulse rejected: \(failed.joined(separator: ", "))")
+        }
+        evidence["lastSafetyPulse"] = status
+        return status
+    }
+
+    func publicationPulse() throws -> [String: Any]? {
+        let (status, predicates, observation) = try safetyObservation()
+        if HomeAXProtocol.mayWaitForPublicationPulse(
+            status, predicates: predicates, measurement: measurement,
+            populatedAlready: homePublicationAdmitted, now: observation["observedAtSeconds"] as? Double ?? .nan)
+        {
+            try validateTarget(verifySafety: false)
+            try checkDeadline()
+            if evidence["firstPendingPublicationPulse"] == nil {
+                evidence["firstPendingPublicationPulse"] = observation
+            }
+            evidence["lastPendingPublicationPulse"] = observation
+            evidence["pendingPublicationPulseCount"] = (evidence["pendingPublicationPulseCount"] as? Int ?? 0) + 1
+            return nil
+        }
+        let failed = predicates.filter { !$0.value }.map(\.key).sorted()
         guard failed.isEmpty else {
             evidence["rejectedSafetyObservation"] = observation
             throw Failure(reason: "synthetic safety pulse rejected: \(failed.joined(separator: ", "))")
@@ -205,7 +235,11 @@ private final class HomeAXDiagnostic {
         var attempts = evidence["windowQueryAttempts"] as? Int ?? 0
         while true {
             try checkDeadline()
-            let pulse = try safety()
+            guard let pulse = try publicationPulse() else {
+                evidence["windowAdmissionPhase"] = "passively waiting for a fresh Home publication pulse"
+                Thread.sleep(forTimeInterval: 0.025)
+                continue
+            }
             let home = pulse["homeProbe"] as? [String: Any]
             guard
                 try HomeAXProtocol.mayQueryWindows(

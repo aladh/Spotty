@@ -289,11 +289,65 @@
   ],
   "regressionVerification": {
     "sourceRevision": "954d64d13c4a06a8370fb09b403f13d9a5888131",
-    "focusedFunctionsPassed": 14,
+    "focusedFunctionsPassed": 15,
     "startedLoadHiddenCompletionCases": 2,
     "oldCancellationBehaviorFailsBothHiddenCompletionCases": true,
     "disabledViewportGatingFailsAdmittedSectionBound": true,
-    "independentReview": "No actionable findings; captured admission UUID guards before and after suspension and retirement on disappearance",
-    "limits": "Unpresented synthetic views; pending-load behavior uses gated fixture requests. Existing f9c2017 native QA is not proof of the final lifetime change; new signed Demo verification pending."
+    "independentReview": "No actionable findings in artwork admission, retirement and retained lifecycle fixtures",
+    "limits": "Unpresented synthetic views with gated requests and tested macOS27 native lifecycles only. Signed Demo follow-up3abf921 observes bounded native interactions; stock fixtures do not prove pending-load behavior.",
+    "retainedReappearanceCases": 4,
+    "retainedReappearancePaths": [
+      "Native TabView switching",
+      "Detach/reattach the exact same NSHostingView without replacing rootView"
+    ],
+    "reappearanceProductionSourceRevision": "3abf921748348b78914f6087cec4bda791f8d717",
+    "productionChangedForReappearance": false,
+    "reappearanceCause": "The existing onChange(of:request, initial:true) executes again on reappearance; already-loaded state survives while admission is retired. Suppressing the hook after first invocation fails both pending cases, while loaded cases pass.",
+    "retainedReappearanceFixtureRevision": "2125656640c678a51058b8dec593f35f93736648"
+  },
+  "nativeFollowUp": {
+    "source": {
+      "revision": "3abf921748348b78914f6087cec4bda791f8d717",
+      "diffSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourceSHA256": "0440f3fad9bc71502a60b5dc585b8a3ab3bea27055b1118a52f88272f5b5b85b",
+      "trackedFileCount": 1016,
+      "untrackedFileCount": 0,
+      "includesUntrackedNonignoredFiles": true
+    },
+    "signedExecutableSHA256": "263d7c330045a1982abc66f0b99c2f5e4337b4f25a3795f19599933562f5e8fb",
+    "buildProductSHA256": "b1b36b35efa7028fcb45b79d6b97675ef6332e56e78e60c273b0c6cf500552c5",
+    "runID": "d7b0135c-e293-48e9-9e70-a54d6f9e307c",
+    "signature": "Existing trusted development identity verified; App Sandbox true; no network grants",
+    "safetyPulseCount": 22,
+    "allSafetyPulsesReadOnly": true,
+    "observations": [
+      "Home to Search and back",
+      "Horizontal playlist shelf 0 to 1, exposed Scroll Left back to 0",
+      "Vertical Home 0 to 1 and back to 0",
+      "Loaded artwork visible on return; intended missing-artwork placeholders retained",
+      "Initially offscreen Harbor Lights AX detail opened correctly",
+      "Tab from library to quick links and through all ten playlist cards; auto horizontal reveal to Quiet Momentum at 1",
+      "Native Left arrangement narrowed body to 961 x 1084; responsive three-column quick links and scrolling shelves observed",
+      "Native Return to Previous Size restored 1728 x 1084",
+      "Fresh safety pulses remained zero commands/mutations with denied networking and synthetic dependencies"
+    ],
+    "limitations": [
+      "No in-flight request retention manual proof; stock fixtures load too quickly; gated tests separate",
+      "No live app sample, playback, transfer, account/library/queue mutation, or 500-shelf run",
+      "No benchmark or full visual parity claim",
+      "CUA repeated AX scrollbar writes had stale-handle errors; exposed scroll actions completed returns",
+      "Exact pre-run foreground/window geometry unavailable from inventory; existing live Spotty/Spotify untouched; no ChatGPT UI capture",
+      "Screenshots retained in this QA task tool transcript; no screenshot file export supported by documented CUA API"
+    ],
+    "cleanup": {
+      "ownedDemoRetired": true,
+      "pid": 10334,
+      "liveAppsUntouched": true,
+      "originalDemoSizeRestoredBeforeQuit": [
+        1728,
+        1084
+      ],
+      "noOSSettingsChanged": true
+    }
   }
 }

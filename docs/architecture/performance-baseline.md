@@ -97,10 +97,10 @@ Complete eager controls/extents remain. Physical-footprint growth was about 68 M
 and 616–625 MiB at 120; these samples establish no layout, timing or view-memory improvement. The bounded
 change suppresses initial offscreen artwork requests while preserving native controls, accessibility
 targets, scroll extents, and already loaded images. Already-started requests continue across shelf
-hiding, while request/account changes and disappearance retire their admission. Fourteen focused
+hiding, while request/account changes and disappearance retire their admission. Fifteen focused
 functions pass; the old cancellation behavior fails both gated hidden-completion cases, and disabling
 Home gating fails the initial-admission section bound. Final timings are slower single observations;
-timing/footprint variance was not characterized. Signed Demo verification of this follow-up is pending.
+timing/footprint variance was not characterized.
 
 Signed network-denied Demo at `f9c2017` passed read-only Home/Search/detail/history/library UI smoke
 and bounded manual scrolling, offscreen AX activation, Tab focus, loaded-artwork return, and
@@ -108,6 +108,17 @@ narrow/wide inspection. Sixteen fresh safety checks observed zero commands/mutat
 unsandboxed synthetic GUI host passed 12 browsing and eight signed-out checkpoints. Spoken VoiceOver
 and full offscreen Tab traversal remain unverified. Owned test hosts were retired; exact foreground
 restoration was unverified.
+
+Fresh signed network-denied Demo at clean `3abf921` verified bounded native interactions after the request-lifetime follow-up,
+with 22 fresh zero-command/mutation safety pulses. Both scroll axes out/back, loaded-art return,
+offscreen detail AX activation, Tab across quick links and all ten playlist cards with automatic
+offscreen reveal, and 961/1728-point widths were observed without regression. Source stayed stable
+and the owned host retired. Stock fixtures do not establish pending-load retention.
+
+Gated native checks separately cover pending/loaded reappearance through TabView and exact
+NSHostingView detach/reattach. All four pass unchanged production code: `onChange(initial:true)`
+runs on return. Suppressing its subsequent invocation fails the pending cases while loaded state
+survives. These tested lifecycle paths do not certify every macOS lifecycle or spoken VoiceOver.
 
 A separate 91-second existing-app read-only sample observed six sections and 66 detail targets.
 That signed 0.5.6(23) artifact has no established source revision or admission telemetry, so it does

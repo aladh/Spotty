@@ -318,13 +318,13 @@ class GitOutputTests(unittest.TestCase):
                     patch("script_test_fixtures.Path.read_text", side_effect=error):
                 self.assertFalse(process_has_stopped(12345))
                 probe.assert_called_once_with(12345, 0)
-            with patch("script_test_fixtures.os.kill", side_effect=ProcessLookupError), \
-                    patch("script_test_fixtures.Path.read_text") as read:
-                self.assertTrue(process_has_stopped(12345))
-                read.assert_not_called()
+        with patch("script_test_fixtures.os.kill", side_effect=ProcessLookupError), \
+                patch("script_test_fixtures.Path.read_text") as read:
+            self.assertTrue(process_has_stopped(12345))
+            read.assert_not_called()
         for state, expected in (("R", False), ("Z", True)):
             with self.subTest(state=state), patch("script_test_fixtures.os.kill"), \
-                    patch("script_test_fixtures.Path.read_text", return_value=f"12345 (owned fixture) {state} 1"):
+                    patch("script_test_fixtures.Path.read_text", return_value=f"12345 (owned)fixture) {state} 1"):
                 self.assertEqual(process_has_stopped(12345), expected)
         with patch("script_test_fixtures.os.kill"), \
                 patch("script_test_fixtures.Path.read_text", side_effect=PermissionError(errno.EACCES, "denied")):

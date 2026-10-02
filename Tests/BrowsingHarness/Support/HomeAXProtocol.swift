@@ -24,6 +24,17 @@ enum HomeAXProtocol {
         }
     }
 
+    struct Observation: Codable {
+        let nonce: String
+        let observedMachTime: UInt64
+
+        func validate(request: Request, loadStarted: UInt64, now: UInt64) throws {
+            guard nonce == request.nonce, observedMachTime >= loadStarted,
+                observedMachTime <= now, observedMachTime < request.deadlineMachTime
+            else { throw Failure(reason: "external Home observation identity or clock invalid") }
+        }
+    }
+
     /// A completed temporary inode is linked into place atomically, without replacing evidence.
     static func publish(_ data: Data, to destination: URL, beforeCommit: (() throws -> Void)? = nil) throws {
         let temporary = destination.deletingLastPathComponent()

@@ -1,3 +1,4 @@
+#if os(macOS)
 import CoreMedia
 import CoreVideo
 import CryptoKit
@@ -6,26 +7,35 @@ import Foundation
 import ScreenCaptureKit
 
 /// Samples only the caller's synthetic window. Pixel buffers never escape the callback.
-final class HomePresentedFrameCollector: NSObject, SCStreamOutput, @unchecked Sendable {
-    struct Frame: Sendable, Codable {
-        let displayedMachTime: UInt64
-        let receivedMachTime: UInt64
-        let digest: String
-        var isNewFrame = true
+public final class HomePresentedFrameCollector: NSObject, SCStreamOutput, @unchecked Sendable {
+    public struct Frame: Sendable, Codable {
+        public let displayedMachTime: UInt64
+        public let receivedMachTime: UInt64
+        public let digest: String
+        public var isNewFrame = true
+
+        public init(displayedMachTime: UInt64, receivedMachTime: UInt64, digest: String, isNewFrame: Bool = true) {
+            self.displayedMachTime = displayedMachTime
+            self.receivedMachTime = receivedMachTime
+            self.digest = digest
+            self.isNewFrame = isNewFrame
+        }
     }
+
+    public override init() { super.init() }
 
     private let lock = NSLock()
     private var frames: [Frame] = []
     private var exceededBound = false
     private var lastComplete: Frame?
 
-    var snapshot: (frames: [Frame], exceededBound: Bool) {
+    public var snapshot: (frames: [Frame], exceededBound: Bool) {
         lock.lock()
         defer { lock.unlock() }
         return (frames, exceededBound)
     }
 
-    func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
+    public func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sample.isValid,
             let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false)
                 as? [[SCStreamFrameInfo: Any]],
@@ -76,7 +86,7 @@ final class HomePresentedFrameCollector: NSObject, SCStreamOutput, @unchecked Se
         lastComplete = frame
     }
 
-    static func firstSteadyFrame(in frames: [Frame], started: UInt64, ready: UInt64) -> Frame? {
+    public static func firstSteadyFrame(in frames: [Frame], started: UInt64, ready: UInt64) -> Frame? {
         guard frames.count >= 3, let final = frames.last, final.displayedMachTime >= ready,
             frames.suffix(3).allSatisfy({ $0.digest == final.digest })
         else { return nil }
@@ -85,10 +95,24 @@ final class HomePresentedFrameCollector: NSObject, SCStreamOutput, @unchecked Se
         }
     }
 
-    static func seconds(from start: UInt64, to end: UInt64) -> Double? {
+    /// Retrospective onset of the terminal Home raster, qualified by later external readiness.
+    /// Readiness is an observation time, not a requirement to manufacture another display event.
+    public static func terminalHomeFrame(in frames: [Frame], started: UInt64, observed: UInt64) -> Frame? {
+        guard observed >= started, frames.count >= 3, let final = frames.last,
+            frames.suffix(3).allSatisfy({ $0.digest == final.digest && $0.receivedMachTime >= observed })
+        else { return nil }
+        let lastDifferent = frames.lastIndex { $0.digest != final.digest }
+        let terminalRun = frames.dropFirst(lastDifferent.map { $0 + 1 } ?? 0)
+        return terminalRun.first {
+            $0.isNewFrame && $0.displayedMachTime >= started && $0.digest == final.digest
+        }
+    }
+
+    public static func seconds(from start: UInt64, to end: UInt64) -> Double? {
         guard end >= start else { return nil }
         var base = mach_timebase_info_data_t()
         guard mach_timebase_info(&base) == KERN_SUCCESS, base.denom > 0 else { return nil }
         return Double(end - start) * Double(base.numer) / Double(base.denom) / 1e9
     }
 }
+#endif

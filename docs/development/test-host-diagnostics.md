@@ -67,50 +67,51 @@ process arguments and unrelated inventory out of the report under [PRIVACY.md](.
 
 ## Presented Home probe
 
-The opt-in `HomePresentedMeasurementChecks` probe requires the exclusive native build/UI lane. Set
-`SPOTTY_HOME_PRESENTED_REPORT` to a fresh path for each process and
-`SPOTTY_HOME_PRESENTED_SECTIONS` to 12 or 120. It
-captures only its current-process owned 900×600-point window, retains bounded timestamps/digests
-instead of pixels, and uses injected catalog/artwork/account/playback services. It does not prove
-the earliest usable frame, full keyboard readiness, unobscured visibility, App Sandbox isolation,
-or live performance. Its unique synthetic detail label and selection callback are one bounded
-readiness check; geometry, discovery, the single AX press and callback acceptance share the
-existing ten-second prerequisite deadline. Failures retain a `.failure.json` sidecar.
+Native probes require the exclusive lane, signed artifact admission, synthetic ports and source/pin/flags/
+hashes before and after. Preserve failures. Never change grants or signing identities, weaken verification,
+extend deadlines, enable live dependencies or retry for green.
 
-Build/list the Boundary target with the identical optimized Debug/native flags in
-[runtime acceptance](runtime-acceptance.md#measurements), then identify the actual owned `.xctest` bundle before opting into presentation. SwiftPM's linker signature alone
-may not seal bundle resources and can fail strict verification. Preserve that failure and artifact;
-prepare only this disposable synthetic bundle with the existing ad-hoc fixture signing method:
+### Actual application lifecycle
 
-```sh
-codesign --force --timestamp=none --sign - "$probe_bundle"
-codesign --verify --deep --strict "$probe_bundle"
-```
-
-Record source/pin/flags and the sealed executable's SHA256/CDHash before running the probe through
-`verify.py test` with identical flags and `--skip-build`. Verify signature/hash again afterward.
-Do not relink or reseal between admission and measurement, change signing identities or grants,
-weaken strict verification, or retry a failed gate merely to obtain a result. Signature verification
-establishes artifact integrity; it does not establish isolation or successful measurement.
-
-### Actual application lifecycle diagnostic
-
-Use one interactive, optimized, network-denied Demo with `homePresentedProbeSections: 12`, browsing
-mode, eight uniquely labeled albums per shelf and nil artwork. This diagnoses public AX traversal,
-not performance. Keep exclusive native-lane coordination and exact signed artifact admission.
+Use an interactive, optimized, network-denied Demo with `homePresentedProbeSections: 12`, browsing
+mode, eight uniquely labeled albums per shelf and nil artwork. Default mode diagnoses AX traversal and navigation, not performance.
+External public Accessibility observes a hosted subtree pruned by internal traversal.
 
 Compile the separate controller before launching:
 
 ```sh
 xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors \
   Scripts/synthetic_home_ax.swift Tests/BrowsingHarness/Support/HomeAXProtocol.swift -o /tmp/home-ax
+/tmp/home-ax --preflight
 ./Scripts/browse-synthetic.sh --optimized --interactive /tmp/home-scenario.json
 /tmp/home-ax RUN_ROOT HEAD SOURCE_SHA256 SIGNED_EXECUTABLE_SHA256
 ```
 
-Existing Accessibility access is required; no grants are requested. Fresh Home safety pulses,
-atomic non-replacing nonce publication and a shared ten-second deadline admit one exact public
-detail action. Evidence compares external traversal with internal pruning and confirms actual
-navigation. Footprint/view counts precede navigation; no subsequent detail raster measures Home.
-Preserve the first failure and retire only the owned Demo. Do not infer a product defect, extend
-deadlines or enable live dependencies.
+Existing Accessibility access is required. Fresh connected, visible,
+zero-command safety pulses, atomic non-replacing nonce publication and a shared ten-second deadline
+admit one exact public detail action. Retire only the owned Demo and restore the desktop afterward.
+
+Add `homePresentedMeasurement: true` with 12 or 120 shelves for controlled initial-response measurement.
+The synthetic Home provider stays suspended until own-window ScreenCaptureKit capture is primed.
+The external controller confirms an enabled, visible, unique detail target after sections arrive, then
+waits for Home sampling and capture to finish before pressing it. A pre-navigation stage receipt is
+`home-presented-measurement.json`; functional acceptance requires
+`home-measurement-accepted.json` and a passing `home-ax-external.json`. Failure evidence is retained.
+
+Compare repeated fresh processes at identical recorded geometry, scale, flags and fixture count.
+Report external readiness observation separately from retrospective terminal-raster onset. Raster onset
+follows the last differing frame and can precede AX observation. Idle events
+retain the original display timestamp. Capture retains at most 300 timestamp/digest events.
+The AX walk is bounded at 10,000 nodes in measurement mode and 1,500 in diagnostic mode; deadlines stay
+unchanged. Footprint/view counts precede navigation, and footprint includes capture buffers, hashing,
+AX and sampling overhead. This warm connected scene does not prove cold launch, earliest usability,
+loaded-artwork performance, full keyboard readiness, visual parity or live performance.
+
+### Historical standalone probe
+
+The opt-in Boundary `HomePresentedMeasurementChecks` uses `SPOTTY_HOME_PRESENTED_REPORT` (fresh path)
+and `SPOTTY_HOME_PRESENTED_SECTIONS` (12 or 120). Its 900×600-point XCTest window has not qualified
+native AX readiness; it is not an actual-app baseline. Follow
+[runtime acceptance](runtime-acceptance.md#measurements) flags. Preserve strict-signature failures;
+only the disposable synthetic bundle may use existing ad-hoc fixture signing. Reverify hashes and
+strict integrity before and after execution. Signing establishes neither isolation nor measurement.

@@ -21,6 +21,8 @@ private final class HomeAXDiagnostic {
     let expectedSource: String
     let expectedExecutable: String
     let nonce = UUID().uuidString
+    var measurement = false
+    var sections = 12
     var deadlineMachTime: UInt64 = 0
     var evidence: [String: Any] = ["performanceMeasurement": false, "activationAttempted": false]
     var attributeErrors: [String: Int] = [:]
@@ -72,6 +74,8 @@ private final class HomeAXDiagnostic {
         let launch = try json(resources.appendingPathComponent("launch.json"))
         let manifest = try json(root.appendingPathComponent("manifest.json"))
         let scenario = try json(resources.appendingPathComponent("scenario.json"))
+        measurement = scenario["homePresentedMeasurement"] as? Bool == true
+        sections = scenario["homePresentedProbeSections"] as? Int ?? 0
         let source = launch["source"] as? [String: Any]
         guard (launch as NSDictionary).isEqual(to: manifest), launch["schemaVersion"] as? Int == 1,
             launch["runID"] as? String == identity.runID, UUID(uuidString: identity.runID) != nil,
@@ -80,10 +84,10 @@ private final class HomeAXDiagnostic {
             source?["revision"] as? String == expectedHead, source?["sourceSHA256"] as? String == expectedSource,
             source?["untrackedFileCount"] as? Int == 0,
             (launch["engine"] as? [String: Any])?["usedForPlayback"] as? Bool == false,
-            scenario["mode"] as? String == "browsing", scenario["homePresentedProbeSections"] as? Int == 12,
+            scenario["mode"] as? String == "browsing", (sections == 12 || (measurement && sections == 120)),
             scenario["guiShellRegression"] as? Bool != true, scenario["expandedLibrary"] as? Bool != true,
             scenario["acceptanceScenarioID"] == nil
-        else { throw Failure(reason: "only the exact interactive 12-shelf synthetic Home run is admitted") }
+        else { throw Failure(reason: "only the exact admitted interactive synthetic Home run is admitted") }
         _ = try safety()
         try checkDeadline()
     }
@@ -98,7 +102,8 @@ private final class HomeAXDiagnostic {
             age.isFinite, (-1...3).contains(age), status["networkSandboxVerified"] as? Bool == true,
             status["syntheticDependencies"] as? Bool == true, status["engineUsedForPlayback"] as? Bool == false,
             status["commandCount"] as? Int == 0, status["mutationAttempts"] as? Int == 0,
-            home?["sectionCount"] as? Int == 12, home?["connected"] as? Bool == true,
+            (home?["sectionCount"] as? Int == sections
+                || (measurement && home?["sectionCount"] as? Int == 0)), home?["connected"] as? Bool == true,
             window?["visible"] as? Bool == true, window?["miniaturized"] as? Bool == false
         else { throw Failure(reason: "fresh connected, visible, zero-command synthetic safety pulse unavailable") }
         evidence["lastSafetyPulse"] = status
@@ -147,7 +152,7 @@ private final class HomeAXDiagnostic {
         var matches: [AXUIElement] = []
         while let element = pending.popLast() {
             inspected += 1
-            guard inspected <= 1_500 else { throw Failure(reason: "bounded public AX tree exceeded") }
+            guard inspected <= (measurement ? 10_000 : 1_500) else { throw Failure(reason: "bounded public AX tree exceeded") }
             let role = try attribute(element, kAXRoleAttribute) as? String ?? ""
             let title = try attribute(element, kAXTitleAttribute) as? String ?? ""
             let label = try attribute(element, kAXDescriptionAttribute) as? String ?? ""
@@ -191,7 +196,9 @@ private final class HomeAXDiagnostic {
         guard (try safety()["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true else {
             throw Failure(reason: "owned Demo is not on Home")
         }
-        for name in ["home-ax-request.json", "home-ax-armed.json", "home-ax-external.json"] {
+        for name in ["home-ax-request.json", "home-ax-armed.json", "home-ax-external.json",
+            "home-ax-observed.json", "home-presented-measurement.json", "home-presented-measurement.failure.json",
+            "home-measurement-accepted.json"] {
             guard !FileManager.default.fileExists(atPath: root.appendingPathComponent(name).path) else {
                 throw Failure(reason: "prior attempt evidence exists")
             }
@@ -226,7 +233,10 @@ private final class HomeAXDiagnostic {
         let window = windows[0]
         var target: AXUIElement?
         repeat {
-            target = try discover(window)
+            let pulse = try safety()
+            if (pulse["homeProbe"] as? [String: Any])?["sectionCount"] as? Int == sections {
+                target = try discover(window)
+            }
             if target == nil { Thread.sleep(forTimeInterval: 0.025) }
         } while target == nil && mach_absolute_time() < deadlineMachTime
         guard let target else { throw Failure(reason: "exact visible Home target unavailable") }
@@ -242,6 +252,30 @@ private final class HomeAXDiagnostic {
             (actions as? [String])?.contains(kAXPressAction) == true
         else { throw Failure(reason: "exact target has no public Press action") }
         evidence["discoveredMachTime"] = mach_absolute_time()
+        if measurement {
+            try HomeAXProtocol.publish(
+                JSONEncoder().encode(HomeAXProtocol.Observation(nonce: nonce, observedMachTime: mach_absolute_time())),
+                to: root.appendingPathComponent("home-ax-observed.json"))
+            let measuredPath = root.appendingPathComponent("home-presented-measurement.json")
+            while !FileManager.default.fileExists(atPath: measuredPath.path) {
+                try checkDeadline()
+                let pulse = try safety()
+                guard (pulse["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true,
+                    !FileManager.default.fileExists(atPath: root.appendingPathComponent("home-presented-measurement.failure.json").path)
+                else { throw Failure(reason: "Home measurement failed or navigated before capture finished") }
+                Thread.sleep(forTimeInterval: 0.025)
+            }
+            let measured = try json(measuredPath)
+            guard measured["externalRequestNonce"] as? String == nonce,
+                measured["sourceSHA256"] as? String == expectedSource,
+                measured["measuredBeforeNavigation"] as? Bool == true
+            else { throw Failure(reason: "pre-navigation Home measurement receipt mismatch") }
+            try validateTarget()
+            guard (try safety()["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true else {
+                throw Failure(reason: "Home changed after measurement")
+            }
+            evidence["homeMeasurementCompletedBeforeActivation"] = true
+        }
         evidence["activationAttempted"] = true
         try checkDeadline()
         let pressed = AXUIElementPerformAction(target, kAXPressAction as CFString)
@@ -254,6 +288,18 @@ private final class HomeAXDiagnostic {
             Thread.sleep(forTimeInterval: 0.025)
         }
         try validateTarget()
+        if measurement {
+            let acceptedPath = root.appendingPathComponent("home-measurement-accepted.json")
+            while !FileManager.default.fileExists(atPath: acceptedPath.path) {
+                try checkDeadline()
+                _ = try safety()
+                Thread.sleep(forTimeInterval: 0.025)
+            }
+            let accepted = try json(acceptedPath)
+            guard accepted["externalRequestNonce"] as? String == nonce,
+                accepted["selectionConfirmed"] as? Bool == true
+            else { throw Failure(reason: "app functional confirmation mismatch") }
+        }
         evidence["selectionObservedMachTime"] = mach_absolute_time()
         evidence["passed"] = true
     }

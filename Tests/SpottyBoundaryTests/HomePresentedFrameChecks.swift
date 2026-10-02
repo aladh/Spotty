@@ -1,4 +1,5 @@
 import Testing
+import SpottyTestSupport
 
 struct HomePresentedFrameChecks {
     @Test func usableFrameUsesDisplayTimeAndFinalRasterAfterNativeReadiness() {

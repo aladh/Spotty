@@ -35,6 +35,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var repeatedHomeCards: Bool? = nil
     /// Own-app lifecycle diagnostic for large Home; never enables playback or mutations.
     var homePresentedProbeSections: Int? = nil
+    /// Prime own-window capture before releasing the first synthetic Home response.
+    var homePresentedMeasurement: Bool? = nil
     /// Repeatable saved-sidebar inspection while the synthetic refresh is delayed.
     var cachedPlaylistLibrary: Bool? = nil
     var playlistRefreshMilliseconds: Int? = nil
@@ -65,6 +67,7 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
                 [12, 120].contains($0) && mode == .browsing && guiShellRegression != true
                     && acceptanceScenarioID == nil && expandedLibrary != true
             }) ?? true,
+            (homePresentedMeasurement != true || homePresentedProbeSections != nil),
             (combinedHydration != true || mode == .playback), (1...96).contains(artworkCount),
             [64, 640, 1_280].contains(artworkPixels),
             (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds),

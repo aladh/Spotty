@@ -225,6 +225,16 @@ final class BrowsingRun {
             if window() != nil, world.snapshot().requests["account.has-grant"] != nil,
                 player.accountStore.phase == (world.scenario.mode != .signedOut ? .ready : .signedOut)
             {
+                if world.scenario.homePresentedMeasurement == true {
+                    if CatalogPlaybackAccess(player: player).isConnected, world.homeResponse.isWaiting,
+                        player.catalog.homeLibrary.homeSections.isEmpty
+                    {
+                        try writeRunStatus(.ready)
+                        return
+                    }
+                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                    continue
+                }
                 await player.catalogLoadTask?.value
                 if !Self.homeContentReady(player: player, expectedSections: world.scenario.homePresentedProbeSections) {
                     try await ContinuousClock().sleep(for: .milliseconds(50))
@@ -277,9 +287,15 @@ final class BrowsingRun {
             try writeRunStatus(.workloadRunning)
             if world.scenario.homePresentedProbeSections != nil {
                 guard let window = window() else { throw BrowsingFailure.checkpoint("home-probe.window") }
-                try await BrowsingHomePresentedProbe.run(
-                    player: player, world: world, navigation: navigation, window: window, launch: launch,
-                    networkSandboxVerified: networkSandboxVerified)
+                if world.scenario.homePresentedMeasurement == true {
+                    try await BrowsingHomePresentedMeasurement.run(
+                        player: player, world: world, navigation: navigation, window: window, launch: launch,
+                        networkSandboxVerified: networkSandboxVerified)
+                } else {
+                    try await BrowsingHomePresentedProbe.run(
+                        player: player, world: world, navigation: navigation, window: window, launch: launch,
+                        networkSandboxVerified: networkSandboxVerified)
+                }
                 try await sample("home.public-ax-selection-confirmed", started: started)
             } else if world.scenario.guiShellRegression == true {
                 guard let window = window() else { throw BrowsingFailure.checkpoint("shell.window") }

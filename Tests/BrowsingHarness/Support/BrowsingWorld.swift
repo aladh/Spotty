@@ -1,4 +1,5 @@
 import Foundation
+import SpottyTestSupport
 import SpottyDomain
 import SpottyRuntimeContracts
 @testable import SpottyCore
@@ -15,6 +16,7 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     let scenario: BrowsingScenario
     let playback: SyntheticPlayback
     let fixtures: BrowsingFixtures
+    let homeResponse = HarnessSuspension()
     private let lock = NSLock()
     private var trace: [String] = []
     private var requestCounts: [String: Int] = [:]
@@ -36,7 +38,10 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
         grantAvailable = scenario.mode != .signedOut
         fixtures = try BrowsingFixtures(scenario: scenario, artworkDirectory: artworkDirectory)
         playback = SyntheticPlayback(fixtures: fixtures)
+        if scenario.homePresentedMeasurement == true { homeResponse.arm() }
     }
+
+    deinit { homeResponse.close() }
 
     var environment: PlaybackEnvironment {
         PlaybackEnvironment(
@@ -177,6 +182,8 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
 
     func home() async throws -> CatalogHomeSnapshot {
         record("home")
+        await homeResponse.waitIfArmed()
+        try Task.checkCancellation()
         if let count = scenario.homePresentedProbeSections {
             return CatalogHomeSnapshot(
                 greeting: "Synthetic",

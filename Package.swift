@@ -306,7 +306,7 @@ let package: Package
                     name: "SpottyBrowsingSupport",
                     dependencies: [
                         "SpottyCore", "SpottyDomain", "SpottySessionRuntime", "SpottyEngineAdapter",
-                        "SpottyRuntimeContracts", "SpottyGateway",
+                        "SpottyRuntimeContracts", "SpottyGateway", "SpottyTestSupport",
                     ],
                     path: "Tests/BrowsingHarness/Support",
                     resources: [.copy("Artwork")]

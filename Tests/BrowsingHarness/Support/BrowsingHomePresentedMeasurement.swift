@@ -22,6 +22,8 @@ enum BrowsingHomePresentedMeasurement {
         let queue = DispatchQueue(label: "dev.spotty.actual-home-frames")
         var stream: SCStream?
         var capturing = false
+        var contentAdmitted = false
+        var phase = "request admission"
         var evidence: [String: Any] = [
             "schemaVersion": 1, "launchRunID": launch.runID, "sourceSHA256": launch.source.sourceSHA256,
             "syntheticDependencies": true, "networkSandboxVerified": networkSandboxVerified,
@@ -36,6 +38,8 @@ enum BrowsingHomePresentedMeasurement {
                 CatalogPlaybackAccess(player: player).isConnected, window.isVisible, !window.isMiniaturized,
                 window.occlusionState.contains(.visible), window.frame == originalFrame,
                 window.backingScaleFactor == originalScale, NSApp.windows.contains(where: { $0 === window }),
+                !contentAdmitted
+                    || player.catalog.homeLibrary.homeSections.count == world.scenario.homePresentedProbeSections,
                 !onHome || navigation.selection == .destination(.home),
                 abs(navigation.homeInteraction.scrollOffset) < 1
             else { throw BrowsingFailure.checkpoint("home-measurement.isolation") }
@@ -76,6 +80,7 @@ enum BrowsingHomePresentedMeasurement {
             evidence["contentHeight"] = window.contentView?.bounds.height
             evidence["windowFramePoints"] = NSStringFromRect(window.frame)
             evidence["displayScale"] = window.backingScaleFactor
+            phase = "own-window capture setup"
             let available = try await SCShareableContent.currentProcess
             guard let shared = available.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }),
                 shared.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier
@@ -104,30 +109,36 @@ enum BrowsingHomePresentedMeasurement {
             stream = owned
             try await owned.startCapture()
             capturing = true
+            phase = "capture priming"
             try await prerequisite { !collector.snapshot.frames.isEmpty }
             evidence["beforeHomePhysicalFootprintBytes"] = try footprint()
             evidence["beforeHomeNativeViewCount"] = window.contentView.map(nativeViewCount) ?? 0
             let started = mach_absolute_time()
             evidence["loadStartMachTime"] = started
             // The capture is primed while the synthetic provider is still suspended.
+            phase = "Home response release"
             world.homeResponse.resume()
             try HomeAXProtocol.publish(
                 JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]),
                 to: root.appendingPathComponent("home-ax-armed.json"))
+            phase = "external exact-target observation"
             let observedPath = root.appendingPathComponent("home-ax-observed.json")
             try await prerequisite {
                 player.catalog.homeLibrary.homeSections.count == count
                     && FileManager.default.fileExists(atPath: observedPath.path)
             }
+            contentAdmitted = true
             let observation = try JSONDecoder().decode(
                 HomeAXProtocol.Observation.self, from: Data(contentsOf: observedPath))
             try observation.validate(request: request, loadStarted: started, now: mach_absolute_time())
             let observed = observation.observedMachTime
             evidence["externalReadyObservedMachTime"] = observed
+            phase = "terminal Home raster confirmation"
             try await prerequisite {
                 HomePresentedFrameCollector.terminalHomeFrame(
                     in: collector.snapshot.frames, started: started, observed: observed) != nil
             }
+            phase = "capture stop and drain"
             try await stop()
             try safety()
             let captured = collector.snapshot
@@ -150,6 +161,7 @@ enum BrowsingHomePresentedMeasurement {
                 JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]),
                 to: root.appendingPathComponent("home-presented-measurement.json"))
             // Functional activation is separate and occurs only after Home capture and sampling finish.
+            phase = "functional activation after pre-navigation capture"
             try await prerequisite(onHome: false) { navigation.selection == .album("spotify:album:0-0") }
             try HomeAXProtocol.publish(
                 JSONSerialization.data(
@@ -161,6 +173,7 @@ enum BrowsingHomePresentedMeasurement {
         } catch {
             let primary = error
             do { try await stop() } catch { evidence["captureStopError"] = String(describing: error) }
+            evidence["failurePhase"] = phase
             evidence["error"] = String(describing: primary)
             evidence["frames"] = try? JSONSerialization.jsonObject(
                 with: JSONEncoder().encode(collector.snapshot.frames))

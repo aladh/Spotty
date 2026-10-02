@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Darwin
 import Foundation
 
@@ -22,6 +23,38 @@ enum HomeAXProtocol {
             let seconds = Double(deadlineMachTime - startedMachTime) * Double(base.numer) / Double(base.denom) / 1e9
             guard seconds > 0, seconds <= 10 else { throw Failure(reason: "external deadline exceeds ten seconds") }
         }
+    }
+
+    enum WindowDisposition { case pending, ready }
+
+    struct WindowQuery {
+        let resultCode: Int32
+        let arrayValue: Bool
+        let windowCount: Int?
+
+        func disposition() throws -> WindowDisposition {
+            if resultCode == AXError.cannotComplete.rawValue { return .pending }
+            guard resultCode == AXError.success.rawValue, arrayValue, let windowCount else {
+                throw Failure(reason: "owned AX window query failed or returned an invalid value")
+            }
+            if windowCount == 0 { return .pending }
+            guard windowCount == 1 else { throw Failure(reason: "owned AX window list is ambiguous") }
+            return .ready
+        }
+    }
+
+    static func mayQueryWindows(sectionCount: Int?, expectedSections: Int, onHome: Bool, populatedAlready: Bool = false)
+        throws -> Bool
+    {
+        guard onHome, [12, 120].contains(expectedSections),
+            (sectionCount == 0 && !populatedAlready) || sectionCount == expectedSections
+        else { throw Failure(reason: "Home changed or section readiness is invalid before AX window query") }
+        return sectionCount == expectedSections
+    }
+
+    static func pulseIsFresh(recordedAt: Double?, now: Double) -> Bool {
+        guard let recordedAt, recordedAt.isFinite, now.isFinite else { return false }
+        return (-1...3).contains(now - recordedAt)
     }
 
     struct Observation: Codable {

@@ -23,6 +23,7 @@ private final class HomeAXDiagnostic {
     let nonce = UUID().uuidString
     var measurement = false
     var sections = 12
+    var homePublicationAdmitted = false
     var deadlineMachTime: UInt64 = 0
     var evidence: [String: Any] = ["performanceMeasurement": false, "activationAttempted": false]
     var attributeErrors: [String: Int] = [:]
@@ -96,14 +97,16 @@ private final class HomeAXDiagnostic {
         let status = try json(root.appendingPathComponent("run-status.json"))
         let home = status["homeProbe"] as? [String: Any]
         let window = status["window"] as? [String: Any]
-        let age = Date().timeIntervalSince1970 - (status["recordedAtSeconds"] as? Double ?? -.infinity)
+        let fresh = HomeAXProtocol.pulseIsFresh(
+            recordedAt: status["recordedAtSeconds"] as? Double, now: Date().timeIntervalSince1970)
         guard status["runID"] as? String == identity.runID, status["pid"] as? Int32 == identity.pid,
             ["ready", "workload-running", "workload-finished"].contains(status["state"] as? String ?? ""),
-            age.isFinite, (-1...3).contains(age), status["networkSandboxVerified"] as? Bool == true,
+            fresh, status["networkSandboxVerified"] as? Bool == true,
             status["syntheticDependencies"] as? Bool == true, status["engineUsedForPlayback"] as? Bool == false,
             status["commandCount"] as? Int == 0, status["mutationAttempts"] as? Int == 0,
             (home?["sectionCount"] as? Int == sections
-                || (measurement && home?["sectionCount"] as? Int == 0)), home?["connected"] as? Bool == true,
+                || (measurement && !homePublicationAdmitted && home?["sectionCount"] as? Int == 0)),
+            home?["connected"] as? Bool == true,
             window?["visible"] as? Bool == true, window?["miniaturized"] as? Bool == false
         else { throw Failure(reason: "fresh connected, visible, zero-command synthetic safety pulse unavailable") }
         evidence["lastSafetyPulse"] = status
@@ -193,6 +196,75 @@ private final class HomeAXDiagnostic {
         return matches.first
     }
 
+    func awaitOwnedWindow(_ application: AXUIElement) throws -> AXUIElement {
+        var queries = evidence["windowQueries"] as? [[String: Any]] ?? []
+        var attempts = evidence["windowQueryAttempts"] as? Int ?? 0
+        while true {
+            try checkDeadline()
+            let pulse = try safety()
+            let home = pulse["homeProbe"] as? [String: Any]
+            guard
+                try HomeAXProtocol.mayQueryWindows(
+                    sectionCount: home?["sectionCount"] as? Int, expectedSections: sections,
+                    onHome: home?["onHome"] as? Bool == true, populatedAlready: homePublicationAdmitted)
+            else {
+                evidence["windowAdmissionPhase"] = "waiting for exact Home sections before AX window query"
+                Thread.sleep(forTimeInterval: 0.025)
+                continue
+            }
+            homePublicationAdmitted = true
+            try validateTarget()
+            evidence["windowAdmissionPhase"] = "querying owned public AX windows after Home publication"
+            AXUIElementSetMessagingTimeout(application, 0.5)
+            var value: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value)
+            if result != .success {
+                attributeErrors["\(kAXWindowsAttribute):\(result.rawValue)", default: 0] += 1
+            }
+            let windows = value as? [AXUIElement]
+            attempts += 1
+            let sample: [String: Any] = [
+                "observedMachTime": mach_absolute_time(), "apiResultCode": result.rawValue,
+                "returnedTypeID": value.map { CFGetTypeID($0) } as Any? ?? NSNull(),
+                "arrayValue": windows != nil, "windowCount": windows?.count as Any? ?? NSNull(),
+                "publishedSectionCount": home?["sectionCount"] as Any? ?? NSNull(),
+            ]
+            if queries.count < 64 { queries.append(sample) }
+            evidence["windowQueries"] = queries
+            evidence["lastWindowQuery"] = sample
+            evidence["windowQueryAttempts"] = attempts
+            try checkDeadline()
+            var windowSamples: [[String: Any]] = []
+            for window in (windows ?? []).prefix(8) {
+                var owner: pid_t = 0
+                let ownerResult = AXUIElementGetPid(window, &owner)
+                var sample: [String: Any] = ["ownerResultCode": ownerResult.rawValue, "ownerPID": owner]
+                if ownerResult == .success, owner == identity.pid {
+                    sample["role"] = try attribute(window, kAXRoleAttribute) as? String ?? "unavailable"
+                    sample["frame"] = try frame(window).map(NSStringFromRect) ?? "unavailable"
+                }
+                windowSamples.append(sample)
+                evidence["lastWindowPublicSamples"] = windowSamples
+            }
+            let disposition = try HomeAXProtocol.WindowQuery(
+                resultCode: result.rawValue, arrayValue: windows != nil, windowCount: windows?.count
+            ).disposition()
+            if disposition == .ready, let window = windows?.first {
+                var owner: pid_t = 0
+                let ownerResult = AXUIElementGetPid(window, &owner)
+                evidence["windowOwnerResultCode"] = ownerResult.rawValue
+                evidence["windowOwnerPID"] = owner
+                guard ownerResult == .success, owner == identity.pid else {
+                    throw Failure(reason: "unique AX window owner differs from exact Demo PID")
+                }
+                try validateTarget()
+                evidence["windowAdmissionPhase"] = "unique exact-PID window admitted"
+                return window
+            }
+            Thread.sleep(forTimeInterval: 0.025)
+        }
+    }
+
     func run() throws {
         try validateTarget()
         guard (try safety()["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true else {
@@ -231,10 +303,7 @@ private final class HomeAXDiagnostic {
         else { throw Failure(reason: "app handshake mismatch") }
         evidence["internalTraversal"] = armed["accessibility"]
         let application = AXUIElementCreateApplication(identity.pid)
-        guard let windows = try attribute(application, kAXWindowsAttribute) as? [AXUIElement], windows.count == 1 else {
-            throw Failure(reason: "unique owned Demo window unavailable")
-        }
-        let window = windows[0]
+        let window = try awaitOwnedWindow(application)
         var target: AXUIElement?
         repeat {
             let pulse = try safety()
@@ -243,7 +312,7 @@ private final class HomeAXDiagnostic {
             }
             if target == nil { Thread.sleep(forTimeInterval: 0.025) }
         } while target == nil && mach_absolute_time() < deadlineMachTime
-        guard let target else { throw Failure(reason: "exact visible Home target unavailable") }
+        guard var target else { throw Failure(reason: "exact visible Home target unavailable") }
         try validateTarget()
         guard (try safety()["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true else {
             throw Failure(reason: "Home changed before action")
@@ -279,6 +348,19 @@ private final class HomeAXDiagnostic {
             guard (try safety()["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true else {
                 throw Failure(reason: "Home changed after measurement")
             }
+            let freshWindow = try awaitOwnedWindow(application)
+            guard let freshTarget = try discover(freshWindow) else {
+                throw Failure(reason: "exact visible enabled unique target unavailable after measurement")
+            }
+            target = freshTarget
+            var freshActions: CFArray?
+            let freshActionResult = AXUIElementCopyActionNames(target, &freshActions)
+            evidence["postMeasurementTargetActionsResult"] = freshActionResult.rawValue
+            evidence["postMeasurementTargetActions"] = freshActions as? [String] ?? []
+            try checkDeadline()
+            guard freshActionResult == .success, (freshActions as? [String])?.contains(kAXPressAction) == true else {
+                throw Failure(reason: "fresh exact target has no public Press action")
+            }
             evidence["homeMeasurementCompletedBeforeActivation"] = true
         }
         evidence["activationAttempted"] = true
@@ -305,6 +387,11 @@ private final class HomeAXDiagnostic {
                 accepted["selectionConfirmed"] as? Bool == true
             else { throw Failure(reason: "app functional confirmation mismatch") }
         }
+        try checkDeadline()
+        let finalPulse = try safety()
+        guard (finalPulse["homeProbe"] as? [String: Any])?["sectionCount"] as? Int == sections,
+            (finalPulse["homeProbe"] as? [String: Any])?["exactDetailSelected"] as? Bool == true
+        else { throw Failure(reason: "final exact-section functional safety confirmation unavailable") }
         evidence["selectionObservedMachTime"] = mach_absolute_time()
         evidence["passed"] = true
     }

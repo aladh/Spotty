@@ -1,4 +1,5 @@
 import Darwin
+import ApplicationServices
 import Foundation
 import SpottyTestSupport
 import Testing
@@ -97,6 +98,47 @@ struct BrowsingHomeMeasurementChecks {
                 try observation.validate(request: request, loadStarted: 150, now: 250)
             }
         }
+    }
+
+    @Test func initialHomePublicationPrecedesWindowAdmissionAndEmptyCannotCompleteCanSettle() throws {
+        #expect(try !HomeAXProtocol.mayQueryWindows(sectionCount: 0, expectedSections: 12, onHome: true))
+        #expect(try HomeAXProtocol.mayQueryWindows(sectionCount: 12, expectedSections: 12, onHome: true))
+        let observations = [
+            HomeAXProtocol.WindowQuery(resultCode: AXError.success.rawValue, arrayValue: true, windowCount: 0),
+            HomeAXProtocol.WindowQuery(
+                resultCode: AXError.cannotComplete.rawValue, arrayValue: false, windowCount: nil),
+            HomeAXProtocol.WindowQuery(resultCode: AXError.success.rawValue, arrayValue: true, windowCount: 1),
+        ]
+        #expect(try observations.map { try $0.disposition() } == [.pending, .pending, .ready])
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try HomeAXProtocol.mayQueryWindows(
+                sectionCount: 0, expectedSections: 12, onHome: true,
+                populatedAlready: true)
+        }
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try HomeAXProtocol.mayQueryWindows(sectionCount: 12, expectedSections: 12, onHome: false)
+        }
+    }
+
+    @Test func invalidWindowShapeAmbiguityAndPermanentAPIErrorsNeverAdmitOrRetry() {
+        for query in [
+            HomeAXProtocol.WindowQuery(resultCode: AXError.success.rawValue, arrayValue: true, windowCount: 2),
+            HomeAXProtocol.WindowQuery(resultCode: AXError.success.rawValue, arrayValue: false, windowCount: nil),
+            HomeAXProtocol.WindowQuery(resultCode: AXError.apiDisabled.rawValue, arrayValue: false, windowCount: nil),
+            HomeAXProtocol.WindowQuery(
+                resultCode: AXError.invalidUIElement.rawValue, arrayValue: false, windowCount: nil),
+        ] {
+            #expect(throws: HomeAXProtocol.Failure.self) { try query.disposition() }
+        }
+    }
+
+    @Test func staleMissingFutureOrInvalidSafetyPulsesNeverEstablishReadiness() {
+        #expect(HomeAXProtocol.pulseIsFresh(recordedAt: 100, now: 103))
+        #expect(!HomeAXProtocol.pulseIsFresh(recordedAt: 100, now: 103.001))
+        #expect(!HomeAXProtocol.pulseIsFresh(recordedAt: nil, now: 100))
+        #expect(!HomeAXProtocol.pulseIsFresh(recordedAt: 102, now: 100))
+        #expect(!HomeAXProtocol.pulseIsFresh(recordedAt: .nan, now: 100))
+        #expect(!HomeAXProtocol.pulseIsFresh(recordedAt: 100, now: .infinity))
     }
 
     private func frame(_ display: UInt64, _ received: UInt64, _ digest: String, new: Bool = true)

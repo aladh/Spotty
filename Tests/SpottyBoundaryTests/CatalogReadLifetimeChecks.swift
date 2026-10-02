@@ -14,7 +14,8 @@ struct CatalogReadLifetimeTests {
         provider.onAlbum = { _ in try await responses.wait() }
         let session = CatalogSessionAvailability(isAvailable: true)
         let store = AlbumDetailStore(
-            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session,
+            clock: HarnessClock.sticky())
         let completed = HarnessCounters()
         let selected = item("album", kind: .album)
         let original = Task.immediate {
@@ -79,7 +80,8 @@ struct CatalogReadLifetimeTests {
         provider.onAlbum = { _ in try await responses.wait() }
         let session = CatalogSessionAvailability(isAvailable: true)
         let store = AlbumDetailStore(
-            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session,
+            clock: HarnessClock.sticky())
         let selected = item("current", kind: .album)
         let original = Task.immediate { await store.load(selected) }
         defer { original.cancel() }
@@ -217,7 +219,8 @@ struct CatalogReadLifetimeTests {
         let completed = HarnessCounters()
         weak var released: CatalogDetailCoordinator?
         do {
-            let detail = CatalogDetailCoordinator(kind: .album, provider: provider, session: session)
+            let detail = CatalogDetailCoordinator(
+                kind: .album, provider: provider, session: session, clock: HarnessClock.sticky())
             released = detail
             let selected = item("album", kind: .album)
             let caller = Task.immediate {

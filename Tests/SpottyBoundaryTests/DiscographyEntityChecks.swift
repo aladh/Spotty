@@ -20,7 +20,8 @@ struct DiscographyEntityTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         store.prepare(artistURI: "spotify:artist:one")
         let count = CatalogEntityQueryLimits.maximumSubscriptions + 4
@@ -46,7 +47,8 @@ struct DiscographyEntityTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         store.prepare(artistURI: "spotify:artist:one")
         let album = release("one")
@@ -77,7 +79,8 @@ struct DiscographyEntityTests {
         provider.onAlbum = { _ in try await live.wait() }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         store.prepare(artistURI: "spotify:artist:one")
         let album = release("one")
@@ -114,7 +117,8 @@ struct DiscographyEntityTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         store.prepare(artistURI: "spotify:artist:one")
         for id in ["first", "second", "other"] { await store.load(release(id), artistURI: "spotify:artist:one") }
@@ -149,7 +153,8 @@ struct DiscographyEntityTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         store.prepare(artistURI: "spotify:artist:one")
         let item = release("first")
@@ -185,7 +190,8 @@ struct DiscographyEntityTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         let artist = "spotify:artist:one"
         store.prepare(artistURI: artist)
@@ -234,7 +240,8 @@ struct DiscographyEntityTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         let artist = "spotify:artist:one"
         store.prepare(artistURI: artist)
@@ -278,7 +285,8 @@ struct DiscographyEntityTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         store.prepare(artistURI: "spotify:artist:one")
         let item = release("first")
@@ -310,7 +318,8 @@ struct DiscographyEntityTests {
         _ = try await provider.profile()
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        let store = DiscographyStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         // Other feature subscriptions leave exactly one slot for the complete discography.
         for index in 0..<(CatalogEntityQueryLimits.maximumSubscriptions - 1) {

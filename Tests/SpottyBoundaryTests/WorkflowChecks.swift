@@ -439,8 +439,9 @@ struct WorkflowTests {
         provider.onArtistDiscography = { _ in CatalogArtistSnapshot(name: nil, releases: []) }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let albumStore = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
-        let artistStore = ArtistDetailStore(provider: provider, session: session)
+        let albumStore = AlbumDetailStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
+        let artistStore = ArtistDetailStore(provider: provider, session: session, clock: HarnessClock.sticky())
         let album = CatalogItem(
             id: "empty-album",
             uri: "spotify:album:empty-album",

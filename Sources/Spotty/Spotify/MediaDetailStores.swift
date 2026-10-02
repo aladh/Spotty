@@ -21,8 +21,12 @@ final class AlbumDetailStore {
     var freshness: CatalogFreshness { detail.freshness }
     var hasLoadedContent: Bool { detail.hasLoadedContent }
 
-    init(provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability) {
-        detail = CatalogDetailCoordinator(kind: .album, provider: provider, metadata: metadata, session: session)
+    init(
+        provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability,
+        clock: any PlaybackClock
+    ) {
+        detail = CatalogDetailCoordinator(
+            kind: .album, provider: provider, metadata: metadata, session: session, clock: clock)
     }
 
     private init(detail: CatalogDetailCoordinator) { self.detail = detail }
@@ -30,10 +34,10 @@ final class AlbumDetailStore {
     /// Discography owns aggregate publication and one union query; this child owns its reads.
     static func forDiscography(
         provider: any CatalogProviding, session: CatalogSessionAvailability,
-        onReplacement: @escaping @MainActor (AlbumDetailStore) -> Void
+        clock: any PlaybackClock, onReplacement: @escaping @MainActor (AlbumDetailStore) -> Void
     ) -> AlbumDetailStore {
         weak var child: AlbumDetailStore?
-        let detail = CatalogDetailCoordinator.discographyAlbum(provider: provider, session: session) {
+        let detail = CatalogDetailCoordinator.discographyAlbum(provider: provider, session: session, clock: clock) {
             if let child { onReplacement(child) }
         }
         let result = AlbumDetailStore(detail: detail)
@@ -72,10 +76,13 @@ final class ArtistDetailStore {
     var isShowingCachedContent: Bool { detail.isShowingCachedContent }
     var freshness: CatalogFreshness { detail.freshness }
 
-    init(provider: any CatalogProviding, session: CatalogSessionAvailability, content: Content = .overview) {
+    init(
+        provider: any CatalogProviding, session: CatalogSessionAvailability, content: Content = .overview,
+        clock: any PlaybackClock
+    ) {
         detail = CatalogDetailCoordinator(
             kind: content == .overview ? .artistOverview : .artistDiscography,
-            provider: provider, session: session)
+            provider: provider, session: session, clock: clock)
     }
 
     func reset() { detail.reset() }

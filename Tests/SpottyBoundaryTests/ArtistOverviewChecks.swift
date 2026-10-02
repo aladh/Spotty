@@ -1,3 +1,4 @@
+import SpottyTestSupport
 @testable import SpottyRuntimeTestSupport
 import Foundation
 import SpottyDomain
@@ -19,7 +20,7 @@ struct ArtistOverviewChecks {
             id == "fixture" ? profile : CatalogArtistSnapshot(name: "Other", releases: [])
         }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
-        let store = ArtistDetailStore(provider: provider, session: session)
+        let store = ArtistDetailStore(provider: provider, session: session, clock: HarnessClock.sticky())
         await store.load(selected)
         let version = store.popularTracks.version
         await store.load(other)
@@ -49,7 +50,7 @@ struct ArtistOverviewChecks {
         provider.onArtist = { _ in snapshot }
         provider.onArtistDiscography = { _ in throw HarnessFailure.unavailable }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let store = ArtistDetailStore(provider: provider, session: session)
+        let store = ArtistDetailStore(provider: provider, session: session, clock: HarnessClock.sticky())
 
         await store.load(selected)
 

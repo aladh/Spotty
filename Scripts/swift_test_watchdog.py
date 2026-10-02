@@ -13,11 +13,14 @@ import os
 from pathlib import Path
 import platform
 import re
+import secrets
 import selectors
 import shlex
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -25,6 +28,8 @@ TIMEOUT_EXIT = 124
 SAMPLER_TIMEOUT_SECONDS = 12
 CLEANUP_GRACE_SECONDS = 3
 OBSERVATION_INTERVAL_SECONDS = .1
+BUNDLE_EVENT_BYTE_BUDGET = 16 * 1024 * 1024
+BUNDLE_EVENT_STREAM_LIMIT = 16
 
 
 class TerminationRequested(Exception):
@@ -383,46 +388,133 @@ def process_tree(owned: OwnedProcesses) -> str:
                        "ownershipLimit": "Descendants orphaned before an ancestry observation are unknown."}, indent=2) + "\n"
 
 
-def native_event_state(path: Path | None) -> dict:
-    state = {"available": False, "activeFunctions": [], "lastStarted": None,
+def native_event_lines(lines) -> dict:
+    state = {"available": lines is not None, "activeFunctions": [], "lastStarted": None,
              "lastCompleted": None, "partialRecords": 0, "invalidRecords": 0}
-    if path is None:
-        return state
     functions, active = set(), set()
-    try:
-        with path.open(encoding="utf-8", errors="replace") as events:
-            state["available"] = True
-            for line in events:
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    state["partialRecords" if not line.endswith("\n") else "invalidRecords"] += 1
-                    continue
-                if not isinstance(record, dict) or not isinstance(record.get("payload"), dict):
-                    state["invalidRecords"] += 1
-                    continue
-                payload = record["payload"]
-                if record.get("kind") == "test" and payload.get("kind") == "function":
-                    if isinstance(payload.get("id"), str):
-                        functions.add(payload["id"])
-                elif (record.get("kind") == "event" and isinstance(payload.get("testID"), str)
-                      and payload["testID"] in functions):
-                    ident, kind = payload["testID"], payload.get("kind")
-                    if kind == "testStarted":
-                        active.add(ident)
-                        state["lastStarted"] = payload
-                    elif kind == "testEnded":
-                        active.discard(ident)
-                        state["lastCompleted"] = payload
-                    elif kind == "testSkipped":
-                        active.discard(ident)
-    except OSError as error:
-        state["limitation"] = str(error)
+    for line in lines or ():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            state["partialRecords" if not line.endswith("\n") else "invalidRecords"] += 1
+            continue
+        if not isinstance(record, dict) or not isinstance(record.get("payload"), dict):
+            state["invalidRecords"] += 1
+            continue
+        payload = record["payload"]
+        if record.get("kind") == "test" and payload.get("kind") == "function":
+            if isinstance(payload.get("id"), str):
+                functions.add(payload["id"])
+        elif (record.get("kind") == "event" and isinstance(payload.get("testID"), str)
+              and payload["testID"] in functions):
+            ident, kind = payload["testID"], payload.get("kind")
+            if kind == "testStarted":
+                active.add(ident)
+                state["lastStarted"] = payload
+            elif kind == "testEnded":
+                active.discard(ident)
+                state["lastCompleted"] = payload
+            elif kind == "testSkipped":
+                active.discard(ident)
     state["activeFunctions"] = sorted(active)
     return state
 
 
-def diagnostic_state(owned: OwnedProcesses | None, event_path: Path | None) -> str:
+def native_event_state(path: Path | None) -> dict:
+    if path is None:
+        return native_event_lines(None)
+    try:
+        with path.open(encoding="utf-8", errors="replace") as events:
+            return native_event_lines(events)
+    except OSError as error:
+        return dict(native_event_lines(None), limitation=str(error))
+
+
+def retain_bundle_events(owned: OwnedProcesses, output: Path) -> list[dict]:
+    """Read only fresh owned loaders' conventional SwiftPM temporary streams."""
+    retained = []
+    remaining = BUNDLE_EVENT_BYTE_BUDGET
+    attempted = 0
+    for identity in owned.live():
+        command = owned.commands.get(identity.pid, "")
+        if host_role(identity, command) is None:
+            continue
+        receipt = {"pid": identity.pid, "available": False}
+        retained.append(receipt)
+        try:
+            if attempted >= BUNDLE_EVENT_STREAM_LIMIT or remaining <= 0:
+                raise ValueError("bundle event packet budget exhausted")
+            attempted += 1
+            temporary_root = Path(tempfile.gettempdir()).resolve()
+            arguments = shlex.split(command)
+            flag = "--event-stream-output-path"
+            if (arguments.count(flag) != 1
+                    or any(item.startswith(flag + "=") for item in arguments)):
+                raise ValueError("ambiguous native event operand")
+            bundle = loader_test_bundle(command, require_existing=True)
+            if bundle is None:
+                raise ValueError("concrete bundle unavailable")
+            raw = arguments[arguments.index(flag) + 1]
+            path = Path(raw)
+            if (not path.is_absolute() or any(part in {".", ".."} for part in raw.split("/"))
+                    or path.parent.parent.resolve() != temporary_root
+                    or not re.fullmatch(r"swiftpm-test-output-[A-Za-z0-9_.-]+", path.parent.name)
+                    or not re.fullmatch(r"event-stream-[0-9]+-" + re.escape(bundle.stem) + r"\.jsonl", path.name)
+                    or path.parent.is_symlink() or path.is_symlink()):
+                raise ValueError("event path outside conventional SwiftPM temporary stream")
+            if not identity.same_image(process_identity(identity.pid)):
+                raise ValueError("loader birth/image changed")
+            directory = os.open(temporary_root / path.parent.name,
+                                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if os.fstat(directory).st_uid != os.getuid():
+                    raise ValueError("temporary directory belongs to another user")
+                descriptor = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                     dir_fd=directory)
+            finally:
+                os.close(directory)
+            with os.fdopen(descriptor, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or info.st_size > remaining):
+                    raise ValueError("stream is not a bounded owned regular file")
+                content = stream.read(remaining + 1)
+            if len(content) > remaining:
+                raise ValueError("stream exceeded retention bound")
+            remaining -= len(content)
+            if not identity.same_image(process_identity(identity.pid)):
+                raise ValueError("loader birth/image changed during read")
+            output.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # A signal can interrupt timeout diagnostics and request another snapshot.
+            # Preserve each copy rather than colliding with or replacing partial evidence.
+            directory = os.open(output, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if os.fstat(directory).st_uid != os.getuid():
+                    raise ValueError("retention directory belongs to another user")
+                os.fchmod(directory, 0o700)
+                snapshot = f"{identity.pid}-{secrets.token_hex(8)}"
+                os.mkdir(snapshot, 0o700, dir_fd=directory)
+                snapshot_descriptor = os.open(snapshot, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                              dir_fd=directory)
+                try:
+                    descriptor = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                         0o600, dir_fd=snapshot_descriptor)
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(content)
+                finally:
+                    os.close(snapshot_descriptor)
+            finally:
+                os.close(directory)
+            copy = output / snapshot / path.name
+            receipt.update(available=True, retainedPath=str(copy),
+                           nativeEvents=native_event_lines(content.decode("utf-8", errors="replace").splitlines(keepends=True)))
+        except (OSError, ValueError, IndexError, RuntimeError) as error:
+            receipt["limitation"] = str(error)
+    return retained
+
+
+def diagnostic_state(owned: OwnedProcesses | None, event_path: Path | None,
+                     bundle_output: Path | None = None) -> str:
     tree = json.loads(process_tree(owned)) if owned is not None else {"limitation": "Launch identity unavailable"}
     candidates = []
     if owned is not None:
@@ -435,6 +527,8 @@ def diagnostic_state(owned: OwnedProcesses | None, event_path: Path | None) -> s
     tree["hostAttribution"] = ("one owned loader candidate" if len(candidates) == 1
                                else "unavailable; driver fallback")
     tree["nativeEvents"] = native_event_state(event_path)
+    if owned is not None and bundle_output is not None:
+        tree["bundleNativeEvents"] = retain_bundle_events(owned, bundle_output)
     tree["eventAttributionLimit"] = "Native events identify functions, not a process PID."
     tree["samplingLimit"] = "Identity is revalidated before launch; PID-based samplers cannot atomically bind birth."
     return json.dumps(tree, indent=2) + "\n"
@@ -442,7 +536,8 @@ def diagnostic_state(owned: OwnedProcesses | None, event_path: Path | None) -> s
 
 def write_interruption_diagnostics(owned, args, event_enabled, tree_path, log_file):
     try:
-        tree_path.write_text(diagnostic_state(owned, args.event_stream_path if event_enabled else None))
+        tree_path.write_text(diagnostic_state(owned, args.event_stream_path if event_enabled else None,
+                                              tree_path.with_suffix(".events")))
     except (OSError, UnicodeError) as error:
         emit_diagnostic(f"swift-test-watchdog diagnostics unavailable: {error}", log_file)
 
@@ -474,7 +569,7 @@ def loader_test_bundle(command: str, *, require_existing: bool = False) -> Path 
                         or binary.name != bundle.stem):
                     return None
         return bundle
-    except (OSError, ValueError, IndexError):
+    except (OSError, ValueError, IndexError, RuntimeError):
         return None
 
 
@@ -695,7 +790,8 @@ def run_logged(
                         stdout_eof = True
             if timed_out:
                 try:
-                    tree = diagnostic_state(owned, args.event_stream_path if event_enabled else None)
+                    tree = diagnostic_state(owned, args.event_stream_path if event_enabled else None,
+                                            tree_path.with_suffix(".events"))
                     tree_path.write_text(tree)
                     emit_diagnostic(
                         f"swift-test-watchdog status=timeout elapsed={time.monotonic() - started:.2f}s; "

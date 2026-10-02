@@ -12,6 +12,10 @@ result. Native completion events distinguish execution from skipped probes and d
 identify a process. Compare last-started and last-completed events with process evidence before naming
 a decoder, scheduler or leaked dependency as the owner.
 
+Before owned cleanup, timeout and interruption packets also retain bounded per-bundle streams from
+fresh owned SwiftPM loaders in the conventional temporary output directory. Refused or unavailable
+streams have explicit limitations; their absence never changes the command's failure status.
+
 Ownership comes from observed launch ancestry and a kernel birth/image identity, including children
 that change process group. Neither a process name, group membership nor PID ordering admits an
 unrelated process. Identity is rechecked before sampling or signaling. Known SwiftPM loaders carry a

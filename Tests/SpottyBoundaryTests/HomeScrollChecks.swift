@@ -1,6 +1,8 @@
 @testable import SpottyRuntimeTestSupport
 import SpottyTestSupport
 import AppKit
+import SpottyDomain
+import SpottyRuntimeContracts
 import SwiftUI
 import Testing
 @testable import SpottyCore
@@ -9,6 +11,74 @@ import Testing
 @Suite("Home scroll lifetime")
 @MainActor
 struct HomeScrollChecks {
+    @Test func artworkAdmissionFollowsTheViewportWithoutRetiringOffscreenControls() async throws {
+        let provider = HarnessCatalog()
+        provider.onHome = {
+            CatalogHomeSnapshot(
+                greeting: "Synthetic",
+                sections: (0..<12).map { section in
+                    CatalogSection(
+                        id: "section:\(section)", title: "Synthetic",
+                        items: [
+                            CatalogItem(
+                                id: "item:\(section)", uri: "spotify:album:\(section)", title: "Synthetic",
+                                subtitle: "",
+                                artworkURL: URL(string: "https://synthetic.invalid/\(section)"), kind: .album)
+                        ])
+                })
+        }
+        let artwork = HarnessArtwork(immediateFailure: .unavailable)
+        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
+        player.withRuntime {
+            $0.accountStore.publishPhase(.ready)
+            _ = $0.send(.session(.ready), source: .account)
+        }
+        await player.catalog.homeLibrary.loadHome()
+        do {
+            let host = NSHostingView(
+                rootView: HomeView(
+                    store: player.catalog.homeLibrary, playback: CatalogPlaybackAccess(player: player),
+                    interaction: HomeInteractionState(), onSelect: { _ in }
+                )
+                .environment(\.artworkAccess, ArtworkAccess(provider: artwork, accountEpoch: 1)))
+            host.sizingOptions = []
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
+                backing: .buffered, defer: false)
+            window.contentView = host
+            defer { window.contentView = nil }
+            func page(in view: NSView) -> NSScrollView? {
+                if let scroll = view as? NSScrollView { return scroll }
+                return view.subviews.lazy.compactMap { page(in: $0) }.first
+            }
+            func shelves(in view: NSView) -> [NativeHorizontalScrollView] {
+                if let shelf = view as? NativeHorizontalScrollView { return [shelf] }
+                return view.subviews.flatMap { shelves(in: $0) }
+            }
+            try await requireEventually {
+                host.layoutSubtreeIfNeeded()
+                return await artwork.requests.contains { $0.url.path == "/1" }
+            }
+            #expect(await artwork.requests.contains { $0.url.path == "/11" } == false)
+            let retainedShelves = shelves(in: host)
+            #expect(retainedShelves.count == 11, "offscreen semantic/focus controls remain instantiated")
+            let scroll = try #require(page(in: host))
+            let maximum = try #require(scroll.documentView).bounds.height - scroll.contentSize.height
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: maximum))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try await requireEventually {
+                host.layoutSubtreeIfNeeded()
+                return await artwork.requests.contains { $0.url.path == "/11" }
+            }
+            #expect(abs(scroll.contentView.bounds.minY - maximum) < 1)
+            #expect(shelves(in: host).elementsEqual(retainedShelves, by: { $0 === $1 }))
+        } catch {
+            await player.shutdownForTermination()
+            throw error
+        }
+        await player.shutdownForTermination()
+    }
+
     @Test func refreshesPreserveTheClampedScrollPositionThroughFailureAndRecovery() async throws {
         let shorter = HarnessFixtures.home(sectionIDs: Array(0..<3))
         let longer = HarnessFixtures.home(sectionIDs: Array(0..<12))

@@ -17,7 +17,15 @@ private struct ArtworkAccessKey: EnvironmentKey {
     static let defaultValue = ArtworkAccess()
 }
 
+private struct ArtworkAdmissionKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
+    var admitsArtwork: Bool {
+        get { self[ArtworkAdmissionKey.self] }
+        set { self[ArtworkAdmissionKey.self] = newValue }
+    }
     var artworkAccess: ArtworkAccess {
         get { self[ArtworkAccessKey.self] }
         set { self[ArtworkAccessKey.self] = newValue }
@@ -33,6 +41,7 @@ struct RemoteArtwork: View {
     var geometryIdentifier: String? = nil
     @Environment(\.artworkAccess) private var artwork
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.admitsArtwork) private var admitsArtwork
     @State private var loaded: LoadedArtwork?
 
     private struct LoadedArtwork {
@@ -58,7 +67,8 @@ struct RemoteArtwork: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .task(id: request) {
+            .task(id: admitsArtwork ? request : nil) {
+                guard admitsArtwork else { return }
                 loaded = nil
                 guard let request,
                     let asset = try? await artwork.provider.artwork(for: request),

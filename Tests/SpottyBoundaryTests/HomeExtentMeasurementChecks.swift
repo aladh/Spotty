@@ -37,7 +37,7 @@ struct HomeExtentMeasurementTests {
             })
         let provider = HarnessCatalog()
         provider.onHome = { snapshot }
-        let artwork = AdmissionRecorder()
+        let artwork = HarnessArtwork(immediateFailure: .unavailable)
         let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
         player.withRuntime {
             $0.accountStore.publishPhase(.ready)
@@ -108,15 +108,4 @@ struct HomeExtentMeasurementTests {
         return ["residentBytes": info.resident_size, "physicalFootprintBytes": info.phys_footprint]
     }
 
-    /// HarnessArtwork parks uncancellable replies; this probe needs immediately settled requests
-    /// with an admission record so arbitrary large fixtures have no suspended continuations.
-    private actor AdmissionRecorder: ArtworkProviding {
-        private(set) var requests: [ArtworkRequest] = []
-        func artwork(for request: ArtworkRequest) throws -> ArtworkAsset {
-            requests.append(request)
-            throw ArtworkFailure.unavailable
-        }
-        func activate(accountEpoch: UInt64) {}
-        func retire(accountEpoch: UInt64) {}
-    }
 }

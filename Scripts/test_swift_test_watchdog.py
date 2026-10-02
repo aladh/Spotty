@@ -1034,6 +1034,8 @@ class ProcessOwnershipTests(unittest.TestCase):
             self.assertEqual(len(receipts), 1)
             self.assertTrue(receipts[0]["available"], receipts)
             self.assertEqual(Path(receipts[0]["retainedPath"]).read_bytes(), events.read_bytes())
+            self.assertEqual(Path(receipts[0]["retainedPath"]).stat().st_mode & 0o777, 0o600)
+            self.assertEqual((root / "retained").stat().st_mode & 0o777, 0o700)
             self.assertEqual(receipts[0]["nativeEvents"]["lastStarted"]["testID"], "stalled")
             self.assertEqual(receipts[0]["nativeEvents"]["lastCompleted"]["testID"], "completed")
 

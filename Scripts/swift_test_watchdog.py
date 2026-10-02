@@ -472,9 +472,11 @@ def retain_bundle_events(owned: OwnedProcesses, output: Path) -> list[dict]:
                 raise ValueError("stream exceeded retention bound")
             if not identity.same_image(process_identity(identity.pid)):
                 raise ValueError("loader birth/image changed during read")
-            output.mkdir(parents=True, exist_ok=True)
+            output.mkdir(mode=0o700, parents=True, exist_ok=True)
             copy = output / f"{identity.pid}-{path.name}"
-            copy.write_bytes(content)
+            descriptor = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(content)
             receipt.update(available=True, retainedPath=str(copy), nativeEvents=native_event_state(copy))
         except (OSError, ValueError, IndexError) as error:
             receipt["limitation"] = str(error)

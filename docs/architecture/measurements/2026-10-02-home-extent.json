@@ -31,7 +31,7 @@
     "repetitionsPerSizeAndVariant": 1,
     "network": "synthetic.invalid identifiers; immediate unavailable artwork provider, no network/decode",
     "surfaces": "unpresented NSHostingView attached to native window",
-    "measurement": "task_vm_info resident and physical footprint before and attached; ContinuousClock until complete document extent",
+    "measurement": "task_vm_info resident and physical footprint before and attached; ContinuousClock until document height exceeds sections*200 points; final observed document height recorded separately",
     "isolation": "separate native process per workload; candidate120-2 excludes concurrent source gate; no500shelf run",
     "toolchain": {
       "xcode": "27.0 (27A266a)",
@@ -231,6 +231,7 @@
     "Initial native layout is not first presented frame or input-to-pixel latency.",
     "Unavailable artwork excludes network, decoding and retained image cost.",
     "Remaining eager view cost grows with shelf count; no memory/layout-fix claim.",
-    "VoiceOver spoken flow and full offscreen Tab traversal unverified."
+    "VoiceOver spoken flow and full offscreen Tab traversal unverified.",
+    "Artwork view checks use bounded cooperative update drains; the late-response fault injection detected removed cancellation fencing but is not proof every late SwiftUI consumer has settled."
   ]
 }

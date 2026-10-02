@@ -64,7 +64,7 @@ struct HomeExtentMeasurementTests {
                 if let scroll = view as? NSScrollView { return scroll }
                 return view.subviews.lazy.compactMap { page(in: $0) }.first
             }
-            try await requireEventually(description: "Large Home complete native extent") {
+            try await requireEventually(description: "Large Home exceeds 200 points per shelf") {
                 host.layoutSubtreeIfNeeded()
                 return (page(in: host)?.documentView?.bounds.height ?? 0) > CGFloat(sections * 200)
             }

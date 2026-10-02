@@ -82,7 +82,7 @@ struct HomePresentedMeasurementChecks {
             configuration.ignoreShadowsSingleWindow = true
             let collector = HomePresentedFrameCollector()
             let owned = SCStream(
-                contentFilter: SCContentFilter(desktopIndependentWindow: shared), configuration: configuration,
+                filter: SCContentFilter(desktopIndependentWindow: shared), configuration: configuration,
                 delegate: nil)
             try owned.addStreamOutput(
                 collector, type: .screen, sampleHandlerQueue: callbackQueue)

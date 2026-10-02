@@ -151,6 +151,33 @@ struct BrowsingShellFixtureChecks {
         #expect(sizedFrame == CGRect(x: 0, y: 0, width: 1024, height: 700))
     }
 
+    @Test func capturedWorkAreaRejectsRequalificationAndExplicitResize() throws {
+        let captured = CGRect(x: 0, y: 78, width: 1280, height: 851)
+        let changed = CGRect(x: 0, y: 74, width: 1280, height: 855)
+        var resizeCount = 0
+        #expect(
+            try BrowsingShellRegression.requalifyDisplayIfNeeded(
+                sizedFrame: captured, currentFrame: captured, capturedFrame: captured,
+                resize: { resizeCount += 1 }) == false)
+        #expect(throws: (any Error).self) {
+            _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(
+                sizedFrame: captured, currentFrame: changed, capturedFrame: captured,
+                resize: { resizeCount += 1 })
+        }
+        // Explicit resize validates the frozen capture baseline before assigning
+        // its new sizing frame; changing that mutable frame cannot admit drift.
+        #expect(throws: (any Error).self) {
+            try BrowsingShellRegression.validateCapturedDisplay(currentFrame: changed, capturedFrame: captured)
+            resizeCount += 1
+        }
+        #expect(throws: (any Error).self) {
+            _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(
+                sizedFrame: changed, currentFrame: changed, capturedFrame: captured,
+                resize: { resizeCount += 1 })
+        }
+        #expect(resizeCount == 0)
+    }
+
     @Test func displayEligibilityPreservesMinimumAndDistinctResizeCoverage() throws {
         let defaultSize = CGSize(width: 1220, height: 780)
         let minimumSize = CGSize(width: 960, height: 640)

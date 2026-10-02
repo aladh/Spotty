@@ -124,7 +124,7 @@ struct DiscographyChecks {
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let store = DiscographyStore(
-            provider: provider, metadata: metadata, session: session)
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         metadata.replaceTracks([HarnessFixtures.track(uri: "spotify:track:album-page")], from: .album)
         store.prepare(artistURI: "spotify:artist:one")
         #expect(provider.albumRequestCount == 0)

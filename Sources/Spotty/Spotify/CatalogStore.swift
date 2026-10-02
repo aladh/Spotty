@@ -34,9 +34,9 @@ final class CatalogStore {
         self.metadata = metadata
         homeLibrary = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
         searchStore = SearchStore(provider: provider, metadata: metadata, session: session, clock: clock)
-        albumStore = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
-        artistStore = ArtistDetailStore(provider: provider, session: session)
-        discographyStore = DiscographyStore(provider: provider, metadata: metadata, session: session)
+        albumStore = AlbumDetailStore(provider: provider, metadata: metadata, session: session, clock: clock)
+        artistStore = ArtistDetailStore(provider: provider, session: session, clock: clock)
+        discographyStore = DiscographyStore(provider: provider, metadata: metadata, session: session, clock: clock)
         playlist = PlaylistFeature(
             provider: provider, metadata: metadata, session: session,
             mutations: playlistMutations, homeLibrary: homeLibrary, feedback: feedback)

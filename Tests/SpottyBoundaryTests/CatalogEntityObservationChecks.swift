@@ -31,7 +31,8 @@ struct CatalogEntityObservationTests {
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
-        let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+        let album = AlbumDetailStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { playlist.reset(); album.reset() }
         await playlist.load(item("first", kind: .playlist))
         await playlist.load(item("other", kind: .playlist))
@@ -90,7 +91,8 @@ struct CatalogEntityObservationTests {
         provider.onAlbum = { _ in CatalogAlbumSnapshot(tracks: original, releaseDate: "2026") }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let store = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+        let store = AlbumDetailStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { store.reset() }
         await store.load(item("album", kind: .album))
         try await requireEventually { await queries.activeQueryCount == 1 }
@@ -153,7 +155,8 @@ struct CatalogEntityObservationTests {
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
-        let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+        let album = AlbumDetailStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         defer { playlist.reset(); album.reset() }
         let selected = item("first", kind: kind)
         let load: @MainActor (Bool) async -> Void = { force in

@@ -161,6 +161,32 @@ boundaries. It preserves historical records and adds no measurement or performan
 Live execution remains gated by explicit workload/artifact authorization; existing synthetic
 lifecycle or raw cache-IO receipts cannot complete that current playback baseline.
 
+## Retained album and artist revisits (2026-10-02)
+
+The [synthetic receipt](measurements/2026-10-02-detail-revisit.json) at clean `33378a0`
+compares the existing retained coordinator with a new coordinator on the third visit; it is
+not a historical build or an incremental performance claim for the expiry change.
+Five waves for each album, artist overview and discography variant use ten synthetic rows.
+All retained A → B → A visits need two provider calls and expose rows during synchronous prepare;
+all new-owner controls need three and expose rows after their immediate provider load completes.
+
+| Detail | Retained usable median (range), ms | New-owner control, ms |
+| --- | ---: | ---: |
+| Album | 0.0128 (0.0104–0.0241) | 0.1099 (0.0941–0.1733) |
+| Artist overview | 0.0055 (0.0045–0.0063) | 0.0550 (0.0514–0.0830) |
+| Discography | 0.0045 (0.0045–0.0057) | 0.0490 (0.0470–0.0503) |
+
+One isolated native test process executes all 30 samples using verified optimized Debug/non-WMO
+flags, macOS/SDK27 and pinned `playback-v0.2.1`, unused for playback. Framework/allocator caches
+may be warm. These are prepare/load boundaries, not app frames or network latency; byte memory
+was not sampled. Separate regressions verify the existing 20-route/20,000-row-cost retention limit
+with 8,000-release artist results and oversized 20,001-row active content. Empty successes, coalesced
+refresh, metadata freshness, cancellation and account retirement remain covered.
+
+Revisits now refresh after five minutes without discarding useful rows; navigation owns that
+[product policy](../product/navigation.md#navigation-and-retained-content). The request-saving
+benefit justifies preserving the existing small retention owner, with no cache expansion.
+
 ## Binary size
 
 CI reports release sizes for comparison, not as a pass/fail budget. Read the run summary with

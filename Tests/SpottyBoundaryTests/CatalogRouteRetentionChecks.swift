@@ -60,7 +60,8 @@ struct CatalogRouteRetentionTests {
         provider.onAlbum = { _ in try await gate.wait() }
         let session = CatalogSessionAvailability(isAvailable: true)
         let store = AlbumDetailStore(
-            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session,
+            clock: HarnessClock.sticky())
         let load = Task { await store.load(item("saved", kind: .album)) }
         defer { load.cancel() }
         try await requireEventually { gate.waiterCount == 1 }
@@ -115,7 +116,8 @@ struct CatalogRouteRetentionTests {
         provider.onCachedAlbum = { _ in try? await gate.wait() }
         let session = CatalogSessionAvailability(accountEpoch: 1, isAvailable: true)
         let store = AlbumDetailStore(
-            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session,
+            clock: HarnessClock.sticky())
         let selected = item("saved", kind: .album)
         let load = Task { await store.load(selected) }
         defer { load.cancel() }
@@ -164,7 +166,8 @@ struct CatalogRouteRetentionTests {
         let session = CatalogSessionAvailability(isAvailable: true)
         let playlist = makePlaylistStore(provider, session: session)
         let album = AlbumDetailStore(
-            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session)
+            provider: provider, metadata: CatalogMetadataRepository(session: session), session: session,
+            clock: HarnessClock.sticky())
         let selectedPlaylist = item("saved", kind: .playlist)
         let selectedAlbum = item("saved", kind: .album)
         let playlistLoad = Task { await playlist.load(selectedPlaylist) }
@@ -294,8 +297,10 @@ struct CatalogRouteRetentionTests {
         }
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
-        let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
-        let artist = ArtistDetailStore(provider: provider, session: session, content: content)
+        let album = AlbumDetailStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
+        let artist = ArtistDetailStore(
+            provider: provider, session: session, content: content, clock: HarnessClock.sticky())
         await album.load(item("first", kind: .album))
         let firstVersion = album.trackCollection.version
         await album.load(item("second", kind: .album))
@@ -349,7 +354,8 @@ struct CatalogRouteRetentionTests {
         provider.onArtist = { _ in snapshot }
         provider.onArtistDiscography = { _ in snapshot }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let store = ArtistDetailStore(provider: provider, session: session, content: content)
+        let store = ArtistDetailStore(
+            provider: provider, session: session, content: content, clock: HarnessClock.sticky())
         await store.load(first)
         await store.load(second)
         store.prepare(first)
@@ -391,7 +397,8 @@ struct CatalogRouteRetentionTests {
         provider.onArtist = { _ in snapshot }
         provider.onArtistDiscography = { _ in snapshot }
         let session = CatalogSessionAvailability(isAvailable: true)
-        let store = ArtistDetailStore(provider: provider, session: session, content: content)
+        let store = ArtistDetailStore(
+            provider: provider, session: session, content: content, clock: HarnessClock.sticky())
         await store.load(first)
         let gate = HarnessResponseGate<CatalogArtistSnapshot>(cancellation: .ignored)
         defer { gate.close() }

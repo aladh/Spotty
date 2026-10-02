@@ -1,0 +1,532 @@
+{
+  "schemaVersion": 1,
+  "sourceAndArtifact": {
+    "source": {
+      "revision": "33378a0d610a5d0458dc8dda35e299f80370ff98",
+      "diffSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourceSHA256": "bdcb0a2fce8c6c6d2c1d10958cf4f3f4aa88a906a42c9fbb0b49c927831c8de3",
+      "trackedFileCount": 1017,
+      "untrackedFileCount": 0,
+      "includesUntrackedNonignoredFiles": true
+    },
+    "engine": {
+      "selection": "pinned",
+      "pinURL": "https://github.com/aladh/Spotty/releases/download/playback-v0.2.1/SpottyPlaybackCore.xcframework.zip",
+      "pinChecksum": "ee930c23f399ba6d1d2923f7d802af08acdefa8f606aabfcdf92063fb88d565d",
+      "librarySHA256": "107d2b948a6a7e4c27d97daf17bb7aad84c5b3c99b400b8e74a989edec4d7af5",
+      "canonicalHeadersSHA256": "e1ae33b35cf4a15c3eb01096a0948a27819118ce7c303014d7adfdf197e19688",
+      "sourceRevision": "28729d5097ebdd05ff2eb5806815c03fe086f18a",
+      "engineInputDigest": "2a532b39a61f152544e341d9f639a39beebaddaec2cebc364b778fb104585fc4",
+      "librespotRevision": "939dc5ee9d833e1980f9495241219d9d4868a061",
+      "usedForPlayback": false
+    },
+    "testExecutableSHA256": "d108bd14b2477a018b12002cf03ad869aa842b16e1270ec6a19f8e39bd0f65ca",
+    "buildVersion": "Load command 9\n      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform MACOS\n    minos 27.0\n      sdk 27.0\n   ntools 1\n     tool LD\n  version 27037.1\n",
+    "xcode": "Xcode 27.0\nBuild version 27A266a\n",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx27.0.0\n",
+    "os": "27.0.1",
+    "osBuild": "26A434"
+  },
+  "compilerMetadata": {
+    "SpottyCore": {
+      "optimizationFlagsInOrder": [
+        "-Onone",
+        "-O"
+      ],
+      "effectiveOptimization": "-O",
+      "testable": true,
+      "nonWMO": true,
+      "debugHooks": true,
+      "browsingOptimizedCondition": true,
+      "warningsAsErrors": true,
+      "target": "arm64-apple-macosx27.0",
+      "sdk": "27.0"
+    },
+    "SpottyBoundaryTests": {
+      "optimizationFlagsInOrder": [
+        "-Onone",
+        "-O"
+      ],
+      "effectiveOptimization": "-O",
+      "testable": true,
+      "nonWMO": true,
+      "debugHooks": true,
+      "browsingOptimizedCondition": true,
+      "warningsAsErrors": true,
+      "target": "arm64-apple-macosx27.0",
+      "sdk": "27.0"
+    }
+  },
+  "raw": {
+    "buildProfile": "optimized-debug-native-nonwmo",
+    "expirySeconds": 300,
+    "limits": "Immediate synthetic providers; a new coordinator on the third visit is a current-code no-retention control, not a historical build. Timings cover MainActor prepare/load completion, not native first-frame or network latency. Ten rows per route; row-cost budget is separate from byte footprint. No app, playback or memory-byte reduction claim.",
+    "retentionRouteLimit": 20,
+    "retentionRowCostLimit": 20000,
+    "samples": [
+      {
+        "freshOwnerControl": false,
+        "kind": "album",
+        "prepareSeconds": 1.2792e-05,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 2.2625e-05,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 1.2792e-05,
+        "visibleRows": 10,
+        "wave": 0
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "album",
+        "prepareSeconds": 1.1292e-05,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 0.000109917,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 0.000109917,
+        "visibleRows": 10,
+        "wave": 0
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "album",
+        "prepareSeconds": 1.0791e-05,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 1.8458e-05,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 1.0791e-05,
+        "visibleRows": 10,
+        "wave": 1
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "album",
+        "prepareSeconds": 9.75e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 0.00017325,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 0.00017325,
+        "visibleRows": 10,
+        "wave": 1
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "album",
+        "prepareSeconds": 1.7666e-05,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 3.1291e-05,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 1.7666e-05,
+        "visibleRows": 10,
+        "wave": 2
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "album",
+        "prepareSeconds": 8.75e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 0.000106792,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 0.000106792,
+        "visibleRows": 10,
+        "wave": 2
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "album",
+        "prepareSeconds": 2.4083e-05,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 3.1875e-05,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 2.4083e-05,
+        "visibleRows": 10,
+        "wave": 3
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "album",
+        "prepareSeconds": 8.583e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 9.4083e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 9.4083e-05,
+        "visibleRows": 10,
+        "wave": 3
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "album",
+        "prepareSeconds": 1.0375e-05,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 1.8167e-05,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 1.0375e-05,
+        "visibleRows": 10,
+        "wave": 4
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "album",
+        "prepareSeconds": 8.292e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 0.000135709,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 0.000135709,
+        "visibleRows": 10,
+        "wave": 4
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "overview",
+        "prepareSeconds": 4.542e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 7.584e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 4.542e-06,
+        "visibleRows": 10,
+        "wave": 0
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "overview",
+        "prepareSeconds": 3.084e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 5.2959e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 5.2959e-05,
+        "visibleRows": 10,
+        "wave": 0
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "overview",
+        "prepareSeconds": 5.958e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 9.375e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 5.958e-06,
+        "visibleRows": 10,
+        "wave": 1
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "overview",
+        "prepareSeconds": 3.042e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 5.8583e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 5.8583e-05,
+        "visibleRows": 10,
+        "wave": 1
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "overview",
+        "prepareSeconds": 6.334e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 1.0042e-05,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 6.334e-06,
+        "visibleRows": 10,
+        "wave": 2
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "overview",
+        "prepareSeconds": 3.166e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 8.3e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 8.3e-05,
+        "visibleRows": 10,
+        "wave": 2
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "overview",
+        "prepareSeconds": 4.5e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 7.375e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 4.5e-06,
+        "visibleRows": 10,
+        "wave": 3
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "overview",
+        "prepareSeconds": 3.125e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 5.5042e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 5.5042e-05,
+        "visibleRows": 10,
+        "wave": 3
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "overview",
+        "prepareSeconds": 5.5e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 8.542e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 5.5e-06,
+        "visibleRows": 10,
+        "wave": 4
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "overview",
+        "prepareSeconds": 3.125e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 5.1416e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 5.1416e-05,
+        "visibleRows": 10,
+        "wave": 4
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "discography",
+        "prepareSeconds": 5.667e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 9.084e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 5.667e-06,
+        "visibleRows": 10,
+        "wave": 0
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "discography",
+        "prepareSeconds": 2.916e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 5.025e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 5.025e-05,
+        "visibleRows": 10,
+        "wave": 0
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "discography",
+        "prepareSeconds": 4.541e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 7.166e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 4.541e-06,
+        "visibleRows": 10,
+        "wave": 1
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "discography",
+        "prepareSeconds": 2.791e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 5.0125e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 5.0125e-05,
+        "visibleRows": 10,
+        "wave": 1
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "discography",
+        "prepareSeconds": 4.5e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 7.083e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 4.5e-06,
+        "visibleRows": 10,
+        "wave": 2
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "discography",
+        "prepareSeconds": 2.916e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 4.6958e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 4.6958e-05,
+        "visibleRows": 10,
+        "wave": 2
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "discography",
+        "prepareSeconds": 5.167e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 8.125e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 5.167e-06,
+        "visibleRows": 10,
+        "wave": 3
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "discography",
+        "prepareSeconds": 3.084e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 4.7959e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 4.7959e-05,
+        "visibleRows": 10,
+        "wave": 3
+      },
+      {
+        "freshOwnerControl": false,
+        "kind": "discography",
+        "prepareSeconds": 4.458e-06,
+        "providerCalls": 2,
+        "revisitLoadCompletedSeconds": 7.125e-06,
+        "usableAtPrepare": true,
+        "usableRevisitSeconds": 4.458e-06,
+        "visibleRows": 10,
+        "wave": 4
+      },
+      {
+        "freshOwnerControl": true,
+        "kind": "discography",
+        "prepareSeconds": 3.042e-06,
+        "providerCalls": 3,
+        "revisitLoadCompletedSeconds": 4.8958e-05,
+        "usableAtPrepare": false,
+        "usableRevisitSeconds": 4.8958e-05,
+        "visibleRows": 10,
+        "wave": 4
+      }
+    ],
+    "shippingBuild": false,
+    "version": 1
+  },
+  "summary": [
+    {
+      "kind": "album",
+      "freshOwnerControl": false,
+      "waves": 5,
+      "providerCalls": [
+        2
+      ],
+      "usableAtPrepare": true,
+      "usableSecondsMedian": 1.2792e-05,
+      "usableSecondsRange": [
+        1.0375e-05,
+        2.4083e-05
+      ]
+    },
+    {
+      "kind": "album",
+      "freshOwnerControl": true,
+      "waves": 5,
+      "providerCalls": [
+        3
+      ],
+      "usableAtPrepare": false,
+      "usableSecondsMedian": 0.000109917,
+      "usableSecondsRange": [
+        9.4083e-05,
+        0.00017325
+      ]
+    },
+    {
+      "kind": "overview",
+      "freshOwnerControl": false,
+      "waves": 5,
+      "providerCalls": [
+        2
+      ],
+      "usableAtPrepare": true,
+      "usableSecondsMedian": 5.5e-06,
+      "usableSecondsRange": [
+        4.5e-06,
+        6.334e-06
+      ]
+    },
+    {
+      "kind": "overview",
+      "freshOwnerControl": true,
+      "waves": 5,
+      "providerCalls": [
+        3
+      ],
+      "usableAtPrepare": false,
+      "usableSecondsMedian": 5.5042e-05,
+      "usableSecondsRange": [
+        5.1416e-05,
+        8.3e-05
+      ]
+    },
+    {
+      "kind": "discography",
+      "freshOwnerControl": false,
+      "waves": 5,
+      "providerCalls": [
+        2
+      ],
+      "usableAtPrepare": true,
+      "usableSecondsMedian": 4.541e-06,
+      "usableSecondsRange": [
+        4.458e-06,
+        5.667e-06
+      ]
+    },
+    {
+      "kind": "discography",
+      "freshOwnerControl": true,
+      "waves": 5,
+      "providerCalls": [
+        3
+      ],
+      "usableAtPrepare": false,
+      "usableSecondsMedian": 4.8958e-05,
+      "usableSecondsRange": [
+        4.6958e-05,
+        5.025e-05
+      ]
+    }
+  ],
+  "execution": {
+    "isolatedLocalNativeProcess": true,
+    "simultaneousLocalBuildsTestsOrUIOwners": false,
+    "wavesPerKindAndVariant": 5,
+    "singleProcessForAllThirtySamples": true,
+    "order": "album/overview/discography; each wave retained then fresh-owner control",
+    "cacheWarmth": "Framework/allocator/OS caches may be warm",
+    "ownedProcessExited": true,
+    "uiPresented": false,
+    "networkOrPlayback": false
+  },
+  "regressionEvidence": {
+    "focusedFunctions": 63,
+    "focusedSuites": 9,
+    "optInComparisonNormallySkipped": true,
+    "expiryRestorationCases": 24,
+    "sameRouteCases": 9,
+    "expiredCancelOrAccountCases": 6,
+    "noAgeCausalFault": "two functions fail 27 expectations; original age policy restored",
+    "omittedDiscographyClockCausalFault": "facade function fails 2 expectations; exact injection restored; explicit required-clock API subsequently removes this implicit fallback",
+    "largeArtistBudget": "three 8,000-release reads evict first under 20,000 row-cost; second reuse; 20,001 active not retained but expires",
+    "lateCompletion": "admitted worker snapshot awaited after cancel/account reset before nonpublication assertions",
+    "summaryIncludingSkippedProbe": 64
+  },
+  "limits": [
+    "Current retained owner versus new coordinator on third visit; no historical uncached build or incremental expiry-patch benefit",
+    "Immediate synthetic provider; no network latency, app paint, account, playback or user catalog",
+    "Row budget includes artist releases/popular tracks but byte memory was not sampled",
+    "Ten rows per route in timing probe; separate tests cover large row-budget eviction",
+    "One process, five observations per cell; medians/ranges are descriptive, no statistical latency or resource budget"
+  ],
+  "excludedRuns": [
+    {
+      "stage": "initial test compilation",
+      "reason": "Swift Testing accepts two argument axes, not three; declaration corrected"
+    },
+    {
+      "stage": "source policy",
+      "reason": "default SystemPlaybackClock violates explicit injection policy; required clock plumbed through all callers"
+    },
+    {
+      "stage": "legacy fixture compilation",
+      "reason": "ArtistOverview fixture lacked SpottyTestSupport import after explicit clock plumbing; import added"
+    }
+  ]
+}

@@ -48,7 +48,10 @@ private func makeAlbumStore(
     session: CatalogSessionAvailability
 ) -> (AlbumDetailStore, CatalogMetadataRepository) {
     let metadata = CatalogMetadataRepository(session: session)
-    return (AlbumDetailStore(provider: provider, metadata: metadata, session: session), metadata)
+    return (
+        AlbumDetailStore(provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky()),
+        metadata
+    )
 }
 
 @MainActor
@@ -56,7 +59,7 @@ private func makeArtistStore(
     provider: HarnessCatalog,
     session: CatalogSessionAvailability
 ) -> ArtistDetailStore {
-    ArtistDetailStore(provider: provider, session: session)
+    ArtistDetailStore(provider: provider, session: session, clock: HarnessClock.sticky())
 }
 
 @MainActor

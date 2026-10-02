@@ -73,6 +73,52 @@ the fresh report path; see [verification](../development/verification.md) for
 isolation and report limitations. This Debug workload does not replace the historical live Release
 playback measurement above.
 
+## Home native extent and artwork admission (2026-10-02)
+
+The [isolated records](measurements/2026-10-02-home-extent.json) compare clean eager source
+`49ddc97` with viewport artwork admission at `f9c2017`, both consuming `playback-v0.2.1`.
+Each size/variant has one fresh native test process: optimized Debug, native/non-WMO, eight
+synthetic items per shelf, a 900 × 600 point unpresented host, and immediate unavailable artwork.
+The report records effective compiler flags and engine provenance. Network, decoding, and raster
+retention are excluded; initial complete layout is not a first presented frame.
+
+| Shelves | Variant | Document height | Artwork admissions | Layout readiness |
+| --- | --- | ---: | ---: | ---: |
+| 12 | Eager | 3,801 pt | 96 | 0.384 s |
+| 12 | Visible-shelf artwork | 3,801 pt | 16 | 0.391 s |
+| 120 | Eager | 37,821 pt | 960 | 3.060 s |
+| 120 | Visible-shelf artwork | 37,821 pt | 16 | 3.095 s |
+
+Complete eager controls/extents remain. Physical-footprint growth was about 68 MiB at 12 shelves
+and 616–618 MiB at 120; these samples establish no layout or view-memory improvement. The bounded
+change suppresses initial offscreen artwork requests while preserving native controls, accessibility
+targets, scroll extents, and already loaded images. Timing/footprint variance was not characterized.
+
+Signed network-denied Demo at `f9c2017` passed read-only Home/Search/detail/history/library UI smoke
+and bounded manual scrolling, offscreen AX activation, Tab focus, loaded-artwork return, and
+narrow/wide inspection. Sixteen fresh safety checks observed zero commands/mutations. A separate
+unsandboxed synthetic GUI host passed 12 browsing and eight signed-out checkpoints. Spoken VoiceOver
+and full offscreen Tab traversal remain unverified. Owned test hosts were retired; exact foreground
+restoration was unverified.
+
+A separate 91-second existing-app read-only sample observed six sections and 66 detail targets.
+That signed 0.5.6(23) artifact has no established source revision or admission telemetry, so it does
+not establish candidate live performance. Its first AX observation includes tool overhead and is not
+first-visible latency. The record contains sanitized counts and artifact identity.
+
+Reproduce the current admission probe with a new absolute JSON path and 12 or 120 sections:
+
+```bash
+SPOTTY_HOME_EXTENT_REPORT=/tmp/home-new.json SPOTTY_HOME_EXTENT_SECTIONS=12 \
+SPOTTY_HOME_EXTENT_MODE=viewport python3 Scripts/verify.py test --target SpottyBoundaryTests \
+  --build-system native -c debug --scratch-path .build/browsing-optimized \
+  -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -no-whole-module-optimization \
+  -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED --filter HomeExtentMeasurementTests
+```
+
+Mode selects the admission barrier; the eager comparison requires its recorded source revision.
+The measured workloads do not cover 500 shelves.
+
 ## Binary size
 
 CI reports release sizes for comparison, not as a pass/fail budget. Read the run summary with

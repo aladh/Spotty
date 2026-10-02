@@ -1,0 +1,236 @@
+{
+  "date": "2026-10-02",
+  "issue": 613,
+  "workload": "Home native extent and initial artwork admission",
+  "engine": {
+    "canonicalHeadersSHA256": "e1ae33b35cf4a15c3eb01096a0948a27819118ce7c303014d7adfdf197e19688",
+    "engineInputDigest": "2a532b39a61f152544e341d9f639a39beebaddaec2cebc364b778fb104585fc4",
+    "librarySHA256": "107d2b948a6a7e4c27d97daf17bb7aad84c5b3c99b400b8e74a989edec4d7af5",
+    "librespotRevision": "939dc5ee9d833e1980f9495241219d9d4868a061",
+    "pinChecksum": "ee930c23f399ba6d1d2923f7d802af08acdefa8f606aabfcdf92063fb88d565d",
+    "pinURL": "https://github.com/aladh/Spotty/releases/download/playback-v0.2.1/SpottyPlaybackCore.xcframework.zip",
+    "selection": "pinned",
+    "sourceRevision": "28729d5097ebdd05ff2eb5806815c03fe086f18a",
+    "usedForPlayback": false
+  },
+  "configuration": {
+    "os": "macOS 27.0.1 (26A434)",
+    "profile": "optimized Debug native SwiftPM test host",
+    "swiftFlags": [
+      "-O",
+      "-enable-testing",
+      "-no-whole-module-optimization",
+      "-DSPOTTY_BROWSING_OPTIMIZED",
+      "-warnings-as-errors"
+    ],
+    "viewportPoints": [
+      900,
+      600
+    ],
+    "itemsPerSection": 8,
+    "repetitionsPerSizeAndVariant": 1,
+    "network": "synthetic.invalid identifiers; immediate unavailable artwork provider, no network/decode",
+    "surfaces": "unpresented NSHostingView attached to native window",
+    "measurement": "task_vm_info resident and physical footprint before and attached; ContinuousClock until complete document extent",
+    "isolation": "separate native process per workload; candidate120-2 excludes concurrent source gate; no500shelf run",
+    "toolchain": {
+      "xcode": "27.0 (27A266a)",
+      "swift": "6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+      "target": "arm64-apple-macosx27.0.0"
+    }
+  },
+  "runs": [
+    {
+      "variant": "eager",
+      "sourceRevision": "49ddc97a37b8539c8e8090b3b9b7b98555f0192c",
+      "cleanSource": true,
+      "report": {
+        "admittedShelves": 12,
+        "artworkAdmissions": 96,
+        "attached": {
+          "physicalFootprintBytes": 77988752,
+          "residentBytes": 127582208
+        },
+        "before": {
+          "physicalFootprintBytes": 6668936,
+          "residentBytes": 31375360
+        },
+        "documentHeight": 3801,
+        "itemsPerSection": 8,
+        "layoutReadinessSeconds": 0.384291459,
+        "limitations": "Unpresented native host; initial layout and admission only, not first usable frame. Artwork immediately returns synthetic unavailability, excluding network/decode/raster costs. No whole-app or live-account performance claim.",
+        "sections": 12,
+        "viewportHeight": 600,
+        "viewportWidth": 900
+      }
+    },
+    {
+      "variant": "eager",
+      "sourceRevision": "49ddc97a37b8539c8e8090b3b9b7b98555f0192c",
+      "cleanSource": true,
+      "report": {
+        "admittedShelves": 120,
+        "artworkAdmissions": 960,
+        "attached": {
+          "physicalFootprintBytes": 655836480,
+          "residentBytes": 705331200
+        },
+        "before": {
+          "physicalFootprintBytes": 7750328,
+          "residentBytes": 32473088
+        },
+        "documentHeight": 37821,
+        "itemsPerSection": 8,
+        "layoutReadinessSeconds": 3.059676459,
+        "limitations": "Unpresented native host; initial layout and admission only, not first usable frame. Artwork immediately returns synthetic unavailability, excluding network/decode/raster costs. No whole-app or live-account performance claim.",
+        "sections": 120,
+        "viewportHeight": 600,
+        "viewportWidth": 900
+      }
+    },
+    {
+      "variant": "viewport-artwork",
+      "sourceRevision": "f9c201739d2394af5b224b25bcd47adc9fad42d1",
+      "cleanSource": true,
+      "report": {
+        "admissionBarrierSection": 1,
+        "admittedShelves": 2,
+        "artworkAdmissions": 16,
+        "attached": {
+          "physicalFootprintBytes": 78316432,
+          "residentBytes": 127959040
+        },
+        "before": {
+          "physicalFootprintBytes": 6701704,
+          "residentBytes": 31391744
+        },
+        "documentHeight": 3801,
+        "itemsPerSection": 8,
+        "layoutReadinessSeconds": 0.390816167,
+        "limitations": "Unpresented native host; initial layout and admission only, not first usable frame. Artwork immediately returns synthetic unavailability, excluding network/decode/raster costs. No whole-app or live-account performance claim.",
+        "mode": "viewport",
+        "sections": 12,
+        "viewportHeight": 600,
+        "viewportWidth": 900
+      }
+    },
+    {
+      "variant": "viewport-artwork",
+      "sourceRevision": "f9c201739d2394af5b224b25bcd47adc9fad42d1",
+      "cleanSource": true,
+      "report": {
+        "admissionBarrierSection": 1,
+        "admittedShelves": 2,
+        "artworkAdmissions": 16,
+        "attached": {
+          "physicalFootprintBytes": 654181672,
+          "residentBytes": 703676416
+        },
+        "before": {
+          "physicalFootprintBytes": 7733944,
+          "residentBytes": 32423936
+        },
+        "documentHeight": 37821,
+        "itemsPerSection": 8,
+        "layoutReadinessSeconds": 3.095474333,
+        "limitations": "Unpresented native host; initial layout and admission only, not first usable frame. Artwork immediately returns synthetic unavailability, excluding network/decode/raster costs. No whole-app or live-account performance claim.",
+        "mode": "viewport",
+        "sections": 120,
+        "viewportHeight": 600,
+        "viewportWidth": 900
+      }
+    }
+  ],
+  "nativeAcceptance": {
+    "source": {
+      "diffSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "includesUntrackedNonignoredFiles": true,
+      "revision": "f9c201739d2394af5b224b25bcd47adc9fad42d1",
+      "sourceSHA256": "c2f4f265593d03dc825e8d674978adb9478b6425aaafd0a20f949e85e716d712",
+      "trackedFileCount": 1015,
+      "untrackedFileCount": 0
+    },
+    "signedExecutableSHA256": "dacf927d65f49691646478704ef27a425e9fddd0e04bff6f0c6b890d32c77bdb",
+    "signature": "strict Apple-generic anchor verified using system trust store; App Sandbox true; no network entitlements",
+    "safetyPulseCount": 16,
+    "allSafetyPulsesReadOnly": true,
+    "uiSmokePassed": true,
+    "uiSmokeCommandCount": 0,
+    "uiSmokeMutationAttempts": 0,
+    "guiShell": {
+      "passed": true,
+      "sourceStable": true,
+      "browsingCheckpoints": 12,
+      "signedOutCheckpoints": 8,
+      "windowWidthsPoints": [
+        960,
+        1080,
+        1220
+      ]
+    },
+    "manualObservations": [
+      "Home -> Search -> Home returned populated cards",
+      "Native horizontal shelf AX action changed offset to ~0.498; generic scroll call had no AX change",
+      "Vertical Home scroll changed offset to 1 and revealed artist shelf and artwork",
+      "Initially offscreen last artist AX detail target opened expected synthetic artist page without playback",
+      "Tab moved window -> library table -> first Home details button and scrolled it into view",
+      "Loaded artwork retained after Search away/back; scroll extents and offsets retained",
+      "Manual 961x1084 and expanded 1728x1084 point windows; artwork, text truncation and circular artist cards present",
+      "Missing album art at index3 and artist art at indices3/4 matched explicit fixture nil URLs"
+    ],
+    "limitations": [
+      "VoiceOver not enabled; spoken traversal unverified",
+      "Tab traversal through all initially offscreen shelf targets not certified; AX offscreen activation verified",
+      "No input-to-pixel or first usable frame timing measurement",
+      "No layout/view-memory reduction claim; full native controls/extents retained"
+    ],
+    "ownedHostsRetired": true
+  },
+  "liveReadOnly": {
+    "durationMilliseconds": 91401,
+    "sectionCount": 6,
+    "quickItemCount": 8,
+    "sectionItemCounts": [
+      1,
+      8,
+      20,
+      9,
+      10,
+      10
+    ],
+    "detailTargetCount": 66,
+    "countsStable": true,
+    "firstObservationMillisecondsAfterHomeNavigation": 3082,
+    "readiness": "First AX observation showed Home and detail controls without loading text; includes tool wait/observation overhead, not first visible presentation latency",
+    "physicalFootprintBeforeHomeBytes": 181224840,
+    "physicalFootprintDuringHomeBytes": [
+      198264200,
+      198247816
+    ],
+    "physicalFootprintAfterRestoringSearchBytes": 167019912,
+    "limitations": [
+      "Existing signed app 0.5.6(23) is not established as candidate source",
+      "No offscreen artwork-admission telemetry available without additional instrumentation",
+      "No live screenshot or catalog/account details written into QA artifacts",
+      "No playback/account/library/queue/settings mutations performed"
+    ]
+  },
+  "liveArtifact": {
+    "version": "0.5.6 (23)",
+    "executableSHA256": "5335e301d379347fbe6f7ad72824dd4292453631ebd3aa71f56b905613779c85",
+    "sourceRevision": "unavailable in bundle"
+  },
+  "cleanup": {
+    "ownedHostsRetired": true,
+    "originalLiveSearchAndQueueRestored": true,
+    "exactForegroundRestoration": "unverified; inspection refused by CUA policy"
+  },
+  "decision": "Keep complete eager extents and controls; admit artwork only for visible Home shelves. Requests fall96/960 to16; no meaningful layout or view-memory improvement is established. The real read-only app sample is not candidate source or performance proof.",
+  "limitations": [
+    "Single sample per size/variant; timing and footprint variance not characterized.",
+    "Initial native layout is not first presented frame or input-to-pixel latency.",
+    "Unavailable artwork excludes network, decoding and retained image cost.",
+    "Remaining eager view cost grows with shelf count; no memory/layout-fix claim.",
+    "VoiceOver spoken flow and full offscreen Tab traversal unverified."
+  ]
+}

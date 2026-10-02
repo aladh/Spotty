@@ -19,7 +19,7 @@ struct HomeExtentMeasurementTests {
         let environment = ProcessInfo.processInfo.environment
         let path = try #require(environment["SPOTTY_HOME_EXTENT_REPORT"])
         let sections = try #require(Int(environment["SPOTTY_HOME_EXTENT_SECTIONS"] ?? "120"))
-        let mode = environment["SPOTTY_HOME_EXTENT_MODE"] ?? "eager"
+        let mode = environment["SPOTTY_HOME_EXTENT_MODE"] ?? "viewport"
         try #require(["eager", "viewport"].contains(mode))
         try #require([12, 120, 500].contains(sections))
         try #require(!FileManager.default.fileExists(atPath: path))

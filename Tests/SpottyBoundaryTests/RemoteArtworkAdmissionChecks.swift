@@ -7,6 +7,58 @@ import Testing
 
 @MainActor
 struct RemoteArtworkAdmissionChecks {
+    @Test func retiredHiddenRequestCannotReplaceTheVisibleAccountImage() async throws {
+        let artwork = HarnessArtwork()
+        let first = try #require(URL(string: "https://synthetic.invalid/first"))
+        let second = try #require(URL(string: "https://synthetic.invalid/second"))
+        var observedAdmission: Bool?
+        func content(_ admitted: Bool, url: URL, epoch: UInt64) -> some View {
+            RemoteArtwork(url: url, kind: .album, cornerRadius: 4, geometryIdentifier: "artwork")
+                .frame(width: 64, height: 64)
+                .environment(\.artworkAccess, ArtworkAccess(provider: artwork, accountEpoch: epoch))
+                .environment(\.admitsArtwork, admitted)
+                .onChange(of: admitted, initial: true) { _, value in observedAdmission = value }
+        }
+        let host = NSHostingView(rootView: content(true, url: first, epoch: 1))
+        host.sizingOptions = []
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 64, height: 64), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        do {
+            try await requireEventually { await artwork.requests.count == 1 }
+            host.rootView = content(false, url: second, epoch: 2)
+            try await requireEventually { observedAdmission == false }
+            #expect(await artwork.requests.count == 1, "hidden replacement must not admit artwork")
+            host.rootView = content(true, url: second, epoch: 2)
+            try await requireEventually { await artwork.requests.count == 2 }
+            let requests = await artwork.requests
+            #expect(requests[0].accountEpoch == 1 && requests[0].url == first)
+            #expect(requests[1].accountEpoch == 2 && requests[1].url == second)
+            let image = ArtworkAsset(rgbaPixels: Data([0, 255, 0, 255]), pixelWidth: 1, pixelHeight: 1, tint: nil)
+            await artwork.complete(1, with: .success(image))
+            try await requireEventually {
+                host.layoutSubtreeIfNeeded()
+                return ShellGeometry.frames(in: window)["artwork.loaded"] != nil
+            }
+            // The fixture ignores task cancellation; the old account settles after the replacement.
+            await artwork.complete(0, with: .success(image))
+            for _ in 0..<20 { await Task.yield() }
+            host.layoutSubtreeIfNeeded()
+            #expect(ShellGeometry.frames(in: window)["artwork.loaded"] != nil)
+            #expect(await artwork.requests.count == 2)
+        } catch {
+            for index in await artwork.requests.indices {
+                await artwork.complete(index, with: .failure(ArtworkFailure.unavailable))
+            }
+            throw error
+        }
+        for index in await artwork.requests.indices {
+            await artwork.complete(index, with: .failure(ArtworkFailure.unavailable))
+        }
+    }
+
     @Test func unchangedLoadedArtworkSurvivesVisibilityReadmission() async throws {
         let artwork = HarnessArtwork()
         let url = try #require(URL(string: "https://synthetic.invalid/artwork"))

@@ -19,8 +19,7 @@ streams have explicit limitations; their absence never changes the command's fai
 Ownership comes from observed launch ancestry and a kernel birth/image identity, including children
 that change process group. Neither a process name, group membership nor PID ordering admits an
 unrelated process. Identity is rechecked before sampling or signaling. Known SwiftPM loaders carry a
-concrete `.xctest` bundle directory or its `Contents/MacOS` executable; unknown or ambiguous layouts
-report driver fallback. A launcher sample does not establish the executing host's runtime cause.
+concrete `.xctest` bundle or `Contents/MacOS` executable; unknown/ambiguous layouts report driver fallback. Launcher samples cannot establish host causes.
 
 Sampler work has its own deadline and owned cleanup. Timeout and interruption preserve their original
 status while joining required cleanup; unavailable sampling does not turn a failed test into success.
@@ -46,14 +45,14 @@ An enabled diagnostic function immediately writes its invocation nonce, function
 PID/parent/group, then returns. Ordinary gates intentionally skip this opt-in function. Observation
 requires its exact completed native event, concrete event path in the same observed launch ancestry,
 fresh owned kernel identity and real bundle beneath the supplied build root. The reporter adds no
-sleep or gate: a host that exits before observation is explicitly unavailable.
+sleep/gate; an exited host is unavailable.
 
 `result.json` separates command status from observer status and records proof or refusal, native
 events and cleanup. A failed command retains its status. A successful command with unavailable proof
 fails the requested observation. Final receipt failures also fail closed. Keep the packet,
 including failed attempts, before changing source or planning a separately declared diagnostic run.
 
-The adapter never samples. In CI it explicitly refuses native sampling. A same-repository
+The adapter never samples; CI explicitly refuses native sampling. A same-repository
 PR with `host-observation-evidence` requests observation around the existing full native lane; its
 artifact upload and readiness checks fail closed. This adds no second macOS matrix and removes no
 native tests or acceptance scenarios. Local real sampling demonstrations require separately bounded,
@@ -73,7 +72,6 @@ extend deadlines, enable live dependencies or retry for green.
 
 Use an interactive, optimized, network-denied Demo with `homePresentedProbeSections: 12`, browsing
 mode, eight uniquely labeled albums per shelf and nil artwork. Default mode diagnoses traversal/navigation, not performance.
-External public Accessibility observes a hosted subtree pruned by internal traversal.
 
 Compile the controller before launch:
 
@@ -87,7 +85,11 @@ xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors \
 
 Existing Accessibility access is required. Fresh connected, visible,
 zero-command safety pulses, atomic non-replacing nonce publication and a shared ten-second deadline
-admit one exact public detail action. Retire only the owned Demo and restore the desktop afterward.
+admit one exact public detail action. Retire only owned Demo processes; restore the desktop.
+
+After launch, call `synthetic_home_startup.wait_for_ready` with `min(batchDeadline, startupOrigin+10s)`
+before controller invocation. Missing/stale pulses wait; malformed/unsafe pulses fail. Revalidate
+identity afterward. Startup consumes batch time without starting the separate request deadline.
 
 Add `homePresentedMeasurement: true` with 12 or 120 shelves for controlled initial-response measurement.
 The synthetic Home provider stays suspended until own-window ScreenCaptureKit capture is primed.

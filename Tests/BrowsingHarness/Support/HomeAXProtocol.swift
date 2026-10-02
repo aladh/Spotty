@@ -216,4 +216,117 @@ enum HomeAXProtocol {
     static func requireUniqueCount(_ count: Int) throws {
         guard (0...1).contains(count) else { throw Failure(reason: "ambiguous exact Home target") }
     }
+
+    struct TraversalProgress {
+        let phase: String
+        let path: [Int]
+        let depth: Int
+        let inspected: Int
+        let edges: Int
+        let revisited: Int
+        let matches: Int
+        let childCount: Int?
+        let offset: Int?
+        let requested: Int?
+    }
+
+    private enum TraversalWork<Node> {
+        case node(Node, [Int])
+        case page(Node, [Int], Int, Int)
+        case verifyCount(Node, [Int], Int)
+    }
+
+    static func childPage(_ value: CFArray?, requested: Int) throws -> [AXUIElement] {
+        guard (1...32).contains(requested), let value, CFArrayGetCount(value) == requested,
+            let elements = value as? [AXUIElement],
+            elements.allSatisfy({ CFGetTypeID($0) == AXUIElementGetTypeID() })
+        else { throw Failure(reason: "AX child page length or members malformed") }
+        return elements
+    }
+
+    static func enabled(_ value: CFTypeRef?) throws -> Bool {
+        guard let value, CFGetTypeID(value) == CFBooleanGetTypeID(), let enabled = value as? Bool else {
+            throw Failure(reason: "AX enabled value is missing or not CFBoolean")
+        }
+        return enabled
+    }
+
+    /// Search the complete public child graph. Page size bounds allocation, not valid fanout.
+    /// Every returned edge and distinct visited node consumes the same finite work budget.
+    static func traverse<Node: Hashable>(
+        root: Node, limit: Int,
+        visit: (Node, [Int]) throws -> Bool,
+        count: (Node, [Int]) throws -> Int,
+        page: (Node, [Int], Int, Int) throws -> [Node],
+        progress: (TraversalProgress) throws -> Void
+    ) throws -> Node? {
+        guard (1...10_000).contains(limit) else { throw Failure(reason: "invalid AX traversal budget") }
+        var pending: [TraversalWork<Node>] = [.node(root, [])]
+        var seen = Set<Node>()
+        var edges = 0
+        var revisited = 0
+        var matches = 0
+        var target: Node?
+        func record(_ phase: String, _ path: [Int], childCount: Int? = nil, offset: Int? = nil, requested: Int? = nil)
+            throws
+        {
+            try progress(
+                .init(
+                    phase: phase, path: Array(path.prefix(128)), depth: path.count,
+                    inspected: seen.count, edges: edges, revisited: revisited, matches: matches,
+                    childCount: childCount, offset: offset, requested: requested))
+        }
+        while let work = pending.popLast() {
+            switch work {
+            case .node(let node, let path):
+                try record("node", path)
+                guard path.count <= 128 else { throw Failure(reason: "AX traversal path depth exceeded") }
+                if seen.contains(node) {
+                    revisited += 1
+                    try record("shared-or-cyclic-node", path)
+                    continue
+                }
+                guard seen.count + edges < limit else { throw Failure(reason: "AX traversal work budget exceeded") }
+                seen.insert(node)
+                try record("target-attributes", path)
+                if try visit(node, path) {
+                    matches += 1
+                    target = node
+                    try record("target-found", path)
+                    try requireUniqueCount(matches)
+                }
+                try record("child-count", path)
+                let children = try count(node, path)
+                try record("child-count-returned", path, childCount: children)
+                guard children >= 0, children <= limit - seen.count - edges else {
+                    throw Failure(reason: "AX children exceed remaining total work budget")
+                }
+                pending.append(.verifyCount(node, path, children))
+                if children > 0 { pending.append(.page(node, path, 0, children)) }
+            case .page(let node, let path, let offset, let children):
+                let requested = min(32, children - offset)
+                try record("child-page", path, childCount: children, offset: offset, requested: requested)
+                guard requested > 0, requested <= limit - seen.count - edges else {
+                    throw Failure(reason: "AX child page exceeds remaining total work budget")
+                }
+                let values = try page(node, path, offset, requested)
+                guard values.count == requested else { throw Failure(reason: "AX child page length changed") }
+                edges += values.count
+                try record("child-page-returned", path, childCount: children, offset: offset, requested: requested)
+                if offset + requested < children {
+                    pending.append(.page(node, path, offset + requested, children))
+                }
+                for index in values.indices.reversed() {
+                    pending.append(.node(values[index], path + [offset + index]))
+                }
+            case .verifyCount(let node, let path, let children):
+                try record("child-count-verification", path, childCount: children)
+                guard try count(node, path) == children else {
+                    throw Failure(reason: "AX child count changed during walk")
+                }
+            }
+        }
+        try record("complete", [])
+        return target
+    }
 }

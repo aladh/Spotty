@@ -325,6 +325,130 @@ struct BrowsingHomeMeasurementChecks {
         #expect(!pending(published), "fresh publication proceeds through strict admission")
     }
 
+    @Test func full120ShelfGraphUsesBoundedPagesAndPreservesUniqueTarget() throws {
+        var graph: [Int: [Int]] = [0: Array(1...120)]
+        for shelf in 1...120 {
+            let cards = (0..<8).map { 1_000 + shelf * 100 + $0 }
+            graph[shelf] = cards
+            for card in cards { graph[card] = [100_000 + card * 2, 100_001 + card * 2] }
+        }
+        var observations: [HomeAXProtocol.TraversalProgress] = []
+        var requestedPages: [Int] = []
+        let result = try HomeAXProtocol.traverse(
+            root: 0, limit: 10_000, visit: { node, _ in node == 1_100 },
+            count: { node, _ in graph[node]?.count ?? 0 },
+            page: { node, _, offset, requested in
+                requestedPages.append(requested)
+                return Array((graph[node] ?? []).dropFirst(offset).prefix(requested))
+            }, progress: { observations.append($0) })
+        #expect(result == 1_100)
+        #expect(observations.last?.phase == "complete")
+        #expect(observations.last?.inspected == 3_001)
+        #expect(observations.last?.edges == 3_000)
+        #expect(observations.contains { $0.childCount == 120 })
+        #expect(requestedPages.allSatisfy { (1...32).contains($0) })
+    }
+
+    @Test func sharedAndCyclicNodesDoNotDuplicateTargetsButDistinctTargetsAcrossPagesReject() throws {
+        let graph = [0: [1, 2], 1: [3], 2: [3], 3: [0]]
+        var final: HomeAXProtocol.TraversalProgress?
+        let result = try HomeAXProtocol.traverse(
+            root: 0, limit: 100, visit: { node, _ in node == 3 },
+            count: { node, _ in graph[node]?.count ?? 0 },
+            page: { node, _, offset, requested in Array((graph[node] ?? []).dropFirst(offset).prefix(requested)) },
+            progress: { final = $0 })
+        #expect(result == 3)
+        #expect(final?.inspected == 4 && final?.edges == 5 && final?.revisited == 2)
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try HomeAXProtocol.traverse(
+                root: 0, limit: 500, visit: { node, _ in node == 1 || node == 64 },
+                count: { node, _ in node == 0 ? 64 : 0 },
+                page: { _, _, offset, requested in Array((1...64).dropFirst(offset).prefix(requested)) },
+                progress: { final = $0 })
+        }
+        #expect(final?.matches == 2 && final?.phase == "target-found")
+    }
+
+    @Test func incompleteRPCPagesCountsAndDeadlineCannotEstablishUniqueTraversal() {
+        for fault in ["visit", "count", "page", "short", "long", "count-changed", "deadline"] {
+            var progress: HomeAXProtocol.TraversalProgress?
+            var rootCounts = 0
+            #expect(throws: HomeAXProtocol.Failure.self) {
+                try HomeAXProtocol.traverse(
+                    root: 0, limit: 100,
+                    visit: { node, _ in
+                        if fault == "visit" { throw HomeAXProtocol.Failure(reason: "injected attribute RPC") }
+                        return node == 1
+                    },
+                    count: { node, _ in
+                        if fault == "count" { throw HomeAXProtocol.Failure(reason: "injected count RPC") }
+                        guard node == 0 else { return 0 }
+                        rootCounts += 1
+                        return fault == "count-changed" && rootCounts == 2 ? 3 : 2
+                    },
+                    page: { _, _, _, _ in
+                        if fault == "page" { throw HomeAXProtocol.Failure(reason: "injected page RPC") }
+                        return fault == "short" ? [1] : fault == "long" ? [1, 2, 3] : [1, 2]
+                    },
+                    progress: {
+                        progress = $0
+                        if fault == "deadline", $0.phase == "child-page" {
+                            throw HomeAXProtocol.Failure(reason: "original deadline expired")
+                        }
+                    })
+            }
+            #expect(progress?.phase != "complete")
+            #expect(progress != nil)
+            if fault == "page" || fault == "short" || fault == "long" || fault == "deadline" {
+                #expect(progress?.path == [] && progress?.childCount == 2)
+                #expect(progress?.offset == 0 && progress?.requested == 2)
+            }
+        }
+    }
+
+    @Test func totalWorkAndPathStorageRemainBoundedForWideOrDeepGraphs() {
+        var progress: HomeAXProtocol.TraversalProgress?
+        for deep in [false, true] {
+            #expect(throws: HomeAXProtocol.Failure.self) {
+                try HomeAXProtocol.traverse(
+                    root: 0, limit: 1_000, visit: { _, _ in false },
+                    count: { node, _ in deep ? (node < 200 ? 1 : 0) : (node == 0 ? 1_001 : 0) },
+                    page: { node, _, offset, requested in deep ? [node + 1] : Array(offset..<(offset + requested)) },
+                    progress: { progress = $0 })
+            }
+            #expect((progress?.path.count ?? 0) <= 128)
+            #expect((progress?.inspected ?? 0) + (progress?.edges ?? 0) <= 1_000)
+            #expect(progress?.phase != "complete")
+        }
+        #expect(progress?.depth == 129 && progress?.path.count == 128)
+    }
+
+    @Test func pagedTargetSearchExcludesOffscreenTargetAndRejectsMalformedNativeMembers() throws {
+        let window = CGRect(x: 0, y: 0, width: 500, height: 500)
+        let result = try HomeAXProtocol.traverse(
+            root: 0, limit: 100,
+            visit: { node, _ in
+                HomeAXProtocol.isDetailTarget(
+                    role: "AXButton", title: "Synthetic album 0-0", label: "", enabled: true,
+                    frame: CGRect(x: node == 1 ? 20 : 600, y: 20, width: 100, height: 100), window: window)
+            }, count: { node, _ in node == 0 ? 2 : 0 },
+            page: { _, _, _, _ in [1, 2] }, progress: { _ in })
+        #expect(result == 1)
+        let node = AXUIElementCreateApplication(42)
+        #expect(try HomeAXProtocol.childPage([node] as CFArray, requested: 1).count == 1)
+        for value: CFArray? in [nil, [] as CFArray, ["malformed"] as CFArray, [node, node] as CFArray] {
+            #expect(throws: HomeAXProtocol.Failure.self) { try HomeAXProtocol.childPage(value, requested: 1) }
+        }
+    }
+
+    @Test func exactTargetEnabledRequiresNativeCFBooleanWithoutNumericBridging() throws {
+        #expect(try HomeAXProtocol.enabled(kCFBooleanTrue))
+        #expect(try !HomeAXProtocol.enabled(kCFBooleanFalse))
+        for value: CFTypeRef? in [nil, NSNumber(value: 0), NSNumber(value: 1), "malformed" as CFString] {
+            #expect(throws: HomeAXProtocol.Failure.self) { try HomeAXProtocol.enabled(value) }
+        }
+    }
+
     private func frame(_ display: UInt64, _ received: UInt64, _ digest: String, new: Bool = true)
         -> HomePresentedFrameCollector.Frame
     {

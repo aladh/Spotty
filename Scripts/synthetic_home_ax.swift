@@ -153,22 +153,31 @@ private final class HomeAXDiagnostic {
         }
     }
 
-    func attribute(_ element: AXUIElement, _ name: String) throws -> CFTypeRef? {
+    func attribute(_ element: AXUIElement, _ name: String, requireComplete: Bool = false) throws -> CFTypeRef? {
+        evidence["activeAXRPC"] = ["operation": "attribute", "attribute": name]
         try checkDeadline()
         AXUIElementSetMessagingTimeout(element, 0.5)
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        evidence["lastAXRPC"] = [
+            "attribute": name, "code": result.rawValue, "typeID": value.map { CFGetTypeID($0) } as Any? ?? NSNull(),
+        ]
         if result != .success {
             attributeErrors["\(name):\(result.rawValue)", default: 0] += 1
             if result == .apiDisabled { throw Failure(reason: "Accessibility access unavailable") }
+            if requireComplete, result != .attributeUnsupported, result != .noValue {
+                throw Failure(reason: "incomplete target traversal attribute: \(name):\(result.rawValue)")
+            }
         }
         try checkDeadline()
         return result == .success ? value : nil
     }
 
-    func frame(_ element: AXUIElement) throws -> CGRect? {
-        guard let point = try attribute(element, kAXPositionAttribute), CFGetTypeID(point) == AXValueGetTypeID(),
-            let size = try attribute(element, kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID()
+    func frame(_ element: AXUIElement, requireComplete: Bool = false) throws -> CGRect? {
+        guard let point = try attribute(element, kAXPositionAttribute, requireComplete: requireComplete),
+            CFGetTypeID(point) == AXValueGetTypeID(),
+            let size = try attribute(element, kAXSizeAttribute, requireComplete: requireComplete),
+            CFGetTypeID(size) == AXValueGetTypeID()
         else { return nil }
         var position = CGPoint.zero
         var dimensions = CGSize.zero
@@ -179,55 +188,134 @@ private final class HomeAXDiagnostic {
         return CGRect(origin: position, size: dimensions)
     }
 
+    struct AXNode: Hashable {
+        let element: AXUIElement
+        static func == (lhs: Self, rhs: Self) -> Bool { CFEqual(lhs.element, rhs.element) }
+        func hash(into hasher: inout Hasher) { hasher.combine(CFHash(element)) }
+    }
+
     func discover(_ window: AXUIElement) throws -> AXUIElement? {
-        guard let windowFrame = try frame(window), !windowFrame.isEmpty else {
+        let attempt = (evidence["discoveryAttempts"] as? Int ?? 0) + 1
+        evidence["discoveryAttempts"] = attempt
+        for key in [
+            "exactLabelObservation", "lastVisitedNode", "lastTraversalOwner", "lastChildCountRPC", "lastChildPageRPC",
+            "lastAXRPC",
+        ] {
+            evidence.removeValue(forKey: key)
+        }
+        var samples: [[String: Any]] = []
+        var history: [[String: Any]] = []
+        var complete = false
+        var current: [String: Any] = ["phase": "window-frame", "attempt": attempt, "complete": false]
+        evidence["externalTraversal"] = current
+        defer {
+            current["complete"] = complete
+            current["samples"] = samples
+            current["history"] = history
+            evidence["externalTraversal"] = current
+            evidence["attributeErrors"] = attributeErrors
+        }
+        guard let windowFrame = try frame(window, requireComplete: true), !windowFrame.isEmpty else {
             throw Failure(reason: "owned window frame unavailable")
         }
-        var pending = [window]
-        var inspected = 0
-        var samples: [[String: Any]] = []
-        var matches: [AXUIElement] = []
-        while let element = pending.popLast() {
-            inspected += 1
-            guard inspected <= (measurement ? 10_000 : 1_500) else {
-                throw Failure(reason: "bounded public AX tree exceeded")
-            }
-            let role = try attribute(element, kAXRoleAttribute) as? String ?? ""
-            let title = try attribute(element, kAXTitleAttribute) as? String ?? ""
-            let label = try attribute(element, kAXDescriptionAttribute) as? String ?? ""
-            let enabled = try attribute(element, kAXEnabledAttribute) as? Bool ?? false
-            let bounds = try frame(element)
-            let childrenValue = try attribute(element, kAXChildrenAttribute)
-            let children = childrenValue as? [AXUIElement]
-            if childrenValue != nil, children == nil { throw Failure(reason: "public AX children have invalid type") }
-            if samples.count < 64 {
-                samples.append([
-                    "role": role, "title": title, "label": label, "enabled": enabled,
-                    "childrenCount": children?.count as Any? ?? NSNull(),
-                    "frame": bounds.map(NSStringFromRect) ?? "unavailable",
-                ])
-            }
-            if title == "Synthetic album 0-0" || label == "Synthetic album 0-0" {
-                evidence["exactLabelObservation"] = [
-                    "role": role, "enabled": enabled,
-                    "frame": bounds.map(NSStringFromRect) ?? "unavailable",
-                    "intersectsOwnedWindow": bounds?.intersects(windowFrame) ?? false,
+        let target = try HomeAXProtocol.traverse(
+            root: AXNode(element: window), limit: measurement ? 10_000 : 1_500,
+            visit: { node, path in
+                var owner: pid_t = 0
+                let ownerCode = AXUIElementGetPid(node.element, &owner)
+                self.evidence["lastTraversalOwner"] = ["path": path, "code": ownerCode.rawValue, "pid": owner]
+                try self.checkDeadline()
+                guard ownerCode == .success, owner == self.identity.pid else {
+                    throw Failure(reason: "AX descendant differs from exact Demo PID")
+                }
+                let roleValue = try self.attribute(node.element, kAXRoleAttribute, requireComplete: true)
+                guard let role = roleValue as? String else {
+                    throw Failure(reason: "AX node role unavailable or malformed")
+                }
+                var sample: [String: Any] = ["role": role, "path": path]
+                self.evidence["lastVisitedNode"] = sample
+                // Only buttons can be the exact detail target. Other roles still enumerate all children.
+                if role == kAXButtonRole as String {
+                    let title =
+                        try HomeAXProtocol.windowString(
+                            self.attribute(node.element, kAXTitleAttribute, requireComplete: true)) ?? ""
+                    let label =
+                        try HomeAXProtocol.windowString(
+                            self.attribute(node.element, kAXDescriptionAttribute, requireComplete: true)) ?? ""
+                    sample["title"] = title
+                    sample["label"] = label
+                    self.evidence["lastVisitedNode"] = sample
+                    if title == "Synthetic album 0-0" || label == "Synthetic album 0-0" {
+                        let enabled = try HomeAXProtocol.enabled(
+                            self.attribute(node.element, kAXEnabledAttribute, requireComplete: true))
+                        guard let bounds = try self.frame(node.element, requireComplete: true),
+                            HomeAXProtocol.validFrame(bounds)
+                        else { throw Failure(reason: "exact-label target state or geometry unavailable") }
+                        sample["enabled"] = enabled
+                        sample["frame"] = NSStringFromRect(bounds)
+                        self.evidence["lastVisitedNode"] = sample
+                        self.evidence["exactLabelObservation"] = sample.merging(
+                            ["intersectsOwnedWindow": bounds.intersects(windowFrame)],
+                            uniquingKeysWith: { _, value in value })
+                        if samples.count < 64 { samples.append(sample) }
+                        return HomeAXProtocol.isDetailTarget(
+                            role: role, title: title, label: label, enabled: enabled, frame: bounds, window: windowFrame
+                        )
+                    }
+                }
+                if samples.count < 64 { samples.append(sample) }
+                return false
+            },
+            count: { node, _ in
+                var count = 0
+                self.evidence["activeAXRPC"] = ["operation": "child-count", "attribute": kAXChildrenAttribute]
+                try self.checkDeadline()
+                AXUIElementSetMessagingTimeout(node.element, 0.5)
+                let code = AXUIElementGetAttributeValueCount(node.element, kAXChildrenAttribute as CFString, &count)
+                self.evidence["lastChildCountRPC"] = ["code": code.rawValue, "count": count]
+                try self.checkDeadline()
+                if code == .attributeUnsupported || code == .noValue { return 0 }
+                guard code == .success else { throw Failure(reason: "AX child-count RPC failed: \(code.rawValue)") }
+                return count
+            },
+            page: { node, _, offset, requested in
+                self.evidence["activeAXRPC"] = [
+                    "operation": "child-page", "attribute": kAXChildrenAttribute,
+                    "offset": offset, "requested": requested,
                 ]
-            }
-            if HomeAXProtocol.isDetailTarget(
-                role: role, title: title, label: label, enabled: enabled, frame: bounds, window: windowFrame)
-            {
-                matches.append(element)
-            }
-            if let children {
-                guard children.count <= 100 else { throw Failure(reason: "AX child fanout exceeded declared bound") }
-                pending.append(contentsOf: children.reversed())
-            }
-        }
-        evidence["externalTraversal"] = ["inspectedElements": inspected, "matches": matches.count, "samples": samples]
-        evidence["attributeErrors"] = attributeErrors
-        try HomeAXProtocol.requireUniqueCount(matches.count)
-        return matches.first
+                try self.checkDeadline()
+                AXUIElementSetMessagingTimeout(node.element, 0.5)
+                var value: CFArray?
+                let code = AXUIElementCopyAttributeValues(
+                    node.element, kAXChildrenAttribute as CFString, offset, requested, &value)
+                self.evidence["lastChildPageRPC"] = [
+                    "code": code.rawValue, "offset": offset, "requested": requested,
+                    "returnedCount": value.map(CFArrayGetCount) as Any? ?? NSNull(),
+                    "returnedTypeID": value.map { CFGetTypeID($0) } as Any? ?? NSNull(),
+                ]
+                try self.checkDeadline()
+                guard code == .success else {
+                    throw Failure(reason: "AX child page failed or has malformed members")
+                }
+                return try HomeAXProtocol.childPage(value, requested: requested).map { AXNode(element: $0) }
+            },
+            progress: { observation in
+                current = [
+                    "phase": observation.phase, "attempt": attempt, "path": observation.path,
+                    "depth": observation.depth,
+                    "pathTruncated": observation.depth > observation.path.count,
+                    "inspectedElements": observation.inspected, "returnedEdges": observation.edges,
+                    "revisitedElements": observation.revisited, "matches": observation.matches,
+                    "childCount": observation.childCount as Any? ?? NSNull(),
+                    "offset": observation.offset as Any? ?? NSNull(),
+                    "requested": observation.requested as Any? ?? NSNull(), "complete": false,
+                ]
+                if history.count < 64 { history.append(current) }
+                self.evidence["externalTraversal"] = current
+                try self.checkDeadline()
+            })
+        complete = true
+        return target?.element
     }
 
     func awaitOwnedWindow(_ application: AXUIElement) throws -> AXUIElement {

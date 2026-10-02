@@ -106,8 +106,8 @@ Compare repeated fresh processes at identical geometry, scale, flags and fixture
 Report external readiness observation separately from retrospective terminal-raster onset. Raster onset
 follows the last differing frame and can precede AX observation. Idle events
 retain the original display timestamp. Capture retains at most 300 timestamp/digest events.
-The AX walk is bounded at 10,000 nodes in measurement mode and 1,500 in diagnostic mode; deadlines stay
-unchanged. Footprint/view counts precede navigation, and footprint includes capture buffers, hashing,
+Full AX traversal pages≤32 retain partial diagnostics; combined node/edge budgets are10,000 for measurement,
+1,500 for diagnosis. Deadlines remain unchanged. Footprint/view counts precede navigation, and footprint includes capture buffers, hashing,
 AX and sampling overhead. This warm connected scene does not prove cold launch, earliest usability,
 loaded-artwork performance, full keyboard readiness, visual parity or live performance.
 

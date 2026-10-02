@@ -66,6 +66,8 @@ pub(crate) use tokio::sync::mpsc;
 pub(crate) use tokio::task::JoinHandle;
 
 #[cfg(test)]
+mod audio_cache_evaluation;
+#[cfg(test)]
 mod connect_cluster_apply_tests;
 #[cfg(test)]
 mod lifecycle_measurements;

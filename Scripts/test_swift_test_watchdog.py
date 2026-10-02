@@ -1,3 +1,4 @@
+import io
 import json
 import os
 from pathlib import Path
@@ -837,6 +838,120 @@ class InterruptReentryTests(unittest.TestCase):
 
 
 class ProcessOwnershipTests(unittest.TestCase):
+    def bundle_stream_fixture(self, root, contents):
+        bundle = root / "GatewayTests.xctest"
+        bundle.mkdir()
+        identities = [watchdog.ProcessIdentity(20 + index, 10, 20 + index, (1,),
+            "/toolchain/usr/libexec/swift/pm/swiftpm-testing-helper") for index in range(len(contents))]
+        commands = {}
+        for index, (identity, content) in enumerate(zip(identities, contents)):
+            events = root / f"event-stream-{index}-GatewayTests.jsonl"
+            events.write_bytes(content)
+            commands[identity.pid] = f"helper --test-bundle-path {bundle} --event-stream-output-path {events}"
+        return SimpleNamespace(live=lambda: identities, commands=commands), identities
+
+    def test_symlink_loop_bundle_diagnostics_preserve_timeout(self):
+        for emulate_legacy_runtime_error in [False, True]:
+            with self.subTest(legacy_runtime_error=emulate_legacy_runtime_error), \
+                    tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+                root = Path(directory)
+                owned, identities = self.bundle_stream_fixture(root, [b"{}\n"])
+                bundle = root / "GatewayTests.xctest"
+                bundle.rmdir()
+                bundle.symlink_to(bundle.name)
+                process = SimpleNamespace(pid=20, stdout=io.BytesIO(), returncode=None)
+                owned.process = process
+                owned.observe = lambda **_: None
+                original_resolve = Path.resolve
+
+                def resolving(path, *args, **kwargs):
+                    if emulate_legacy_runtime_error and path == bundle:
+                        raise RuntimeError("Symlink loop from synthetic bundle")
+                    return original_resolve(path, *args, **kwargs)
+
+                args = SimpleNamespace(lane="fixture", repetition=1, timeout_seconds=.1,
+                                       event_stream_path=None, require_tests=False)
+                tree_path = root / "tree.txt"
+                with mock.patch.object(Path, "resolve", resolving), \
+                        mock.patch.object(watchdog.subprocess, "Popen", return_value=process), \
+                        mock.patch.object(watchdog, "OwnedProcesses", return_value=owned), \
+                        mock.patch.object(watchdog, "process_tree", return_value="{}"), \
+                        mock.patch.object(watchdog, "process_identity", return_value=identities[0]), \
+                        mock.patch.object(watchdog.selectors, "DefaultSelector"), \
+                        mock.patch.object(watchdog, "sample_helper", return_value="synthetic sampler unavailable"), \
+                        mock.patch.object(watchdog, "terminate_owned_group") as cleanup:
+                    status = watchdog.run_logged(args, ["fixture"], False, time.monotonic() - 1,
+                                                 root / "log.txt", tree_path, root / "sample.txt")
+                self.assertEqual(status, watchdog.TIMEOUT_EXIT)
+                cleanup.assert_called_once_with(process, owned)
+                receipt = json.loads(tree_path.read_text())["bundleNativeEvents"][0]
+                self.assertFalse(receipt["available"])
+                self.assertIn("concrete bundle unavailable", receipt["limitation"])
+
+    def test_retained_event_state_uses_bounded_bytes_without_path_reread(self):
+        content = b'{"kind":"test","payload":{"kind":"function","id":"owned"}}\n' \
+                  b'{"kind":"event","payload":{"kind":"testStarted","testID":"owned"}}\n'
+        with tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+            root = Path(directory)
+            owned, identities = self.bundle_stream_fixture(root, [content])
+            with mock.patch.object(watchdog, "process_identity", return_value=identities[0]), \
+                    mock.patch.object(Path, "open", side_effect=AssertionError("retained path must not be reread")):
+                receipt = watchdog.retain_bundle_events(owned, root / "retained")[0]
+            self.assertTrue(receipt["available"], receipt)
+            self.assertEqual(receipt["nativeEvents"]["activeFunctions"], ["owned"])
+            self.assertEqual(Path(receipt["retainedPath"]).read_bytes(), content)
+
+    def test_retention_output_symlink_is_refused_and_existing_permissions_are_private(self):
+        with tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+            root = Path(directory)
+            owned, identities = self.bundle_stream_fixture(root, [b"{}\n"])
+            external = root / "external"
+            external.mkdir(mode=0o755)
+            external.chmod(0o755)
+            output = root / "retained"
+            output.symlink_to(external, target_is_directory=True)
+            with mock.patch.object(watchdog, "process_identity", return_value=identities[0]):
+                receipt = watchdog.retain_bundle_events(owned, output)[0]
+            self.assertFalse(receipt["available"], receipt)
+            self.assertEqual(list(external.iterdir()), [])
+            self.assertEqual(external.stat().st_mode & 0o777, 0o755)
+            output.unlink()
+            output.mkdir()
+            output.chmod(0o777)
+            with mock.patch.object(watchdog, "process_identity", return_value=identities[0]):
+                receipt = watchdog.retain_bundle_events(owned, output)[0]
+            self.assertTrue(receipt["available"], receipt)
+            self.assertEqual(output.stat().st_mode & 0o777, 0o700)
+            retained = Path(receipt["retainedPath"])
+            self.assertEqual(retained.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(retained.stat().st_mode & 0o777, 0o600)
+
+    def test_bundle_packet_limits_total_bytes_and_stream_attempts(self):
+        for byte_budget, stream_limit in [(6, 16), (100, 2)]:
+            with self.subTest(byte_budget=byte_budget, stream_limit=stream_limit), \
+                    tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+                root = Path(directory)
+                owned, identities = self.bundle_stream_fixture(root, [b"{}\n"] * 3)
+                by_pid = {identity.pid: identity for identity in identities}
+                original_open = os.open
+                source_reads = []
+
+                def counting_open(path, flags, *args, **kwargs):
+                    if Path(path).name.startswith("event-stream-") and not flags & os.O_WRONLY:
+                        source_reads.append(Path(path).name)
+                    return original_open(path, flags, *args, **kwargs)
+
+                with mock.patch.object(watchdog, "BUNDLE_EVENT_BYTE_BUDGET", byte_budget), \
+                        mock.patch.object(watchdog, "BUNDLE_EVENT_STREAM_LIMIT", stream_limit), \
+                        mock.patch.object(watchdog, "process_identity", side_effect=by_pid.get), \
+                        mock.patch.object(watchdog.os, "open", side_effect=counting_open):
+                    receipts = watchdog.retain_bundle_events(owned, root / "retained")
+                self.assertEqual([receipt["available"] for receipt in receipts], [True, True, False])
+                self.assertIn("budget exhausted", receipts[2]["limitation"])
+                self.assertEqual(len(source_reads), 2, "exhaustion must prevent another source read")
+                self.assertEqual(sum(Path(receipt["retainedPath"]).stat().st_size
+                                     for receipt in receipts if receipt["available"]), 6)
+
     def identity(self, pid, parent=1, group=10, usec=100, executable="/fixture"):
         return watchdog.ProcessIdentity(pid, parent, group, (1, usec), executable)
 

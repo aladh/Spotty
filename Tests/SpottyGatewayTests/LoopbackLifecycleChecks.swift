@@ -97,19 +97,28 @@ struct LoopbackLifecycleTests {
     func terminationClosesAcceptedIncompleteRequests(termination: Termination) async throws {
         let server = LoopbackCallbackServer(expectedState: "synthetic")
         defer { Task { await server.stop() } }
+        trace(termination, "start-enter")
         let port = try await server.start()
+        trace(termination, "listener-ready")
         let peer = LoopbackPeer(port: port)
         defer { peer.cancel() }
         try await peer.send("GET /login?code=unfinished")
+        trace(termination, "peer-send-completed")
         try await requireEventually(description: "loopback socket transition") {
             await server.activeConnectionCount == 1
         }
+        trace(termination, "connection-accepted")
 
         let waiting = Task { try await server.waitForCallback(timeout: termination == .timeout ? .zero : nil) }
         defer { waiting.cancel() }
         switch termination {
         case .stop: await server.stop()
-        case .cancellation: waiting.cancel()
+        case .cancellation:
+            try await requireEventually(description: "callback waiter registered before cancellation") {
+                await server.isAwaitingCallback
+            }
+            trace(termination, "waiter-registered")
+            waiting.cancel()
         case .timeout: break
         case .callback:
             let session = URLSession(configuration: .ephemeral)
@@ -118,7 +127,9 @@ struct LoopbackLifecycleTests {
                 from: URL(string: "http://127.0.0.1:\(port)/login?code=accepted&state=synthetic")!)
             #expect((response as? HTTPURLResponse)?.statusCode == 200)
         }
+        trace(termination, "termination-requested")
         let result = await waiting.result
+        trace(termination, "waiter-settled")
         if termination == .callback {
             #expect(try result.get().queryItems?.first { $0.name == "code" }?.value == "accepted")
         } else {
@@ -126,6 +137,34 @@ struct LoopbackLifecycleTests {
         }
         try await requireEventually(description: "loopback socket transition") { peer.closed }
         #expect(await server.activeConnectionCount == 0)
+        trace(termination, "peer-closed")
+    }
+
+    private func trace(_ termination: Termination, _ stage: String) {
+        // Native case events prove which case is active; these flushed synthetic stages
+        // identify its last completed await if the test host later becomes idle.
+        FileHandle.standardError.write(Data("loopback-termination \(termination) \(stage)\n".utf8))
+    }
+
+    @Test func cancellationBeforeCallbackEntryClosesTheListener() async throws {
+        let server = LoopbackCallbackServer(expectedState: "synthetic")
+        defer { Task { await server.stop() } }
+        _ = try await server.start()
+        let admission = HarnessResponseGate<Void>(cancellation: .ignored)
+        defer { admission.close() }
+        let waiting = Task {
+            try await admission.wait()
+            return try await server.waitForCallback()
+        }
+        defer { waiting.cancel() }
+        try await requireEventually { admission.waiterCount == 1 }
+        waiting.cancel()
+        admission.finish(())
+        let result = await waiting.result
+        #expect(throws: CancellationError.self) { try result.get() }
+        #expect(await server.isAwaitingCallback == false)
+        #expect(await server.activeConnectionCount == 0)
+        await #expect(throws: CancellationError.self) { try await server.waitForCallback() }
     }
 
     @Test

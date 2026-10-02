@@ -92,3 +92,15 @@ Record source/pin/flags and the sealed executable's SHA256/CDHash before running
 Do not relink or reseal between admission and measurement, change signing identities or grants,
 weaken strict verification, or retry a failed gate merely to obtain a result. Signature verification
 establishes artifact integrity; it does not establish isolation or successful measurement.
+
+### Actual application lifecycle diagnostic
+
+An isolated browsing workload may set `homePresentedProbeSections` to 12 or 120. This is a
+causal AX diagnostic in the existing SwiftUI Demo application, following failed XCTest-host
+discovery; it is not a performance measurement. It supplies eight uniquely labeled synthetic
+albums per shelf, with nil artwork, and checks one visible exact detail button and its actual
+navigation selection within ten seconds. The signed network-denied Demo retains
+`home-presented-diagnostic.json` and its normal run evidence. Use the supported
+`browse-synthetic.sh --optimized` procedure with exclusive native-lane coordination and fresh
+artifact/safety admission. Preserve the first failure; do not infer a production AX defect from
+unavailable host discovery, extend the deadline, or enable live dependencies.

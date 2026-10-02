@@ -33,6 +33,8 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     var expandedLibrary: Bool? = nil
     /// Repeated destinations with distinct labels expose card-identity collisions on Home.
     var repeatedHomeCards: Bool? = nil
+    /// Own-app lifecycle diagnostic for large Home; never enables playback or mutations.
+    var homePresentedProbeSections: Int? = nil
     /// Repeatable saved-sidebar inspection while the synthetic refresh is delayed.
     var cachedPlaylistLibrary: Bool? = nil
     var playlistRefreshMilliseconds: Int? = nil
@@ -59,6 +61,10 @@ struct BrowsingScenario: Codable, Equatable, Sendable {
     func validate() throws {
         guard (1...2).contains(version), (mode != .playback || version == 2), (1...5_000).contains(trackCount),
             (guiShellRegression != true || (version == 2 && mode != .playback)),
+            homePresentedProbeSections.map({
+                [12, 120].contains($0) && mode == .browsing && guiShellRegression != true
+                    && acceptanceScenarioID == nil && expandedLibrary != true
+            }) ?? true,
             (combinedHydration != true || mode == .playback), (1...96).contains(artworkCount),
             [64, 640, 1_280].contains(artworkPixels),
             (1...10).contains(cycles), (100...2_000).contains(dwellMilliseconds),

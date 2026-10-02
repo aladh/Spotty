@@ -248,7 +248,13 @@ final class BrowsingRun {
                 measurement.start(window: window)
             }
             try writeRunStatus(.workloadRunning)
-            if world.scenario.guiShellRegression == true {
+            if world.scenario.homePresentedProbeSections != nil {
+                guard let window = window() else { throw BrowsingFailure.checkpoint("home-probe.window") }
+                try await BrowsingHomePresentedProbe.run(
+                    player: player, world: world, navigation: navigation, window: window, launch: launch,
+                    networkSandboxVerified: networkSandboxVerified)
+                try await sample("home.public-ax-selection-confirmed", started: started)
+            } else if world.scenario.guiShellRegression == true {
                 guard let window = window() else { throw BrowsingFailure.checkpoint("shell.window") }
                 let recorder = BrowsingShellRegression(launch: launch, networkSandboxVerified: networkSandboxVerified)
                 shellRegression = recorder
@@ -265,7 +271,11 @@ final class BrowsingRun {
                 playbackCheckpoints = acceptance.playbackCheckpoints
                 if let failure = acceptance.failure { throw BrowsingFailure.checkpoint(failure.checkpoint) }
             }
-            if world.scenario.guiShellRegression == true {
+            if world.scenario.homePresentedProbeSections != nil {
+                guard !player.isPlaying, world.playback.snapshot().commandCount == 0 else {
+                    throw BrowsingFailure.checkpoint("home-probe.no-playback")
+                }
+            } else if world.scenario.guiShellRegression == true {
                 guard !player.isPlaying, world.playback.snapshot().commandCount == 0 else {
                     throw BrowsingFailure.checkpoint("shell.no-playback")
                 }

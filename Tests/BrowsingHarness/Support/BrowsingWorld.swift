@@ -173,6 +173,20 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
 
     func home() async throws -> CatalogHomeSnapshot {
         record("home")
+        if let count = scenario.homePresentedProbeSections {
+            return CatalogHomeSnapshot(
+                greeting: "Synthetic",
+                sections: (0..<count).map { section in
+                    CatalogSection(
+                        id: "probe-section:\(section)", title: "Synthetic shelf \(section)",
+                        items: (0..<8).map { item in
+                            let id = "\(section)-\(item)"
+                            return CatalogItem(
+                                id: id, uri: "spotify:album:\(id)", title: "Synthetic album \(id)",
+                                subtitle: "Synthetic artist", artworkURL: nil, kind: .album)
+                        })
+                })
+        }
         let home = CatalogMapping.home(fixtures.home)
         guard scenario.expandedLibrary == true else { return home }
         return CatalogHomeSnapshot(

@@ -15,6 +15,64 @@ struct BrowsingHarnessTests {
         BrowsingScenario(trackCount: 30, artworkCount: 2, artworkPixels: 64, cycles: 1)
     }
 
+    @Test(arguments: [12, 120])
+    func presentedHomeFixtureHasUniqueTargetsAndNoLiveArtwork(sections: Int) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyHomeProbe-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.homePresentedProbeSections = sections
+        try input.validate()
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let home = try await world.home()
+        let items = home.sections.flatMap(\.items)
+        #expect(home.sections.count == sections)
+        #expect(home.sections.allSatisfy { $0.items.count == 8 })
+        #expect(Set(items.map(\.title)).count == sections * 8)
+        #expect(items.first?.title == "Synthetic album 0-0")
+        #expect(items.allSatisfy { $0.artworkURL == nil && $0.kind == .album })
+        #expect(world.playback.snapshot().commandCount == 0)
+        #expect(world.snapshot().mutationAttempts == 0)
+    }
+
+    @Test func presentedHomeProbeRejectsUnrelatedWorkloads() {
+        var input = scenario()
+        input.homePresentedProbeSections = 13
+        #expect(throws: BrowsingFailure.self) { try input.validate() }
+        input.homePresentedProbeSections = 12
+        input.mode = .playback
+        input.version = 2
+        #expect(throws: BrowsingFailure.self) { try input.validate() }
+        input.mode = .browsing
+        input.guiShellRegression = true
+        #expect(throws: BrowsingFailure.self) { try input.validate() }
+        input.guiShellRegression = false
+        input.expandedLibrary = true
+        #expect(throws: BrowsingFailure.self) { try input.validate() }
+    }
+
+    @Test func presentedHomeDiscoveryRejectsAnAmbiguousOrUnavailableTarget() {
+        let frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+        func button(_ label: String, enabled: Bool = true, visible: Bool = true) -> NSAccessibilityElement {
+            let result = NSAccessibilityElement()
+            result.setAccessibilityRole(.button)
+            result.setAccessibilityLabel(label)
+            result.setAccessibilityEnabled(enabled)
+            result.setAccessibilityFrame(visible ? NSRect(x: 20, y: 20, width: 100, height: 40) : .zero)
+            return result
+        }
+        let correct = button("Synthetic album 0-0")
+        let root = NSAccessibilityElement()
+        root.setAccessibilityChildren([
+            button("Synthetic album 0-7"), button("Synthetic album 0-0", enabled: false),
+            button("Synthetic album 0-0", visible: false), correct,
+        ])
+        let discovered = BrowsingHomePresentedProbe.discover(in: root, visibleFrame: frame)
+        #expect((discovered.control as AnyObject?) === correct)
+        #expect(BrowsingHomePresentedProbe.discover(in: root, visibleFrame: frame, limit: 2).control == nil)
+        root.setAccessibilityChildren([button("Synthetic album 0-7")])
+        #expect(BrowsingHomePresentedProbe.discover(in: root, visibleFrame: frame).control == nil)
+    }
+
     @Test func searchUsesBrowsableSyntheticEntitiesAndHonorsQueryAndLimit() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySearchDemo-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

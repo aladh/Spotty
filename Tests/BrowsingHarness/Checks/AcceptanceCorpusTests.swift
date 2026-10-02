@@ -1,7 +1,11 @@
 import Foundation
 import Testing
+import SpottyDomain
+import SpottyRuntimeContracts
+import SpottyTestSupport
 @testable import SpottyBrowsingSupport
 @testable import SpottyCore
+@testable import SpottySessionRuntime
 
 /// The acceptance job supplies the manifest-resolved corpus. Legacy checks retain their separate
 /// coverage; an absent input or representative-only run never executes the holdout mutation proof.
@@ -133,6 +137,81 @@ struct AcceptanceCorpusTests {
         await player.shutdownForTermination()
     }
 
+    @Test(arguments: [false, true])
+    func reconnectCatalogRetirementAndJoinedTraceHaveDifferentValidRequestCounts(joinReconnect: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyGatedReconnect-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var scenario = BrowsingScenario(trackCount: 30, artworkCount: 1, artworkPixels: 64, cycles: 1)
+        scenario.version = 2
+        scenario.mode = .playback
+        let world = try BrowsingWorld(scenario: scenario, artworkDirectory: root)
+        let catalog = ReconnectProfileCatalog(world: world)
+        defer { catalog.withheld.close() }
+        let environment = PlaybackEnvironment(
+            remote: world, local: world, webQueue: world, account: world, audioOutput: world,
+            preferences: world, lifecycle: world, clock: world, catalog: catalog,
+            playlistMutations: world, artwork: world.environment.artwork)
+        let player = PlaybackStore(environment: environment, feedback: TransientFeedbackPresenter(clock: world))
+        var retiredWorkers: [Task<Void, Never>] = []
+        var journey: Task<Void, any Error>?
+        do {
+            await player.restore()
+            await player.catalogLoadTask?.value
+            try #require(world.snapshot().requests["library"] == 1)
+            let oldEpoch = player.accountEpoch
+            let oldSession = player.catalogSession.snapshot
+            player.withRuntime {
+                $0.accountStore.publishPhase(.connecting)
+                $0.accountStore.publishPhase(.ready)
+            }
+            try await PlaybackTrace.until("reconnect.profile-admitted") { catalog.withheld.waiterCount == 1 }
+            retiredWorkers = player.catalog.homeLibrary.workerSettlements()
+            var journeyStarted = false
+            var journeyFinished = false
+            journey = Task {
+                journeyStarted = true
+                defer { journeyFinished = true }
+                if joinReconnect {
+                    try await PlaybackTrace.reconnectCatalog(player: player, world: world, previousSession: oldSession)
+                    #expect(
+                        catalog.withheld.waiterCount == 0, "The reconnect join must settle before account replacement")
+                    #expect(world.snapshot().requests["library"] == 2)
+                }
+                await player.logout()
+                world.restoreSyntheticAccount()
+                await player.restore()
+                await player.catalogLoadTask?.value
+            }
+            try await PlaybackTrace.until("reconnect.journey-started") { journeyStarted }
+            if joinReconnect {
+                #expect(player.accountEpoch == oldEpoch)
+                #expect(world.snapshot().requests["account.synthetic-replacement"] == nil)
+                catalog.withheld.finish(CatalogProfileSnapshot(name: "Reconnect", uri: "spotify:user:synthetic"))
+            }
+            try await PlaybackTrace.until("reconnect.journey-finished") { journeyFinished }
+            try await journey?.value
+            if !joinReconnect {
+                #expect(catalog.withheld.waiterCount == 1, "Retired non-cooperative profile is still withheld")
+                catalog.withheld.finish(CatalogProfileSnapshot(name: "Retired", uri: "spotify:user:retired"))
+            }
+            for worker in retiredWorkers { await worker.value }
+            #expect(player.accountEpoch > oldEpoch)
+            #expect(player.catalogSession.snapshot.accountEpoch == player.accountEpoch)
+            #expect(player.catalog.homeLibrary.currentProfileURI == "spotify:user:synthetic")
+            #expect(player.catalog.homeLibrary.currentPlaylists.count == world.fixtures.playlists.count)
+            #expect(world.snapshot().requests["library"] == (joinReconnect ? 3 : 2))
+            await player.shutdownForTermination()
+        } catch {
+            let outstanding = retiredWorkers + player.catalog.homeLibrary.workerSettlements()
+            journey?.cancel()
+            catalog.withheld.close()
+            _ = try? await journey?.value
+            for worker in outstanding { await worker.value }
+            await player.shutdownForTermination()
+            throw error
+        }
+    }
+
     private func execute(
         _ scenario: BrowsingScenario, timeoutSeconds: Int = 120, seed: AcceptanceSeed = .none
     ) async throws -> AcceptanceRuntimeReport {
@@ -145,4 +224,30 @@ struct AcceptanceCorpusTests {
         await player.shutdownForTermination()
         return report
     }
+}
+
+/// The acceptance world must remain the account/playback authority. Its profile response has
+/// no hold point; this narrow forwarding adapter adds that script using the shared response gate.
+private actor ReconnectProfileCatalog: CatalogProviding {
+    let world: BrowsingWorld
+    nonisolated let withheld = HarnessResponseGate<CatalogProfileSnapshot>(cancellation: .ignored)
+    private var profiles = 0
+
+    init(world: BrowsingWorld) { self.world = world }
+
+    func profile() async throws -> CatalogProfileSnapshot {
+        profiles += 1
+        if profiles == 2 { return try await withheld.wait() }
+        return try await world.profile()
+    }
+
+    func home() async throws -> CatalogHomeSnapshot { try await world.home() }
+    func playlistLibrary() async throws -> [PlaylistLibraryNode] { try await world.playlistLibrary() }
+    func libraryAlbums() async throws -> [CatalogItem] { try await world.libraryAlbums() }
+    func libraryArtists() async throws -> [CatalogItem] { try await world.libraryArtists() }
+    func libraryTracks() async throws -> [CatalogTrack] { try await world.libraryTracks() }
+    func searchTracks(_ term: String, limit: Int) async throws -> [CatalogTrack] {
+        try await world.searchTracks(term, limit: limit)
+    }
+    func playlist(id: String) async throws -> CatalogPlaylistSnapshot { try await world.playlist(id: id) }
 }

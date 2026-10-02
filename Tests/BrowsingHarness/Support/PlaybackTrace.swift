@@ -136,6 +136,7 @@ struct PlaybackTrace {
 
         started = .now
         let previousGeneration = player.engineGeneration
+        let previousCatalogSession = player.catalogSession.snapshot
         let recoveryPosition = world.playback.snapshot().positionMS
         recorder?.event("fault", "playback.disconnect")
         world.playback.setConnected(false)
@@ -144,6 +145,8 @@ struct PlaybackTrace {
         try await wait("playback.recovered") {
             player.isConnected && player.engineGeneration > previousGeneration && player.canTogglePlayback
         }
+        try await reconnectCatalog(
+            player: player, world: world, previousSession: previousCatalogSession, recorder: recorder)
         guard abs(player.position * 1_000 - Double(recoveryPosition)) < 1 else {
             throw BrowsingFailure.checkpoint("recovery.preserved-position")
         }
@@ -251,6 +254,28 @@ struct PlaybackTrace {
         }
         checkpoint("queue.enriched", since: started)
         return checkpoints
+    }
+
+    /// Playback readiness does not join the desktop's independently admitted catalog worker.
+    /// This finite trace verifies reconnect freshness before its later account replacement.
+    static func reconnectCatalog(
+        player: PlaybackStore, world: BrowsingWorld, previousSession: CatalogSessionSnapshot,
+        recorder: AcceptanceRecorder? = nil
+    ) async throws {
+        recorder?.event("action", "catalog.await-reconnect")
+        player.withRuntime { _ in }
+        guard player.catalogSession.snapshot != previousSession, player.catalogSession.isAvailable,
+            let load = player.catalogLoadTask
+        else { throw BrowsingFailure.checkpoint("reconnect.catalog-admission") }
+        let admitted = player.catalogSession.snapshot
+        await load.value
+        try Task.checkCancellation()
+        guard player.catalogSession.snapshot == admitted,
+            player.catalog.homeLibrary.currentProfileURI != nil,
+            player.catalog.homeLibrary.currentPlaylists.count == world.fixtures.playlists.count,
+            player.catalog.homeLibrary.homeSections.count == (world.scenario.expandedLibrary == true ? 4 : 1),
+            player.catalog.homeLibrary.error == nil
+        else { throw BrowsingFailure.checkpoint("reconnect.catalog-ready") }
     }
 
     private static func expectations(_ name: String) -> [String: String] {

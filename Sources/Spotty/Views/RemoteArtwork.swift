@@ -69,6 +69,7 @@ struct RemoteArtwork: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
             .task(id: admitsArtwork ? request : nil) {
                 guard admitsArtwork else { return }
+                guard loaded?.request != request else { return }
                 loaded = nil
                 guard let request,
                     let asset = try? await artwork.provider.artwork(for: request),

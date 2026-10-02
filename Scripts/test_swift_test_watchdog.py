@@ -1036,6 +1036,11 @@ class ProcessOwnershipTests(unittest.TestCase):
             self.assertEqual(Path(receipts[0]["retainedPath"]).read_bytes(), events.read_bytes())
             self.assertEqual(Path(receipts[0]["retainedPath"]).stat().st_mode & 0o777, 0o600)
             self.assertEqual((root / "retained").stat().st_mode & 0o777, 0o700)
+            with mock.patch.object(watchdog, "process_identity", return_value=identity):
+                repeated = watchdog.retain_bundle_events(owned, root / "retained")[0]
+            self.assertTrue(repeated["available"], repeated)
+            self.assertNotEqual(repeated["retainedPath"], receipts[0]["retainedPath"])
+            self.assertEqual(Path(repeated["retainedPath"]).read_bytes(), events.read_bytes())
             self.assertEqual(receipts[0]["nativeEvents"]["lastStarted"]["testID"], "stalled")
             self.assertEqual(receipts[0]["nativeEvents"]["lastCompleted"]["testID"], "completed")
 

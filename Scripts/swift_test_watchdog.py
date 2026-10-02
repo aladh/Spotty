@@ -473,7 +473,10 @@ def retain_bundle_events(owned: OwnedProcesses, output: Path) -> list[dict]:
             if not identity.same_image(process_identity(identity.pid)):
                 raise ValueError("loader birth/image changed during read")
             output.mkdir(mode=0o700, parents=True, exist_ok=True)
-            copy = output / f"{identity.pid}-{path.name}"
+            # A signal can interrupt timeout diagnostics and request another snapshot.
+            # Preserve each copy rather than colliding with or replacing partial evidence.
+            snapshot = Path(tempfile.mkdtemp(prefix=f"{identity.pid}-", dir=output))
+            copy = snapshot / path.name
             descriptor = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(content)

@@ -14,6 +14,7 @@ Product contracts define behavior, ADRs record decisions, and development guides
 - [Build and verification](development/verification.md): launch, formatting, tests, and diagnostics.
 - [Swift test-host diagnostics](development/test-host-diagnostics.md): attribution, owned sampling, and cleanup evidence.
 - [Runtime acceptance and measurements](development/runtime-acceptance.md): evidence requirements, synthetic workloads, and profiling.
+- [Release playback measurements](development/playback-measurements.md): repeated CPU, footprint, wakeup and output-boundary samples.
 - [Synthetic acceptance](development/synthetic-acceptance.md): named corpora, failure evidence, and semantic UI smoke.
 - [Playback binary artifacts](development/playback-artifacts.md): local candidates, publication, and app pins.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.

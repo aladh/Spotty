@@ -297,8 +297,8 @@ class Coordinator:
                 or not self.latest.profiler_active):
             raise RuntimeError("Fresh window and profiler admission required")
         duration = self.settle + self.sample + self.ack_timeout + self.stop_margin
-        if (now + duration > self.origin.seconds + self.session_cap
-                or (playing and self.charged + duration > self.playing_cap)):
+        if (now + duration >= self.origin.seconds + self.session_cap
+                or (playing and self.charged + duration >= self.playing_cap)):
             self.fail("insufficient-budget")
             return
         self.desired_playing, self.window_open = playing, window_open
@@ -418,7 +418,9 @@ class Coordinator:
 
     def poll(self):
         now = self.now()
-        if now >= self.origin.seconds + self.session_cap:
+        if self.play_started is not None and self.guard.clock_failed:
+            self.fail("stop-clock-unavailable")
+        elif now >= self.origin.seconds + self.session_cap:
             self.fail("session-cap")
         elif self.play_started is not None and self.charged + now - self.play_started >= self.playing_cap:
             self.fail("playing-cap")

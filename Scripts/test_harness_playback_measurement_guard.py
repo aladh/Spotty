@@ -256,6 +256,22 @@ class MeasurementGuardChecks(unittest.TestCase):
         self.owner.begin(False, True)
         self.assertIn("insufficient-budget", self.reasons())
 
+    def test_exact_reserve_fit_cannot_start_or_retry(self):
+        for limits in ({"playing_cap": 36}, {"session_cap": 36}):
+            with self.subTest(limits=limits):
+                self.prepare(**limits)
+                self.owner.begin(True, True)
+                self.assertIn("insufficient-budget", self.reasons())
+                self.assertEqual(self.plays + self.stop.requests, [])
+                with self.assertRaises(RuntimeError):
+                    self.owner.begin(True, True)
+        self.prepare(session_cap=36)
+        self.owner.begin(False, True)
+        self.assertIn("insufficient-budget", self.reasons())
+        self.assertEqual(self.plays + self.stop.requests, [])
+        with self.assertRaises(RuntimeError):
+            self.owner.begin(False, True)
+
     def test_clock_rollback_domain_change_or_nonfinite_time_stops(self):
         for seconds, domain in ((-1, "synthetic-boot"), (1, "different-boot"), (float("nan"), "synthetic-boot")):
             with self.subTest(seconds=seconds, domain=domain):
@@ -331,17 +347,17 @@ class MeasurementGuardChecks(unittest.TestCase):
 
     def test_exact_playing_cap_is_excluded_for_observe_and_poll_order(self):
         for poll_first in (False, True):
-            self.prepare(playing_cap=36)
+            self.prepare(playing_cap=37)
             self.owner.begin(True, True)
             self.observation(True)
             self.run_seconds(30, True)
-            self.clock.advance(6)
+            self.clock.advance(7)
             if poll_first:
                 self.owner.poll()
             self.observation(False)
             self.owner.poll()
             self.assertTrue(self.owner.failed)
-            self.assertEqual(self.owner.charged, 36)
+            self.assertEqual(self.owner.charged, 37)
             self.assertNotIn("cell-complete", [event["event"] for event in self.journal.events])
 
     def test_lost_pause_reply_cannot_qualify_cell_even_after_confirmed_paused(self):
@@ -425,6 +441,22 @@ class MeasurementGuardChecks(unittest.TestCase):
         self.assertEqual(len(self.stop.requests), 1)
         with self.assertRaises(RuntimeError):
             self.owner.begin(True, True)
+
+    def test_poll_excludes_known_stop_clock_fault_without_observation(self):
+        self.prepare()
+        self.owner.begin(True, True)
+        self.observation(True)
+        self.run_seconds(29, True)
+        self.owner.guard.clock = lambda: guard.ClockReading(1, "synthetic-boot")
+        self.run_seconds(1, True)
+        self.assertEqual(self.owner.phase, "await-paused")
+        self.assertTrue(self.owner.guard.clock_failed)
+        self.owner.poll()
+        self.assertTrue(self.owner.failed)
+        self.assertIn("stop-clock-unavailable", self.reasons())
+        self.assertIsNotNone(self.owner.play_started)
+        self.assertEqual(len(self.stop.requests), 1)
+        self.assertNotIn("cell-complete", [x["event"] for x in self.journal.events])
 
     def test_private_journal_preserves_order_and_refuses_overwrite(self):
         with TemporaryDirectory() as directory:

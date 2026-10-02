@@ -335,23 +335,34 @@ final class BrowsingShellRegression {
     }
 
     private func resize(_ window: NSWindow, bodySize: NSSize) throws {
-        guard let screen = window.screen, let content = window.contentView else {
+        guard let screen = window.screen else {
             throw BrowsingFailure.checkpoint("window.display-unavailable")
         }
         let visibleFrame = screen.visibleFrame
+        requestedBodySize = try Self.resizeOwnedWindow(
+            window, bodySize: bodySize, visibleFrame: visibleFrame, capturedFrame: capturedScreenVisibleFrame
+        ) { overhead in
+            // Preserve the display prerequisite even when no target is eligible.
+            desiredBodySize = bodySize
+            requestedBodySize = nil
+            sizingScreenVisibleFrame = visibleFrame
+            frameToBodyOverhead = overhead
+        }
+    }
+
+    static func resizeOwnedWindow(
+        _ window: NSWindow, bodySize: CGSize, visibleFrame: CGRect, capturedFrame: CGRect?,
+        didQualify: (CGSize) -> Void
+    ) throws -> CGSize {
         // Every captured checkpoint must use one display baseline, including
         // explicit later resizes that would otherwise overwrite the sizing frame.
-        try Self.validateCapturedDisplay(currentFrame: visibleFrame, capturedFrame: capturedScreenVisibleFrame)
+        try validateCapturedDisplay(currentFrame: visibleFrame, capturedFrame: capturedFrame)
+        guard let content = window.contentView else { throw BrowsingFailure.checkpoint("shell.content-view") }
         let overhead = CGSize(
             width: window.frame.width - content.bounds.width,
             height: window.frame.height - window.contentLayoutRect.height)
-        // Preserve the display prerequisite in failure-state evidence even if no target is eligible.
-        desiredBodySize = bodySize
-        requestedBodySize = nil
-        sizingScreenVisibleFrame = visibleFrame
-        frameToBodyOverhead = overhead
+        didQualify(overhead)
         let target = try Self.targetBodySize(desired: bodySize, visibleFrame: visibleFrame, overhead: overhead)
-        requestedBodySize = target
         let inset = content.bounds.height - window.contentLayoutRect.height
         window.setContentSize(NSSize(width: target.width, height: target.height + max(0, inset)))
         // Place only the owned fixture window; AppKit still owns its controls and geometry.
@@ -359,6 +370,21 @@ final class BrowsingShellRegression {
             CGPoint(
                 x: visibleFrame.midX - window.frame.width / 2,
                 y: visibleFrame.midY - window.frame.height / 2))
+        return target
+    }
+
+    static func captureOnQualifiedDisplay<Value>(
+        sizedFrame: CGRect?, capturedFrame: CGRect?, visibleFrame: @MainActor () -> CGRect?,
+        operation: @MainActor () async throws -> Value
+    ) async throws -> (frame: CGRect, value: Value) {
+        guard let frame = visibleFrame(), frame == sizedFrame else {
+            throw BrowsingFailure.checkpoint("capture.display-unqualified")
+        }
+        try validateCapturedDisplay(currentFrame: frame, capturedFrame: capturedFrame)
+        let value = try await operation()
+        // The final asynchronous capture has no later settle to catch drift.
+        try validateCapturedDisplay(currentFrame: visibleFrame(), capturedFrame: frame)
+        return (frame, value)
     }
 
     private func toggleInspector(window: NSWindow) throws {
@@ -568,9 +594,6 @@ final class BrowsingShellRegression {
             guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("shell.deadline") }
         }
         guard let content = window.contentView else { throw BrowsingFailure.checkpoint("shell.content-view") }
-        if name != "failure-state", capturedScreenVisibleFrame == nil {
-            capturedScreenVisibleFrame = sizingScreenVisibleFrame
-        }
         var frames = ShellGeometry.frames(in: window)
         if name == "detail.playlist", let scroll = BrowsingRun.findPlaylistScrollView(in: content) {
             frames["detail.native-scroll"] = scroll.convert(scroll.bounds, to: nil)
@@ -816,7 +839,17 @@ final class BrowsingShellRegression {
         var captureContentRect: Rect?
         var capturePointPixelScale: Double?
         do {
-            let raster = try await windowPNG(window, name: "\(name).window.png")
+            let raster: WindowRaster
+            if name == "failure-state" {
+                raster = try await windowPNG(window, name: "\(name).window.png")
+            } else {
+                let capture = try await Self.captureOnQualifiedDisplay(
+                    sizedFrame: sizingScreenVisibleFrame, capturedFrame: capturedScreenVisibleFrame,
+                    visibleFrame: { window.screen?.visibleFrame },
+                    operation: { try await windowPNG(window, name: "\(name).window.png") })
+                capturedScreenVisibleFrame = capturedScreenVisibleFrame ?? capture.frame
+                raster = capture.value
+            }
             if name != "failure-state" {
                 try Task.checkCancellation()
                 guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("capture.deadline") }

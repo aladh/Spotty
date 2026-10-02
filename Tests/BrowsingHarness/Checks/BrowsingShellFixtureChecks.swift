@@ -164,18 +164,59 @@ struct BrowsingShellFixtureChecks {
                 sizedFrame: captured, currentFrame: changed, capturedFrame: captured,
                 resize: { resizeCount += 1 })
         }
-        // Explicit resize validates the frozen capture baseline before assigning
-        // its new sizing frame; changing that mutable frame cannot admit drift.
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 960, height: 640), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let originalFrame = window.frame
+        // Exercise the production native resize operation, including admission
+        // before either metadata publication or changes to the owned window.
         #expect(throws: (any Error).self) {
-            try BrowsingShellRegression.validateCapturedDisplay(currentFrame: changed, capturedFrame: captured)
-            resizeCount += 1
+            _ = try BrowsingShellRegression.resizeOwnedWindow(
+                window, bodySize: CGSize(width: 1080, height: 700), visibleFrame: changed, capturedFrame: captured,
+                didQualify: { _ in resizeCount += 1 })
         }
+        #expect(window.frame == originalFrame)
         #expect(throws: (any Error).self) {
             _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(
                 sizedFrame: changed, currentFrame: changed, capturedFrame: captured,
                 resize: { resizeCount += 1 })
         }
         #expect(resizeCount == 0)
+    }
+
+    @Test func asynchronousCaptureRejectsUnqualifiedAndFinalDisplayDrift() async throws {
+        let initial = CGRect(x: 0, y: 78, width: 1280, height: 851)
+        let changed = CGRect(x: 0, y: 74, width: 1280, height: 855)
+        var visibleFrame: CGRect? = initial
+        var operations = 0
+        let stable = try await BrowsingShellRegression.captureOnQualifiedDisplay(
+            sizedFrame: initial, capturedFrame: nil, visibleFrame: { visibleFrame },
+            operation: {
+                operations += 1
+                await Task.yield()
+                return 42
+            })
+        #expect(stable.frame == initial && stable.value == 42)
+        await #expect(throws: (any Error).self) {
+            _ = try await BrowsingShellRegression.captureOnQualifiedDisplay(
+                sizedFrame: initial, capturedFrame: initial, visibleFrame: { visibleFrame },
+                operation: {
+                    operations += 1
+                    await Task.yield()
+                    visibleFrame = changed
+                })
+        }
+        for frame in [Optional(changed), nil] {
+            visibleFrame = frame
+            await #expect(throws: (any Error).self) {
+                _ = try await BrowsingShellRegression.captureOnQualifiedDisplay(
+                    sizedFrame: initial, capturedFrame: nil, visibleFrame: { visibleFrame },
+                    operation: { operations += 1 })
+            }
+        }
+        #expect(operations == 2)
     }
 
     @Test func displayEligibilityPreservesMinimumAndDistinctResizeCoverage() throws {

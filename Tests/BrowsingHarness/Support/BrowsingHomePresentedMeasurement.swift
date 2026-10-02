@@ -15,6 +15,8 @@ enum BrowsingHomePresentedMeasurement {
         window: NSWindow, launch: BrowsingLaunch, networkSandboxVerified: Bool
     ) async throws {
         defer { world.homeResponse.close() }
+        let previousAXIdentifier = window.accessibilityIdentifier()
+        defer { window.setAccessibilityIdentifier(previousAXIdentifier) }
         let originalFrame = window.frame
         let originalScale = window.backingScaleFactor
         let root = URL(fileURLWithPath: launch.runRoot)
@@ -23,6 +25,7 @@ enum BrowsingHomePresentedMeasurement {
         var stream: SCStream?
         var capturing = false
         var contentAdmitted = false
+        var measuredIdentity: HomeAXProtocol.MeasuredWindow?
         var phase = "request admission"
         var evidence: [String: Any] = [
             "schemaVersion": 1, "launchRunID": launch.runID, "sourceSHA256": launch.source.sourceSHA256,
@@ -33,6 +36,14 @@ enum BrowsingHomePresentedMeasurement {
                 "Warm connected scene; nil fixture art; external AX readiness observation; terminal raster onset is retrospective. Not cold launch, earliest usable frame, loaded artwork, or visual parity. Footprints include capture buffers, SHA256 hashing, AX observation, and sampling instrumentation; not isolated Home allocation.",
         ]
         func safety(onHome: Bool = true) throws {
+            if let measuredIdentity {
+                guard window.windowNumber == measuredIdentity.windowNumber,
+                    window.accessibilityIdentifier() == measuredIdentity.identifier,
+                    NSApp.windows.filter({ $0.identifier?.rawValue == "main" }).count == 1,
+                    NSApp.windows.filter({ $0.accessibilityIdentifier() == measuredIdentity.identifier }).count == 1,
+                    NSScreen.screens.first?.frame == measuredIdentity.primaryDisplayAppKitFrame
+                else { throw BrowsingFailure.checkpoint("home-measurement.window-binding-changed") }
+            }
             guard networkSandboxVerified, !launch.automated, !player.isPlaying,
                 world.playback.snapshot().commandCount == 0, world.snapshot().mutationAttempts == 0,
                 CatalogPlaybackAccess(player: player).isConnected, window.isVisible, !window.isMiniaturized,
@@ -69,6 +80,52 @@ enum BrowsingHomePresentedMeasurement {
                 try safety(onHome: onHome)
             }
             try safety()
+            phase = "measured window identity preparation"
+            let mainWindows = NSApp.windows.filter { $0.identifier?.rawValue == "main" }
+            guard mainWindows.count == 1, mainWindows.first === window,
+                let primary = NSScreen.screens.first,
+                (primary.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+                    == CGMainDisplayID()
+            else { throw BrowsingFailure.checkpoint("home-measurement.unique-main-window") }
+            let marker = HomeAXProtocol.MeasuredWindow.marker(runID: launch.runID, nonce: request.nonce)
+            window.setAccessibilityIdentifier(marker)
+            guard window.accessibilityIdentifier() == marker,
+                NSApp.windows.filter({ $0.accessibilityIdentifier() == marker }).count == 1
+            else { throw BrowsingFailure.checkpoint("home-measurement.window-marker") }
+            let measuredWindow = HomeAXProtocol.MeasuredWindow(
+                runID: launch.runID, nonce: request.nonce, pid: ProcessInfo.processInfo.processIdentifier,
+                windowNumber: window.windowNumber, identifier: marker, appKitFrame: originalFrame,
+                primaryDisplayAppKitFrame: primary.frame,
+                axFrame: try HomeAXProtocol.axFrame(originalFrame, primaryDisplay: primary.frame))
+            try measuredWindow.validate(
+                runID: launch.runID, nonce: request.nonce, pid: ProcessInfo.processInfo.processIdentifier)
+            measuredIdentity = measuredWindow
+            evidence["measuredWindow"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(measuredWindow))
+            evidence["windowGeometryCoordinates"] = [
+                "appKitFrame": "screen points, bottom-left origin, Y up",
+                "primaryDisplayAppKitFrame": "primary menu-bar display in AppKit screen points",
+                "axFrame": "primary display top-left origin, Y down, points",
+            ]
+            guard NSApp.windows.count <= 16 else { throw BrowsingFailure.checkpoint("home-measurement.window-bound") }
+            evidence["publicAppKitWindows"] = NSApp.windows.map { item in
+                [
+                    "windowNumber": item.windowNumber, "identifier": item.identifier?.rawValue ?? "",
+                    "accessibilityIdentifier": item.accessibilityIdentifier(),
+                    "appKitFrame": NSStringFromRect(item.frame), "visible": item.isVisible,
+                    "parentWindowNumber": item.parent?.windowNumber as Any? ?? NSNull(),
+                ] as [String: Any]
+            }
+            evidence["standardButtonWindows"] = [
+                ("close", NSWindow.ButtonType.closeButton), ("miniaturize", .miniaturizeButton), ("zoom", .zoomButton),
+            ].map { name, type in
+                [
+                    "button": name,
+                    "windowNumber": window.standardWindowButton(type)?.window?.windowNumber as Any?
+                        ?? NSNull(),
+                    "appKitFrame": window.standardWindowButton(type)?.window.map { NSStringFromRect($0.frame) } as Any?
+                        ?? NSNull(),
+                ] as [String: Any]
+            }
             guard let count = world.scenario.homePresentedProbeSections,
                 world.homeResponse.isWaiting, player.catalog.homeLibrary.homeSections.isEmpty
             else { throw BrowsingFailure.checkpoint("home-measurement.initial-gate") }
@@ -82,8 +139,9 @@ enum BrowsingHomePresentedMeasurement {
             evidence["displayScale"] = window.backingScaleFactor
             phase = "own-window capture setup"
             let available = try await SCShareableContent.currentProcess
-            guard let shared = available.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }),
-                shared.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier
+            let sharedMatches = available.windows.filter { $0.windowID == CGWindowID(measuredWindow.windowNumber) }
+            guard sharedMatches.count == 1, let shared = sharedMatches.first,
+                shared.owningApplication?.processID == measuredWindow.pid
             else { throw BrowsingFailure.checkpoint("home-measurement.owned-window") }
             let width = Int((window.frame.width * window.backingScaleFactor).rounded())
             let height = Int((window.frame.height * window.backingScaleFactor).rounded())

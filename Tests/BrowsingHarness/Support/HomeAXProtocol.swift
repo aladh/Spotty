@@ -27,18 +27,86 @@ enum HomeAXProtocol {
 
     enum WindowDisposition { case pending, ready }
 
+    struct MeasuredWindow: Codable {
+        let runID: String
+        let nonce: String
+        let pid: Int32
+        let windowNumber: Int
+        let identifier: String
+        let appKitFrame: CGRect
+        let primaryDisplayAppKitFrame: CGRect
+        let axFrame: CGRect
+
+        static func marker(runID: String, nonce: String) -> String { "spotty-home:\(runID):\(nonce)" }
+
+        func validate(runID: String, nonce: String, pid: Int32) throws {
+            guard self.runID == runID, self.nonce == nonce, self.pid == pid, windowNumber > 0,
+                identifier == Self.marker(runID: runID, nonce: nonce),
+                axFrame == (try HomeAXProtocol.axFrame(appKitFrame, primaryDisplay: primaryDisplayAppKitFrame))
+            else { throw Failure(reason: "measured window identity or coordinate binding invalid") }
+        }
+    }
+
+    struct WindowCandidate {
+        let pid: Int32
+        let role: String?
+        let identifier: String?
+        let frame: CGRect?
+    }
+
+    static func windowString(_ value: Any?) throws -> String? {
+        guard let value else { return nil }
+        guard let string = value as? String else { throw Failure(reason: "malformed public AX window string") }
+        return string
+    }
+
+    /// Both frames are in AppKit screen points. AX uses the primary display's top left, with Y down.
+    static func axFrame(_ frame: CGRect, primaryDisplay: CGRect) throws -> CGRect {
+        guard validFrame(frame), validFrame(primaryDisplay) else {
+            throw Failure(reason: "invalid measured window or primary display geometry")
+        }
+        return CGRect(
+            x: frame.minX - primaryDisplay.minX, y: primaryDisplay.maxY - frame.maxY,
+            width: frame.width, height: frame.height)
+    }
+
+    static func validFrame(_ frame: CGRect) -> Bool {
+        frame.origin.x.isFinite && frame.origin.y.isFinite && frame.width.isFinite && frame.height.isFinite
+            && frame.width > 0 && frame.height > 0
+    }
+
+    /// Identify first, then validate geometry. Other windows never compete based on their size.
+    static func measuredWindowIndex(in candidates: [WindowCandidate], identity: MeasuredWindow) throws -> Int? {
+        guard candidates.count <= 8 else { throw Failure(reason: "owned AX window inventory exceeds bound") }
+        let matches = candidates.indices.filter {
+            candidates[$0].pid == identity.pid && candidates[$0].role == NSAccessibility.Role.window.rawValue
+                && candidates[$0].identifier == identity.identifier
+        }
+        guard matches.count <= 1 else { throw Failure(reason: "measured AX window identity is ambiguous") }
+        guard let index = matches.first else { return nil }
+        guard let frame = candidates[index].frame, validFrame(frame), frame == identity.axFrame else {
+            throw Failure(reason: "identified AX window geometry differs from captured window")
+        }
+        return index
+    }
+
     struct WindowQuery {
         let resultCode: Int32
         let arrayValue: Bool
         let windowCount: Int?
 
-        func disposition() throws -> WindowDisposition {
+        func disposition(measuredIdentity: Bool = false) throws -> WindowDisposition {
             if resultCode == AXError.cannotComplete.rawValue { return .pending }
             guard resultCode == AXError.success.rawValue, arrayValue, let windowCount else {
                 throw Failure(reason: "owned AX window query failed or returned an invalid value")
             }
+            guard (0...8).contains(windowCount) else {
+                throw Failure(reason: "owned AX window inventory exceeds bound")
+            }
             if windowCount == 0 { return .pending }
-            guard windowCount == 1 else { throw Failure(reason: "owned AX window list is ambiguous") }
+            guard measuredIdentity || windowCount == 1 else {
+                throw Failure(reason: "owned AX window list is ambiguous")
+            }
             return .ready
         }
     }

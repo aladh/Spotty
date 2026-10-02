@@ -22,6 +22,7 @@ private final class HomeAXDiagnostic {
     let expectedExecutable: String
     let nonce = UUID().uuidString
     var measurement = false
+    var measuredWindow: HomeAXProtocol.MeasuredWindow?
     var sections = 12
     var homePublicationAdmitted = false
     var deadlineMachTime: UInt64 = 0
@@ -234,32 +235,53 @@ private final class HomeAXDiagnostic {
             evidence["lastWindowQuery"] = sample
             evidence["windowQueryAttempts"] = attempts
             try checkDeadline()
-            var windowSamples: [[String: Any]] = []
-            for window in (windows ?? []).prefix(8) {
-                var owner: pid_t = 0
-                let ownerResult = AXUIElementGetPid(window, &owner)
-                var sample: [String: Any] = ["ownerResultCode": ownerResult.rawValue, "ownerPID": owner]
-                if ownerResult == .success, owner == identity.pid {
-                    sample["role"] = try attribute(window, kAXRoleAttribute) as? String ?? "unavailable"
-                    sample["frame"] = try frame(window).map(NSStringFromRect) ?? "unavailable"
-                }
-                windowSamples.append(sample)
-                evidence["lastWindowPublicSamples"] = windowSamples
-            }
             let disposition = try HomeAXProtocol.WindowQuery(
                 resultCode: result.rawValue, arrayValue: windows != nil, windowCount: windows?.count
-            ).disposition()
-            if disposition == .ready, let window = windows?.first {
+            ).disposition(measuredIdentity: measuredWindow != nil)
+            if disposition == .pending {
+                Thread.sleep(forTimeInterval: 0.025)
+                continue
+            }
+            var windowSamples: [[String: Any]] = []
+            var candidates: [HomeAXProtocol.WindowCandidate] = []
+            for window in windows ?? [] {
                 var owner: pid_t = 0
                 let ownerResult = AXUIElementGetPid(window, &owner)
-                evidence["windowOwnerResultCode"] = ownerResult.rawValue
-                evidence["windowOwnerPID"] = owner
                 guard ownerResult == .success, owner == identity.pid else {
-                    throw Failure(reason: "unique AX window owner differs from exact Demo PID")
+                    throw Failure(reason: "AX window inventory owner differs from exact Demo PID")
                 }
+                let roleValue = try attribute(window, kAXRoleAttribute)
+                let markerValue = try attribute(window, kAXIdentifierAttribute)
+                evidence["lastWindowAttributeTypes"] = [
+                    "role": roleValue.map { CFGetTypeID($0) } as Any? ?? NSNull(),
+                    "identifier": markerValue.map { CFGetTypeID($0) } as Any? ?? NSNull(),
+                    "ownerPID": owner,
+                ]
+                let role = try HomeAXProtocol.windowString(roleValue)
+                let marker = try HomeAXProtocol.windowString(markerValue)
+                let geometry = try frame(window)
+                windowSamples.append([
+                    "ownerResultCode": ownerResult.rawValue, "ownerPID": owner,
+                    "role": role as Any? ?? NSNull(), "identifier": marker as Any? ?? NSNull(),
+                    "frame": geometry.map(NSStringFromRect) as Any? ?? NSNull(),
+                ])
+                evidence["lastWindowPublicSamples"] = windowSamples
+                candidates.append(.init(pid: owner, role: role, identifier: marker, frame: geometry))
+            }
+            var selected: Int?
+            if disposition == .ready {
+                if let measuredWindow {
+                    selected = try HomeAXProtocol.measuredWindowIndex(in: candidates, identity: measuredWindow)
+                } else {
+                    selected = 0
+                }
+            }
+            if let selected, let windows {
                 try validateTarget()
-                evidence["windowAdmissionPhase"] = "unique exact-PID window admitted"
-                return window
+                evidence["windowAdmissionPhase"] =
+                    measuredWindow == nil
+                    ? "unique exact-PID window admitted" : "unique run-and-nonce marked captured window admitted"
+                return windows[selected]
             }
             Thread.sleep(forTimeInterval: 0.025)
         }
@@ -302,6 +324,14 @@ private final class HomeAXDiagnostic {
             armed["sourceSHA256"] as? String == expectedSource, armed["connected"] as? Bool == true
         else { throw Failure(reason: "app handshake mismatch") }
         evidence["internalTraversal"] = armed["accessibility"]
+        if measurement {
+            guard let binding = armed["measuredWindow"] else { throw Failure(reason: "measured window binding absent") }
+            let decoded = try JSONDecoder().decode(
+                HomeAXProtocol.MeasuredWindow.self, from: JSONSerialization.data(withJSONObject: binding))
+            try decoded.validate(runID: identity.runID, nonce: nonce, pid: identity.pid)
+            measuredWindow = decoded
+            evidence["measuredWindow"] = binding
+        }
         let application = AXUIElementCreateApplication(identity.pid)
         let window = try awaitOwnedWindow(application)
         var target: AXUIElement?

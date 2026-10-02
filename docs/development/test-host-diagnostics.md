@@ -1,9 +1,9 @@
 # Swift test-host diagnostics
 
-Use the [normal verification entry point](verification.md) and preserve its first failure. A last
-printed test is a lead, not attribution: stdout can be buffered while another test or process is active.
-The [#585 investigation](https://github.com/aladh/Spotty/issues/585) records the historical evidence
-and remaining uncertainty. New observations cannot retrospectively establish an old stall's cause.
+Use [normal verification](verification.md) and preserve its first failure. Buffered stdout makes the
+last printed test a lead, not attribution.
+The [#585 investigation](https://github.com/aladh/Spotty/issues/585) records historical evidence and
+uncertainty. New observations cannot establish an old stall's cause.
 
 ## Timeout evidence
 
@@ -29,8 +29,7 @@ that limit even when the sample header matches the target.
 
 ## Opt-in executing-host observation
 
-The observer wraps one unchanged verification command. Use a new output directory and the actual
-produced build root, not a guessed bundle name:
+Wrap one unchanged command with a new output directory and its actual build root:
 
 ```sh
 python3 Scripts/swift_test_host_observation.py \
@@ -38,11 +37,10 @@ python3 Scripts/swift_test_host_observation.py \
   --build-root "$PWD/.build" -- ./Scripts/check.sh
 ```
 
-The outer deadline is at most 900 seconds; each native watchdog has 300 seconds. Configure tools
-through the normal setup procedure first. CI limits the observer to 840 seconds inside its unchanged
+The outer deadline is at most 900 seconds; each native watchdog has 300 seconds. Use normal tool setup. CI limits the observer to 840 seconds inside its unchanged
 15-minute step, reserving 60 seconds for owned cleanup and receipt writes. Do not extend deadlines or retry merely to hide a failure.
 For a bounded Gateway investigation, pass the verified target selector after `--` and use its actual
-isolated build root. `--help` describes arguments; arbitrary existing output directories are refused.
+isolated build root. `--help` describes arguments; existing output directories are refused.
 
 An enabled diagnostic function immediately writes its invocation nonce, function identity and
 PID/parent/group, then returns. Ordinary gates intentionally skip this opt-in function. Observation
@@ -52,10 +50,10 @@ sleep or gate: a host that exits before observation is explicitly unavailable.
 
 `result.json` separates command status from observer status and records proof or refusal, native
 events and cleanup. A failed command retains its status. A successful command with unavailable proof
-fails the requested observation. Final receipt failures also fail closed. Keep the original packet,
+fails the requested observation. Final receipt failures also fail closed. Keep the packet,
 including failed attempts, before changing source or planning a separately declared diagnostic run.
 
-The adapter never starts a sampler. In CI it explicitly refuses native sampling. A same-repository
+The adapter never samples. In CI it explicitly refuses native sampling. A same-repository
 PR with `host-observation-evidence` requests observation around the existing full native lane; its
 artifact upload and readiness checks fail closed. This adds no second macOS matrix and removes no
 native tests or acceptance scenarios. Local real sampling demonstrations require separately bounded,
@@ -74,10 +72,10 @@ extend deadlines, enable live dependencies or retry for green.
 ### Actual application lifecycle
 
 Use an interactive, optimized, network-denied Demo with `homePresentedProbeSections: 12`, browsing
-mode, eight uniquely labeled albums per shelf and nil artwork. Default mode diagnoses AX traversal and navigation, not performance.
+mode, eight uniquely labeled albums per shelf and nil artwork. Default mode diagnoses traversal/navigation, not performance.
 External public Accessibility observes a hosted subtree pruned by internal traversal.
 
-Compile the separate controller before launching:
+Compile the controller before launch:
 
 ```sh
 xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors \
@@ -93,12 +91,16 @@ admit one exact public detail action. Retire only the owned Demo and restore the
 
 Add `homePresentedMeasurement: true` with 12 or 120 shelves for controlled initial-response measurement.
 The synthetic Home provider stays suspended until own-window ScreenCaptureKit capture is primed.
+Capture and external AX bind the same main window using PID, window number, a temporary run-and-nonce
+identifier, and normalized primary-display geometry. The bounded inventory rejects duplicate matches,
+malformed values and overflow; missing marker export waits within the original deadline. The identifier
+is restored on exit.
 The external controller confirms an enabled, visible, unique detail target after sections arrive, then
 waits for Home sampling and capture to finish before pressing it. A pre-navigation stage receipt is
 `home-presented-measurement.json`; functional acceptance requires
-`home-measurement-accepted.json` and a passing `home-ax-external.json`. Failure evidence is retained.
+`home-measurement-accepted.json` and passing `home-ax-external.json`.
 
-Compare repeated fresh processes at identical recorded geometry, scale, flags and fixture count.
+Compare repeated fresh processes at identical geometry, scale, flags and fixture count.
 Report external readiness observation separately from retrospective terminal-raster onset. Raster onset
 follows the last differing frame and can precede AX observation. Idle events
 retain the original display timestamp. Capture retains at most 300 timestamp/digest events.

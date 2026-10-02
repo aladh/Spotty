@@ -141,6 +141,90 @@ struct BrowsingHomeMeasurementChecks {
         #expect(!HomeAXProtocol.pulseIsFresh(recordedAt: 100, now: .infinity))
     }
 
+    @Test func markedCapturedWindowSurvivesReorderingAndUnmarkedAuxiliaryWindows() throws {
+        let identity = windowIdentity()
+        let main = HomeAXProtocol.WindowCandidate(
+            pid: 42, role: "AXWindow", identifier: identity.identifier, frame: identity.axFrame)
+        let auxiliary = HomeAXProtocol.WindowCandidate(
+            pid: 42, role: "AXWindow", identifier: nil, frame: CGRect(x: 16, y: 49, width: 66, height: 20))
+        #expect(try HomeAXProtocol.measuredWindowIndex(in: [auxiliary, main], identity: identity) == 1)
+        #expect(try HomeAXProtocol.measuredWindowIndex(in: [main, auxiliary], identity: identity) == 0)
+        #expect(try HomeAXProtocol.measuredWindowIndex(in: [auxiliary], identity: identity) == nil)
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try HomeAXProtocol.measuredWindowIndex(in: [main, main], identity: identity)
+        }
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try HomeAXProtocol.measuredWindowIndex(in: Array(repeating: auxiliary, count: 9), identity: identity)
+        }
+        #expect(
+            try HomeAXProtocol.WindowQuery(resultCode: 0, arrayValue: true, windowCount: 2)
+                .disposition(measuredIdentity: true) == .ready)
+    }
+
+    @Test func matchingSizeWrongOwnerRoleOrNonceCannotIdentifyMeasuredWindow() throws {
+        let identity = windowIdentity()
+        for candidate in [
+            HomeAXProtocol.WindowCandidate(
+                pid: 43, role: "AXWindow", identifier: identity.identifier, frame: identity.axFrame),
+            .init(pid: 42, role: "AXButton", identifier: identity.identifier, frame: identity.axFrame),
+            .init(pid: 42, role: "AXWindow", identifier: "another-nonce", frame: identity.axFrame),
+            .init(pid: 42, role: "AXWindow", identifier: nil, frame: identity.axFrame),
+        ] {
+            #expect(try HomeAXProtocol.measuredWindowIndex(in: [candidate], identity: identity) == nil)
+        }
+        for geometry: CGRect? in [
+            nil, .zero, CGRect(x: 0, y: 34, width: 1728, height: 1084),
+            CGRect(x: CGFloat.infinity, y: 33, width: 1728, height: 1084),
+        ] {
+            #expect(throws: HomeAXProtocol.Failure.self) {
+                try HomeAXProtocol.measuredWindowIndex(
+                    in: [.init(pid: 42, role: "AXWindow", identifier: identity.identifier, frame: geometry)],
+                    identity: identity)
+            }
+        }
+        try identity.validate(runID: "owned-run", nonce: "owned-nonce", pid: 42)
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try identity.validate(runID: "owned-run", nonce: "different-nonce", pid: 42)
+        }
+    }
+
+    @Test func malformedWindowAttributeStringsFailInsteadOfWaitingForExport() throws {
+        #expect(try HomeAXProtocol.windowString(nil) == nil)
+        #expect(try HomeAXProtocol.windowString("AXWindow") == "AXWindow")
+        for value: Any in [42, ["AXWindow"], true] {
+            #expect(throws: HomeAXProtocol.Failure.self) { try HomeAXProtocol.windowString(value) }
+        }
+    }
+
+    @Test func primaryDisplayNormalizationHandlesSecondaryDisplaysWithNegativeOrigins() throws {
+        let primary = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+        #expect(
+            try HomeAXProtocol.axFrame(CGRect(x: 0, y: 0, width: 1728, height: 1084), primaryDisplay: primary)
+                == CGRect(x: 0, y: 33, width: 1728, height: 1084))
+        #expect(
+            try HomeAXProtocol.axFrame(CGRect(x: -1920, y: -200, width: 960, height: 640), primaryDisplay: primary)
+                == CGRect(x: -1920, y: 677, width: 960, height: 640))
+        #expect(
+            try HomeAXProtocol.axFrame(CGRect(x: 100, y: 1200, width: 960, height: 640), primaryDisplay: primary)
+                == CGRect(x: 100, y: -723, width: 960, height: 640))
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try HomeAXProtocol.axFrame(.zero, primaryDisplay: primary)
+        }
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            try HomeAXProtocol.axFrame(
+                primary, primaryDisplay: CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 1117))
+        }
+    }
+
+    private func windowIdentity() -> HomeAXProtocol.MeasuredWindow {
+        .init(
+            runID: "owned-run", nonce: "owned-nonce", pid: 42, windowNumber: 100,
+            identifier: HomeAXProtocol.MeasuredWindow.marker(runID: "owned-run", nonce: "owned-nonce"),
+            appKitFrame: CGRect(x: 0, y: 0, width: 1728, height: 1084),
+            primaryDisplayAppKitFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117),
+            axFrame: CGRect(x: 0, y: 33, width: 1728, height: 1084))
+    }
+
     private func frame(_ display: UInt64, _ received: UInt64, _ digest: String, new: Bool = true)
         -> HomePresentedFrameCollector.Frame
     {

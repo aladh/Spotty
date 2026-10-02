@@ -4,10 +4,16 @@ import SpottyRuntimeContracts
 actor HarnessArtwork: ArtworkProviding {
     private(set) var requests: [ArtworkRequest] = []
     private var pending: [Int: CheckedContinuation<ArtworkAsset, Error>] = [:]
+    private let immediateFailure: ArtworkFailure?
+
+    init(immediateFailure: ArtworkFailure? = nil) {
+        self.immediateFailure = immediateFailure
+    }
 
     func artwork(for request: ArtworkRequest) async throws -> ArtworkAsset {
         let index = requests.count
         requests.append(request)
+        if let immediateFailure { throw immediateFailure }
         return try await withCheckedThrowingContinuation { pending[index] = $0 }
     }
 

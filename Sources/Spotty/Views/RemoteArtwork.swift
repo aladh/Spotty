@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import SpottyDomain
 import SpottyRuntimeContracts
 import SwiftUI
@@ -17,7 +18,15 @@ private struct ArtworkAccessKey: EnvironmentKey {
     static let defaultValue = ArtworkAccess()
 }
 
+private struct ArtworkAdmissionKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
+    var admitsArtwork: Bool {
+        get { self[ArtworkAdmissionKey.self] }
+        set { self[ArtworkAdmissionKey.self] = newValue }
+    }
     var artworkAccess: ArtworkAccess {
         get { self[ArtworkAccessKey.self] }
         set { self[ArtworkAccessKey.self] = newValue }
@@ -33,7 +42,14 @@ struct RemoteArtwork: View {
     var geometryIdentifier: String? = nil
     @Environment(\.artworkAccess) private var artwork
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.admitsArtwork) private var admitsArtwork
     @State private var loaded: LoadedArtwork?
+    @State private var admission: Admission?
+
+    private struct Admission: Equatable {
+        let request: ArtworkRequest
+        let id = UUID()
+    }
 
     private struct LoadedArtwork {
         let request: ArtworkRequest
@@ -47,6 +63,7 @@ struct RemoteArtwork: View {
                     url: $0, maximumPixelDimension: pixelDimension(for: geometry.size),
                     accountEpoch: artwork.accountEpoch)
             }
+            let active = admission
             Group {
                 if let loaded, loaded.request == request {
                     Image(decorative: loaded.image, scale: displayScale)
@@ -58,12 +75,25 @@ struct RemoteArtwork: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .task(id: request) {
+            .onChange(of: request, initial: true) { _, request in
+                if loaded?.request != request { loaded = nil }
+                admission = admitsArtwork ? request.map { Admission(request: $0) } : nil
+            }
+            .onChange(of: admitsArtwork) { _, admitted in
+                guard admitted, let request, admission?.request != request else { return }
+                admission = Admission(request: request)
+            }
+            .task(id: active?.id) {
+                guard let active, !Task.isCancelled, admission?.id == active.id else { return }
+                let request = active.request
+                guard loaded?.request != request else { return }
                 loaded = nil
-                guard let request,
-                    let asset = try? await artwork.provider.artwork(for: request),
-                    !Task.isCancelled, let image = asset.makeCGImage()
-                else { return }
+                guard let asset = try? await artwork.provider.artwork(for: request),
+                    !Task.isCancelled, admission?.id == active.id, let image = asset.makeCGImage()
+                else {
+                    if admission?.id == active.id { admission = nil }
+                    return
+                }
                 loaded = LoadedArtwork(request: request, image: image)
             }
         }
@@ -75,6 +105,7 @@ struct RemoteArtwork: View {
             }
         }
         .accessibilityHidden(true)
+        .onDisappear { admission = nil }
     }
 
     private func pixelDimension(for size: CGSize) -> Int {

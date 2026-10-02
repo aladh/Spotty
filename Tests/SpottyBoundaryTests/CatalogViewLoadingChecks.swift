@@ -143,7 +143,8 @@ struct CatalogViewLoadingTests {
         navigation.searchText = initialQuery
         let host = NSHostingView(
             rootView: RootView(
-                player: player, catalog: player.catalog, feedback: player.feedback, navigation: navigation))
+                player: player, catalog: player.catalog, feedback: player.feedback, navigation: navigation,
+                showsSidePanel: .constant(false)))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.borderless],
             backing: .buffered, defer: false)
@@ -198,7 +199,10 @@ struct CatalogViewLoadingTests {
         var appeared = false
         let host = NSHostingView(
             rootView:
-                RootView(player: player, catalog: player.catalog, feedback: player.feedback, navigation: navigation)
+                RootView(
+                    player: player, catalog: player.catalog, feedback: player.feedback, navigation: navigation,
+                    showsSidePanel: .constant(false)
+                )
                 .onAppear { appeared = true })
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.borderless],

@@ -602,9 +602,8 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
                 self.log.unlink(missing_ok=True)
                 result, calls = self.invoke(action)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                sdk = Path("/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk")
                 self.assertEqual(calls[0]["build_environment"], {
-                    "SDKROOT": str(sdk if sdk.is_dir() else self.root / "MacOSX.sdk"),
+                    "SDKROOT": str(self.root / "MacOSX.sdk"),
                     "CLANG_MODULE_CACHE_PATH": str(self.root / ".build/module-cache"),
                     "SWIFTPM_MODULECACHE_OVERRIDE": str(self.root / ".build/module-cache"),
                 })
@@ -615,6 +614,14 @@ raise SystemExit(int(os.environ.get('VERIFY_TEST_STATUS', '0')))
         result, calls = self.invoke("test", "--filter", "ExampleTests")
         self.assertEqual(result.returncode, 19, result.stderr)
         self.assertEqual(calls, [])
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS build settings")
+    def test_empty_sdk_discovery_does_not_run_swift(self):
+        (self.root / "xcrun").write_text(f"#!{sys.executable}\nprint('')\n")
+        result, calls = self.invoke("test", "--filter", "ExampleTests")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [])
+        self.assertIn("xcrun returned no macOS SDK path", result.stderr)
 
     def test_gate_failure_preserves_status_and_exact_delegated_command(self):
         self.environment["VERIFY_TEST_STATUS"] = "23"

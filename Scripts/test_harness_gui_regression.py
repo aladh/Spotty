@@ -21,6 +21,39 @@ def fixture_png(width, height):
             + chunk(b"IDAT", gui.zlib.compress((b"\0" + b"\0" * (width * 3)) * height)) + chunk(b"IEND", b""))
 
 
+def fixture_markers(name, width, height):
+    def rect(x, y, width, height):
+        return {"x": x, "y": y, "width": width, "height": height}
+    inspector_open = name.startswith("inspector.") and name != "inspector.closed"
+    sidebar_width = 180 if name == "inspector.minimum" else 260
+    catalog_x = sidebar_width + 8
+    catalog_width = width - catalog_x - (280 if inspector_open else 8)
+    search_width = min(474, max(0, width / 2 - 72))
+    group_width = search_width + 56
+    group_x = (width - group_width) / 2
+    search_x = group_x + 56
+    markers = {
+        "shell.sidebar": rect(0, 80, sidebar_width, height - 80),
+        "shell.catalog": rect(catalog_x, 80, catalog_width, height - 80),
+        "shell.player": rect(0, 0, width, 80),
+        "shell.navigation": rect(group_x, height + 8, group_width, 52),
+        "shell.home": rect(group_x, height + 10, 48, 48),
+        "shell.search": rect(search_x, height + 10, search_width, 48),
+        "shell.home.glyph": rect(group_x + 12, height + 22, 24, 24),
+        "shell.search.glyph": rect(search_x + 12, height + 22, 24, 24),
+        "shell.search.field": rect(search_x + 48, height + 24, search_width - 60, 20),
+        "shell.history.back": rect(80, height + 18, 32, 32),
+        "shell.history.forward": rect(114, height + 18, 32, 32),
+    }
+    if inspector_open:
+        markers["shell.inspector"] = rect(width - 272, 80, 272, height - 80)
+    if name.startswith("search."):
+        markers["search.filters"] = rect(catalog_x + 16, height - 64, 200, 32)
+    if name == "detail.playlist":
+        markers["detail.native-scroll"] = rect(catalog_x, 80, catalog_width, height - 80)
+    return markers
+
+
 class GUIRegressionChecks(unittest.TestCase):
     def fixture(self, root, signed_out=False, screen_size=(1920, 1080)):
         fixture = root / "fixture.json"
@@ -60,7 +93,8 @@ class GUIRegressionChecks(unittest.TestCase):
                 "frameToBodyOverhead": {"x": 0, "y": 0, "width": 0, "height": 100},
                 "requestedBodySize": {"x": 0, "y": 0, **target},
                 "contentLayoutRect": {"x": 0, "y": 0, **target},
-                "contentBounds": {"x": 0, "y": 0, "width": width, "height": height + 60},
+                "contentBounds": {"x": 0, "y": 0, "width": width, "height": height + 66},
+                "markers": fixture_markers(name, width, height),
                 "pixelSamples": [{"name": key, "maximumRGB": 0, "meanRGB": 0, "minimumAlpha": 255, "pixelCount": 10, "pixelRect": {"x": 0, "y": 0, "width": 2, "height": 5}}
                                  for key in ("shell.home", "shell.search", "shell.history.back", "shell.history.forward")],
                 "captures": [{"file": "shell-captures/" + name + ".png", "pixelWidth": width * 2, "pixelHeight": (height + 100) * 2,
@@ -94,7 +128,179 @@ class GUIRegressionChecks(unittest.TestCase):
                 manifest, fixture, owned, names, *_ = self.fixture(root, signed_out)
                 result = gui.validate_reports(root, manifest, fixture, owned, names)
                 self.assertTrue(result["passed"])
-                self.assertEqual(result["checkpointCount"], 4 if signed_out else 8)
+                self.assertEqual(result["checkpointCount"], 8 if signed_out else 12)
+
+    def test_raw_marker_mutations_fail_with_native_assertion_flags_still_true(self):
+        changes = (
+            ("missing markers", lambda point: point.pop("markers")),
+            ("malformed markers", lambda point: point.update(markers=[])),
+            ("missing Home", lambda point: point["markers"].pop("shell.home")),
+            ("empty Home", lambda point: point["markers"]["shell.home"].update(width=0)),
+            ("negative Search", lambda point: point["markers"]["shell.search"].update(height=-48)),
+            ("NaN Home", lambda point: point["markers"]["shell.home"].update(x=float("nan"))),
+            ("infinite Search", lambda point: point["markers"]["shell.search"].update(width=float("inf"))),
+            ("boolean dimension", lambda point: point["markers"]["shell.home"].update(width=True)),
+            ("outside content", lambda point: point["markers"]["shell.sidebar"].update(x=-3)),
+            ("shifted Search", lambda point: point["markers"]["shell.search"].update(x=point["markers"]["shell.search"]["x"] + 10)),
+            ("shifted Home Y", lambda point: point["markers"]["shell.home"].update(y=point["markers"]["shell.home"]["y"] - 10)),
+            ("resized Home", lambda point: point["markers"]["shell.home"].update(width=51)),
+            ("resized Search", lambda point: point["markers"]["shell.search"].update(width=470)),
+            ("minimum Search width at wide window", lambda point: point["markers"]["shell.search"].update(width=408)),
+            ("short Search", lambda point: point["markers"]["shell.search"].update(height=44)),
+            ("overlapping Home/Search", lambda point: point["markers"]["shell.search"].update(x=point["markers"]["shell.home"]["x"] + 40)),
+            ("shifted navigation", lambda point: point["markers"]["shell.navigation"].update(x=point["markers"]["shell.navigation"]["x"] + 10)),
+            ("navigation excludes controls", lambda point: point["markers"]["shell.navigation"].update(width=500)),
+            ("navigation clipped at content top", lambda point: point["markers"]["shell.navigation"].update(height=64)),
+            ("short toolbar row", lambda point: point["contentLayoutRect"].update(height=point["contentLayoutRect"]["height"] + 6)),
+            ("tall toolbar row", lambda point: point["contentLayoutRect"].update(height=point["contentLayoutRect"]["height"] - 4)),
+            ("missing Home glyph", lambda point: point["markers"].pop("shell.home.glyph")),
+            ("missing Search glyph", lambda point: point["markers"].pop("shell.search.glyph")),
+            ("missing search field", lambda point: point["markers"].pop("shell.search.field")),
+            ("resized Home glyph", lambda point: point["markers"]["shell.home.glyph"].update(width=27)),
+            ("resized Search glyph", lambda point: point["markers"]["shell.search.glyph"].update(height=21)),
+            ("Home glyph horizontal alignment", lambda point: point["markers"]["shell.home.glyph"].update(x=point["markers"]["shell.home.glyph"]["x"] + 4)),
+            ("Search glyph inset", lambda point: point["markers"]["shell.search.glyph"].update(x=point["markers"]["shell.search.glyph"]["x"] + 4)),
+            ("Home glyph vertical alignment", lambda point: point["markers"]["shell.home.glyph"].update(y=point["markers"]["shell.home.glyph"]["y"] - 4)),
+            ("Search glyph vertical alignment", lambda point: point["markers"]["shell.search.glyph"].update(y=point["markers"]["shell.search.glyph"]["y"] - 4)),
+            ("Home glyph outside control", lambda point: point["markers"]["shell.home.glyph"].update(x=point["markers"]["shell.home"]["x"] - 1)),
+            ("Search glyph outside control", lambda point: point["markers"]["shell.search.glyph"].update(y=point["markers"]["shell.search"]["y"] - 1)),
+            ("Search field inset", lambda point: point["markers"]["shell.search.field"].update(x=point["markers"]["shell.search.field"]["x"] - 4)),
+            ("Search field outside control", lambda point: point["markers"]["shell.search.field"].update(width=430)),
+            ("empty search field", lambda point: point["markers"]["shell.search.field"].update(height=0)),
+            ("NaN glyph", lambda point: point["markers"]["shell.home.glyph"].update(y=float("nan"))),
+            ("infinite field", lambda point: point["markers"]["shell.search.field"].update(width=float("inf"))),
+            ("sidebar width", lambda point: point["markers"]["shell.sidebar"].update(width=263)),
+            ("catalog overlaps sidebar", lambda point: point["markers"]["shell.catalog"].update(x=250)),
+            ("catalog overlaps player", lambda point: point["markers"]["shell.catalog"].update(y=70)),
+            ("catalog overlaps toolbar", lambda point: point["markers"]["shell.catalog"].update(height=point["markers"]["shell.catalog"]["height"] + 20)),
+            ("short player", lambda point: point["markers"]["shell.player"].update(height=69)),
+            ("history width", lambda point: point["markers"]["shell.history.back"].update(width=35)),
+            ("history height", lambda point: point["markers"]["shell.history.forward"].update(height=29)),
+            ("history center spacing", lambda point: point["markers"]["shell.history.forward"].update(x=118)),
+            ("history vertical alignment", lambda point: point["markers"]["shell.history.forward"].update(y=point["markers"]["shell.history.forward"]["y"] - 4)),
+            ("history row above Home", lambda point: [point["markers"][name].update(y=point["markers"][name]["y"] + 4) for name in ("shell.history.back", "shell.history.forward")]),
+            ("history overlap", lambda point: point["markers"]["shell.history.forward"].update(x=100)),
+            ("history/navigation overlap", lambda point: point["markers"]["shell.history.forward"].update(x=point["markers"]["shell.navigation"]["x"])),
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, fixture, owned, names, report, shell, status = self.fixture(root)
+            original = deepcopy(shell["checkpoints"][0])
+            for label, change in changes:
+                with self.subTest(problem=label):
+                    point = deepcopy(original)
+                    change(point)
+                    self.assertTrue(report["passed"] and shell["passed"])
+                    self.assertTrue(all(item["passed"] for item in point["assertions"]))
+                    with self.assertRaises(ValueError):
+                        gui.validate_product_geometry(point)
+                    shell["checkpoints"][0] = point
+                    self.write_reports(root, report, shell, status)
+                    with self.assertRaises(ValueError):
+                        gui.validate_reports(root, manifest, fixture, owned, names)
+
+    def test_group_center_is_measured_from_both_controls_across_full_content(self):
+        for checkpoint, shift in (("home.default", -28), ("home.default", 130), ("inspector.default", -140)):
+            with self.subTest(checkpoint=checkpoint, shift=shift), TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest, fixture, owned, names, report, shell, status = self.fixture(root)
+                point = next(point for point in shell["checkpoints"] if point["name"] == checkpoint)
+                # Keep sizes, common Y and gap valid. Leave navigation centered to expose a
+                # validator that trusts only the outer marker or the Search field's center.
+                for name in ("shell.home", "shell.search"):
+                    point["markers"][name]["x"] += shift
+                self.assertTrue(all(item["passed"] for item in point["assertions"]))
+                self.write_reports(root, report, shell, status)
+                with self.assertRaisesRegex(ValueError, "group centered across full content"):
+                    gui.validate_reports(root, manifest, fixture, owned, names)
+
+    def test_responsive_search_widths_require_the_full_window_width(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, fixture, owned, names, report, shell, status = self.fixture(root)
+            expected_widths = {960: 408, 1080: 468, 1220: 474}
+            for point in shell["checkpoints"]:
+                self.assertEqual(point["markers"]["shell.search"]["width"],
+                                 expected_widths[point["contentBounds"]["width"]])
+            originals = deepcopy(shell["checkpoints"])
+            for checkpoint, invalid_width in (("home.minimum", 474), ("shell.resized", 474),
+                                              ("inspector.default", 408)):
+                with self.subTest(checkpoint=checkpoint, invalid_width=invalid_width):
+                    shell["checkpoints"] = deepcopy(originals)
+                    point = next(point for point in shell["checkpoints"] if point["name"] == checkpoint)
+                    markers = point["markers"]
+                    difference = invalid_width - markers["shell.search"]["width"]
+                    # Preserve the centered group, gap, glyphs and field containment so
+                    # only the independent responsive width expectation can reject it.
+                    for name in ("shell.navigation", "shell.home", "shell.home.glyph", "shell.search",
+                                 "shell.search.glyph", "shell.search.field"):
+                        markers[name]["x"] -= difference / 2
+                    for name in ("shell.navigation", "shell.search", "shell.search.field"):
+                        markers[name]["width"] += difference
+                    self.assertTrue(all(item["passed"] for item in point["assertions"]))
+                    report["shellRegression"] = shell
+                    self.write_reports(root, report, shell, status)
+                    with self.assertRaisesRegex(ValueError, "independent Search size"):
+                        gui.validate_reports(root, manifest, fixture, owned, names)
+
+    def test_inspector_presentation_and_geometry_are_independently_required(self):
+        cases = (
+            ("inspector.resized", "missing", lambda point: point["markers"].pop("shell.inspector")),
+            ("inspector.minimum", "empty", lambda point: point["markers"]["shell.inspector"].update(width=0, height=0)),
+            ("inspector.default", "narrow", lambda point: point["markers"]["shell.inspector"].update(width=249)),
+            ("inspector.default", "wide", lambda point: point["markers"]["shell.inspector"].update(x=800, width=363)),
+            ("inspector.default", "overlap", lambda point: point["markers"]["shell.catalog"].update(width=point["markers"]["shell.catalog"]["width"] + 80)),
+            ("inspector.default", "outside", lambda point: point["markers"]["shell.inspector"].update(x=1000)),
+            ("inspector.closed", "still open", lambda point: point["markers"].update({"shell.inspector": fixture_markers("inspector.resized", 1080, 700)["shell.inspector"]})),
+            ("home.default", "unexpected open", lambda point: point["markers"].update({"shell.inspector": fixture_markers("inspector.default", 1220, 780)["shell.inspector"]})),
+        )
+        for signed_out in (False, True):
+            with TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest, fixture, owned, names, report, shell, status = self.fixture(root, signed_out)
+                originals = deepcopy(shell["checkpoints"])
+                for checkpoint, label, change in cases:
+                    if signed_out and checkpoint == "home.default":
+                        checkpoint = "signed-out.default"
+                    with self.subTest(signed_out=signed_out, checkpoint=checkpoint, problem=label):
+                        shell["checkpoints"] = deepcopy(originals)
+                        point = next(point for point in shell["checkpoints"] if point["name"] == checkpoint)
+                        change(point)
+                        self.assertTrue(all(item["passed"] for item in point["assertions"]))
+                        report["shellRegression"] = shell
+                        self.write_reports(root, report, shell, status)
+                        with self.assertRaises(ValueError):
+                            gui.validate_reports(root, manifest, fixture, owned, names)
+
+    def test_empty_closed_inspector_and_padding_aware_open_widths_pass(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, fixture, owned, names, report, shell, status = self.fixture(root)
+            closed = next(point for point in shell["checkpoints"] if point["name"] == "inspector.closed")
+            closed["markers"]["shell.inspector"] = {"x": 0, "y": 0, "width": 0, "height": 0}
+            for point in shell["checkpoints"]:
+                if point["name"].startswith("inspector.") and point is not closed:
+                    point["markers"]["shell.inspector"]["width"] = 252
+            self.write_reports(root, report, shell, status)
+            self.assertTrue(gui.validate_reports(root, manifest, fixture, owned, names)["passed"])
+
+    def test_search_filters_and_detail_scroll_require_contained_raw_markers(self):
+        cases = (("search.all", "search.filters"), ("search.albums", "search.filters"),
+                 ("search.returned", "search.filters"), ("detail.playlist", "detail.native-scroll"))
+        for checkpoint, marker in cases:
+            for missing in (True, False):
+                with self.subTest(checkpoint=checkpoint, missing=missing), TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    manifest, fixture, owned, names, report, shell, status = self.fixture(root)
+                    point = next(point for point in shell["checkpoints"] if point["name"] == checkpoint)
+                    if missing:
+                        point["markers"].pop(marker)
+                    else:
+                        point["markers"][marker]["x"] = 0
+                    self.assertTrue(all(item["passed"] for item in point["assertions"]))
+                    self.write_reports(root, report, shell, status)
+                    with self.assertRaises(ValueError):
+                        gui.validate_reports(root, manifest, fixture, owned, names)
 
     def test_stale_or_mismatched_reports_and_incomplete_assertions_fail(self):
         changes = (
@@ -107,6 +313,7 @@ class GUIRegressionChecks(unittest.TestCase):
             lambda report, shell, status: shell["checkpoints"][0]["assertions"][0].update(passed=False),
             lambda report, shell, status: shell.update(checkpoints=[]),
             lambda report, shell, status: shell["checkpoints"].pop(),
+            lambda report, shell, status: shell["checkpoints"].insert(4, deepcopy(shell["checkpoints"][4])),
             lambda report, shell, status: report["playback"].update(playing=True),
             lambda report, shell, status: report["world"].update(mutationAttempts=1),
             lambda report, shell, status: shell["checkpoints"][0].update(commandCount=1),

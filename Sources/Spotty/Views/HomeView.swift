@@ -74,6 +74,7 @@ private struct HomeRecommendationsView: View {
     let interaction: HomeInteractionState
     let onSelect: (CatalogItem) -> Void
     @State private var position = ScrollPosition()
+    @State private var restoringInitialPosition = false
     private let restoredOffset: CGFloat
 
     init(
@@ -90,7 +91,9 @@ private struct HomeRecommendationsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 30) {
+            // Absolute restoration needs the complete shelf extent. Lazy estimates
+            // can clamp a valid retained offset before native shelf rows are measured.
+            VStack(alignment: .leading, spacing: 30) {
                 HStack {
                     Text(store.greeting)
                         .font(.system(size: 32, weight: .bold))
@@ -118,13 +121,32 @@ private struct HomeRecommendationsView: View {
             .padding(.bottom, 24)
         }
         .scrollPosition($position)
-        .onAppear { position.scrollTo(y: restoredOffset) }
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            max(0, geometry.contentOffset.y + geometry.contentInsets.top)
-        } action: { _, offset in
-            interaction.scrollOffset = offset
+        .onAppear {
+            restoringInitialPosition = true
+            position.scrollTo(y: restoredOffset)
+        }
+        .onScrollGeometryChange(for: HomeScrollGeometry.self) { geometry in
+            HomeScrollGeometry(
+                offset: max(0, geometry.contentOffset.y + geometry.contentInsets.top),
+                maximum: max(
+                    0,
+                    geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
+                        - geometry.containerSize.height))
+        } action: { _, geometry in
+            interaction.scrollOffset = geometry.offset
+            if restoringInitialPosition && abs(geometry.offset - min(restoredOffset, geometry.maximum)) < 1 {
+                restoringInitialPosition = false
+                // Retire an unreachable initial request at its accepted clamp so a
+                // later catalog refresh cannot reapply the original stale position.
+                position.scrollTo(y: geometry.offset)
+            }
         }
     }
+}
+
+private struct HomeScrollGeometry: Equatable {
+    let offset: CGFloat
+    let maximum: CGFloat
 }
 
 struct QuickAccessShelf: View {

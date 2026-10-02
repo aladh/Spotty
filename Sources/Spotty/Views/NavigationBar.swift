@@ -2,14 +2,18 @@ import SwiftUI
 
 struct NavigationBar: View {
     @Binding var searchText: String
+    let availableWidth: CGFloat
+    let accountEpoch: UInt64
     let isHome: Bool
     let isSearch: Bool
     let goHome: () -> Void
     let showSearch: () -> Void
-    @State private var searchField = NavigationSearchField.Controller()
+    let searchField: NavigationSearchField.Controller
     @FocusState private var homeIsFocused: Bool
     @State private var homeIsHovered = false
     @State private var searchIsHovered = false
+
+    private var searchWidth: CGFloat { min(474, max(0, availableWidth / 2 - 72)) }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -17,6 +21,7 @@ struct NavigationBar: View {
                 NavigationSymbol(kind: isHome ? .homeFilled : .home)
                     .fill(style: FillStyle(eoFill: true))
                     .frame(width: 24, height: 24)
+                    .shellGeometry("shell.home.glyph")
                     .foregroundStyle(
                         isHome || homeIsHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
                     )
@@ -24,6 +29,9 @@ struct NavigationBar: View {
                     .background(
                         homeIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl, in: Circle()
                     )
+                    .overlay {
+                        Circle().strokeBorder(homeIsFocused ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
+                    }
                     .scaleEffect(homeIsHovered ? 1.04 : 1)
             }
             .animation(.easeOut(duration: 0.15), value: homeIsHovered)
@@ -31,27 +39,33 @@ struct NavigationBar: View {
             .accessibilityLabel("Home")
             .help("Home")
             .focusable()
+            .focusEffectDisabled()
             .focused($homeIsFocused)
             .shellGeometry("shell.home")
             HStack(spacing: 12) {
                 Button {
+                    showSearch()
                     searchField.focus()
                 } label: {
                     NavigationSymbol(kind: .search)
                         .fill(style: FillStyle(eoFill: true))
                         .frame(width: 24, height: 24)
+                        .shellGeometry("shell.search.glyph")
                         .foregroundStyle(
                             searchField.isFocused || searchIsHovered
                                 ? SpottyPalette.textPrimary : SpottyPalette.textSecondary
                         )
                 }
                 .accessibilityLabel("Search")
-                .keyboardShortcut("l", modifiers: .command)
-                NavigationSearchField(text: $searchText, controller: searchField, onActivate: showSearch)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                NavigationSearchField(
+                    text: $searchText, controller: searchField, onActivate: showSearch, resetGeneration: accountEpoch
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .shellGeometry("shell.search.field")
                 if !searchText.isEmpty {
                     Button {
                         searchText = ""
+                        showSearch()
                         searchField.focus()
                     } label: {
                         Image(systemName: "xmark")
@@ -67,12 +81,15 @@ struct NavigationBar: View {
             }
             .onHover { searchIsHovered = $0 }
             .padding(.horizontal, 12)
-            .frame(maxWidth: 474)
+            .frame(width: searchWidth)
             .frame(height: 48)
             .background {
                 Capsule()
                     .fill(searchIsHovered ? SpottyPalette.elevatedHighlight : SpottyPalette.navigationControl)
-                    .onTapGesture { searchField.focus() }
+                    .onTapGesture {
+                        showSearch()
+                        searchField.focus()
+                    }
             }
             .overlay {
                 Capsule().strokeBorder(searchField.isFocused ? SpottyPalette.textPrimary : .clear, lineWidth: 2)
@@ -83,8 +100,7 @@ struct NavigationBar: View {
         .labelStyle(.iconOnly)
         .buttonStyle(.plain)
         .font(.system(size: 18))
-        .frame(width: 530)
-        // AppKit's unified row is 52pt. Keep the 48pt controls inside that native geometry.
+        .frame(width: searchWidth + 56)
         .padding(.vertical, 2)
         .shellGeometry("shell.navigation")
         .onChange(of: searchText) {
@@ -100,15 +116,13 @@ struct NavigationBar: View {
 struct HistoryNavigationButton: View {
     let title: String
     let symbol: String
-    let shortcut: KeyEquivalent
     let isEnabled: Bool
     let action: () -> Void
     @State private var isHovered = false
 
-    init(_ title: String, symbol: String, shortcut: KeyEquivalent, isEnabled: Bool, action: @escaping () -> Void) {
+    init(_ title: String, symbol: String, isEnabled: Bool, action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
-        self.shortcut = shortcut
         self.isEnabled = isEnabled
         self.action = action
     }
@@ -116,7 +130,9 @@ struct HistoryNavigationButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 20))
+                .font(.system(size: 22))
+                // Center the visible chevron ink without moving its hit rectangle.
+                .offset(x: symbol == "chevron.left" ? 1.25 : -1.25)
                 .foregroundStyle(
                     isEnabled
                         ? (isHovered ? SpottyPalette.textPrimary : SpottyPalette.textSecondary)
@@ -126,7 +142,6 @@ struct HistoryNavigationButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(shortcut, modifiers: .command)
         .disabled(!isEnabled)
         .onHover { isHovered = $0 }
         .pointingHandCursor(enabled: isEnabled)

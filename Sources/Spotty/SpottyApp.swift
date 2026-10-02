@@ -136,6 +136,10 @@ struct SpottyApp: App {
 
 /// Live and isolated demo builds use the same window, root view, commands, and lifecycle.
 struct SpottyScene: Scene {
+    @State private var showsPlaybackInspector = false
+    @State private var toolbarActions = NavigationToolbarActions()
+    @State private var canGoBack = false
+    @State private var canGoForward = false
     let player: PlaybackStore
     let feedback: TransientFeedbackPresenter
     let appDelegate: SpottyAppDelegate
@@ -145,25 +149,68 @@ struct SpottyScene: Scene {
 
     var body: some Scene {
         Window(AppDisplayName.current, id: "main") {
-            RootView(player: player, catalog: player.catalog, feedback: feedback, navigation: navigation)
-                .frame(minWidth: 960, minHeight: 640)
-                .task {
-                    appDelegate.installTerminationHandler { await player.shutdownForTermination() }
-                    appDelegate.installKeyboardControls(player: player)
-                    if enablesSystemMediaControls { appDelegate.installMediaControls(player: player) }
-                    updater?.start()
-                    await player.restore()
-                }
+            RootView(
+                player: player, catalog: player.catalog, feedback: feedback, navigation: navigation,
+                showsSidePanel: $showsPlaybackInspector, toolbarActions: toolbarActions,
+                canGoBack: $canGoBack, canGoForward: $canGoForward
+            )
+            .frame(minWidth: 960, minHeight: 640)
+            .task {
+                appDelegate.installTerminationHandler { await player.shutdownForTermination() }
+                appDelegate.installKeyboardControls(player: player)
+                if enablesSystemMediaControls { appDelegate.installMediaControls(player: player) }
+                updater?.start()
+                await player.restore()
+            }
         }
         .defaultSize(width: 1220, height: 780)
         .defaultLaunchBehavior(.presented)
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands {
-            InspectorCommands()
+            NavigationToolbarCommands(
+                actions: toolbarActions, canGoBack: $canGoBack, canGoForward: $canGoForward,
+                presentation: $showsPlaybackInspector)
             if let updater { UpdateCommands(updater: updater) }
             AccountCommands(player: player)
             PlaybackCommands(player: player)
+        }
+    }
+}
+
+/// Scene commands retain narrow actions while the root owns navigation and Search.
+@MainActor
+final class NavigationToolbarActions {
+    var focusSearch: () -> Void = {}
+    var goBack: () -> Void = {}
+    var goForward: () -> Void = {}
+
+    func clear() {
+        focusSearch = {}
+        goBack = {}
+        goForward = {}
+    }
+}
+
+private struct NavigationToolbarCommands: Commands {
+    let actions: NavigationToolbarActions
+    @Binding var canGoBack: Bool
+    @Binding var canGoForward: Bool
+    @Binding var presentation: Bool
+    var body: some Commands {
+        CommandGroup(after: .sidebar) {
+            Button("Go back") { actions.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!canGoBack)
+            Button("Go forward") { actions.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!canGoForward)
+            Button("Search") {
+                actions.focusSearch()
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            Button(presentation ? "Hide Inspector" : "Show Inspector") { presentation.toggle() }
+                .keyboardShortcut("i", modifiers: [.command, .control])
         }
     }
 }

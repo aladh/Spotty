@@ -25,7 +25,8 @@ struct SidebarWidthChecks {
         var appeared = false
         func content() -> some View {
             RootView(
-                player: player, catalog: player.catalog, feedback: player.feedback, navigation: navigation
+                player: player, catalog: player.catalog, feedback: player.feedback, navigation: navigation,
+                showsSidePanel: .constant(false)
             )
             .frame(minWidth: 960, minHeight: 640)
             .onAppear { appeared = true }

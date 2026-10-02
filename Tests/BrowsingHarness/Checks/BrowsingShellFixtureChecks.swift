@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SpottyEngineAdapter
 import Testing
@@ -98,6 +99,124 @@ struct BrowsingShellFixtureChecks {
             throw error
         }
         await player.shutdownForTermination()
+    }
+
+    @Test func changedWorkAreaRequalifiesOnlyTheOwnedWindowOncePerChange() throws {
+        let initial = CGRect(x: 0, y: 78, width: 1280, height: 851)
+        let desired = CGSize(width: 1220, height: 780)
+        let window = NSWindow(
+            contentRect: CGRect(origin: .zero, size: desired), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        var sizedFrame = initial
+        var resizeCount = 0
+        func apply(_ frame: CGRect) throws {
+            let target = try BrowsingShellRegression.targetBodySize(
+                desired: desired, visibleFrame: frame, overhead: .zero)
+            window.setContentSize(target)
+            window.setFrameOrigin(
+                CGPoint(x: frame.midX - window.frame.width / 2, y: frame.midY - window.frame.height / 2))
+            sizedFrame = frame
+        }
+        try apply(initial)
+        for frame in [
+            initial, CGRect(x: 0, y: 74, width: 1280, height: 855),
+            CGRect(x: 0, y: 74, width: 1280, height: 855),
+            CGRect(x: 0, y: 0, width: 1024, height: 700),
+            CGRect(x: 0, y: 0, width: 1024, height: 700),
+        ] {
+            _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(sizedFrame: sizedFrame, currentFrame: frame) {
+                try apply(frame)
+                resizeCount += 1
+            }
+            #expect(sizedFrame == frame)
+            #expect(frame.contains(window.frame))
+            // AppKit rounds a half-point frame origin to the backing pixel.
+            #expect(abs(window.frame.midY - frame.midY) <= 0.5)
+        }
+        #expect(resizeCount == 2)
+        #expect(window.contentView?.bounds.size == CGSize(width: 1024, height: 700))
+        #expect(throws: (any Error).self) {
+            _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(sizedFrame: sizedFrame, currentFrame: nil) {
+                Issue.record("An unavailable display must not be admitted")
+            }
+        }
+        #expect(throws: (any Error).self) {
+            let ineligible = CGRect(x: 0, y: 0, width: 959, height: 700)
+            _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(sizedFrame: sizedFrame, currentFrame: ineligible) {
+                try apply(ineligible)
+            }
+        }
+        #expect(sizedFrame == CGRect(x: 0, y: 0, width: 1024, height: 700))
+    }
+
+    @Test func capturedWorkAreaRejectsRequalificationAndExplicitResize() throws {
+        let captured = CGRect(x: 0, y: 78, width: 1280, height: 851)
+        let changed = CGRect(x: 0, y: 74, width: 1280, height: 855)
+        var resizeCount = 0
+        #expect(
+            try BrowsingShellRegression.requalifyDisplayIfNeeded(
+                sizedFrame: captured, currentFrame: captured, capturedFrame: captured,
+                resize: { resizeCount += 1 }) == false)
+        #expect(throws: (any Error).self) {
+            _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(
+                sizedFrame: captured, currentFrame: changed, capturedFrame: captured,
+                resize: { resizeCount += 1 })
+        }
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 960, height: 640), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let originalFrame = window.frame
+        // Exercise the production native resize operation, including admission
+        // before either metadata publication or changes to the owned window.
+        #expect(throws: (any Error).self) {
+            _ = try BrowsingShellRegression.resizeOwnedWindow(
+                window, bodySize: CGSize(width: 1080, height: 700), visibleFrame: changed, capturedFrame: captured,
+                didQualify: { _ in resizeCount += 1 })
+        }
+        #expect(window.frame == originalFrame)
+        #expect(throws: (any Error).self) {
+            _ = try BrowsingShellRegression.requalifyDisplayIfNeeded(
+                sizedFrame: changed, currentFrame: changed, capturedFrame: captured,
+                resize: { resizeCount += 1 })
+        }
+        #expect(resizeCount == 0)
+    }
+
+    @Test func asynchronousCaptureRejectsUnqualifiedAndFinalDisplayDrift() async throws {
+        let initial = CGRect(x: 0, y: 78, width: 1280, height: 851)
+        let changed = CGRect(x: 0, y: 74, width: 1280, height: 855)
+        var visibleFrame: CGRect? = initial
+        var operations = 0
+        let stable = try await BrowsingShellRegression.captureOnQualifiedDisplay(
+            sizedFrame: initial, capturedFrame: nil, visibleFrame: { visibleFrame },
+            operation: {
+                operations += 1
+                await Task.yield()
+                return 42
+            })
+        #expect(stable.frame == initial && stable.value == 42)
+        await #expect(throws: (any Error).self) {
+            _ = try await BrowsingShellRegression.captureOnQualifiedDisplay(
+                sizedFrame: initial, capturedFrame: initial, visibleFrame: { visibleFrame },
+                operation: {
+                    operations += 1
+                    await Task.yield()
+                    visibleFrame = changed
+                })
+        }
+        for frame in [Optional(changed), nil] {
+            visibleFrame = frame
+            await #expect(throws: (any Error).self) {
+                _ = try await BrowsingShellRegression.captureOnQualifiedDisplay(
+                    sizedFrame: initial, capturedFrame: nil, visibleFrame: { visibleFrame },
+                    operation: { operations += 1 })
+            }
+        }
+        #expect(operations == 2)
     }
 
     @Test func displayEligibilityPreservesMinimumAndDistinctResizeCoverage() throws {

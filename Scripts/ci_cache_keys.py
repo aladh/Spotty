@@ -73,14 +73,10 @@ def field(text, pattern, name):
 
 
 def sdk_path(scope, root, probe, environment):
-    if scope == "swift":
-        # Keep this selection aligned with swiftpm-env.sh, which overwrites SDKROOT.
-        compatible = Path("/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk")
-        if compatible.is_dir():
-            return str(compatible)
-    elif environment.get("SDKROOT"):
+    # Swift's wrapper always selects Xcode's SDK, independent of inherited SDKROOT.
+    if scope == "rust" and environment.get("SDKROOT"):
         return environment["SDKROOT"]
-    return probe(["xcrun", "--show-sdk-path"], root)
+    return probe(["env", "-u", "SDKROOT", "xcrun", "--sdk", "macosx", "--show-sdk-path"], root)
 
 
 def sdk_identity(path):
@@ -88,7 +84,7 @@ def sdk_identity(path):
     settings = (root / "SDKSettings.json").read_bytes()
     metadata = json.loads(settings)
     system = plistlib.loads((root / "System/Library/CoreServices/SystemVersion.plist").read_bytes())
-    # Xcode's xcrun cannot inspect every standalone CLT SDK selected by swiftpm-env.sh.
+    # Read the selected SDK metadata directly, independent of inherited SDKROOT.
     # Read the selected SDK's own version/build, rather than reporting Xcode's default SDK.
     return {
         "sdk": field(str(metadata.get("Version", "")), r"^([0-9]+(?:\.[0-9]+)*)$", "SDK version"),
@@ -210,10 +206,22 @@ def playback_pin(manifest):
 
 
 def deployment_target(manifest):
-    versions = set(re.findall(r"\.macOS\(\.v([0-9]+(?:_[0-9]+)*)\)", manifest))
+    versions = set()
+    for argument in re.findall(r"\.macOS\(([^)]*)\)", manifest):
+        enum = re.fullmatch(r"\s*\.v([0-9]+(?:_[0-9]+)*)\s*", argument)
+        literal = re.fullmatch(r'\s*"([0-9]+\.[0-9]+(?:\.[0-9]+)?)"\s*', argument)
+        if enum:
+            version = enum[1].replace("_", ".")
+            if "." not in version:
+                version += ".0"
+        elif literal:
+            version = literal[1]
+        else:
+            raise ValueError("Expected one fixed manifest macOS deployment target")
+        versions.add(version)
     if len(versions) != 1:
         raise ValueError("Expected one fixed manifest macOS deployment target")
-    return next(iter(versions)).replace("_", ".")
+    return next(iter(versions))
 
 
 def cache_keys(scope, root, identity, *, lane=None, build_system="default", revision=None, environment=None):

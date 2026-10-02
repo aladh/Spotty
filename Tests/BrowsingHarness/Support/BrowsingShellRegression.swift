@@ -102,6 +102,7 @@ final class BrowsingShellRegression {
         let coordinateSpace = "NSWindow base coordinates, bottom-left origin"
         let networkSandboxVerified: Bool
         let checkpoints: [Checkpoint]
+        let inspectorMenuDiagnostics: [String]
         let passed: Bool
         let failure: String?
     }
@@ -110,13 +111,17 @@ final class BrowsingShellRegression {
     private let networkSandboxVerified: Bool
     private let started = ContinuousClock.now
     private var checkpoints: [Checkpoint] = []
+    private var inspectorMenuDiagnostics: [String] = []
     private var completed = false
     private var desiredBodySize: CGSize?
     private var requestedBodySize: CGSize?
     private var sizingScreenVisibleFrame: CGRect?
+    private var capturedScreenVisibleFrame: CGRect?
     private var frameToBodyOverhead: CGSize?
     private var minimumBodySize: CGSize?
     private var shortcutChecks: Set<String> = []
+    private var hitTargetChecks: Set<String> = []
+    private var hitTargetFrames: [String: Rect] = [:]
     private var deadline = ContinuousClock.now
     private(set) var failure: String?
 
@@ -130,6 +135,7 @@ final class BrowsingShellRegression {
             launch: launch, host: Bundle.main.bundleIdentifier ?? "unknown",
             os: ProcessInfo.processInfo.operatingSystemVersionString,
             networkSandboxVerified: networkSandboxVerified, checkpoints: checkpoints,
+            inspectorMenuDiagnostics: inspectorMenuDiagnostics,
             passed: completed && failure == nil && !checkpoints.isEmpty, failure: failure)
     }
 
@@ -162,6 +168,7 @@ final class BrowsingShellRegression {
                 NSApp.activate()
                 window.makeKeyAndOrderFront(nil)
                 try await settle(window: window, deadline: deadline)
+                try await verifyToolbarHitTargets(window: window, navigation: navigation)
                 let checkpoint = "\(signedOut ? "signed-out" : "home").\(name)"
                 try await capture(checkpoint, player: player, world: world, window: window, expectedKey: true)
                 if name == "minimum" {
@@ -189,8 +196,34 @@ final class BrowsingShellRegression {
             focusWindow.orderOut(nil)
             try resize(window, bodySize: NSSize(width: 1080, height: 700))
             try await settle(window: window, deadline: deadline)
+            try await verifyToolbarHitTargets(window: window, navigation: navigation)
             try await capture("shell.resized", player: player, world: world, window: window, expectedKey: true)
             try await sampled("shell.resized")
+            try toggleInspector(window: window)
+            try await wait("inspector.presented", deadline: min(deadline, .now.advanced(by: .seconds(5)))) {
+                ShellGeometry.frames(in: window)["shell.inspector"].map { $0.width > 0 } == true
+            }
+            for (name, size) in [
+                ("resized", NSSize(width: 1080, height: 700)),
+                ("minimum", NSSize(width: 960, height: 640)),
+                ("default", NSSize(width: 1220, height: 780)),
+            ] {
+                try resize(window, bodySize: size)
+                try await settle(window: window, deadline: deadline, required: ["shell.inspector"])
+                try await verifyToolbarHitTargets(window: window, navigation: navigation)
+                let checkpoint = "inspector.\(name)"
+                try await capture(checkpoint, player: player, world: world, window: window, expectedKey: true)
+                try await sampled(checkpoint)
+            }
+            try toggleInspector(window: window)
+            try await wait("inspector.dismissed", deadline: deadline) {
+                ShellGeometry.frames(in: window)["shell.inspector"] == nil
+            }
+            try resize(window, bodySize: NSSize(width: 1080, height: 700))
+            try await settle(window: window, deadline: deadline)
+            try await verifyToolbarHitTargets(window: window, navigation: navigation)
+            try await capture("inspector.closed", player: player, world: world, window: window, expectedKey: true)
+            try await sampled("inspector.closed")
             if !signedOut {
                 navigation.updateSelection(.destination(.search))
                 navigation.searchText = "Signals"
@@ -224,19 +257,19 @@ final class BrowsingShellRegression {
                 try await sampled("detail.playlist")
                 let detailSelection = navigation.selection
                 try sendHistoryKey("[", keyCode: 33, window: window)
-                try await wait("history.shortcut-back", deadline: deadline) {
+                try await wait("history.shortcut-back", deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
                     navigation.selection == .destination(.search)
                 }
                 shortcutChecks.insert("history.shortcut-back")
                 try await settle(window: window, deadline: deadline, required: ["search.filters"])
                 try sendHistoryKey("]", keyCode: 30, window: window)
-                try await wait("history.shortcut-forward", deadline: deadline) {
+                try await wait("history.shortcut-forward", deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
                     navigation.selection == detailSelection
                 }
                 shortcutChecks.insert("history.shortcut-forward")
                 try await settle(window: window, deadline: deadline)
                 try sendHistoryKey("[", keyCode: 33, window: window)
-                try await wait("history.shortcut-returned", deadline: deadline) {
+                try await wait("history.shortcut-returned", deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
                     navigation.selection == .destination(.search)
                 }
                 shortcutChecks.insert("history.shortcut-returned")
@@ -283,21 +316,53 @@ final class BrowsingShellRegression {
         return target
     }
 
+    static func requalifyDisplayIfNeeded(
+        sizedFrame: CGRect?, currentFrame: CGRect?, capturedFrame: CGRect? = nil, resize: () throws -> Void
+    ) throws -> Bool {
+        try validateCapturedDisplay(currentFrame: currentFrame, capturedFrame: capturedFrame)
+        guard let sizedFrame else { return false }
+        guard let currentFrame else { throw BrowsingFailure.checkpoint("window.display-unavailable") }
+        guard sizedFrame != currentFrame else { return false }
+        try resize()
+        return true
+    }
+
+    static func validateCapturedDisplay(currentFrame: CGRect?, capturedFrame: CGRect?) throws {
+        guard let capturedFrame else { return }
+        guard currentFrame == capturedFrame else {
+            throw BrowsingFailure.checkpoint("window.display-changed-after-capture")
+        }
+    }
+
     private func resize(_ window: NSWindow, bodySize: NSSize) throws {
-        guard let screen = window.screen, let content = window.contentView else {
+        guard let screen = window.screen else {
             throw BrowsingFailure.checkpoint("window.display-unavailable")
         }
         let visibleFrame = screen.visibleFrame
+        requestedBodySize = try Self.resizeOwnedWindow(
+            window, bodySize: bodySize, visibleFrame: visibleFrame, capturedFrame: capturedScreenVisibleFrame
+        ) { overhead in
+            // Preserve the display prerequisite even when no target is eligible.
+            desiredBodySize = bodySize
+            requestedBodySize = nil
+            sizingScreenVisibleFrame = visibleFrame
+            frameToBodyOverhead = overhead
+        }
+    }
+
+    static func resizeOwnedWindow(
+        _ window: NSWindow, bodySize: CGSize, visibleFrame: CGRect, capturedFrame: CGRect?,
+        didQualify: (CGSize) -> Void
+    ) throws -> CGSize {
+        // Every captured checkpoint must use one display baseline, including
+        // explicit later resizes that would otherwise overwrite the sizing frame.
+        try validateCapturedDisplay(currentFrame: visibleFrame, capturedFrame: capturedFrame)
+        guard let content = window.contentView else { throw BrowsingFailure.checkpoint("shell.content-view") }
         let overhead = CGSize(
             width: window.frame.width - content.bounds.width,
             height: window.frame.height - window.contentLayoutRect.height)
-        // Preserve the display prerequisite in failure-state evidence even if no target is eligible.
-        desiredBodySize = bodySize
-        requestedBodySize = nil
-        sizingScreenVisibleFrame = visibleFrame
-        frameToBodyOverhead = overhead
+        didQualify(overhead)
         let target = try Self.targetBodySize(desired: bodySize, visibleFrame: visibleFrame, overhead: overhead)
-        requestedBodySize = target
         let inset = content.bounds.height - window.contentLayoutRect.height
         window.setContentSize(NSSize(width: target.width, height: target.height + max(0, inset)))
         // Place only the owned fixture window; AppKit still owns its controls and geometry.
@@ -305,20 +370,169 @@ final class BrowsingShellRegression {
             CGPoint(
                 x: visibleFrame.midX - window.frame.width / 2,
                 y: visibleFrame.midY - window.frame.height / 2))
+        return target
+    }
+
+    static func captureOnQualifiedDisplay<Value>(
+        sizedFrame: CGRect?, capturedFrame: CGRect?, visibleFrame: @MainActor () -> CGRect?,
+        operation: @MainActor () async throws -> Value
+    ) async throws -> (frame: CGRect, value: Value) {
+        guard let frame = visibleFrame(), frame == sizedFrame else {
+            throw BrowsingFailure.checkpoint("capture.display-unqualified")
+        }
+        try validateCapturedDisplay(currentFrame: frame, capturedFrame: capturedFrame)
+        let value = try await operation()
+        // The final asynchronous capture has no later settle to catch drift.
+        try validateCapturedDisplay(currentFrame: visibleFrame(), capturedFrame: frame)
+        return (frame, value)
+    }
+
+    private func toggleInspector(window: NSWindow) throws {
+        guard window.isKeyWindow, NSApp.isActive else {
+            throw BrowsingFailure.checkpoint("inspector.shortcut-window")
+        }
+        // Dispatch InspectorCommands through the synthetic app's native menu, never global input.
+        func inspectorMenuItems(_ menu: NSMenu) -> [String] {
+            menu.update()
+            return menu.items.flatMap { item in
+                let own =
+                    item.title.hasSuffix("Inspector")
+                    ? [
+                        "\(item.title): enabled=\(item.isEnabled), key=\(item.keyEquivalent), modifiers=\(item.keyEquivalentModifierMask.rawValue)"
+                    ]
+                    : []
+                return own + (item.submenu.map(inspectorMenuItems) ?? [])
+            }
+        }
+        NSApp.mainMenu?.update()
+        if let menu = NSApp.mainMenu { inspectorMenuDiagnostics.append(contentsOf: inspectorMenuItems(menu)) }
+        guard
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [.command, .control],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: "i", charactersIgnoringModifiers: "i",
+                isARepeat: false, keyCode: 34), NSApp.mainMenu?.performKeyEquivalent(with: event) == true
+        else { throw BrowsingFailure.checkpoint("inspector.shortcut-unhandled") }
+    }
+
+    /// AppKit asks lazily populated menus for their contents before normal dispatch.
+    /// Direct synthetic key delivery must perform that public delegate preparation too.
+    private func prepareCommandMenus() {
+        func prepare(_ menu: NSMenu) {
+            menu.delegate?.menuNeedsUpdate?(menu)
+            menu.update()
+            for item in menu.items { if let submenu = item.submenu { prepare(submenu) } }
+        }
+        if let menu = NSApp.mainMenu { prepare(menu) }
     }
 
     private func sendHistoryKey(_ character: String, keyCode: UInt16, window: NSWindow) throws {
         guard window.isKeyWindow, NSApp.isActive else {
             throw BrowsingFailure.checkpoint("history.shortcut-window")
         }
+        prepareCommandMenus()
         // Exercise the owned window's native key-equivalent dispatch, never global input.
         guard
             let event = NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: .command,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                 context: nil, characters: character, charactersIgnoringModifiers: character,
-                isARepeat: false, keyCode: keyCode), window.performKeyEquivalent(with: event)
+                isARepeat: false, keyCode: keyCode)
         else { throw BrowsingFailure.checkpoint("history.shortcut-unhandled.\(character)") }
+        NSApp.sendEvent(event)
+    }
+
+    private func verifyToolbarHitTargets(window: NSWindow, navigation: CatalogNavigation) async throws {
+        hitTargetChecks.removeAll()
+        hitTargetFrames.removeAll()
+        for (marker, selection, label) in [
+            ("shell.search", SidebarSelection.destination(.search), "toolbar.hit-target-search"),
+            ("shell.home", .destination(.home), "toolbar.hit-target-home"),
+            ("shell.history.back", .destination(.search), "toolbar.hit-target-back"),
+            ("shell.history.forward", .destination(.home), "toolbar.hit-target-forward"),
+        ] {
+            guard let rect = ShellGeometry.frames(in: window)[marker] else {
+                throw BrowsingFailure.checkpoint(label + ".marker")
+            }
+            // The lower edge is most likely to escape a baseline-anchored toolbar
+            // item after correction. Route through the owned window's real hit test.
+            let point = CGPoint(x: rect.midX, y: rect.minY + 6)
+            let timestamp = ProcessInfo.processInfo.systemUptime
+            guard
+                let down = NSEvent.mouseEvent(
+                    with: .leftMouseDown, location: point, modifierFlags: [], timestamp: timestamp,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                let up = NSEvent.mouseEvent(
+                    with: .leftMouseUp, location: point, modifierFlags: [], timestamp: timestamp + 0.01,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)
+            else { throw BrowsingFailure.checkpoint(label + ".event") }
+            // Native button tracking may synchronously consume mouse-up. These
+            // events belong only to this synthetic process/window, never global input.
+            NSApp.postEvent(up, atStart: true)
+            window.sendEvent(down)
+            try await wait(label, deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
+                navigation.selection == selection
+            }
+            hitTargetChecks.insert(label)
+            hitTargetFrames[marker] = Rect(rect)
+            try await settle(window: window, deadline: deadline)
+        }
+        // Exercise Command-L through the app's native event dispatch, including
+        // query selection after focus leaves the toolbar.
+        navigation.searchText = "Signals"
+        try await settle(window: window, deadline: deadline)
+        window.makeFirstResponder(nil)
+        guard
+            let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .command,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, characters: "l", charactersIgnoringModifiers: "l",
+                isARepeat: false, keyCode: 37)
+        else { throw BrowsingFailure.checkpoint("toolbar.shortcut-search.unhandled") }
+        NSApp.sendEvent(event)
+        do {
+            try await wait("toolbar.shortcut-search", deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
+                guard let editor = window.firstResponder as? NSTextView else { return false }
+                return navigation.selection == .destination(.search) && editor.isFieldEditor
+                    && editor.string == "Signals" && editor.selectedRange() == NSRange(location: 0, length: 7)
+            }
+        } catch {
+            let editor = window.firstResponder as? NSTextView
+            inspectorMenuDiagnostics.append(
+                "Search command responder=\(String(describing: window.firstResponder.map { type(of: $0) })), fieldEditor=\(editor?.isFieldEditor ?? false), text=\(editor?.string ?? "nil"), selected=\(String(describing: editor?.selectedRange())), route=\(navigation.selection)"
+            )
+            throw error
+        }
+        shortcutChecks.insert("toolbar.shortcut-search")
+        // Repeated Command-L selects the query without replacing the active editor.
+        let focusedEditor = window.firstResponder
+        NSApp.sendEvent(event)
+        try await wait(
+            "toolbar.shortcut-search-already-focused", deadline: min(deadline, .now.advanced(by: .seconds(3)))
+        ) {
+            guard let editor = window.firstResponder as? NSTextView else { return false }
+            return window.firstResponder === focusedEditor && navigation.selection == .destination(.search)
+                && editor.string == "Signals" && editor.selectedRange() == NSRange(location: 0, length: 7)
+        }
+        shortcutChecks.insert("toolbar.shortcut-search-already-focused")
+        // Leaving Search can blur its editor. Command-L must restore the route and
+        // selection whether that native focus transition has already completed or not.
+        try sendHistoryKey("[", keyCode: 33, window: window)
+        try await wait("toolbar.search-focused-history", deadline: min(deadline, .now.advanced(by: .seconds(3)))) {
+            navigation.selection == .destination(.home)
+        }
+        NSApp.sendEvent(event)
+        try await wait(
+            "toolbar.shortcut-search-after-history", deadline: min(deadline, .now.advanced(by: .seconds(3)))
+        ) {
+            guard let editor = window.firstResponder as? NSTextView else { return false }
+            return navigation.selection == .destination(.search) && editor.isFieldEditor
+                && editor.string == "Signals" && editor.selectedRange() == NSRange(location: 0, length: 7)
+        }
+        shortcutChecks.insert("toolbar.shortcut-search-after-history")
+        navigation.searchText = ""
+        navigation.updateSelection(.destination(.home))
+        try await settle(window: window, deadline: deadline)
     }
 
     private func settle(window: NSWindow, deadline: ContinuousClock.Instant, required: [String] = []) async throws {
@@ -326,13 +540,31 @@ final class BrowsingShellRegression {
         var previousVisibleFrame: CGRect?
         var stableSince = ContinuousClock.now
         try await wait("shell.geometry-ready", deadline: deadline) {
+            guard let visibleFrame = window.screen?.visibleFrame else {
+                previous = [:]
+                previousVisibleFrame = nil
+                stableSince = .now
+                return false
+            }
+            // Dock/work-area transitions can complete after fixture sizing. Resize
+            // only our window before its first capture, then require fresh stability.
+            if let desiredBodySize,
+                try Self.requalifyDisplayIfNeeded(
+                    sizedFrame: sizingScreenVisibleFrame, currentFrame: visibleFrame,
+                    capturedFrame: capturedScreenVisibleFrame,
+                    resize: { try resize(window, bodySize: desiredBodySize) })
+            {
+                previous = [:]
+                previousVisibleFrame = nil
+                stableSince = .now
+                return false
+            }
             let frames = ShellGeometry.frames(in: window)
             guard
                 (["shell.sidebar", "shell.catalog", "shell.player", "shell.navigation"] + required)
                     .allSatisfy({ frames[$0].map { $0.width > 0 && $0.height > 0 } == true })
             else { return false }
             let current = frames.mapValues(Rect.init)
-            let visibleFrame = window.screen?.visibleFrame
             if current != previous || visibleFrame != previousVisibleFrame {
                 previous = current
                 previousVisibleFrame = visibleFrame
@@ -344,12 +576,12 @@ final class BrowsingShellRegression {
     }
 
     private func wait(
-        _ checkpoint: String, deadline: ContinuousClock.Instant, ready: () -> Bool
+        _ checkpoint: String, deadline: ContinuousClock.Instant, ready: () throws -> Bool
     ) async throws {
         while true {
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint(checkpoint) }
-            if ready() { return }
+            if try ready() { return }
             try await ContinuousClock().sleep(for: .milliseconds(40))
         }
     }
@@ -372,6 +604,32 @@ final class BrowsingShellRegression {
         }
         let contentFrame = content.convert(content.bounds, to: nil)
         let tolerance: CGFloat = 2
+        for (label, marker) in [
+            ("toolbar.hit-target-search", "shell.search"), ("toolbar.hit-target-home", "shell.home"),
+            ("toolbar.hit-target-back", "shell.history.back"), ("toolbar.hit-target-forward", "shell.history.forward"),
+        ] {
+            check(
+                label, hitTargetChecks.contains(label) && frames[marker].map(Rect.init) == hitTargetFrames[marker],
+                expected:
+                    "Lower-edge native input was verified at this control's current geometry in the active window",
+                observed:
+                    "verified=\(String(describing: hitTargetFrames[marker])), captured=\(String(describing: frames[marker].map(Rect.init)))"
+            )
+        }
+        check(
+            "toolbar.shortcut-search", shortcutChecks.contains("toolbar.shortcut-search"),
+            expected: "Owned Command-L focused the native editor and selected its query",
+            observed: String(shortcutChecks.contains("toolbar.shortcut-search")))
+        check(
+            "toolbar.shortcut-search-already-focused",
+            shortcutChecks.contains("toolbar.shortcut-search-already-focused"),
+            expected: "Repeated Command-L preserved the active native editor and selected its query",
+            observed: String(shortcutChecks.contains("toolbar.shortcut-search-already-focused")))
+        check(
+            "toolbar.shortcut-search-after-history",
+            shortcutChecks.contains("toolbar.shortcut-search-after-history"),
+            expected: "Command-L restored Search and selected its query after native history navigation",
+            observed: String(shortcutChecks.contains("toolbar.shortcut-search-after-history")))
         if let requestedBodySize {
             check(
                 "window.requested-body-size",
@@ -437,7 +695,37 @@ final class BrowsingShellRegression {
                 "player.height", shelf.height >= 72 - tolerance,
                 expected: "At least 72pt", observed: "\(shelf.height)")
         }
+        if let navigation = frames["shell.navigation"] {
+            check(
+                "toolbar.group-centered", abs(navigation.midX - contentFrame.midX) <= tolerance,
+                expected: "Home and Search group centered across the entire window, including inspector",
+                observed: "group=\(navigation.midX), window=\(contentFrame.midX)")
+        }
+        let expectsInspector = name.hasPrefix("inspector.") && name != "inspector.closed"
+        let inspector = frames["shell.inspector"]
+        check(
+            "inspector.presentation", expectsInspector == (inspector.map { $0.width > 0 } == true),
+            expected: "Inspector presented=\(expectsInspector)", observed: inspector.map(NSStringFromRect) ?? "absent")
+        if expectsInspector, let inspector, let catalog = frames["shell.catalog"] {
+            check(
+                "inspector.excludes-catalog", catalog.maxX <= inspector.minX + tolerance,
+                expected: "Inspector follows catalog without overlap",
+                observed: "catalog=\(catalog.maxX), inspector=\(inspector.minX)")
+        }
         if let home = frames["shell.home"], let search = frames["shell.search"] {
+            let rowHeight = contentFrame.maxY - window.contentLayoutRect.maxY
+            check(
+                "toolbar.row-height", abs(rowHeight - 64) <= tolerance,
+                expected: "Spotify's 64pt row, allowing the native unified label row's 2pt difference",
+                observed: "\(rowHeight)")
+            check(
+                "toolbar.control-margins",
+                [home, search].allSatisfy {
+                    abs(contentFrame.maxY - $0.maxY - 8) <= tolerance
+                        && abs($0.minY - window.contentLayoutRect.maxY - 8) <= tolerance
+                },
+                expected: "48pt controls with 8pt top/bottom margins (native tolerance 2pt)",
+                observed: "home=\(NSStringFromRect(home)), search=\(NSStringFromRect(search))")
             check(
                 "toolbar.controls-disjoint", !home.intersects(search),
                 expected: "Home and Search do not overlap",
@@ -445,6 +733,42 @@ final class BrowsingShellRegression {
             check(
                 "toolbar.search-height", abs(search.height - 48) <= tolerance,
                 expected: "48pt", observed: "\(search.height)")
+            check(
+                "toolbar.home-size", abs(home.width - 48) <= tolerance && abs(home.height - 48) <= tolerance,
+                expected: "48x48pt", observed: NSStringFromRect(home))
+            check(
+                "toolbar.search-width", abs(search.width - min(474, contentFrame.width / 2 - 72)) <= tolerance,
+                expected: "Capsule max474pt, shrinking with full-window width",
+                observed: "\(search.width) at windowWidth=\(contentFrame.width)")
+            check(
+                "toolbar.control-alignment",
+                abs(home.midY - search.midY) <= tolerance
+                    && abs(search.minX - home.maxX - 8) <= tolerance,
+                expected: "Common vertical center and 8pt Home/Search gap",
+                observed: "homeY=\(home.midY), searchY=\(search.midY), gap=\(search.minX - home.maxX)")
+        }
+        for (controlID, glyphID) in [
+            ("shell.home", "shell.home.glyph"), ("shell.search", "shell.search.glyph"),
+        ] {
+            let control = frames[controlID] ?? .zero
+            let glyph = frames[glyphID] ?? .zero
+            check(
+                "\(glyphID).aligned",
+                abs(glyph.width - 24) <= tolerance && abs(glyph.height - 24) <= tolerance
+                    && abs(glyph.midY - control.midY) <= tolerance && control.contains(glyph)
+                    && (controlID == "shell.home"
+                        ? abs(glyph.midX - control.midX) <= tolerance
+                        : abs(glyph.minX - control.minX - 12) <= tolerance),
+                expected: "24pt glyph vertically centered with matching inset",
+                observed: "control=\(NSStringFromRect(control)), glyph=\(NSStringFromRect(glyph))")
+        }
+        if let search = frames["shell.search"], let field = frames["shell.search.field"] {
+            check(
+                "toolbar.search-field-inset", search.contains(field) && abs(field.minX - search.minX - 48) <= tolerance,
+                expected: "Native search text field starts 48pt inside the capsule",
+                observed: "search=\(NSStringFromRect(search)), field=\(NSStringFromRect(field))")
+        } else {
+            check("toolbar.search-field-inset", false, expected: "Native search field marker", observed: "Missing")
         }
         for id in ["shell.history.back", "shell.history.forward"] {
             let frame = frames[id] ?? .zero
@@ -455,6 +779,13 @@ final class BrowsingShellRegression {
         if let back = frames["shell.history.back"], let forward = frames["shell.history.forward"],
             let navigation = frames["shell.navigation"]
         {
+            check(
+                "toolbar.history-alignment",
+                abs(forward.midX - back.midX - 34) <= tolerance
+                    && abs(back.midY - forward.midY) <= tolerance
+                    && frames["shell.home"].map { abs(back.midY - $0.midY) <= tolerance } == true,
+                expected: "History arrow centers 34pt apart on the same row",
+                observed: "back=\(NSStringFromRect(back)), forward=\(NSStringFromRect(forward))")
             check(
                 "toolbar.history-controls-disjoint",
                 !back.intersects(forward)
@@ -508,7 +839,17 @@ final class BrowsingShellRegression {
         var captureContentRect: Rect?
         var capturePointPixelScale: Double?
         do {
-            let raster = try await windowPNG(window, name: "\(name).window.png")
+            let raster: WindowRaster
+            if name == "failure-state" {
+                raster = try await windowPNG(window, name: "\(name).window.png")
+            } else {
+                let capture = try await Self.captureOnQualifiedDisplay(
+                    sizedFrame: sizingScreenVisibleFrame, capturedFrame: capturedScreenVisibleFrame,
+                    visibleFrame: { window.screen?.visibleFrame },
+                    operation: { try await windowPNG(window, name: "\(name).window.png") })
+                capturedScreenVisibleFrame = capturedScreenVisibleFrame ?? capture.frame
+                raster = capture.value
+            }
             if name != "failure-state" {
                 try Task.checkCancellation()
                 guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint("capture.deadline") }

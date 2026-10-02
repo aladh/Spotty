@@ -28,9 +28,11 @@ TOTAL_TIMEOUT_SECONDS = 300
 RUN_TIMEOUT_SECONDS = 90
 HOST_ID = "dev.spotty.gui-test-host"
 FIXTURES = {
-    "gui-shell": ("home.default", "home.minimum", "shell.inactive", "shell.resized", "search.all",
+    "gui-shell": ("home.default", "home.minimum", "shell.inactive", "shell.resized", "inspector.resized",
+                  "inspector.minimum", "inspector.default", "inspector.closed", "search.all",
                   "search.albums", "detail.playlist", "search.returned"),
-    "gui-signed-out": ("signed-out.default", "signed-out.minimum", "shell.inactive", "shell.resized"),
+    "gui-signed-out": ("signed-out.default", "signed-out.minimum", "shell.inactive", "shell.resized",
+                       "inspector.resized", "inspector.minimum", "inspector.default", "inspector.closed"),
 }
 LIMIT = "Unsandboxed synthetic GUI test host; no App Sandbox, live Spotify, audio, or visual-parity attestation."
 
@@ -45,7 +47,15 @@ def required_assertions(name, signed_out):
                  for suffix in (".chrome-sample-region", ".native-background-does-not-cover-padding"))
     names.update("shell.history." + item + suffix for item in ("back", "forward")
                  for suffix in (".visible", ".hitbox-size", ".chrome-sample-region", ".native-background-does-not-cover-edge"))
-    names.add("toolbar.history-controls-disjoint")
+    names.update(("toolbar.history-controls-disjoint", "toolbar.group-centered", "toolbar.home-size",
+                  "toolbar.search-width", "toolbar.control-alignment", "toolbar.history-alignment",
+                  "toolbar.row-height", "toolbar.control-margins",
+                  "toolbar.shortcut-search", "toolbar.hit-target-search", "toolbar.hit-target-home", "toolbar.hit-target-back", "toolbar.hit-target-forward",
+                  "toolbar.shortcut-search-already-focused", "toolbar.shortcut-search-after-history",
+                  "shell.home.glyph.aligned", "shell.search.glyph.aligned", "toolbar.search-field-inset",
+                  "inspector.presentation"))
+    if name.startswith("inspector.") and name != "inspector.closed":
+        names.add("inspector.excludes-catalog")
     names.update(item + ".chrome-opaque" for item in
                  ("shell.home", "shell.search", "shell.history.back", "shell.history.forward"))
     names.add("signed-out.no-engine" if signed_out else "restore.current-track-artwork")
@@ -115,11 +125,108 @@ def desired_body_size(name):
     return {"width": 1080, "height": 700}
 
 
-def rectangle(value, label):
+def rectangle(value, label, *, allow_empty=False):
     require(isinstance(value, dict) and all(type(value.get(axis)) in (int, float)
             and math.isfinite(value[axis]) for axis in ("x", "y", "width", "height"))
-            and value["width"] > 0 and value["height"] > 0, label)
+            and (value["width"] > 0 and value["height"] > 0
+                 or allow_empty and value["width"] == 0 and value["height"] == 0), label)
     return value
+
+
+def contains(outer, inner, tolerance=2):
+    return (inner["x"] >= outer["x"] - tolerance and inner["y"] >= outer["y"] - tolerance
+            and inner["x"] + inner["width"] <= outer["x"] + outer["width"] + tolerance
+            and inner["y"] + inner["height"] <= outer["y"] + outer["height"] + tolerance)
+
+
+def intersects(first, second):
+    return (first["x"] < second["x"] + second["width"]
+            and second["x"] < first["x"] + first["width"]
+            and first["y"] < second["y"] + second["height"]
+            and second["y"] < first["y"] + first["height"])
+
+
+def validate_product_geometry(point):
+    """Recompute geometry from rendered markers, independently of native assertion flags."""
+    content = rectangle(point.get("contentBounds"), "actual content rectangle")
+    layout = rectangle(point.get("contentLayoutRect"), "actual content layout rectangle")
+    markers = point.get("markers")
+    required = {"shell." + name for name in
+                ("sidebar", "catalog", "player", "navigation", "home", "search", "home.glyph", "search.glyph",
+                 "search.field", "history.back", "history.forward")}
+    if point["name"].startswith("search."):
+        required.add("search.filters")
+    if point["name"] == "detail.playlist":
+        required.add("detail.native-scroll")
+    expects_inspector = point["name"].startswith("inspector.") and point["name"] != "inspector.closed"
+    if expects_inspector:
+        required.add("shell.inspector")
+    require(isinstance(markers, dict) and required.issubset(markers), "complete product geometry markers")
+    for name, value in markers.items():
+        require(isinstance(name, str), "product marker identity")
+        rect = rectangle(value, "product marker rectangle: " + name,
+                         allow_empty=name == "shell.inspector" and not expects_inspector)
+        require(contains(content, rect), "product marker contained by content: " + name)
+    inspector = markers.get("shell.inspector")
+    require(expects_inspector == (inspector is not None and inspector["width"] > 0),
+            "independent inspector presentation")
+    sidebar, catalog, player, navigation, home, search, back, forward = (
+        markers["shell." + name] for name in
+        ("sidebar", "catalog", "player", "navigation", "home", "search", "history.back", "history.forward"))
+    require(178 <= sidebar["width"] <= 262, "independent sidebar width")
+    require(sidebar["x"] + sidebar["width"] <= catalog["x"] + 2, "independent catalog excludes sidebar")
+    require(player["y"] + player["height"] <= catalog["y"] + 2, "independent player excludes catalog")
+    require(catalog["y"] + catalog["height"] <= navigation["y"] + 2, "independent toolbar excludes catalog")
+    require(player["height"] >= 70, "independent player height")
+    require(all(abs(home[axis] - 48) <= 2 for axis in ("width", "height")), "independent Home size")
+    row_height = content["y"] + content["height"] - layout["y"] - layout["height"]
+    require(abs(row_height - 64) <= 2, "independent toolbar row height")
+    require(all(abs(content["y"] + content["height"] - control["y"] - control["height"] - 8) <= 2
+                and abs(control["y"] - layout["y"] - layout["height"] - 8) <= 2
+                for control in (home, search)), "independent toolbar vertical control margins")
+    expected_search_width = min(474, max(0, content["width"] / 2 - 72))
+    require(abs(search["width"] - expected_search_width) <= 2 and abs(search["height"] - 48) <= 2,
+            "independent Search size")
+    require(not intersects(home, search), "independent Home/Search disjointness")
+    require(abs(search["x"] - home["x"] - home["width"] - 8) <= 2
+            and abs(home["y"] + home["height"] / 2 - search["y"] - search["height"] / 2) <= 2,
+            "independent Home/Search alignment and gap")
+    group_min = min(home["x"], search["x"])
+    group_max = max(home["x"] + home["width"], search["x"] + search["width"])
+    content_center = content["x"] + content["width"] / 2
+    require(abs((group_min + group_max) / 2 - content_center) <= 2,
+            "independent Home/Search group centered across full content")
+    require(contains(navigation, home) and contains(navigation, search)
+            and abs(navigation["x"] + navigation["width"] / 2 - content_center) <= 2,
+            "independent navigation contains centered controls")
+    for name, control in (("shell.home.glyph", home), ("shell.search.glyph", search)):
+        glyph = markers[name]
+        require(all(abs(glyph[axis] - 24) <= 2 for axis in ("width", "height"))
+                and contains(control, glyph, tolerance=0)
+                and abs(glyph["y"] + glyph["height"] / 2 - control["y"] - control["height"] / 2) <= 2,
+                "independent glyph size and vertical alignment: " + name)
+        require(abs(glyph["x"] + glyph["width"] / 2 - home["x"] - home["width"] / 2) <= 2
+                if name == "shell.home.glyph" else abs(glyph["x"] - search["x"] - 12) <= 2,
+                "independent glyph horizontal alignment: " + name)
+    field = markers["shell.search.field"]
+    require(contains(search, field, tolerance=0) and abs(field["x"] - search["x"] - 48) <= 2,
+            "independent search field containment and inset")
+    require(all(abs(rect[axis] - 32) <= 2 for rect in (back, forward) for axis in ("width", "height")),
+            "independent history hitbox size")
+    require(abs(forward["x"] + forward["width"] / 2 - back["x"] - back["width"] / 2 - 34) <= 2
+            and abs(back["y"] + back["height"] / 2 - forward["y"] - forward["height"] / 2) <= 2
+            and abs(back["y"] + back["height"] / 2 - home["y"] - home["height"] / 2) <= 2,
+            "independent history control alignment")
+    require(not intersects(back, forward) and not intersects(back, navigation) and not intersects(forward, navigation),
+            "independent history controls disjointness")
+    if expects_inspector:
+        # RootView marks SidePanel before its 8pt outer padding; accept either measured extent.
+        require(250 <= inspector["width"] <= 362, "independent inspector width")
+        require(catalog["x"] + catalog["width"] <= inspector["x"] + 2,
+                "independent inspector excludes catalog")
+    for name in ("search.filters", "detail.native-scroll"):
+        if name in required:
+            require(contains(catalog, markers[name]), "independent catalog contains " + name)
 
 
 def validate_display_size(point):
@@ -474,6 +581,7 @@ def validate_reports(run_root, manifest, fixture, owned, expected_names):
     sizes = {}
     for point in checkpoints:
         sizes[point["name"]] = validate_display_size(point)
+        validate_product_geometry(point)
         for key, value in (("runID", manifest["runID"]), ("host", HOST_ID),
                            ("sourceSHA256", manifest["source"]["sourceSHA256"]),
                            ("buildProductSHA256", manifest["build"]["buildProductSHA256"])):

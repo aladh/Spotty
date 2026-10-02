@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from ci_cache_keys import (
-    RUST_BUILD_INPUTS, SWIFT_BUILD_INPUTS, cache_keys, main, sdk_identity, toolchain_identity,
+    RUST_BUILD_INPUTS, SWIFT_BUILD_INPUTS, cache_keys, deployment_target, main, sdk_identity, toolchain_identity,
 )
 
 
@@ -288,6 +288,19 @@ class CacheKeyTests(unittest.TestCase):
         self.assertNotIn(str(self.root), report.read_text())
 
 
+class DeploymentTargetParsingTests(unittest.TestCase):
+    def test_literal_and_enum_platforms_share_one_canonical_floor(self):
+        self.assertEqual(deployment_target('.macOS("27.0")'), "27.0")
+        self.assertEqual(deployment_target('.macOS(.v27), .macOS("27.0")'), "27.0")
+        self.assertEqual(deployment_target('.macOS(.v10_15)'), "10.15")
+
+    def test_missing_conflicting_or_dynamic_platforms_fail_closed(self):
+        for manifest in ('', '.macOS(.v26), .macOS("27.0")',
+                         '.macOS("27.0"), .macOS(floor)', '.macOS("27.bad")'):
+            with self.subTest(manifest=manifest), self.assertRaises(ValueError):
+                deployment_target(manifest)
+
+
 class ActualIdentityParsingTests(unittest.TestCase):
     def probe(self, arguments, root):
         values = {
@@ -309,7 +322,8 @@ class ActualIdentityParsingTests(unittest.TestCase):
                                                   key: SWIFT_TOOLCHAIN[f"xcode_{key}"] if path == "/selected/xcode-sdk"
                                                   else COMMON_TOOLCHAIN[key]
                                                   for key in ("sdk", "sdk_build", "sdk_settings")})
-                self.assertEqual(identity, expected)
+                self.assertEqual(identity, {**expected, **{key: SWIFT_TOOLCHAIN[f"xcode_{key}"]
+                                                         for key in ("sdk", "sdk_build", "sdk_settings")}})
                 self.assertNotIn("secret", json.dumps(identity))
                 self.assertNotIn("actual-sdk", json.dumps(identity))
 
@@ -332,8 +346,8 @@ class ActualIdentityParsingTests(unittest.TestCase):
                                        ("rust", {"SDKROOT": "/explicit-rust-sdk"}), ("rust", {})):
                 toolchain_identity(scope, Path.cwd(), probe=self.probe, environment=environment,
                                    machine="arm64", read_sdk=read_sdk)
-        self.assertEqual(selected, ["/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk", "/selected/xcode-sdk",
-                                    "/explicit-rust-sdk", "/selected/actual-sdk"])
+        self.assertEqual(selected, ["/selected/xcode-sdk", "/selected/xcode-sdk",
+                                    "/explicit-rust-sdk", "/selected/xcode-sdk"])
 
     def test_xcode_sdk_probe_removes_sdkroot_without_mutating_process_environment(self):
         invocations = []

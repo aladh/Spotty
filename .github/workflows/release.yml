@@ -16,7 +16,7 @@ concurrency:
 jobs:
   release:
     name: Build ARM64 release
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
 
     steps:
@@ -25,8 +25,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Select Xcode 26.6
-        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      - name: Select Xcode 27.0
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.app
+          python3 Scripts/check_native_environment.py
 
       - name: Install verification tools
         run: |
@@ -45,7 +47,7 @@ jobs:
           } | tee "$RUNNER_TEMP/swift-toolchain.txt"
           xcrun --find swift-format
           xcrun swift-format --version
-          grep -q 'Apple Swift version 6.3.3' "$RUNNER_TEMP/swift-toolchain.txt"
+          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
           echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
 
       - name: Block Rust tools

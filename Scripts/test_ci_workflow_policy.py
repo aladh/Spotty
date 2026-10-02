@@ -15,10 +15,10 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
 
     def test_current_topology_passes_and_added_dynamic_or_missing_lanes_fail(self):
         checks = [WorkflowCheck(self.workflow)]
-        for mutation in ('extra_macos', 'dynamic', 'missing', 'permissions', 'triggers', 'timeout'):
+        for mutation in ('extra_macos', 'extra_xcode', 'dynamic', 'missing', 'permissions', 'triggers', 'timeout'):
             variant = copy.deepcopy(self.workflow)
-            if mutation == 'extra_macos':
-                variant['jobs']['extra'] = {'runs-on': 'macos-26', 'steps': []}
+            if mutation in ('extra_macos', 'extra_xcode'):
+                variant['jobs']['extra'] = {'runs-on': 'macos-26' if mutation == 'extra_macos' else 'xcode-27', 'steps': []}
                 expected = 'one sequential macOS verification job'
             elif mutation == 'dynamic':
                 variant['jobs']['macos_verify']['runs-on'] = '${{ matrix.os }}'
@@ -47,7 +47,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 expected = 'successful source policy and explicit classification'
                 if mutation == 'runner':
                     lane['runs-on'] = 'macos-latest'
-                    expected = 'macOS image must remain macos-26'
+                    expected = 'macOS image must remain xcode-27'
                 elif mutation == 'policy_failure':
                     lane['if'] = lane['if'].split(' && ', 1)[1]
                 elif mutation == 'implicit_selection':
@@ -202,7 +202,7 @@ class WorkflowInvariantTests(WorkflowFixtureMixin, unittest.TestCase):
                 elif mutation == 'optional':
                     step['continue-on-error'] = True
                 elif 'run' in original:
-                    step['run'] = original['run'].replace('6.3.3', '6.4')
+                    step['run'] = original['run'].replace('6.4', '6.3.3')
                 else:
                     step['with']['if-no-files-found'] = 'warn'
                 checks.append(WorkflowCheck(variant, diagnostic=f'{identity} must retain',

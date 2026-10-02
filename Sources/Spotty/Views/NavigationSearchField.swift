@@ -6,6 +6,7 @@ struct NavigationSearchField: NSViewRepresentable {
     @Binding var text: String
     let controller: Controller
     let onActivate: () -> Void
+    var resetGeneration: UInt64 = 0
 
     func makeCoordinator() -> Controller { controller }
 
@@ -23,15 +24,42 @@ struct NavigationSearchField: NSViewRepresentable {
         field.setAccessibilityLabel("Search Spotify")
         field.delegate = context.coordinator
         field.onFocus = { [weak controller = context.coordinator] in controller?.activate() }
+        field.onEndEditing = { [weak controller = context.coordinator] in controller?.endEditing() }
         context.coordinator.field = field
+        context.coordinator.lastSynchronizedText = nil
+        context.coordinator.lastResetGeneration = nil
         return field
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.text = $text
         context.coordinator.onActivate = onActivate
-        // Reassigning while the field editor is active would disturb selection and composition.
-        if field.stringValue != text { field.stringValue = text }
+        // Marked text can change the live value before the bound query changes. Only a
+        // changed model value may replace that editing; an account reset must also
+        // discard composition when the committed query was already empty.
+        if context.coordinator.lastSynchronizedText != text
+            || context.coordinator.lastResetGeneration != resetGeneration
+        {
+            context.coordinator.lastSynchronizedText = text
+            context.coordinator.lastResetGeneration = resetGeneration
+            context.coordinator.isSynchronizingText = true
+            defer { context.coordinator.isSynchronizingText = false }
+            if field.stringValue != text { field.stringValue = text }
+        }
+    }
+
+    static func dismantleNSView(_ field: NSTextField, coordinator: Controller) {
+        if coordinator.field === field {
+            coordinator.endEditing()
+            coordinator.field = nil
+            coordinator.onActivate = {}
+            coordinator.text = .constant("")
+        }
+        field.delegate = nil
+        if let field = field as? Field {
+            field.onFocus = {}
+            field.onEndEditing = {}
+        }
     }
 
     @MainActor
@@ -41,6 +69,11 @@ struct NavigationSearchField: NSViewRepresentable {
         @ObservationIgnored weak var field: NSTextField?
         @ObservationIgnored var text: Binding<String> = .constant("")
         @ObservationIgnored var onActivate: () -> Void = {}
+        @ObservationIgnored var lastSynchronizedText: String?
+        @ObservationIgnored var lastResetGeneration: UInt64?
+        @ObservationIgnored var isSynchronizingText = false
+        @ObservationIgnored private weak var styledEditor: NSTextView?
+        @ObservationIgnored private var originalCaretColor: NSColor?
 
         func focus() {
             guard let field else { return }
@@ -58,10 +91,18 @@ struct NavigationSearchField: NSViewRepresentable {
             {
                 window.makeFirstResponder(nil)
             }
-            isFocused = false
+            endEditing()
         }
 
         func activate() {
+            if let editor = field?.currentEditor() as? NSTextView {
+                if styledEditor !== editor {
+                    restoreCaretColor()
+                    styledEditor = editor
+                    originalCaretColor = editor.insertionPointColor
+                }
+                editor.insertionPointColor = .white
+            }
             guard !isFocused else { return }
             isFocused = true
             onActivate()
@@ -69,10 +110,29 @@ struct NavigationSearchField: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ notification: Notification) { activate() }
 
-        func controlTextDidEndEditing(_ notification: Notification) { isFocused = false }
+        func controlTextDidEndEditing(_ notification: Notification) { endEditing() }
+
+        func endEditing() {
+            restoreCaretColor()
+            isFocused = false
+        }
+
+        private func restoreCaretColor() {
+            if let editor = styledEditor, let originalCaretColor {
+                editor.insertionPointColor = originalCaretColor
+            }
+            styledEditor = nil
+            originalCaretColor = nil
+        }
 
         func controlTextDidChange(_ notification: Notification) {
-            if let field { text.wrappedValue = field.stringValue }
+            // Replacing marked text can synchronously commit the old composition.
+            // Only native user edits may publish back through the model binding.
+            guard !isSynchronizingText else { return }
+            if let field {
+                lastSynchronizedText = field.stringValue
+                text.wrappedValue = field.stringValue
+            }
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -85,11 +145,18 @@ struct NavigationSearchField: NSViewRepresentable {
 
     private final class Field: NSTextField {
         var onFocus: () -> Void = {}
+        var onEndEditing: () -> Void = {}
 
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
             if accepted { onFocus() }
             return accepted
+        }
+
+        override func textDidEndEditing(_ notification: Notification) {
+            // Restore before AppKit hands the shared editor to the next control.
+            onEndEditing()
+            super.textDidEndEditing(notification)
         }
     }
 

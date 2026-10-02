@@ -1,0 +1,14 @@
+---
+id: harness-test-framework-import
+language: Swift
+severity: error
+message: Runnable synthetic fixtures must not import test-framework assertions or their support modules.
+files:
+- Tests/SpottyHarnessSupport/**/*.swift
+- Tests/BrowsingHarness/Support/**/*.swift
+rule:
+  kind: import_declaration
+  has:
+    stopBy: end
+    kind: simple_identifier
+    regex: "^(Testing|XCTest|SpottyTestSupport|SpottyRuntimeTestSupport)$"

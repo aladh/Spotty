@@ -138,6 +138,8 @@ python3 "$project_root/Scripts/browsing_provenance.py" launch "$project_root" "$
     --scratch "$scratch" --app "$app" --configuration "$configuration" \
     --automated "$automated" --profile "$profile"
 spotty_embed_sparkle "$app" "$signing_identity" --scratch-path "$scratch" --timestamp=none
+# Signature integrity cannot establish that dyld can resolve the executable's bundled images.
+python3 "$project_root/Scripts/browsing_provenance.py" runtime-dependencies "$project_root" "$run_root" --app "$app"
 /usr/bin/codesign --force --options runtime --timestamp=none --sign "$signing_identity" --entitlements "$run_root/entitlements.plist" "$app"
 /usr/bin/codesign --verify --strict "$app"
 /usr/bin/codesign --verify --strict -R '=anchor apple generic' "$app"

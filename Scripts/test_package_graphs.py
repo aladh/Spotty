@@ -86,7 +86,8 @@ class RuntimeFixtureBoundaryTests(unittest.TestCase):
             "SpottyCore": target("SpottySessionRuntime"),
             "SpottySessionRuntime": target("SpottyDomain"),
             "SpottyDomain": target(),
-            "SpottyTestSupport": target("SpottyDomain"),
+            "SpottyTestSupport": target("SpottyDomain", "SpottyHarnessSupport"),
+            "SpottyHarnessSupport": target(),
             "SpottyRuntimeContracts": target("SpottyDomain"),
             "SpottyEngineAdapter": target("SpottyRuntimeContracts"),
             "SpottyGateway": target("SpottyRuntimeContracts"),
@@ -121,13 +122,26 @@ class RuntimeFixtureBoundaryTests(unittest.TestCase):
                     verify_test_support(changed)
 
     def test_shipping_cannot_reach_either_fixture_module_through_an_intermediate(self):
-        for fixture in ("SpottyRuntimeTestSupport", "SpottyTestSupport"):
+        for fixture in ("SpottyRuntimeTestSupport", "SpottyTestSupport", "SpottyHarnessSupport"):
             with self.subTest(fixture=fixture):
                 changed = copy.deepcopy(self.targets)
                 changed["Bridge"] = target(fixture)
                 changed["SpottyApp"]["dependencies"].append({"byName": ["Bridge", None]})
                 with self.assertRaisesRegex(ValueError, "test-support dependency"):
                     verify_test_support(changed)
+
+    def test_runnable_demo_cannot_reach_assertion_support_directly_or_transitively(self):
+        for fixture in ("SpottyTestSupport", "SpottyRuntimeTestSupport"):
+            for indirect in (False, True):
+                with self.subTest(fixture=fixture, indirect=indirect):
+                    changed = copy.deepcopy(self.targets)
+                    changed["Bridge"] = target(fixture)
+                    changed["SpottyBrowsingHarness"] = target("Bridge" if indirect else fixture)
+                    with self.assertRaisesRegex(ValueError, "test-framework assertions"):
+                        verify_test_support(changed)
+        changed = copy.deepcopy(self.targets)
+        changed["SpottyBrowsingHarness"] = target("SpottyHarnessSupport")
+        verify_test_support(changed)
 
     def test_both_test_targets_must_keep_the_shared_fixture_owner(self):
         for consumer in ("SpottyBoundaryTests", "SpottySessionRuntimeTests"):

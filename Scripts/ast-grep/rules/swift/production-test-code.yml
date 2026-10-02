@@ -11,6 +11,6 @@ rule:
     has:
       stopBy: end
       kind: simple_identifier
-      regex: "^(Testing|XCTest|SpottyTestSupport|SpottyRuntimeTestSupport)$"
+      regex: "^(Testing|XCTest|SpottyTestSupport|SpottyHarnessSupport|SpottyRuntimeTestSupport)$"
   - kind: attribute
     regex: "^@testable\\b"

@@ -1,0 +1,10 @@
+---
+id: harness-test-framework-import
+valid:
+- import Foundation
+- import SpottyHarnessSupport
+invalid:
+- import Testing
+- import XCTest
+- import SpottyTestSupport
+- import SpottyRuntimeTestSupport

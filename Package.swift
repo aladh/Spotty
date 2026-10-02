@@ -108,9 +108,11 @@ private func engineFreeTargets() -> [Target] {
     domainTargets() + [
         .target(name: "SpottyDiagnostics", path: "Sources/SpottyDiagnostics"),
         .target(name: "SpottyRuntimeContracts", dependencies: ["SpottyDomain"]),
+        // Runnable synthetic fixtures cannot link test-framework assertions.
+        .target(name: "SpottyHarnessSupport", path: "Tests/SpottyHarnessSupport"),
         // Shared deterministic test primitives; no production target depends on this module.
         .target(
-            name: "SpottyTestSupport", dependencies: ["SpottyRuntimeContracts"],
+            name: "SpottyTestSupport", dependencies: ["SpottyRuntimeContracts", "SpottyHarnessSupport"],
             path: "Tests/SpottyTestSupport"
         ),
         .testTarget(name: "SpottyTestSupportTests", dependencies: ["SpottyTestSupport"]),
@@ -306,7 +308,7 @@ let package: Package
                     name: "SpottyBrowsingSupport",
                     dependencies: [
                         "SpottyCore", "SpottyDomain", "SpottySessionRuntime", "SpottyEngineAdapter",
-                        "SpottyRuntimeContracts", "SpottyGateway", "SpottyTestSupport",
+                        "SpottyRuntimeContracts", "SpottyGateway", "SpottyHarnessSupport",
                     ],
                     path: "Tests/BrowsingHarness/Support",
                     resources: [.copy("Artwork")]

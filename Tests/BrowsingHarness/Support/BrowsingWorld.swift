@@ -1,5 +1,5 @@
 import Foundation
-import SpottyTestSupport
+import SpottyHarnessSupport
 import SpottyDomain
 import SpottyRuntimeContracts
 @testable import SpottyCore

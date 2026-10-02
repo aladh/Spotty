@@ -53,6 +53,10 @@ def verify_test_support(targets: dict) -> None:
                 pending.extend(graph.get(current, ()))
         return found
 
+    if "SpottyBrowsingHarness" in graph and reachable("SpottyBrowsingHarness") & {
+        "SpottyTestSupport", "SpottyRuntimeTestSupport"
+    }:
+        raise ValueError("Runnable Demo acquired test-framework assertions")
     support = "SpottyRuntimeTestSupport"
     for owner in (support, "SpottySessionRuntimeTests"):
         if "SpottyCore" in reachable(owner):
@@ -63,7 +67,7 @@ def verify_test_support(targets: dict) -> None:
         if support not in graph.get(consumer, ()):
             raise ValueError(f"{consumer} lost its shared runtime fixtures")
     for product in ("SpottyApp", "SpottyCore", "SpottyDomain"):
-        if reachable(product) & {support, "SpottyTestSupport"}:
+        if reachable(product) & {support, "SpottyTestSupport", "SpottyHarnessSupport"}:
             raise ValueError(f"{product} acquired a test-support dependency")
 
 
@@ -168,7 +172,7 @@ def verify() -> str:
                 ("engine-free", {"SpottyDomain", "SpottyDomainTests", "SpottyRuntimeContracts",
                                  "SpottyDiagnostics", "SpottyGateway", "SpottyGatewayTests",
                                  "SpottyCatalogStorage", "SpottyCatalogStorageTests",
-                                 "SpottyTestSupport", "SpottyTestSupportTests"}),
+                                 "SpottyTestSupport", "SpottyTestSupportTests", "SpottyHarnessSupport"}),
             ):
                 package = prepare(root, graph)
                 manifest = json.loads(succeeded(swift(package, graph, "dump-package", **invalid)))

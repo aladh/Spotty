@@ -62,23 +62,28 @@ struct BrowsingHomeMeasurementChecks {
     }
 
     @Test func anEarlierMatchingTransientIsNotTheTerminalRasterOnset() {
-        let frames = [frame(110, 120, "home"), frame(130, 140, "loading"),
+        let frames = [
+            frame(110, 120, "home"), frame(130, 140, "loading"),
             frame(150, 160, "home"), frame(150, 210, "home", new: false),
-            frame(150, 220, "home", new: false), frame(150, 230, "home", new: false)]
-        #expect(HomePresentedFrameCollector.terminalHomeFrame(in: frames, started: 100, observed: 200)?
-            .displayedMachTime == 150)
+            frame(150, 220, "home", new: false), frame(150, 230, "home", new: false),
+        ]
+        #expect(
+            HomePresentedFrameCollector.terminalHomeFrame(in: frames, started: 100, observed: 200)?
+                .displayedMachTime == 150)
     }
 
     @Test func transientOrUnconfirmedTerminalRasterIsExcluded() {
         let frames = [frame(110, 210, "home"), frame(120, 220, "loading"), frame(130, 230, "home")]
         #expect(HomePresentedFrameCollector.terminalHomeFrame(in: frames, started: 100, observed: 200) == nil)
         let idle = frame(90, 210, "old", new: false)
-        #expect(HomePresentedFrameCollector.terminalHomeFrame(in: [idle, idle, idle], started: 100, observed: 200) == nil)
+        #expect(
+            HomePresentedFrameCollector.terminalHomeFrame(in: [idle, idle, idle], started: 100, observed: 200) == nil)
         #expect(HomePresentedFrameCollector.terminalHomeFrame(in: frames, started: 201, observed: 200) == nil)
     }
 
     @Test func observationMustBelongToTheCurrentLoadAndSharedDeadline() throws {
-        let request = HomeAXProtocol.Request(runID: "run", pid: 42, nonce: UUID().uuidString,
+        let request = HomeAXProtocol.Request(
+            runID: "run", pid: 42, nonce: UUID().uuidString,
             startedMachTime: 100, deadlineMachTime: 300)
         try HomeAXProtocol.Observation(nonce: request.nonce, observedMachTime: 200)
             .validate(request: request, loadStarted: 150, now: 250)
@@ -97,7 +102,8 @@ struct BrowsingHomeMeasurementChecks {
     private func frame(_ display: UInt64, _ received: UInt64, _ digest: String, new: Bool = true)
         -> HomePresentedFrameCollector.Frame
     {
-        HomePresentedFrameCollector.Frame(displayedMachTime: display, receivedMachTime: received, digest: digest,
+        HomePresentedFrameCollector.Frame(
+            displayedMachTime: display, receivedMachTime: received, digest: digest,
             isNewFrame: new)
     }
 }

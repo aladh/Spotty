@@ -4,7 +4,7 @@ import CoreVideo
 import Darwin
 import Foundation
 import ScreenCaptureKit
-import SpottyTestSupport
+import SpottyHarnessSupport
 @testable import SpottyCore
 
 /// Controlled initial Home response in the actual Demo scene, before any detail navigation.
@@ -27,7 +27,8 @@ enum BrowsingHomePresentedMeasurement {
             "syntheticDependencies": true, "networkSandboxVerified": networkSandboxVerified,
             "engineUsedForPlayback": false, "performanceMeasurement": true,
             "kind": "controlled synthetic Home response in actual Demo scene",
-            "limitations": "Warm connected scene; nil fixture art; external AX readiness observation; terminal raster onset is retrospective. Not cold launch, earliest usable frame, loaded artwork, or visual parity. Footprints include capture buffers, SHA256 hashing, AX observation, and sampling instrumentation; not isolated Home allocation.",
+            "limitations":
+                "Warm connected scene; nil fixture art; external AX readiness observation; terminal raster onset is retrospective. Not cold launch, earliest usable frame, loaded artwork, or visual parity. Footprints include capture buffers, SHA256 hashing, AX observation, and sampling instrumentation; not isolated Home allocation.",
         ]
         func safety(onHome: Bool = true) throws {
             guard networkSandboxVerified, !launch.automated, !player.isPlaying,
@@ -48,7 +49,8 @@ enum BrowsingHomePresentedMeasurement {
         }
         do {
             let request = try JSONDecoder().decode(
-                HomeAXProtocol.Request.self, from: Data(contentsOf: root.appendingPathComponent("home-ax-request.json")))
+                HomeAXProtocol.Request.self, from: Data(contentsOf: root.appendingPathComponent("home-ax-request.json"))
+            )
             try request.validate(
                 runID: launch.runID, pid: ProcessInfo.processInfo.processIdentifier, now: mach_absolute_time())
             func prerequisite(onHome: Bool = true, _ condition: () -> Bool) async throws {
@@ -117,7 +119,8 @@ enum BrowsingHomePresentedMeasurement {
                 player.catalog.homeLibrary.homeSections.count == count
                     && FileManager.default.fileExists(atPath: observedPath.path)
             }
-            let observation = try JSONDecoder().decode(HomeAXProtocol.Observation.self, from: Data(contentsOf: observedPath))
+            let observation = try JSONDecoder().decode(
+                HomeAXProtocol.Observation.self, from: Data(contentsOf: observedPath))
             try observation.validate(request: request, loadStarted: started, now: mach_absolute_time())
             let observed = observation.observedMachTime
             evidence["externalReadyObservedMachTime"] = observed
@@ -128,12 +131,14 @@ enum BrowsingHomePresentedMeasurement {
             try await stop()
             try safety()
             let captured = collector.snapshot
-            guard !captured.exceededBound, let frame = HomePresentedFrameCollector.terminalHomeFrame(
-                in: captured.frames, started: started, observed: observed)
+            guard !captured.exceededBound,
+                let frame = HomePresentedFrameCollector.terminalHomeFrame(
+                    in: captured.frames, started: started, observed: observed)
             else { throw BrowsingFailure.checkpoint("home-measurement.terminal-raster") }
             evidence["homePhysicalFootprintBytes"] = try footprint()
             evidence["homeNativeViewCount"] = window.contentView.map(nativeViewCount) ?? 0
-            evidence["homeResponseToExternalObservationSeconds"] = HomePresentedFrameCollector.seconds(from: started, to: observed)
+            evidence["homeResponseToExternalObservationSeconds"] = HomePresentedFrameCollector.seconds(
+                from: started, to: observed)
             evidence["homeResponseToTerminalRasterOnsetSeconds"] = HomePresentedFrameCollector.seconds(
                 from: started, to: frame.displayedMachTime)
             evidence["terminalRasterDigest"] = frame.digest
@@ -147,22 +152,26 @@ enum BrowsingHomePresentedMeasurement {
             // Functional activation is separate and occurs only after Home capture and sampling finish.
             try await prerequisite(onHome: false) { navigation.selection == .album("spotify:album:0-0") }
             try HomeAXProtocol.publish(
-                JSONSerialization.data(withJSONObject: [
-                    "externalRequestNonce": request.nonce, "selectionConfirmed": true,
-                    "selectionConfirmedMachTime": mach_absolute_time(),
-                ], options: [.prettyPrinted, .sortedKeys]), to: root.appendingPathComponent("home-measurement-accepted.json"))
+                JSONSerialization.data(
+                    withJSONObject: [
+                        "externalRequestNonce": request.nonce, "selectionConfirmed": true,
+                        "selectionConfirmedMachTime": mach_absolute_time(),
+                    ], options: [.prettyPrinted, .sortedKeys]),
+                to: root.appendingPathComponent("home-measurement-accepted.json"))
         } catch {
             let primary = error
             do { try await stop() } catch { evidence["captureStopError"] = String(describing: error) }
             evidence["error"] = String(describing: primary)
-            evidence["frames"] = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(collector.snapshot.frames))
+            evidence["frames"] = try? JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(collector.snapshot.frames))
             evidence["frameBoundExceeded"] = collector.snapshot.exceededBound
             do {
                 try HomeAXProtocol.publish(
                     JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]),
                     to: root.appendingPathComponent("home-presented-measurement.failure.json"))
             } catch {
-                FileHandle.standardError.write(Data("Home measurement receipt failed: \(error); primary: \(primary)\n".utf8))
+                FileHandle.standardError.write(
+                    Data("Home measurement receipt failed: \(error); primary: \(primary)\n".utf8))
             }
             throw primary
         }

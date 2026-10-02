@@ -152,7 +152,9 @@ private final class HomeAXDiagnostic {
         var matches: [AXUIElement] = []
         while let element = pending.popLast() {
             inspected += 1
-            guard inspected <= (measurement ? 10_000 : 1_500) else { throw Failure(reason: "bounded public AX tree exceeded") }
+            guard inspected <= (measurement ? 10_000 : 1_500) else {
+                throw Failure(reason: "bounded public AX tree exceeded")
+            }
             let role = try attribute(element, kAXRoleAttribute) as? String ?? ""
             let title = try attribute(element, kAXTitleAttribute) as? String ?? ""
             let label = try attribute(element, kAXDescriptionAttribute) as? String ?? ""
@@ -196,9 +198,11 @@ private final class HomeAXDiagnostic {
         guard (try safety()["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true else {
             throw Failure(reason: "owned Demo is not on Home")
         }
-        for name in ["home-ax-request.json", "home-ax-armed.json", "home-ax-external.json",
+        for name in [
+            "home-ax-request.json", "home-ax-armed.json", "home-ax-external.json",
             "home-ax-observed.json", "home-presented-measurement.json", "home-presented-measurement.failure.json",
-            "home-measurement-accepted.json"] {
+            "home-measurement-accepted.json",
+        ] {
             guard !FileManager.default.fileExists(atPath: root.appendingPathComponent(name).path) else {
                 throw Failure(reason: "prior attempt evidence exists")
             }
@@ -261,7 +265,8 @@ private final class HomeAXDiagnostic {
                 try checkDeadline()
                 let pulse = try safety()
                 guard (pulse["homeProbe"] as? [String: Any])?["onHome"] as? Bool == true,
-                    !FileManager.default.fileExists(atPath: root.appendingPathComponent("home-presented-measurement.failure.json").path)
+                    !FileManager.default.fileExists(
+                        atPath: root.appendingPathComponent("home-presented-measurement.failure.json").path)
                 else { throw Failure(reason: "Home measurement failed or navigated before capture finished") }
                 Thread.sleep(forTimeInterval: 0.025)
             }

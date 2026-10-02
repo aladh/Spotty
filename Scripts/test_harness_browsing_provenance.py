@@ -13,6 +13,39 @@ import browsing_provenance
 
 
 class BrowsingProvenanceTests(unittest.TestCase):
+    def test_missing_rpath_image_is_rejected_before_installation(self):
+        with TemporaryDirectory() as directory:
+            app = Path(directory) / "Synthetic.app"
+            app.mkdir()
+            listing = "Synthetic:\n\t@rpath/Testing.framework/Versions/A/Testing (compatibility version 1.0.0, current version 1.0.0)\n"
+            with self.assertRaisesRegex(ValueError, "unbundled.*Testing"):
+                browsing_provenance.validate_rpath_dependencies(app, listing)
+            library = app / "Contents/Frameworks/Testing.framework/Versions/A/Testing"
+            library.parent.mkdir(parents=True)
+            library.write_bytes(b"synthetic image")
+            browsing_provenance.validate_rpath_dependencies(app, listing)
+            library.unlink()
+            external = Path(directory) / "external-image"
+            external.write_bytes(b"not bundled")
+            library.symlink_to(external)
+            with self.assertRaisesRegex(ValueError, "unbundled"):
+                browsing_provenance.validate_rpath_dependencies(app, listing)
+
+    def test_unavailable_or_malformed_load_command_evidence_is_rejected(self):
+        with TemporaryDirectory() as directory:
+            for listing in ("", "Synthetic:\n", "Synthetic:\ninvalid library line\n"):
+                with self.subTest(listing=listing), self.assertRaisesRegex(ValueError, "malformed"):
+                    browsing_provenance.validate_rpath_dependencies(Path(directory), listing)
+
+    def test_embedded_image_and_system_dependencies_remain_admitted(self):
+        with TemporaryDirectory() as directory:
+            app = Path(directory) / "Synthetic.app"
+            library = app / "Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
+            library.parent.mkdir(parents=True)
+            library.write_bytes(b"synthetic image")
+            listing = "Synthetic:\n\t@rpath/Sparkle.framework/Versions/B/Sparkle (compatibility version 1.0.0, current version 1.0.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n"
+            browsing_provenance.validate_rpath_dependencies(app, listing)
+
     def make_repository(self, root: Path) -> None:
         for command in (
             ["init", "--quiet"],

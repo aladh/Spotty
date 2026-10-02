@@ -199,9 +199,30 @@ def write_launch(root: Path, scratch: Path, run_root: Path, app: Path, configura
     temporary.replace(run_root / "manifest.json")
 
 
+def validate_rpath_dependencies(app: Path, listing: str) -> None:
+    """Fail before installation when an own executable's rpath image is absent from its bundle.
+
+    This checks declared bundle-local images, not every transitive/system loader dependency.
+    """
+    app = app.resolve(strict=True)
+    lines = listing.splitlines()
+    if len(lines) < 2 or not lines[0].endswith(":"):
+        raise ValueError("Demo load-command listing unavailable or malformed")
+    for line in lines[1:]:
+        if " (compatibility version" not in line:
+            raise ValueError("Demo load-command entry malformed")
+        library = line.strip().split(" (compatibility version", 1)[0]
+        if not library.startswith("@rpath/"):
+            continue
+        relative = library.removeprefix("@rpath/")
+        candidates = [app / "Contents/Frameworks" / relative, app / "Contents/MacOS" / relative]
+        if not any(path.is_file() and path.resolve().is_relative_to(app) for path in candidates):
+            raise ValueError("Demo has an unbundled @rpath dependency: " + library)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["snapshot", "launch"])
+    parser.add_argument("operation", choices=["snapshot", "launch", "runtime-dependencies"])
     parser.add_argument("root", type=Path)
     parser.add_argument("run_root", type=Path)
     parser.add_argument("--scratch", type=Path)
@@ -210,7 +231,13 @@ def main() -> None:
     parser.add_argument("--automated", choices=["true", "false"])
     parser.add_argument("--profile", choices=["true", "false"])
     args = parser.parse_args()
-    if args.operation == "snapshot":
+    if args.operation == "runtime-dependencies":
+        if args.app is None:
+            parser.error("runtime-dependencies requires --app")
+        listing = subprocess.check_output(
+            ["xcrun", "otool", "-L", str(args.app / "Contents/MacOS/SpottyDemo")], text=True)
+        validate_rpath_dependencies(args.app, listing)
+    elif args.operation == "snapshot":
         (args.run_root / "build-start.json").write_text(json.dumps(build_snapshot(args.root), sort_keys=True))
     else:
         if any(value is None for value in (args.scratch, args.app, args.configuration, args.automated, args.profile)):

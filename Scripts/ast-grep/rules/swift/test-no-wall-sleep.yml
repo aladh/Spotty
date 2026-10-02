@@ -7,6 +7,7 @@ message: Use HarnessClock or cooperative synchronization in deterministic tests;
 files:
 - Tests/Spotty*Tests/**/*.swift
 - Tests/SpottyTestSupport/**/*.swift
+- Tests/SpottyHarnessSupport/**/*.swift
 - Tests/SpottyRuntimeTestSupport/**/*.swift
 - Tests/BrowsingHarness/Checks/**/*.swift
 # This owner uses a cancellable timer only to back off observation polling, never to

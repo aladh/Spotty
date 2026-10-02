@@ -6,6 +6,7 @@ valid:
 - let text = "@testable import SpottyCore"
 invalid:
 - import SpottyTestSupport
+- import SpottyHarnessSupport
 - import SpottyRuntimeTestSupport
 - import Testing
 - import XCTest

@@ -6,6 +6,7 @@ message: Shared fixture libraries must build against ordinary Release modules. K
   construction and assertions in the consuming test target.
 files:
 - Tests/SpottyTestSupport/**/*.swift
+- Tests/SpottyHarnessSupport/**/*.swift
 - Tests/SpottyRuntimeTestSupport/**/*.swift
 rule:
   kind: attribute

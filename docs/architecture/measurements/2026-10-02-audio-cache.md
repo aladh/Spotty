@@ -6,7 +6,7 @@ credentials and catalog/artwork retention. Production continues to construct
 This evaluation makes no app/engine pin change and ships no cache implementation.
 
 The trial invokes the actual retained `Cache` with a private disposable audio path and a fixed
-size limit. Six cache-layer checks use synthetic bytes in unique mode0700 directories. No Session,
+size limit. Six cache-layer checks use synthetic bytes in unique mode 0700 directories. No Session,
 credentials, encrypted Spotify data, key request, decoder, network or playback is constructed.
 The delayed writer is a raw cloned Cache experiment, not an engine shutdown reproduction.
 
@@ -15,16 +15,16 @@ Observed prerequisites:
 | Scenario | Result |
 | --- | --- |
 | Disabled versus completed candidate repeat reads | Disabled has no audio path/file and cannot save; candidate retains and reuses65,536 synthetic bytes |
-| Completed size bound and restart | Two16-byte saves under24-byte quota retain16; restart with8-byte limit prunes; oversized completed save can succeed after evicting itself |
-| Interrupted copy |16-byte prefix remains readable/unaccounted after copy failure with8-byte quota; explicit removal works and restart later prunes it |
-| Retired partition and delayed clone | After owned account-A partition deletion, delayed Cache clone recreates16 bytes; separate account-B partition is unchanged |
-| Failed removal | Replacing a cached file with an owned nonempty directory makes eviction fail after accounting is popped; a later save leaves16 bytes under8-byte quota |
+| Completed size bound and restart | Two 16-byte saves under 24-byte quota retain 16; restart with 8-byte limit prunes; oversized completed save can succeed after evicting itself |
+| Interrupted copy |16-byte prefix remains readable/unaccounted after copy failure with 8-byte quota; explicit removal works and restart later prunes it |
+| Retired partition and delayed clone | After owned account-A partition deletion, delayed Cache clone recreates 16 bytes; separate account-B partition is unchanged |
+| Failed removal | Replacing a cached file with an owned nonempty directory makes eviction fail after accounting is popped; a later save leaves 16 bytes under 8-byte quota |
 | Restart directory symlink | Startup scanning follows an owned link outside the trial partition and quota pruning deletes its owned target marker |
 
 No-go for enabling the unmodified cache. The candidate demonstrates repeated byte reuse, but
 fixed bounds and account cleanup cannot rely on raw Cache alone. Shipping would require owned
 retirement fencing/draining, failure-atomic writes/accounting, no-follow partition confinement,
-and explicit cleanup-failure policy in the Rust leaf under ADR005. That is additional lifecycle
+and explicit cleanup-failure policy in the Rust leaf under ADR 005. That is additional lifecycle
 complexity without an established live benefit; this batch keeps audio caching disabled.
 
 The opt-in report performs three disabled memory-source reads versus one candidate save followed
@@ -45,9 +45,9 @@ cargo test --locked --manifest-path Backend/spotty-playback/Cargo.toml \
 
 The [sanitized receipt](2026-10-02-audio-cache.json) records clean source `e2bb40f`,
 engine input identity, toolchain, optimized test executable, five IO waves and validation.
-Cold-save median was0.2025ms (0.1656–0.4000); warm-read median0.03215ms (0.0277–0.0525).
+Cold-save median was 0.2025 ms (0.1656–0.4000); warm-read median 0.03215 ms (0.0277–0.0525).
 Those descriptive measurements establish file reuse, not a playback improvement. The complete
-Rust gate passed reproducible headers, format, warning-clean clippy,173 bridge checks and17
+Rust gate passed reproducible headers, format, warning-clean clippy, 173 bridge checks and 17
 retained-librespot checks; three explicit probes remained ignored in the normal suite.
 
 To collect a fresh optimized IO receipt, use a clean checkout and a new absolute path:
@@ -60,4 +60,4 @@ SPOTTY_AUDIO_CACHE_SOURCE_REVISION=$(git rev-parse HEAD) \
 ```
 
 The direct Rust test host is not a signed app/engine artifact. It uses Cargo's default deployment
-minimum11.0 on macOS27; the shipping app and engine retain minimum27.
+minimum 11.0 on macOS 27; the shipping app and engine retain minimum 27.

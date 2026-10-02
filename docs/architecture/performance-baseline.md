@@ -77,8 +77,8 @@ playback measurement above.
 
 The [cache-layer evaluation](measurements/2026-10-02-audio-cache.md) at clean `e2bb40f` uses
 the actual retained librespot Cache with private synthetic bytes; it constructs no Session or
-player. Five optimized IO waves supplied196,608 fixture bytes without retention versus65,536
-with one save and two warm reads. Retained size was65,536 bytes under a131,072-byte trial quota.
+player. Each of five optimized IO waves supplied 196,608 fixture bytes without retention versus 65,536
+with one save and two warm reads. Retained size was 65,536 bytes under a 131,072-byte trial quota.
 These are memory/filesystem counts, not Spotify downloads, repeat-play or startup latency.
 
 The unmodified candidate fails prerequisites: interrupted copies and failed eviction lose size

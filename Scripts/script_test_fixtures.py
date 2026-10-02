@@ -16,6 +16,21 @@ PASSING_PYTHON = "import unittest\nclass Example(unittest.TestCase):\n    def te
 PASSING_NODE = "const {test} = require('node:test'); test('example', () => {});\n"
 
 
+def process_has_stopped(pid):
+    """Read-only observation; a disappearing /proc entry defers to the next kill(0) probe."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    # Linux may retain a killed orphan as a zombie until init reaps it. On other
+    # hosts /proc is absent; that alone never proves a still-addressable PID stopped.
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    return state == "Z"
+
+
 @contextlib.contextmanager
 def repository():
     with tempfile.TemporaryDirectory() as directory:
@@ -90,16 +105,7 @@ class LifetimeFixtureMixin:
         pid = int(path.read_text())
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+            if process_has_stopped(pid):
                 return
-            # A killed orphan can remain a zombie until the Linux container's init reaps it.
-            stat = Path(f"/proc/{pid}/stat")
-            try:
-                if stat.read_text().split(")", 1)[1].split()[0] == "Z":
-                    return
-            except FileNotFoundError:
-                pass
             time.sleep(0.01)
         self.fail(f"owned test process {pid} survived cleanup")

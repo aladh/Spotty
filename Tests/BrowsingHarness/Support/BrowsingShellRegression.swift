@@ -315,6 +315,16 @@ final class BrowsingShellRegression {
         return target
     }
 
+    static func requalifyDisplayIfNeeded(
+        sizedFrame: CGRect?, currentFrame: CGRect?, resize: () throws -> Void
+    ) throws -> Bool {
+        guard let sizedFrame else { return false }
+        guard let currentFrame else { throw BrowsingFailure.checkpoint("window.display-unavailable") }
+        guard sizedFrame != currentFrame else { return false }
+        try resize()
+        return true
+    }
+
     private func resize(_ window: NSWindow, bodySize: NSSize) throws {
         guard let screen = window.screen, let content = window.contentView else {
             throw BrowsingFailure.checkpoint("window.display-unavailable")
@@ -396,6 +406,7 @@ final class BrowsingShellRegression {
 
     private func verifyToolbarHitTargets(window: NSWindow, navigation: CatalogNavigation) async throws {
         hitTargetChecks.removeAll()
+        hitTargetFrames.removeAll()
         for (marker, selection, label) in [
             ("shell.search", SidebarSelection.destination(.search), "toolbar.hit-target-search"),
             ("shell.home", .destination(.home), "toolbar.hit-target-home"),
@@ -425,6 +436,7 @@ final class BrowsingShellRegression {
                 navigation.selection == selection
             }
             hitTargetChecks.insert(label)
+            hitTargetFrames[marker] = Rect(rect)
             try await settle(window: window, deadline: deadline)
         }
         // Exercise Command-L through the app's native event dispatch, including
@@ -483,9 +495,6 @@ final class BrowsingShellRegression {
         navigation.searchText = ""
         navigation.updateSelection(.destination(.home))
         try await settle(window: window, deadline: deadline)
-        hitTargetFrames = ShellGeometry.frames(in: window).filter { key, _ in
-            ["shell.home", "shell.search", "shell.history.back", "shell.history.forward"].contains(key)
-        }.mapValues(Rect.init)
     }
 
     private func settle(window: NSWindow, deadline: ContinuousClock.Instant, required: [String] = []) async throws {
@@ -493,6 +502,18 @@ final class BrowsingShellRegression {
         var previousVisibleFrame: CGRect?
         var stableSince = ContinuousClock.now
         try await wait("shell.geometry-ready", deadline: deadline) {
+            // Dock/work-area transitions can complete after fixture sizing. Resize
+            // only our window, then require a fresh exact stability interval.
+            if let desiredBodySize,
+                try Self.requalifyDisplayIfNeeded(
+                    sizedFrame: sizingScreenVisibleFrame, currentFrame: window.screen?.visibleFrame,
+                    resize: { try resize(window, bodySize: desiredBodySize) })
+            {
+                previous = [:]
+                previousVisibleFrame = nil
+                stableSince = .now
+                return false
+            }
             let frames = ShellGeometry.frames(in: window)
             guard
                 (["shell.sidebar", "shell.catalog", "shell.player", "shell.navigation"] + required)
@@ -511,12 +532,12 @@ final class BrowsingShellRegression {
     }
 
     private func wait(
-        _ checkpoint: String, deadline: ContinuousClock.Instant, ready: () -> Bool
+        _ checkpoint: String, deadline: ContinuousClock.Instant, ready: () throws -> Bool
     ) async throws {
         while true {
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw BrowsingFailure.checkpoint(checkpoint) }
-            if ready() { return }
+            if try ready() { return }
             try await ContinuousClock().sleep(for: .milliseconds(40))
         }
     }

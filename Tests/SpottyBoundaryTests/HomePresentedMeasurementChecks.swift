@@ -22,6 +22,7 @@ struct HomePresentedMeasurementChecks {
         let count = try #require(Int(env["SPOTTY_HOME_PRESENTED_SECTIONS"] ?? "120"))
         try #require([12, 120].contains(count))
         try #require(!FileManager.default.fileExists(atPath: path))
+        try #require(!FileManager.default.fileExists(atPath: path + ".failure.json"))
         let provider = HarnessCatalog()
         provider.onHome = {
             CatalogHomeSnapshot(
@@ -39,7 +40,22 @@ struct HomePresentedMeasurementChecks {
                 })
         }
         let artwork = HarnessArtwork(immediateFailure: .unavailable)
-        let player = HarnessEnvironment.makePlaybackStore(HarnessEnvironment.make(catalog: provider))
+        let engine = HarnessEngine()
+        let remote = HarnessRemote()
+        let mutations = HarnessPlaylistMutations()
+        let player = HarnessEnvironment.makePlaybackStore(
+            HarnessEnvironment.make(engine: engine, remote: remote, catalog: provider, playlistMutations: mutations))
+        func safety() -> [String: Any] {
+            [
+                "syntheticDependencies": true, "engineUsedForPlayback": false,
+                "engineCommands": engine.executeCount, "remoteCommands": remote.sendCount,
+                "playlistMutations": mutations.addCalls.count + mutations.removeCalls.count,
+            ]
+        }
+        func requireSafety() throws {
+            try #require(engine.executeCount == 0 && remote.sendCount == 0)
+            try #require(mutations.addCalls.isEmpty && mutations.removeCalls.isEmpty)
+        }
         player.withRuntime {
             $0.accountStore.publishPhase(.ready)
             _ = $0.send(.session(.ready), source: .account)
@@ -66,7 +82,13 @@ struct HomePresentedMeasurementChecks {
         }
         var stream: SCStream?
         let callbackQueue = DispatchQueue(label: "dev.spotty.home-frame-probe")
+        let collector = HomePresentedFrameCollector()
+        var phase = "own-window capture admission"
+        var observedTimes: [String: UInt64] = [:]
+        var captureStarted = false
+        var captureStopped = false
         do {
+            try requireSafety()
             let available = try await SCShareableContent.currentProcess
             let shared = try #require(available.windows.first { $0.windowID == CGWindowID(window.windowNumber) })
             try #require(shared.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier)
@@ -80,7 +102,6 @@ struct HomePresentedMeasurementChecks {
             configuration.capturesAudio = false
             configuration.captureMicrophone = false
             configuration.ignoreShadowsSingleWindow = true
-            let collector = HomePresentedFrameCollector()
             let owned = SCStream(
                 filter: SCContentFilter(desktopIndependentWindow: shared), configuration: configuration,
                 delegate: nil)
@@ -88,13 +109,19 @@ struct HomePresentedMeasurementChecks {
                 collector, type: .screen, sampleHandlerQueue: callbackQueue)
             stream = owned
             try await owned.startCapture()
+            captureStarted = true
+            phase = "capture priming"
             try await requireEventually(description: "Own-window capture is primed before the Home load") {
                 !collector.snapshot.frames.isEmpty
             }
             let before = try footprint()
+            try requireSafety()
             let started = mach_absolute_time()
+            observedTimes["loadStartMachTime"] = started
+            phase = "native extent threshold and detail activation"
             await player.catalog.homeLibrary.loadHome()
-            try await requireEventually(description: "Complete Home extent and a visible detail control can activate") {
+            try await requireEventually(description: "Home extent threshold and a visible detail control can activate")
+            {
                 host.layoutSubtreeIfNeeded()
                 guard (page(in: host)?.documentView?.bounds.height ?? 0) > CGFloat(count * 200),
                     let button = visibleDetailControl(in: window)
@@ -102,15 +129,21 @@ struct HomePresentedMeasurementChecks {
                 return button.accessibilityPerformPress() && selectedID == "0-0"
             }
             let ready = mach_absolute_time()
+            try requireSafety()
+            observedTimes["nativeInputReadyMachTime"] = ready
             let readyFootprint = try footprint()
+            phase = "visible artwork admission"
             try await requireEventually(description: "Initially visible artwork requests settle") {
                 await artwork.requests.contains { $0.url.path == "/1/0" }
             }
+            phase = "post-readiness terminal raster"
             try await requireEventually(description: "Three own-window events confirm the terminal raster") {
                 HomePresentedFrameCollector.firstSteadyFrame(
                     in: collector.snapshot.frames, started: started, ready: ready) != nil
             }
+            phase = "capture stop and callback drain"
             try await owned.stopCapture()
+            captureStopped = true
             stream = nil
             await drain(callbackQueue)
             let captured = collector.snapshot
@@ -135,9 +168,11 @@ struct HomePresentedMeasurementChecks {
                 "captureDeliveryDelaySeconds": try #require(
                     HomePresentedFrameCollector.seconds(from: first.displayedMachTime, to: first.receivedMachTime)),
                 "documentHeight": try #require(scroll.documentView).bounds.height,
+                "documentHeightReadinessThreshold": count * 200,
                 "nativeViewCount": nativeViewCount(host), "artworkAdmissions": requests.count,
                 "beforePhysicalFootprintBytes": before, "readyPhysicalFootprintBytes": readyFootprint,
                 "captureStoppedPhysicalFootprintBytes": try footprint(),
+                "safety": safety(),
                 "frames": captured.frames.map {
                     [
                         "displayedMachTime": $0.displayedMachTime, "receivedMachTime": $0.receivedMachTime,
@@ -146,23 +181,50 @@ struct HomePresentedMeasurementChecks {
                     ] as [String: Any]
                 },
                 "limitations":
-                    "Synthetic production Home surface, not full app startup/network/audio. Primed own-window compositor capture; first matching terminal raster after complete extent and successful visible detail-control AX activation. Three consecutive complete/idle events confirm the terminal raster. This is the first captured terminal-raster match after observed readiness, not proof of the earliest possible usable frame; a raster displayed only before readiness remains unmeasured. Capture does not prove unobscured screen visibility or human input latency. Includes sampling/SHA256 overhead and three capture buffers; no raw pixels retained. Immediate unavailable artwork excludes decode/raster/network. No live-account, full keyboard traversal or visual parity claim.",
+                    "Synthetic production Home surface, not full app startup/network/audio. Primed own-window compositor capture; first matching terminal raster after the document-height threshold and successful visible detail-control AX activation. The threshold does not prove exact full extent. Three consecutive complete/idle events confirm the terminal raster. This is the first captured terminal-raster match after observed readiness, not proof of the earliest possible usable frame; a raster displayed only before readiness remains unmeasured. Capture does not prove unobscured screen visibility or human input latency. Includes forced-layout polling, AX traversal/activation, sampling/SHA256 overhead and three capture buffers; no raw pixels retained. Immediate unavailable artwork excludes decode/raster/network. No live-account, full keyboard traversal or visual parity claim.",
             ]
+            await player.shutdownForTermination()
+            try requireSafety()
             try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
                 .write(to: URL(fileURLWithPath: path), options: .withoutOverwriting)
-            await player.shutdownForTermination()
         } catch {
+            let primary = error
+            var cleanupError: String?
             if let stream {
-                do { try await stream.stopCapture() } catch let cleanup {
-                    await drain(callbackQueue)
-                    await player.shutdownForTermination()
-                    throw HomePresentedCleanupFailure(
-                        primary: String(describing: error), cleanup: String(describing: cleanup))
+                do {
+                    try await stream.stopCapture()
+                    captureStopped = true
+                } catch let cleanup {
+                    cleanupError = String(describing: cleanup)
                 }
             }
             await drain(callbackQueue)
             await player.shutdownForTermination()
-            throw error
+            let captured = collector.snapshot
+            let failure: [String: Any] = [
+                "sections": count, "phase": phase, "primaryError": String(describing: primary),
+                "cleanupError": cleanupError as Any? ?? NSNull(),
+                "captureStarted": captureStarted, "captureStopSucceeded": captureStopped,
+                "callbackQueueDrained": true, "playerShutdownCompleted": true,
+                "observedTimes": observedTimes, "frameBoundExceeded": captured.exceededBound,
+                "safety": safety(),
+                "frames": captured.frames.map {
+                    [
+                        "displayedMachTime": $0.displayedMachTime, "receivedMachTime": $0.receivedMachTime,
+                        "digest": $0.digest, "isNewFrame": $0.isNewFrame,
+                    ] as [String: Any]
+                },
+            ]
+            do {
+                try JSONSerialization.data(withJSONObject: failure, options: [.prettyPrinted, .sortedKeys])
+                    .write(to: URL(fileURLWithPath: path + ".failure.json"), options: .withoutOverwriting)
+            } catch {
+                Issue.record("Failure receipt could not be written: \(error)")
+            }
+            if let cleanupError {
+                throw HomePresentedCleanupFailure(primary: String(describing: primary), cleanup: cleanupError)
+            }
+            throw primary
         }
     }
 

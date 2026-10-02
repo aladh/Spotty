@@ -95,12 +95,22 @@ establishes artifact integrity; it does not establish isolation or successful me
 
 ### Actual application lifecycle diagnostic
 
-An isolated browsing workload may set `homePresentedProbeSections` to 12 or 120. This is a
-causal AX diagnostic in the existing SwiftUI Demo application, following failed XCTest-host
-discovery; it is not a performance measurement. It supplies eight uniquely labeled synthetic
-albums per shelf, with nil artwork, and checks one visible exact detail button and its actual
-navigation selection within ten seconds. The signed network-denied Demo retains
-`home-presented-diagnostic.json` and its normal run evidence. Use the supported
-`browse-synthetic.sh --optimized` procedure with exclusive native-lane coordination and fresh
-artifact/safety admission. Preserve the first failure; do not infer a production AX defect from
-unavailable host discovery, extend the deadline, or enable live dependencies.
+Use one interactive, optimized, network-denied Demo with `homePresentedProbeSections: 12`, browsing
+mode, eight uniquely labeled albums per shelf and nil artwork. This diagnoses public AX traversal,
+not performance. Keep exclusive native-lane coordination and exact signed artifact admission.
+
+Compile the separate controller before launching:
+
+```sh
+xcrun swiftc -parse-as-library -swift-version 6 -warnings-as-errors \
+  Scripts/synthetic_home_ax.swift Tests/BrowsingHarness/Support/HomeAXProtocol.swift -o /tmp/home-ax
+./Scripts/browse-synthetic.sh --optimized --interactive /tmp/home-scenario.json
+/tmp/home-ax RUN_ROOT HEAD SOURCE_SHA256 SIGNED_EXECUTABLE_SHA256
+```
+
+Existing Accessibility access is required; no grants are requested. Fresh Home safety pulses,
+atomic non-replacing nonce publication and a shared ten-second deadline admit one exact public
+detail action. Evidence compares external traversal with internal pruning and confirms actual
+navigation. Footprint/view counts precede navigation; no subsequent detail raster measures Home.
+Preserve the first failure and retire only the owned Demo. Do not infer a product defect, extend
+deadlines or enable live dependencies.

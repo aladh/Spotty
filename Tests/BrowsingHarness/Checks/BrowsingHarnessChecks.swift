@@ -73,6 +73,60 @@ struct BrowsingHarnessTests {
         #expect(BrowsingHomePresentedProbe.discover(in: root, visibleFrame: frame).control == nil)
     }
 
+    @Test func presentedHomeExternalRequestRejectsExpiredOrDifferentRun() throws {
+        let nonce = UUID().uuidString
+        let valid = BrowsingHomePresentedProbe.ExternalRequest(
+            runID: "owned-run", pid: 42, nonce: nonce, startedMachTime: 100, deadlineMachTime: 200)
+        try valid.validate(runID: "owned-run", pid: 42, now: 150)
+        #expect(throws: HomeAXProtocol.Failure.self) { try valid.validate(runID: "another-run", pid: 42, now: 150) }
+        #expect(throws: HomeAXProtocol.Failure.self) { try valid.validate(runID: "owned-run", pid: 43, now: 150) }
+        #expect(throws: HomeAXProtocol.Failure.self) { try valid.validate(runID: "owned-run", pid: 42, now: 200) }
+        #expect(throws: HomeAXProtocol.Failure.self) { try valid.validate(runID: "owned-run", pid: 42, now: 99) }
+        let extended = BrowsingHomePresentedProbe.ExternalRequest(
+            runID: "owned-run", pid: 42, nonce: nonce, startedMachTime: 100, deadlineMachTime: 1_000_000_000_000)
+        #expect(throws: HomeAXProtocol.Failure.self) { try extended.validate(runID: "owned-run", pid: 42, now: 150) }
+    }
+
+    @Test func presentedHomePublicationPreservesCompletePriorEvidence() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyAXPublication-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let output = root.appendingPathComponent("request.json")
+        let original = try JSONSerialization.data(withJSONObject: ["nonce": String(repeating: "x", count: 100_000)])
+        var observedBeforeCommit = false
+        try HomeAXProtocol.publish(original, to: output) {
+            observedBeforeCommit = true
+            #expect(!FileManager.default.fileExists(atPath: output.path), "A peer cannot see an incomplete publication")
+        }
+        #expect(observedBeforeCommit)
+        #expect(try Data(contentsOf: output) == original)
+        #expect(throws: POSIXError.self) { try HomeAXProtocol.publish(Data("replacement".utf8), to: output) }
+        #expect(try Data(contentsOf: output) == original)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["request.json"])
+    }
+
+    @Test func presentedHomeExternalTargetPolicyRejectsPlaybackAndAmbiguity() throws {
+        let window = CGRect(x: 0, y: 0, width: 900, height: 600)
+        let frame = CGRect(x: 20, y: 20, width: 100, height: 40)
+        func admitted(
+            _ role: String = "AXButton", _ title: String = "Synthetic album 0-0", enabled: Bool = true,
+            bounds: CGRect? = nil
+        ) -> Bool {
+            HomeAXProtocol.isDetailTarget(
+                role: role, title: title, label: "", enabled: enabled,
+                frame: bounds ?? frame, window: window)
+        }
+        #expect(admitted())
+        #expect(!admitted("AXGroup"))
+        #expect(!admitted("AXButton", "Play Synthetic album 0-0"))
+        #expect(!admitted("AXButton", "Synthetic album 0-7"))
+        #expect(!admitted(enabled: false))
+        #expect(!admitted(bounds: .zero))
+        #expect(!admitted(bounds: CGRect(x: -500, y: -500, width: 20, height: 20)))
+        try HomeAXProtocol.requireUniqueCount(1)
+        #expect(throws: HomeAXProtocol.Failure.self) { try HomeAXProtocol.requireUniqueCount(2) }
+    }
+
     @Test func searchUsesBrowsableSyntheticEntitiesAndHonorsQueryAndLimit() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottySearchDemo-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

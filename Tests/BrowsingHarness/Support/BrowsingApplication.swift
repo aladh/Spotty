@@ -144,6 +144,7 @@ final class BrowsingRun {
     @ObservationIgnored private var acceptanceRuntime: AcceptanceRuntimeReport?
     @ObservationIgnored private var shellRegression: BrowsingShellRegression?
     @ObservationIgnored private var statusPulse: Task<Void, Never>?
+    @ObservationIgnored private var homeAXRequest: Task<Void, Never>?
     @ObservationIgnored private var runStatusState: BrowsingRunStatus.State = .ready
     @ObservationIgnored private var queueHydration: [QueueHydrationMeasurement] = []
     @ObservationIgnored private var hasStarted = false
@@ -181,11 +182,27 @@ final class BrowsingRun {
         workload = Task { [self] in
             do {
                 try await prepare()
-                if !launch.automated && world.scenario.guiShellRegression == true {
+                if !launch.automated,
+                    world.scenario.guiShellRegression == true || world.scenario.homePresentedProbeSections != nil
+                {
                     statusPulse = Task { [weak self] in
                         while !Task.isCancelled {
                             guard let self else { return }
                             try? self.writeRunStatus(self.runStatusState)
+                            do { try await ContinuousClock().sleep(for: .milliseconds(100)) } catch { return }
+                        }
+                    }
+                }
+                if !launch.automated, world.scenario.homePresentedProbeSections != nil {
+                    homeAXRequest = Task { [weak self] in
+                        guard let self else { return }
+                        let request = URL(fileURLWithPath: launch.runRoot).appendingPathComponent(
+                            "home-ax-request.json")
+                        while !Task.isCancelled {
+                            if FileManager.default.fileExists(atPath: request.path) {
+                                await perform()
+                                return
+                            }
                             do { try await ContinuousClock().sleep(for: .milliseconds(100)) } catch { return }
                         }
                     }
@@ -378,10 +395,19 @@ final class BrowsingRun {
         if state == .workloadFinished || state == .failed {
             statusPulse?.cancel()
             statusPulse = nil
+            homeAXRequest?.cancel()
+            homeAXRequest = nil
         }
         try BrowsingRunStatus(
             launch: launch, state: state, failureCode: failureCode, window: window(),
-            networkSandboxVerified: networkSandboxVerified, world: world
+            networkSandboxVerified: networkSandboxVerified, world: world,
+            homeProbe: world.scenario.homePresentedProbeSections == nil
+                ? nil
+                : .init(
+                    sectionCount: player.catalog.homeLibrary.homeSections.count,
+                    connected: CatalogPlaybackAccess(player: player).isConnected,
+                    onHome: navigation.selection == .destination(.home),
+                    exactDetailSelected: navigation.selection == .album("spotify:album:0-0"))
         ).write(
             to: URL(fileURLWithPath: launch.runRoot).appendingPathComponent("run-status.json"))
     }

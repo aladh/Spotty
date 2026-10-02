@@ -27,6 +27,13 @@ struct BrowsingRunStatus: Encodable {
         let reducedMotion: Bool
     }
 
+    struct HomeProbe: Encodable {
+        let sectionCount: Int
+        let connected: Bool
+        let onHome: Bool
+        let exactDetailSelected: Bool
+    }
+
     let schemaVersion = 1
     let runID: String
     let pid: Int32
@@ -41,11 +48,13 @@ struct BrowsingRunStatus: Encodable {
     let mutationAttempts: Int
     let window: Window
     let display: Display
+    let homeProbe: HomeProbe?
 
     @MainActor
     init(
         launch: BrowsingLaunch, state: State, failureCode: String?, window: NSWindow?,
-        networkSandboxVerified: Bool, world: BrowsingWorld
+        networkSandboxVerified: Bool, world: BrowsingWorld,
+        homeProbe: HomeProbe? = nil
     ) {
         runID = launch.runID
         pid = ProcessInfo.processInfo.processIdentifier
@@ -53,6 +62,7 @@ struct BrowsingRunStatus: Encodable {
         self.failureCode = failureCode
         recordedAtSeconds = Date().timeIntervalSince1970
         self.networkSandboxVerified = networkSandboxVerified
+        self.homeProbe = homeProbe
         commandCount = world.playback.snapshot().commandCount
         mutationAttempts = world.snapshot().mutationAttempts
         self.window = Window(

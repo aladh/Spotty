@@ -3,7 +3,7 @@
 use crate::Cache;
 use librespot_core::FileId;
 use std::fs;
-use std::io::{self, Cursor, Read};
+use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -40,7 +40,15 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
+        if let Err(error) = fs::remove_dir_all(&self.0) {
+            let _ = writeln!(
+                io::stderr().lock(),
+                "failed to remove owned audio-cache fixture: {error}"
+            );
+            if !std::thread::panicking() {
+                panic!("audio-cache fixture cleanup failed");
+            }
+        }
     }
 }
 
@@ -299,7 +307,6 @@ fn record_synthetic_cold_and_warm_cache_io() {
         .create_new(true)
         .open(report)
         .unwrap();
-    use std::io::Write;
     serde_json::to_writer_pretty(&mut file, &result).unwrap();
     file.write_all(b"\n").unwrap();
 }

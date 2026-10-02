@@ -14,9 +14,9 @@ Observed prerequisites:
 
 | Scenario | Result |
 | --- | --- |
-| Disabled versus completed candidate repeat reads | Disabled has no audio path/file and cannot save; candidate retains and reuses65,536 synthetic bytes |
+| Disabled versus completed candidate repeat reads | Disabled has no audio path/file and cannot save; candidate retains and reuses 65,536 synthetic bytes |
 | Completed size bound and restart | Two 16-byte saves under 24-byte quota retain 16; restart with 8-byte limit prunes; oversized completed save can succeed after evicting itself |
-| Interrupted copy |16-byte prefix remains readable/unaccounted after copy failure with 8-byte quota; explicit removal works and restart later prunes it |
+| Interrupted copy | 16-byte prefix remains readable/unaccounted after copy failure with 8-byte quota; explicit removal works and restart later prunes it |
 | Retired partition and delayed clone | After owned account-A partition deletion, delayed Cache clone recreates 16 bytes; separate account-B partition is unchanged |
 | Failed removal | Replacing a cached file with an owned nonempty directory makes eviction fail after accounting is popped; a later save leaves 16 bytes under 8-byte quota |
 | Restart directory symlink | Startup scanning follows an owned link outside the trial partition and quota pruning deletes its owned target marker |

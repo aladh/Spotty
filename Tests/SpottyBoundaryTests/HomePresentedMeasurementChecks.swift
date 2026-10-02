@@ -33,7 +33,7 @@ struct HomePresentedMeasurementChecks {
                         items: (0..<8).map { item in
                             let id = "\(section)-\(item)"
                             return CatalogItem(
-                                id: id, uri: "spotify:album:\(id)", title: "Synthetic album",
+                                id: id, uri: "spotify:album:\(id)", title: "Synthetic album \(id)",
                                 subtitle: "Synthetic artist",
                                 artworkURL: URL(string: "https://synthetic.invalid/\(section)/\(item)"), kind: .album)
                         })
@@ -85,8 +85,10 @@ struct HomePresentedMeasurementChecks {
         let collector = HomePresentedFrameCollector()
         var phase = "own-window capture admission"
         var observedTimes: [String: UInt64] = [:]
+        var observedFootprints: [String: UInt64] = [:]
         var captureStarted = false
         var captureStopped = false
+        var readinessEvidence: [String: Any] = [:]
         do {
             try requireSafety()
             let available = try await SCShareableContent.currentProcess
@@ -115,23 +117,51 @@ struct HomePresentedMeasurementChecks {
                 !collector.snapshot.frames.isEmpty
             }
             let before = try footprint()
+            observedFootprints["beforeHomeLoadBytes"] = before
             try requireSafety()
             let started = mach_absolute_time()
             observedTimes["loadStartMachTime"] = started
-            phase = "native extent threshold and detail activation"
+            phase = "native extent threshold"
             await player.catalog.homeLibrary.loadHome()
-            try await requireEventually(description: "Home extent threshold and a visible detail control can activate")
-            {
+            var activationAttempted = false
+            var activationAccepted = false
+            // All readiness phases share the original single ten-second prerequisite deadline.
+            try await requireEventually(description: "Home extent and exact synthetic selection callback readiness") {
                 host.layoutSubtreeIfNeeded()
-                guard (page(in: host)?.documentView?.bounds.height ?? 0) > CGFloat(count * 200),
-                    let button = visibleDetailControl(in: window)
-                else { return false }
-                return button.accessibilityPerformPress() && selectedID == "0-0"
+                let height = page(in: host)?.documentView?.bounds.height ?? 0
+                readinessEvidence["documentHeight"] = height
+                readinessEvidence["sectionCount"] = player.catalog.homeLibrary.homeSections.count
+                readinessEvidence["connected"] = CatalogPlaybackAccess(player: player).isConnected
+                guard height > CGFloat(count * 200) else {
+                    phase = "native extent threshold"
+                    return false
+                }
+                if observedTimes["extentThresholdMachTime"] == nil {
+                    observedTimes["extentThresholdMachTime"] = mach_absolute_time()
+                }
+                if !activationAttempted {
+                    phase = "exact visible detail-control discovery"
+                    let discovered = HomePresentedAccessibilityProbe.discover(
+                        in: window, visibleFrame: window.frame, label: "Synthetic album 0-0")
+                    readinessEvidence["accessibility"] = discovered.evidence
+                    guard let button = discovered.control else { return false }
+                    observedTimes["detailControlDiscoveredMachTime"] = mach_absolute_time()
+                    activationAttempted = true
+                    readinessEvidence["activationAttempted"] = true
+                    phase = "single detail-control activation"
+                    activationAccepted = button.accessibilityPerformPress()
+                    readinessEvidence["activationAccepted"] = activationAccepted
+                    observedTimes["detailControlPressedMachTime"] = mach_absolute_time()
+                }
+                readinessEvidence["selectedID"] = selectedID as Any? ?? NSNull()
+                if activationAccepted { phase = "synthetic selection callback acceptance" }
+                return activationAccepted && selectedID == "0-0"
             }
             let ready = mach_absolute_time()
             try requireSafety()
-            observedTimes["nativeInputReadyMachTime"] = ready
+            observedTimes["syntheticSelectionReadyMachTime"] = ready
             let readyFootprint = try footprint()
+            observedFootprints["syntheticSelectionReadyBytes"] = readyFootprint
             phase = "visible artwork admission"
             try await requireEventually(description: "Initially visible artwork requests settle") {
                 await artwork.requests.contains { $0.url.path == "/1/0" }
@@ -158,10 +188,10 @@ struct HomePresentedMeasurementChecks {
                 "displayScale": window.backingScaleFactor,
                 "captureFramesPerSecond": 30, "captureQueueDepth": 3,
                 "captureSource": "ScreenCaptureKit.currentProcess.own-window",
-                "loadStartMachTime": started, "nativeInputReadyMachTime": ready,
+                "loadStartMachTime": started, "syntheticSelectionReadyMachTime": ready,
                 "firstQualifiedRasterDisplayedMachTime": first.displayedMachTime,
                 "firstQualifiedRasterReceivedMachTime": first.receivedMachTime,
-                "loadToNativeInputReadySeconds": try #require(
+                "loadToSyntheticSelectionReadySeconds": try #require(
                     HomePresentedFrameCollector.seconds(from: started, to: ready)),
                 "loadToFirstQualifiedRasterDisplayedSeconds": try #require(
                     HomePresentedFrameCollector.seconds(from: started, to: first.displayedMachTime)),
@@ -169,6 +199,7 @@ struct HomePresentedMeasurementChecks {
                     HomePresentedFrameCollector.seconds(from: first.displayedMachTime, to: first.receivedMachTime)),
                 "documentHeight": try #require(scroll.documentView).bounds.height,
                 "documentHeightReadinessThreshold": count * 200,
+                "readinessEvidence": readinessEvidence,
                 "nativeViewCount": nativeViewCount(host), "artworkAdmissions": requests.count,
                 "beforePhysicalFootprintBytes": before, "readyPhysicalFootprintBytes": readyFootprint,
                 "captureStoppedPhysicalFootprintBytes": try footprint(),
@@ -206,7 +237,9 @@ struct HomePresentedMeasurementChecks {
                 "cleanupError": cleanupError as Any? ?? NSNull(),
                 "captureStarted": captureStarted, "captureStopSucceeded": captureStopped,
                 "callbackQueueDrained": true, "playerShutdownCompleted": true,
-                "observedTimes": observedTimes, "frameBoundExceeded": captured.exceededBound,
+                "observedTimes": observedTimes, "observedFootprints": observedFootprints,
+                "frameBoundExceeded": captured.exceededBound,
+                "readinessEvidence": readinessEvidence,
                 "safety": safety(),
                 "frames": captured.frames.map {
                     [
@@ -232,24 +265,6 @@ struct HomePresentedMeasurementChecks {
         await withCheckedContinuation { continuation in
             queue.async { continuation.resume() }
         }
-    }
-
-    private func visibleDetailControl(in window: NSWindow) -> (any NSAccessibilityProtocol)? {
-        var pending: [Any] = [window]
-        var inspected = 0
-        while let element = pending.popLast(), inspected < 10_000 {
-            inspected += 1
-            guard let accessible = element as? any NSAccessibilityProtocol else { continue }
-            if accessible.accessibilityRole() == .button,
-                accessible.accessibilityLabel() == "Synthetic album",
-                accessible.isAccessibilityEnabled(),
-                accessible.accessibilityFrame().intersects(window.frame)
-            {
-                return accessible
-            }
-            pending.append(contentsOf: (accessible.accessibilityChildren() ?? []).reversed())
-        }
-        return nil
     }
 
     private func page(in view: NSView) -> NSScrollView? {

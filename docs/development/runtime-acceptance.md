@@ -53,7 +53,7 @@ Queue-rendering uses `forceSynchronousLayout: false` for normal AppKit schedulin
 synchronous stress. Compare identical modes. A verified sandbox, zero unexpected mutations, and
 completed workload establish functional acceptance, not speed.
 
-Opt-in probes:
+Opt-in probes ([Home](test-host-diagnostics.md#presented-home-probe)):
 
 | Output variable | Filter | Measurement |
 | --- | --- | --- |

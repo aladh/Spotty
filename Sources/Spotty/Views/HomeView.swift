@@ -108,11 +108,14 @@ private struct HomeRecommendationsView: View {
                 ForEach(CatalogDisplayOccurrence.identifying(store.homeSections)) { section in
                     switch homeSectionPresentation(at: section.index) {
                     case .quickAccess:
-                        QuickAccessShelf(section: section.element, playback: playback, onSelect: onSelect)
+                        QuickAccessShelf(
+                            section: section.element, playback: playback, defersOffscreenArtwork: true,
+                            onSelect: onSelect)
                     case .shelf:
                         MediaShelf(
                             section: section.element, playback: playback,
-                            scrollState: interaction.shelfScroll(for: section.id), onSelect: onSelect)
+                            scrollState: interaction.shelfScroll(for: section.id),
+                            defersOffscreenArtwork: true, onSelect: onSelect)
                     }
                 }
             }
@@ -152,7 +155,9 @@ private struct HomeScrollGeometry: Equatable {
 struct QuickAccessShelf: View {
     let section: CatalogSection
     let playback: CatalogPlaybackAccess
+    var defersOffscreenArtwork = false
     let onSelect: (CatalogItem) -> Void
+    @State private var isVisible = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -165,6 +170,8 @@ struct QuickAccessShelf: View {
                 }
             }
         }
+        .environment(\.admitsArtwork, !defersOffscreenArtwork || isVisible)
+        .onScrollVisibilityChange(threshold: 0.01) { isVisible = $0 }
     }
 }
 
@@ -217,7 +224,9 @@ struct MediaShelf: View {
     let playback: CatalogPlaybackAccess
     var titleLineLimit = 1
     var scrollState: NativeListScrollState?
+    var defersOffscreenArtwork = false
     let onSelect: (CatalogItem) -> Void
+    @State private var isVisible = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -229,6 +238,8 @@ struct MediaShelf: View {
                 items: section.items, playback: playback, titleLineLimit: titleLineLimit,
                 scrollState: scrollState, onSelect: onSelect)
         }
+        .environment(\.admitsArtwork, !defersOffscreenArtwork || isVisible)
+        .onScrollVisibilityChange(threshold: 0.01) { isVisible = $0 }
     }
 }
 

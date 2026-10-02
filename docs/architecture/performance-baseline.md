@@ -73,6 +73,71 @@ the fresh report path; see [verification](../development/verification.md) for
 isolation and report limitations. This Debug workload does not replace the historical live Release
 playback measurement above.
 
+## Home native extent and artwork admission (2026-10-02)
+
+The [isolated records](measurements/2026-10-02-home-extent.json) compare clean eager source
+`49ddc97` with viewport artwork admission at `f9c2017` and its request-lifetime follow-up
+at `954d64d`, all consuming `playback-v0.2.1`.
+Each size/variant has one fresh native test process: optimized Debug, native/non-WMO, eight
+synthetic items per shelf, a 900 × 600 point unpresented host, and immediate unavailable artwork.
+The report records effective compiler flags and engine provenance. Network, decoding, and raster
+retention are excluded. Layout timing stops when document height exceeds 200 points per shelf;
+final observed document heights are recorded separately. Neither establishes a first presented frame.
+
+| Shelves | Variant | Document height | Artwork admissions | Layout readiness |
+| --- | --- | ---: | ---: | ---: |
+| 12 | Eager | 3,801 pt | 96 | 0.384 s |
+| 12 | Visible-shelf artwork | 3,801 pt | 16 | 0.391 s |
+| 120 | Eager | 37,821 pt | 960 | 3.060 s |
+| 120 | Visible-shelf artwork | 37,821 pt | 16 | 3.095 s |
+| 12 | Preserve started artwork (`954d64d`) | 3,801 pt | 16 | 0.494 s |
+| 120 | Preserve started artwork (`954d64d`) | 37,821 pt | 16 | 3.605 s |
+
+Complete eager controls/extents remain. Physical-footprint growth was about 68 MiB at 12 shelves
+and 616–625 MiB at 120; these samples establish no layout, timing or view-memory improvement. The bounded
+change suppresses initial offscreen artwork requests while preserving native controls, accessibility
+targets, scroll extents, and already loaded images. Already-started requests continue across shelf
+hiding, while request/account changes and disappearance retire their admission. Fifteen focused
+functions pass; the old cancellation behavior fails both gated hidden-completion cases, and disabling
+Home gating fails the initial-admission section bound. Final timings are slower single observations;
+timing/footprint variance was not characterized.
+
+Signed network-denied Demo at `f9c2017` passed read-only Home/Search/detail/history/library UI smoke
+and bounded manual scrolling, offscreen AX activation, Tab focus, loaded-artwork return, and
+narrow/wide inspection. Sixteen fresh safety checks observed zero commands/mutations. A separate
+unsandboxed synthetic GUI host passed 12 browsing and eight signed-out checkpoints. Spoken VoiceOver
+and full offscreen Tab traversal remain unverified. Owned test hosts were retired; exact foreground
+restoration was unverified.
+
+Fresh signed network-denied Demo at clean `3abf921` verified bounded native interactions after the request-lifetime follow-up,
+with 22 fresh zero-command/mutation safety pulses. Both scroll axes out/back, loaded-art return,
+offscreen detail AX activation, Tab across quick links and all ten playlist cards with automatic
+offscreen reveal, and 961/1728-point widths were observed without regression. Source stayed stable
+and the owned host retired. Stock fixtures do not establish pending-load retention.
+
+Gated native checks separately cover pending/loaded reappearance through TabView and exact
+NSHostingView detach/reattach. All four pass unchanged production code: `onChange(initial:true)`
+runs on return. Suppressing its subsequent invocation fails the pending cases while loaded state
+survives. These tested lifecycle paths do not certify every macOS lifecycle or spoken VoiceOver.
+
+A separate 91-second existing-app read-only sample observed six sections and 66 detail targets.
+That signed 0.5.6(23) artifact has no established source revision or admission telemetry, so it does
+not establish candidate live performance. Its first AX observation includes tool overhead and is not
+first-visible latency. The record contains sanitized counts and artifact identity.
+
+Reproduce the current admission probe with a new absolute JSON path and 12 or 120 sections:
+
+```bash
+SPOTTY_HOME_EXTENT_REPORT=/tmp/home-new.json SPOTTY_HOME_EXTENT_SECTIONS=12 \
+SPOTTY_HOME_EXTENT_MODE=viewport python3 Scripts/verify.py test --target SpottyBoundaryTests \
+  --build-system native -c debug --scratch-path .build/browsing-optimized \
+  -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -no-whole-module-optimization \
+  -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED --filter HomeExtentMeasurementTests
+```
+
+Mode selects the admission barrier; the eager comparison requires its recorded source revision.
+The measured workloads do not cover 500 shelves.
+
 ## Audio cache decision (2026-10-02)
 
 The [cache-layer evaluation](measurements/2026-10-02-audio-cache.md) at clean `e2bb40f` uses

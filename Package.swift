@@ -324,6 +324,7 @@ let package: Package
                     dependencies: [
                         "SpottyBrowsingSupport", "SpottyCore", "SpottyDomain", "SpottyGateway",
                         "SpottyEngineAdapter", "SpottyRuntimeContracts", "SpottySessionRuntime",
+                        "SpottyTestSupport",
                     ],
                     path: "Tests/BrowsingHarness/Checks"
                 ),

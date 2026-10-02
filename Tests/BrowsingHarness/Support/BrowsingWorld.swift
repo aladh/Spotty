@@ -93,7 +93,11 @@ final class BrowsingWorld: AccountSession, CatalogProviding, PlaylistMutationDis
     func events() -> AsyncStream<SystemLifecycleEvent> { AsyncStream { $0.finish() } }
     func initialize() -> PlaybackEngineResult {
         record("engine.synthetic-initialize")
-        if scenario.mode == .playback || scenario.guiShellRegression == true { playback.publish() }
+        if scenario.mode == .playback || scenario.guiShellRegression == true
+            || scenario.homePresentedProbeSections != nil
+        {
+            playback.publish()
+        }
         return .ok
     }
     func authorizeStreaming(with _: String) -> Int32 { _ = rejectMutation(); return -1 }

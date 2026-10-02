@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import ImageIO
 import SpottyRuntimeContracts
+import SpottyTestSupport
 import Testing
 @testable import SpottyBrowsingSupport
 @testable import SpottyCore
@@ -13,6 +14,44 @@ import Testing
 struct BrowsingHarnessTests {
     private func scenario() -> BrowsingScenario {
         BrowsingScenario(trackCount: 30, artworkCount: 2, artworkPixels: 64, cycles: 1)
+    }
+
+    @Test(arguments: [12, 120])
+    func presentedHomeStartupRestoresConnectedSyntheticContent(sections: Int) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SpottyHomeStartup-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var input = scenario()
+        input.homePresentedProbeSections = sections
+        let world = try BrowsingWorld(scenario: input, artworkDirectory: root)
+        let player = PlaybackStore(environment: world.environment, feedback: TransientFeedbackPresenter(clock: world))
+        do {
+            #expect(!BrowsingRun.homeContentReady(player: player, expectedSections: sections))
+            // This is the restore boundary used by the actual SpottyScene task, not a direct phase publication.
+            await player.restore()
+            await player.catalogLoadTask?.value
+            try await requireEventually(description: "Home probe startup publishes a connected synthetic session") {
+                BrowsingRun.homeContentReady(player: player, expectedSections: sections)
+            }
+            #expect(!player.catalog.homeLibrary.homeSections.isEmpty, "Home's content branch also requires sections")
+            #expect(world.snapshot().requests["engine.synthetic-initialize"] == 1)
+            #expect(world.snapshot().mutationAttempts == 0)
+            #expect(world.playback.snapshot().commandCount == 0)
+            #expect(!player.isPlaying)
+            world.playback.setConnected(false)
+            try await requireEventually(
+                description: "A synthetic disconnect revokes Home readiness despite retained sections"
+            ) {
+                !CatalogPlaybackAccess(player: player).isConnected
+            }
+            #expect(player.catalog.homeLibrary.homeSections.count == sections)
+            #expect(!BrowsingRun.homeContentReady(player: player, expectedSections: sections))
+            #expect(world.snapshot().mutationAttempts == 0)
+            #expect(world.playback.snapshot().commandCount == 0)
+        } catch {
+            await player.shutdownForTermination()
+            throw error
+        }
+        await player.shutdownForTermination()
     }
 
     @Test(arguments: [12, 120])

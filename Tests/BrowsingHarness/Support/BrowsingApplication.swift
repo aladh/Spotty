@@ -226,12 +226,22 @@ final class BrowsingRun {
                 player.accountStore.phase == (world.scenario.mode != .signedOut ? .ready : .signedOut)
             {
                 await player.catalogLoadTask?.value
+                if !Self.homeContentReady(player: player, expectedSections: world.scenario.homePresentedProbeSections) {
+                    try await ContinuousClock().sleep(for: .milliseconds(50))
+                    continue
+                }
                 try writeRunStatus(.ready)
                 return
             }
             try await ContinuousClock().sleep(for: .milliseconds(50))
         }
         throw BrowsingFailure.checkpoint("window.startup")
+    }
+
+    static func homeContentReady(player: PlaybackStore, expectedSections: Int?) -> Bool {
+        guard let expectedSections else { return true }
+        return player.accountStore.phase == .ready && CatalogPlaybackAccess(player: player).isConnected
+            && player.catalog.homeLibrary.homeSections.count == expectedSections
     }
 
     func perform() async {

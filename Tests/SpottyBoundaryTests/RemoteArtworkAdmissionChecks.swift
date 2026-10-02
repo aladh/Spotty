@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SpottyRuntimeContracts
 import SpottyTestSupport
 import SwiftUI
@@ -7,6 +8,53 @@ import Testing
 
 @MainActor
 struct RemoteArtworkAdmissionChecks {
+    @Test(arguments: [false, true], [false, true])
+    func pendingArtworkReadmitsAfterTheSameViewReappears(loadedBeforeHiding: Bool, detachHost: Bool) async throws {
+        let artwork = HarnessArtwork()
+        let url = try #require(URL(string: "https://synthetic.invalid/reappear"))
+        let state = ArtworkAppearanceState()
+        let host = NSHostingView(
+            rootView: ArtworkAppearanceTabs(state: state, artwork: artwork, url: url, detachHost: detachHost))
+        host.sizingOptions = []
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 180, height: 140), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        do {
+            try await requireEventually { await artwork.requests.count == 1 }
+            let image = ArtworkAsset(rgbaPixels: Data([0, 255, 0, 255]), pixelWidth: 1, pixelHeight: 1, tint: nil)
+            if loadedBeforeHiding {
+                await artwork.complete(0, with: .success(image))
+                try await requireEventually {
+                    host.layoutSubtreeIfNeeded()
+                    return ShellGeometry.frames(in: window)["artwork.loaded"] != nil
+                }
+            }
+            if detachHost { window.contentView = nil } else { state.selection = 1 }
+            try await requireEventually { state.disappearances == 1 }
+            if detachHost { window.contentView = host } else { state.selection = 0 }
+            try await requireEventually { state.appearances == 2 }
+            if !loadedBeforeHiding {
+                try await requireEventually { await artwork.requests.count == 2 }
+                await artwork.complete(1, with: .success(image))
+            }
+            try await requireEventually {
+                host.layoutSubtreeIfNeeded()
+                return ShellGeometry.frames(in: window)["artwork.loaded"] != nil
+            }
+            #expect(await artwork.requests.count == (loadedBeforeHiding ? 1 : 2))
+        } catch {
+            for index in await artwork.requests.indices {
+                await artwork.complete(index, with: .failure(ArtworkFailure.unavailable))
+            }
+            throw error
+        }
+        for index in await artwork.requests.indices {
+            await artwork.complete(index, with: .failure(ArtworkFailure.unavailable))
+        }
+    }
+
     @Test(arguments: [false, true])
     func startedArtworkFinishesAcrossHidingWithoutReadmission(completeWhileHidden: Bool) async throws {
         let artwork = HarnessArtwork()
@@ -162,5 +210,41 @@ struct RemoteArtworkAdmissionChecks {
         for index in await artwork.requests.indices {
             await artwork.complete(index, with: .failure(ArtworkFailure.unavailable))
         }
+    }
+}
+
+@MainActor
+@Observable
+private final class ArtworkAppearanceState {
+    var selection = 0
+    var appearances = 0
+    var disappearances = 0
+}
+
+@MainActor
+private struct ArtworkAppearanceTabs: View {
+    @Bindable var state: ArtworkAppearanceState
+    let artwork: HarnessArtwork
+    let url: URL
+    let detachHost: Bool
+
+    var body: some View {
+        if detachHost {
+            artworkContent
+        } else {
+            TabView(selection: $state.selection) {
+                artworkContent.tabItem { Text("Artwork") }.tag(0)
+                Color.clear.tabItem { Text("Away") }.tag(1)
+            }
+        }
+    }
+
+    private var artworkContent: some View {
+        RemoteArtwork(url: url, kind: .album, cornerRadius: 4, geometryIdentifier: "artwork")
+            .frame(width: 64, height: 64)
+            .environment(\.artworkAccess, ArtworkAccess(provider: artwork, accountEpoch: 1))
+            .environment(\.admitsArtwork, true)
+            .onAppear { state.appearances += 1 }
+            .onDisappear { state.disappearances += 1 }
     }
 }

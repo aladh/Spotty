@@ -620,6 +620,41 @@ class SwiftTestWatchdogTests(unittest.TestCase):
         self.assertIn("driver fallback; host attribution unavailable", result.stdout)
 
 
+    def test_timeout_and_interruption_retain_bundle_stream_before_owned_cleanup(self):
+        for interruption in [None, signal.SIGTERM]:
+            with self.subTest(interruption=interruption), \
+                    tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+                root = Path(directory)
+                bundle = root / "SyntheticTests.xctest"
+                bundle.mkdir()
+                events = root / "event-stream-0-SyntheticTests.jsonl"
+                records = [
+                    {"kind": "test", "payload": {"kind": "function", "id": "stalled"}},
+                    {"kind": "event", "payload": {"kind": "testStarted", "testID": "stalled"}},
+                ]
+                code = (f"from pathlib import Path; import time; "
+                        f"Path({str(events)!r}).write_text({''.join(json.dumps(r) + chr(10) for r in records)!r}); "
+                        "time.sleep(60)")
+                diagnostics = root / "diagnostics"
+                process = self.start_wrapped_watchdog([
+                    sys.executable, "-c", code, "--fixture-host", "--test-bundle-path", str(bundle),
+                    "--event-stream-output-path", str(events),
+                ], diagnostics, .5 if interruption is None else 5, classify_fixture=True)
+                deadline = time.monotonic() + 3
+                while not events.exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertTrue(events.exists())
+                if interruption is not None:
+                    process.send_signal(interruption)
+                stdout, stderr = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, 124 if interruption is None else 143, stdout + stderr)
+                tree = json.loads((diagnostics / "fixture-repeat-1-process-tree.txt").read_text())
+                receipt = tree["bundleNativeEvents"][0]
+                self.assertTrue(receipt["available"], receipt)
+                self.assertEqual(receipt["nativeEvents"]["activeFunctions"], ["stalled"])
+                self.assertEqual(Path(receipt["retainedPath"]).read_bytes(), events.read_bytes())
+
+
 class InterruptReentryTests(unittest.TestCase):
     def test_post_fork_sampler_interrupt_retains_handle_and_joins_before_first_status(self):
         latch = watchdog.SignalLatch()
@@ -800,6 +835,7 @@ class InterruptReentryTests(unittest.TestCase):
         self.assertEqual(handlers, original)
 
 
+
 class ProcessOwnershipTests(unittest.TestCase):
     def identity(self, pid, parent=1, group=10, usec=100, executable="/fixture"):
         return watchdog.ProcessIdentity(pid, parent, group, (1, usec), executable)
@@ -976,6 +1012,105 @@ class ProcessOwnershipTests(unittest.TestCase):
         self.assertEqual(state["lastCompleted"]["testID"], "finished")
         self.assertEqual(state["partialRecords"], 1)
         self.assertEqual(state["invalidRecords"], 0)
+
+    def test_owned_loader_stream_is_retained_before_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+            root = Path(directory)
+            bundle = root / "GatewayTests.xctest"
+            bundle.mkdir()
+            events = root / "event-stream-2-GatewayTests.jsonl"
+            events.write_text("\n".join(json.dumps(record) for record in [
+                {"kind": "test", "payload": {"kind": "function", "id": "completed"}},
+                {"kind": "test", "payload": {"kind": "function", "id": "stalled"}},
+                {"kind": "event", "payload": {"kind": "testEnded", "testID": "completed"}},
+                {"kind": "event", "payload": {"kind": "testStarted", "testID": "stalled"}},
+            ]) + "\n")
+            identity = watchdog.ProcessIdentity(20, 10, 20, (1,),
+                "/toolchain/usr/libexec/swift/pm/swiftpm-testing-helper")
+            command = f"helper --test-bundle-path {bundle} --event-stream-output-path {events}"
+            owned = SimpleNamespace(live=lambda: [identity], commands={20: command})
+            with mock.patch.object(watchdog, "process_identity", return_value=identity):
+                receipts = watchdog.retain_bundle_events(owned, root / "retained")
+            self.assertEqual(len(receipts), 1)
+            self.assertTrue(receipts[0]["available"], receipts)
+            self.assertEqual(Path(receipts[0]["retainedPath"]).read_bytes(), events.read_bytes())
+            self.assertEqual(receipts[0]["nativeEvents"]["lastStarted"]["testID"], "stalled")
+            self.assertEqual(receipts[0]["nativeEvents"]["lastCompleted"]["testID"], "completed")
+
+            for invalid in [None, watchdog.ProcessIdentity(20, 10, 20, (2,), identity.executable),
+                            watchdog.ProcessIdentity(20, 10, 20, (1,), "/other/helper")]:
+                with self.subTest(identity=invalid), \
+                        mock.patch.object(watchdog, "process_identity", return_value=invalid):
+                    self.assertFalse(watchdog.retain_bundle_events(owned, root / "refused")[0]["available"])
+            self.assertFalse((root / "refused").exists())
+            with mock.patch.object(watchdog, "process_identity", side_effect=[identity, None]):
+                self.assertFalse(watchdog.retain_bundle_events(owned, root / "refused")[0]["available"])
+
+            external = root / "external.jsonl"
+            external.write_text(events.read_text())
+            for operand in [external, root / "event-stream-2-OtherTests.jsonl",
+                            root / ".." / root.name / events.name]:
+                owned.commands[20] = f"helper --test-bundle-path {bundle} --event-stream-output-path {operand}"
+                with mock.patch.object(watchdog, "process_identity", return_value=identity):
+                    self.assertFalse(watchdog.retain_bundle_events(owned, root / "refused")[0]["available"])
+            owned.commands[20] = command
+            events.unlink()
+            events.symlink_to(external)
+            with mock.patch.object(watchdog, "process_identity", return_value=identity):
+                self.assertFalse(watchdog.retain_bundle_events(owned, root / "refused")[0]["available"])
+            owned.live = lambda: []
+            self.assertEqual(watchdog.retain_bundle_events(owned, root / "refused"), [])
+
+    def test_loader_stream_directory_swap_cannot_retain_unrelated_events(self):
+        for swap_before_directory_open in [True, False]:
+            with self.subTest(before_directory_open=swap_before_directory_open), \
+                    tempfile.TemporaryDirectory() as fixture, \
+                    tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+                fixture = Path(fixture)
+                root = Path(directory)
+                moved = root.with_name(root.name + "-moved")
+                bundle = fixture / "GatewayTests.xctest"
+                bundle.mkdir()
+                events = root / "event-stream-2-GatewayTests.jsonl"
+                original_content = b'{"owned": true}\n'
+                events.write_bytes(original_content)
+                unrelated = fixture / "unrelated"
+                unrelated.mkdir()
+                (unrelated / events.name).write_bytes(b'{"unrelated": true}\n')
+                identity = watchdog.ProcessIdentity(20, 10, 20, (1,),
+                    "/toolchain/usr/libexec/swift/pm/swiftpm-testing-helper")
+                command = f"helper --test-bundle-path {bundle} --event-stream-output-path {events}"
+                owned = SimpleNamespace(live=lambda: [identity], commands={20: command})
+                original_open = os.open
+                swapped = False
+
+                def swapping_open(path, flags, *args, **kwargs):
+                    nonlocal swapped
+                    directory_open = bool(flags & os.O_DIRECTORY)
+                    if not swapped and (directory_open if swap_before_directory_open
+                                        else Path(path).name == events.name):
+                        root.rename(moved)
+                        root.symlink_to(unrelated, target_is_directory=True)
+                        swapped = True
+                    return original_open(path, flags, *args, **kwargs)
+
+                try:
+                    with mock.patch.object(watchdog.os, "open", side_effect=swapping_open), \
+                            mock.patch.object(watchdog, "process_identity", return_value=identity):
+                        receipts = watchdog.retain_bundle_events(owned, fixture / "retained")
+                    self.assertTrue(swapped, "fixture must swap between validation and file open")
+                    self.assertEqual(len(receipts), 1)
+                    if swap_before_directory_open:
+                        self.assertFalse(receipts[0]["available"], receipts)
+                        self.assertFalse((fixture / "retained").exists())
+                    else:
+                        self.assertTrue(receipts[0]["available"], receipts)
+                        self.assertEqual(Path(receipts[0]["retainedPath"]).read_bytes(), original_content)
+                finally:
+                    if swapped:
+                        root.unlink()
+                        moved.rename(root)
+
 
 
 if __name__ == "__main__":

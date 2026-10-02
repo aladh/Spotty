@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import json
 import math
 import os
+from pathlib import Path
 from typing import Callable, Protocol
 
 
@@ -51,9 +52,24 @@ class PrivateJournal:
     """Append-only private JSONL receipts; an existing path cannot be overwritten."""
 
     def __init__(self, path):
-        self.fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        path = Path(path)
+        if not path.is_absolute() or ".." in path.parts or not path.name:
+            raise ValueError("Absolute journal path without parent traversal required")
+        directory = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+        self.fd = None
+        try:
+            for component in path.parts[1:-1]:
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory)
+                directory = child
+            self.fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW,
+                              0o600, dir_fd=directory)
+        finally:
+            os.close(directory)
 
     def append(self, event):
+        if self.fd is None:
+            raise ValueError("Journal is closed")
         data = (json.dumps(event, sort_keys=True, allow_nan=False) + "\n").encode()
         while data:
             written = os.write(self.fd, data)
@@ -63,22 +79,31 @@ class PrivateJournal:
         os.fsync(self.fd)
 
     def close(self):
-        os.close(self.fd)
+        descriptor, self.fd = self.fd, None
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 class StopGuard:
     """One independent idempotent stop request per admitted playing interval."""
 
-    def __init__(self, scheduler, adapter, target, emit, clock):
+    def __init__(self, scheduler, adapter, target, emit, clock, trusted_clock):
         capability = adapter.capability
         if (capability.exact_target != target or capability.idempotent is not True
                 or capability.independent_of_gui is not True or capability.works_with_window_closed is not True):
             raise ValueError("Exact independent idempotent closed-window stop is unavailable")
         self.scheduler, self.adapter, self.target, self.emit = scheduler, adapter, target, emit
         self.clock = clock
+        self.trusted_clock = trusted_clock
+        self.last_trusted = trusted_clock()
+        self.clock_domain = self.last_trusted.domain
         self.cancel = None
         self.requested = False
         self.requested_at = None
+        self.pause_finished_at = None
+        self.pause_succeeded = False
+        self.pause_call_finished = False
+        self.clock_failed = False
         self.next_token, self.tokens, self.token = 0, set(), None
 
     def schedule(self, deadline):
@@ -101,6 +126,10 @@ class StopGuard:
             raise RuntimeError("Previous guard has not been settled")
         self.requested = False
         self.requested_at = None
+        self.pause_finished_at = None
+        self.pause_succeeded = False
+        self.pause_call_finished = False
+        self.clock_failed = False
         self.token, self.cancel = self.schedule(deadline)
         self.emit("guard-armed", deadline=deadline)
 
@@ -121,18 +150,45 @@ class StopGuard:
             return
         self.requested = True
         try:
-            timestamp = self.clock().seconds
-            self.requested_at = timestamp if math.isfinite(timestamp) else None
+            self.requested_at = self.read_time()
         except Exception:
             self.requested_at = None
+            self.clock_failed = True
+        entrance_clock_failed = False
         try:
-            self.emit("pause-requested", reason=reason)
+            self.emit("pause-requested", reason=reason, clockUnavailable=self.clock_failed)
         finally:
             try:
+                try:
+                    self.read_time()  # Fence post-call readings against actual call entrance too.
+                except Exception:
+                    self.clock_failed = True
+                    entrance_clock_failed = True
                 self.adapter.request_pause(self.target)
+                self.pause_succeeded = True
             except Exception as error:
                 # Keep unknown-playing charge; a failed path cannot establish bounded playback.
                 self.emit("pause-request-failed", error=type(error).__name__)
+            finally:
+                try:
+                    self.pause_finished_at = self.read_time()
+                except Exception:
+                    self.pause_finished_at = None
+                self.pause_call_finished = True
+                if entrance_clock_failed:
+                    self.emit("pause-clock-unavailable", stage="control-call-entrance")
+                if self.pause_finished_at is None:
+                    self.clock_failed = True
+                    self.emit("pause-clock-unavailable", stage="completed-control-call")
+
+    def read_time(self):
+        reading, floor = self.clock(), self.trusted_clock()
+        if (reading.domain != self.clock_domain or reading.domain != floor.domain
+                or type(reading.seconds) not in (int, float) or not math.isfinite(reading.seconds)
+                or reading.seconds < max(floor.seconds, self.last_trusted.seconds)):
+            raise RuntimeError("Stop clock domain or monotonicity changed")
+        self.last_trusted = reading
+        return reading.seconds
 
     def settled(self):
         self.tokens.clear()  # Retired callbacks cannot stop a later cell even if cancellation is late.
@@ -181,7 +237,7 @@ class Coordinator:
         self.generation, self.phase, self.failed = 0, "idle", False
         self.charged, self.play_started = 0.0, None
         self.last_observation, self.last_delivery, self.latest = None, None, None
-        self.guard = StopGuard(scheduler, stop_adapter, target, self.emit, clock)
+        self.guard = StopGuard(scheduler, stop_adapter, target, self.emit, clock, lambda: self.last_clock)
         self.emit("session-start", clockDomain=origin.domain, origin=origin.seconds)
 
     def emit(self, event, **fields):
@@ -196,9 +252,17 @@ class Coordinator:
             raise
 
     def now(self):
-        reading = self.clock()
-        if (reading.domain != self.origin.domain or not math.isfinite(reading.seconds)
-                or reading.seconds < self.last_clock.seconds):
+        try:
+            reading = self.clock()
+            seconds, domain = reading.seconds, reading.domain
+        except Exception as error:
+            try:
+                self.fail("clock-read-failed")
+            except Exception:
+                pass  # The primary clock fault survives; fail() still reaches guarded Pause.
+            raise RuntimeError("Persistent clock read failed") from error
+        if (domain != self.origin.domain or type(seconds) not in (int, float) or not math.isfinite(seconds)
+                or seconds < self.last_clock.seconds):
             self.fail("clock-discontinuity")
             raise RuntimeError("Persistent monotonic clock changed")
         self.last_clock = reading
@@ -280,11 +344,21 @@ class Coordinator:
         self.latest = observation
         if now >= self.origin.seconds + self.session_cap:
             self.fail("session-cap")
-        if self.play_started is not None and self.charged + now - self.play_started > self.playing_cap:
+        if self.play_started is not None and self.charged + now - self.play_started >= self.playing_cap:
             self.fail("playing-cap")
+        recovered_cutoff = False
+        if self.play_started is not None and self.guard.clock_failed:
+            self.fail("stop-clock-unavailable")
+            if self.guard.pause_call_finished and self.guard.pause_finished_at is None:
+                # This trusted reading is after the completed control call. Require a later
+                # observation strictly after this barrier; do not reuse the current cached sample.
+                self.guard.pause_finished_at = now
+                recovered_cutoff = True
+                self.emit("pause-confirmation-clock-recovered", cutoff=now)
         if (observation.playing is False and self.play_started is not None
-                and self.guard.requested and self.guard.requested_at is not None
-                and observation.at >= self.guard.requested_at):
+                and not recovered_cutoff
+                and self.guard.requested and self.guard.pause_finished_at is not None
+                and observation.at > self.guard.pause_finished_at):
             self.charged += now - self.play_started
             self.play_started = None
             try:
@@ -292,8 +366,10 @@ class Coordinator:
             except Exception:
                 self.fail("guard-cancellation-failed")
             self.emit("paused-confirmed", chargedPlayingSeconds=self.charged)
-            if self.charged > self.playing_cap:
+            if self.charged >= self.playing_cap:
                 self.fail("playing-cap-exceeded")
+            elif not self.guard.pause_succeeded:
+                self.fail("pause-request-unconfirmed")
             elif self.phase == "await-paused":
                 self.phase = "complete"
                 self.emit("cell-complete")

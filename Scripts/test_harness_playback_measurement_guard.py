@@ -1,6 +1,7 @@
 """Synthetic scheduling/control checks. Never inspect or control a real app."""
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -154,9 +155,10 @@ class MeasurementGuardChecks(unittest.TestCase):
         self.assertEqual(self.owner.charged, 0)
         self.clock.advance(1)
         self.assertEqual(self.stop.requests, [("synthetic-image", 3)])
+        self.clock.advance(0.125)
         self.observation(False)
         self.assertTrue(self.owner.failed)
-        self.assertEqual(self.owner.charged, 3)
+        self.assertEqual(self.owner.charged, 3.125)
 
     def test_acknowledged_play_has_independent_cell_stop_even_without_owner_poll(self):
         self.prepare()
@@ -265,9 +267,168 @@ class MeasurementGuardChecks(unittest.TestCase):
                 self.assertEqual(len(self.stop.requests), 1)
                 self.assertIn("clock-discontinuity", self.reasons())
 
+    def test_journal_close_is_idempotent_and_append_cannot_use_replacement_descriptor(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            journal = guard.PrivateJournal(root / "closed.jsonl")
+            journal.close()
+            replacement = os.open(root / "replacement", os.O_WRONLY | os.O_CREAT, 0o600)
+            try:
+                journal.close()
+                os.fstat(replacement)
+                with self.assertRaises(ValueError):
+                    journal.append({"mustNotWrite": True})
+                self.assertEqual((root / "replacement").read_bytes(), b"")
+            finally:
+                os.close(replacement)
+
+    def test_journal_rejects_symlink_ancestors_final_component_and_parent_traversal(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "actual").mkdir()
+            (root / "redirect").symlink_to(root / "actual", target_is_directory=True)
+            with self.assertRaises(OSError):
+                guard.PrivateJournal(root / "redirect" / "receipt.jsonl")
+            self.assertFalse((root / "actual" / "receipt.jsonl").exists())
+            (root / "existing").write_text("preserved")
+            (root / "link").symlink_to(root / "existing")
+            with self.assertRaises(OSError):
+                guard.PrivateJournal(root / "link")
+            self.assertEqual((root / "existing").read_text(), "preserved")
+            with self.assertRaises(ValueError):
+                guard.PrivateJournal(root / "actual" / ".." / "receipt.jsonl")
+
+    def test_pause_receipt_gap_and_inflight_call_cannot_confirm_earlier_paused_sample(self):
+        for during_call in (False, True):
+            self.prepare()
+            self.owner.begin(True, True)
+            self.observation(True)
+            self.run_seconds(29, True)
+            original_append = self.journal.append
+            original_pause = self.stop.request_pause
+            def gap():
+                self.clock.seconds += 0.5
+                self.observation(False, at=self.clock.seconds - 0.25)
+                self.assertIsNotNone(self.owner.play_started)
+                self.assertIsNone(self.owner.guard.pause_finished_at)
+            def append(event):
+                if not during_call and event["event"] == "pause-requested":
+                    gap()
+                original_append(event)
+            def pause(target):
+                if during_call:
+                    gap()
+                original_pause(target)
+            self.journal.append, self.stop.request_pause = append, pause
+            self.run_seconds(1, True)
+            self.assertEqual(self.owner.phase, "await-paused")
+            self.observation(False, at=self.clock.seconds - 0.25)
+            self.assertIsNotNone(self.owner.play_started)
+            self.clock.advance(0.125)
+            self.observation(False)
+            self.assertEqual(self.owner.phase, "complete")
+            self.assertEqual(self.owner.charged, 30.625)
+
+    def test_exact_playing_cap_is_excluded_for_observe_and_poll_order(self):
+        for poll_first in (False, True):
+            self.prepare(playing_cap=36)
+            self.owner.begin(True, True)
+            self.observation(True)
+            self.run_seconds(30, True)
+            self.clock.advance(6)
+            if poll_first:
+                self.owner.poll()
+            self.observation(False)
+            self.owner.poll()
+            self.assertTrue(self.owner.failed)
+            self.assertEqual(self.owner.charged, 36)
+            self.assertNotIn("cell-complete", [event["event"] for event in self.journal.events])
+
+    def test_lost_pause_reply_cannot_qualify_cell_even_after_confirmed_paused(self):
+        self.prepare()
+        self.owner.begin(True, True)
+        self.observation(True)
+        self.stop.lost = True
+        self.run_seconds(30, True)
+        self.clock.advance(0.125)
+        self.observation(False)
+        self.assertTrue(self.owner.failed)
+        self.assertIsNone(self.owner.play_started)
+        self.assertIn("pause-request-unconfirmed", self.reasons())
+        self.assertNotIn("cell-complete", [event["event"] for event in self.journal.events])
+
+    def test_stop_clock_fault_is_recorded_excluded_and_fresh_pause_can_settle_charge(self):
+        for failing_read in (1, 2, 3):
+            self.prepare()
+            self.owner.begin(True, True)
+            self.observation(True)
+            self.run_seconds(29, True)
+            readings = []
+            def clock():
+                readings.append(True)
+                if len(readings) == failing_read:
+                    raise RuntimeError("Synthetic clock read fault")
+                return self.clock()
+            self.owner.guard.clock = clock
+            self.run_seconds(1, True)
+            self.assertEqual(len(self.stop.requests), 1)
+            self.observation(False)
+            self.assertIsNotNone(self.owner.play_started)
+            self.clock.advance(0.125)
+            self.observation(False)
+            self.assertIsNone(self.owner.play_started)
+            self.assertTrue(self.owner.failed)
+            self.assertIn("stop-clock-unavailable", self.reasons())
+            self.assertNotIn("cell-complete", [x["event"] for x in self.journal.events])
+            self.assertTrue(any(x.get("clockUnavailable") is True or x["event"] == "pause-clock-unavailable"
+                                for x in self.journal.events))
+
+    def test_backward_or_foreign_stop_clock_cannot_accept_sample_before_finished_call(self):
+        for reading in (guard.ClockReading(1, "synthetic-boot"), guard.ClockReading(30, "foreign-boot")):
+            self.prepare()
+            self.owner.begin(True, True)
+            self.observation(True)
+            self.run_seconds(29, True)
+            self.owner.guard.clock = lambda: reading
+            original = self.stop.request_pause
+            def pause(target):
+                self.clock.seconds += 1
+                original(target)
+            self.stop.request_pause = pause
+            self.run_seconds(1, True)
+            self.observation(False, at=30.75)
+            self.assertTrue(self.owner.failed)
+            self.assertIsNotNone(self.owner.play_started)
+            self.observation(False, at=31)
+            self.assertIsNotNone(self.owner.play_started, "same cutoff sample cannot be reused")
+            self.clock.advance(0.1)
+            self.observation(False)
+            self.assertIsNone(self.owner.play_started)
+            self.assertEqual(self.owner.charged, 31.1)
+            self.assertNotIn("cell-complete", [x["event"] for x in self.journal.events])
+
+    def test_owner_clock_read_exception_excludes_active_cell_and_reaches_pause(self):
+        self.prepare()
+        self.owner.begin(True, True)
+        self.observation(True)
+        readings = []
+        def clock():
+            readings.append(True)
+            if len(readings) == 1:
+                raise RuntimeError("Synthetic one-shot read failure")
+            return self.clock()
+        self.owner.clock = clock
+        with self.assertRaises(RuntimeError):
+            self.owner.poll()
+        self.assertTrue(self.owner.failed)
+        self.assertIn("clock-read-failed", self.reasons())
+        self.assertEqual(len(self.stop.requests), 1)
+        with self.assertRaises(RuntimeError):
+            self.owner.begin(True, True)
+
     def test_private_journal_preserves_order_and_refuses_overwrite(self):
         with TemporaryDirectory() as directory:
-            path = Path(directory) / "receipt.jsonl"
+            path = Path(directory).resolve() / "receipt.jsonl"
             journal = guard.PrivateJournal(path)
             try:
                 journal.append({"event": "first"})
@@ -414,6 +575,7 @@ class MeasurementGuardChecks(unittest.TestCase):
         self.assertEqual(self.stop.requests, [])
         replacement_callback = self.clock.jobs[1][1]
         self.run_seconds(30, True)
+        self.clock.advance(0.125)
         self.observation(False)
         self.assertEqual(len(self.stop.requests), 1)
         self.owner.begin(True, True)
@@ -421,6 +583,28 @@ class MeasurementGuardChecks(unittest.TestCase):
         replacement_callback()
         self.assertEqual(len(self.stop.requests), 1)
         self.assertFalse(self.owner.guard.requested)
+
+    def test_equal_timestamp_cached_pause_cannot_confirm_completed_control_call(self):
+        self.prepare()
+        self.owner.begin(True, True)
+        self.observation(True)
+        cached = []
+        append = self.journal.append
+        def capture_before_pause(event):
+            append(event)
+            if event["event"] == "pause-requested":
+                cached.append(guard.Observation(self.clock.seconds, self.owner.generation,
+                                                "synthetic-image", "local", "fixed", True, True, False, True))
+        self.journal.append = capture_before_pause
+        self.run_seconds(30, True)
+        self.assertEqual(cached[0].at, self.owner.guard.pause_finished_at)
+        self.owner.observe(cached[0])
+        self.assertEqual(self.owner.phase, "await-paused")
+        self.assertIsNotNone(self.owner.play_started)
+        self.clock.advance(0.1)
+        self.observation(False)
+        self.assertEqual(self.owner.phase, "complete")
+        self.assertIsNone(self.owner.play_started)
 
     def test_three_rotated_repetitions_cover_all_four_cells_under_fake_immediate_controls(self):
         self.prepare()
@@ -435,9 +619,10 @@ class MeasurementGuardChecks(unittest.TestCase):
                     self.clock.advance(1)
                     self.observation(playing, window_open=window_open, window_exposed=window_open)
                 if playing:
+                    self.clock.advance(0.125)
                     self.observation(False, window_open=window_open, window_exposed=window_open)
                 self.assertEqual(self.owner.phase, "complete")
-        self.assertEqual(self.owner.charged, 180)
+        self.assertEqual(self.owner.charged, 180.75)
         self.assertEqual(len(self.plays), 6)
         self.assertEqual(len(self.stop.requests), 6)
         self.assertEqual(sum(event["event"] == "cell-complete" for event in self.journal.events), 12)

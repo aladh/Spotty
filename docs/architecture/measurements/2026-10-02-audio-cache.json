@@ -1,0 +1,156 @@
+{
+  "date": "2026-10-02",
+  "issue": 12,
+  "decision": "No-go for enabling unmodified retained Cache; production persistent audio remains disabled.",
+  "source": {
+    "revision": "e2bb40f56257414a17312bf15ee43146ecfcd874",
+    "clean": true,
+    "engineInputDigest": "acb3d18e9758f3f053e0ad0fb4ee04d177d3648caa742e0f6140bd2692ee1b58",
+    "librespotRevision": "939dc5ee9d833e1980f9495241219d9d4868a061",
+    "cargoLockSHA256": "7d340041ab6d9588e5c1486863ca1a7ea40b102ed91afe2396ea407c0c6dcf4b"
+  },
+  "execution": {
+    "kind": "direct Rust cache-layer test executable, not app or shipping XCFramework",
+    "configuration": "cargo test --release --locked --lib",
+    "optLevel": 3,
+    "lto": true,
+    "rustc": "1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "1.98.1 (797e8a9bc 2026-08-05)",
+    "target": "aarch64-apple-darwin",
+    "testExecutableSHA256": "efa4bb34defbe39a6572c5d88bac877224883223c2648797a5873c5001fe108a",
+    "testExecutableMinimumOS": "11.0 (Cargo default; shipping app/engine minimum27 unchanged)",
+    "sdk": "27.0",
+    "hostOS": "macOS27.0.1(26A434)",
+    "fixtures": "Unique owned mode0700 directories; synthetic bytes; all retired by Fixture drop; directory-link target also owned within fixture root",
+    "networkOrPlaybackUsed": false
+  },
+  "prerequisites": {
+    "checksPassed": 6,
+    "ordinaryCompletedQuotaAndRestart": true,
+    "failedCopyReadableBytes": 16,
+    "failedCopyQuotaBytes": 8,
+    "delayedCloneRecreatedRetiredBytes": 16,
+    "replacementPartitionUnchanged": true,
+    "failedEvictionActualRetainedBytes": 16,
+    "failedEvictionQuotaBytes": 8,
+    "startupScanFollowedOwnedDirectoryLinkAndPrunedTarget": true,
+    "decoderRemovalPrimitiveWorks": true,
+    "actualSignOutOrEngineShutdownTested": false
+  },
+  "io": {
+    "limitations": "Synthetic memory-sourced bytes and filesystem operations only; OS page cache may be warm. No Session, encrypted Spotify payload, key request, network transfer, decoding, playback/startup latency or live benefit measurement. Disabled baseline byte count is three fixture reads, not observed network traffic.",
+    "sourceRevision": "e2bb40f56257414a17312bf15ee43146ecfcd874",
+    "syntheticPayloadBytes": 65536,
+    "trialQuotaBytes": 131072,
+    "waves": [
+      {
+        "baselineMemoryReadMilliseconds": [
+          0.022542,
+          0.012458,
+          0.0029170000000000003
+        ],
+        "cacheBytesReadWarm": 131072,
+        "cacheBytesWritten": 65536,
+        "coldSaveMilliseconds": 0.39995800000000004,
+        "retainedBytes": 65536,
+        "syntheticInputBytesWithRetention": 65536,
+        "syntheticInputBytesWithoutRetention": 196608,
+        "warmReadMilliseconds": [
+          0.052500000000000005,
+          0.030750000000000003
+        ]
+      },
+      {
+        "baselineMemoryReadMilliseconds": [
+          0.003208,
+          0.0029170000000000003,
+          0.00275
+        ],
+        "cacheBytesReadWarm": 131072,
+        "cacheBytesWritten": 65536,
+        "coldSaveMilliseconds": 0.22004100000000001,
+        "retainedBytes": 65536,
+        "syntheticInputBytesWithRetention": 65536,
+        "syntheticInputBytesWithoutRetention": 196608,
+        "warmReadMilliseconds": [
+          0.050374999999999996,
+          0.028541999999999998
+        ]
+      },
+      {
+        "baselineMemoryReadMilliseconds": [
+          0.00325,
+          0.00275,
+          0.0026249999999999997
+        ],
+        "cacheBytesReadWarm": 131072,
+        "cacheBytesWritten": 65536,
+        "coldSaveMilliseconds": 0.19525,
+        "retainedBytes": 65536,
+        "syntheticInputBytesWithRetention": 65536,
+        "syntheticInputBytesWithoutRetention": 196608,
+        "warmReadMilliseconds": [
+          0.031916,
+          0.027708
+        ]
+      },
+      {
+        "baselineMemoryReadMilliseconds": [
+          0.003292,
+          0.00275,
+          0.0027080000000000003
+        ],
+        "cacheBytesReadWarm": 131072,
+        "cacheBytesWritten": 65536,
+        "coldSaveMilliseconds": 0.165584,
+        "retainedBytes": 65536,
+        "syntheticInputBytesWithRetention": 65536,
+        "syntheticInputBytesWithoutRetention": 196608,
+        "warmReadMilliseconds": [
+          0.041041999999999995,
+          0.032375
+        ]
+      },
+      {
+        "baselineMemoryReadMilliseconds": [
+          0.003,
+          0.0027080000000000003,
+          0.00275
+        ],
+        "cacheBytesReadWarm": 131072,
+        "cacheBytesWritten": 65536,
+        "coldSaveMilliseconds": 0.20249999999999999,
+        "retainedBytes": 65536,
+        "syntheticInputBytesWithRetention": 65536,
+        "syntheticInputBytesWithoutRetention": 196608,
+        "warmReadMilliseconds": [
+          0.042208,
+          0.029082999999999998
+        ]
+      }
+    ]
+  },
+  "verification": {
+    "rustGate": "PASS: header reproducibility, format, warning-clean clippy, locked bridge and retained-librespot checks",
+    "bridgePassed": 173,
+    "bridgeIgnored": 3,
+    "retainedConnectPassed": 10,
+    "retainedCorePassed": 2,
+    "retainedPlaybackPassed": 5,
+    "sourceGate": "PASS at e2bb40f",
+    "independentReview": "No actionable findings; test validity/safety and no-go interpretation reviewed"
+  },
+  "excludedRuns": [
+    {
+      "name": "spotty-audio-cache-tests-first.log",
+      "reason": "Private disposable fixture names collided; added atomic sequence to process/time-based names. This fixture failure is not a production cache failure."
+    }
+  ],
+  "limitations": [
+    "Input byte counts are observed synthetic memory fixture reads, not network downloads.",
+    "Five fresh partitions within one optimized test process; filesystem/OS page cache can be warm; no variance characterization across hosts/processes.",
+    "No Session, credential storage, encrypted Spotify payload, key request, decoder, live sign-out/account replacement, playback or startup-to-output measurement.",
+    "Raw Cache clone retirement counterexample is not proof engine shutdown currently leaks a writer.",
+    "Candidate prerequisites fail; no live comparison attempted and no shipping cache enabled."
+  ]
+}

@@ -73,6 +73,20 @@ the fresh report path; see [verification](../development/verification.md) for
 isolation and report limitations. This Debug workload does not replace the historical live Release
 playback measurement above.
 
+## Audio cache decision (2026-10-02)
+
+The [cache-layer evaluation](measurements/2026-10-02-audio-cache.md) at clean `e2bb40f` uses
+the actual retained librespot Cache with private synthetic bytes; it constructs no Session or
+player. Five optimized IO waves supplied196,608 fixture bytes without retention versus65,536
+with one save and two warm reads. Retained size was65,536 bytes under a131,072-byte trial quota.
+These are memory/filesystem counts, not Spotify downloads, repeat-play or startup latency.
+
+The unmodified candidate fails prerequisites: interrupted copies and failed eviction lose size
+accounting, a delayed clone recreates retired storage, and restart scanning follows directory
+links outside its partition. The linked receipt preserves exact identities, variability and
+limits. Decision: keep persistent audio disabled; safe lifecycle work has no established live
+benefit to justify it. Credential persistence remains separate.
+
 ## Binary size
 
 CI reports release sizes for comparison, not as a pass/fail budget. Read the run summary with

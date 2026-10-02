@@ -502,9 +502,9 @@
     "expiryRestorationCases": 24,
     "sameRouteCases": 9,
     "expiredCancelOrAccountCases": 6,
-    "noAgeCausalFault": "two functions fail27 expectations; original age policy restored",
-    "omittedDiscographyClockCausalFault": "facade function fails2 expectations; exact injection restored; explicit required-clock API subsequently removes this implicit fallback",
-    "largeArtistBudget": "three8000-release reads evict first under20000 row-cost; second reuse;20001 active not retained but expires",
+    "noAgeCausalFault": "two functions fail 27 expectations; original age policy restored",
+    "omittedDiscographyClockCausalFault": "facade function fails 2 expectations; exact injection restored; explicit required-clock API subsequently removes this implicit fallback",
+    "largeArtistBudget": "three 8,000-release reads evict first under 20,000 row-cost; second reuse; 20,001 active not retained but expires",
     "lateCompletion": "admitted worker snapshot awaited after cancel/account reset before nonpublication assertions",
     "summaryIncludingSkippedProbe": 64
   },

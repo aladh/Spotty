@@ -19,6 +19,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from script_test_fixtures import process_has_stopped
+
 
 SCRIPT = Path(__file__).with_name("ci_cache_bundle.py")
 spec = importlib.util.spec_from_file_location("ci_cache_bundle", SCRIPT)
@@ -309,6 +311,30 @@ class GitOutputTests(unittest.TestCase):
         finally:
             terminal.touch()
 
+    def test_retirement_observer_preserves_disappearing_proc_reads_and_requires_exit_proof(self):
+        for error in (FileNotFoundError(errno.ENOENT, "retired proc entry"),
+                      ProcessLookupError(errno.ESRCH, "retired proc entry")):
+            with self.subTest(error=type(error).__name__), patch("script_test_fixtures.os.kill") as probe, \
+                    patch("script_test_fixtures.Path.read_text", side_effect=error):
+                self.assertFalse(process_has_stopped(12345))
+                probe.assert_called_once_with(12345, 0)
+        with patch("script_test_fixtures.os.kill", side_effect=ProcessLookupError), \
+                patch("script_test_fixtures.Path.read_text") as read:
+            self.assertTrue(process_has_stopped(12345))
+            read.assert_not_called()
+        for state, expected in (("R", False), ("Z", True)):
+            with self.subTest(state=state), patch("script_test_fixtures.os.kill"), \
+                    patch("script_test_fixtures.Path.read_text", return_value=f"12345 (owned)fixture) {state} 1"):
+                self.assertEqual(process_has_stopped(12345), expected)
+        with patch("script_test_fixtures.os.kill"), \
+                patch("script_test_fixtures.Path.read_text", side_effect=PermissionError(errno.EACCES, "denied")):
+            with self.assertRaises(PermissionError):
+                process_has_stopped(12345)
+        with patch("script_test_fixtures.os.kill"), \
+                patch("script_test_fixtures.Path.read_text", return_value="malformed"):
+            with self.assertRaises(IndexError):
+                process_has_stopped(12345)
+
     def test_owned_children_are_killed_and_direct_process_joined_on_overflow_timeout_and_io_error(self):
         real_popen = subprocess.Popen
         real_read = os.read
@@ -358,14 +384,7 @@ class GitOutputTests(unittest.TestCase):
             pid = int(child_pid.read_text())
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:
-                try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
-                    break
-                # Linux may retain an already killed orphan as a zombie until
-                # init reaps it; it is no longer an executing descendant.
-                state = Path(f"/proc/{pid}/stat")
-                if state.exists() and state.read_text().rsplit(")", 1)[1].split()[0] == "Z":
+                if process_has_stopped(pid):
                     break
                 time.sleep(0.02)
             else:

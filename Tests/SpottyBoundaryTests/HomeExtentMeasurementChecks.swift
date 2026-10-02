@@ -74,6 +74,11 @@ struct HomeExtentMeasurementTests {
                 await artwork.requests.contains { $0.url.path == "/\(admittedSection)/0" }
             }
             let requests = await artwork.requests
+            let admittedShelves = Set(requests.compactMap { $0.url.pathComponents.dropFirst().first })
+            if mode == "viewport" {
+                try #require(admittedShelves.isSubset(of: ["0", "1"]))
+                try #require(requests.count <= 16)
+            }
             let report: [String: Any] = [
                 "sections": sections, "itemsPerSection": 8, "viewportWidth": 900, "viewportHeight": 600,
                 "admissionBarrierSection": admittedSection, "mode": mode,
@@ -81,7 +86,7 @@ struct HomeExtentMeasurementTests {
                     / 1e18,
                 "documentHeight": page(in: host)?.documentView?.bounds.height ?? 0,
                 "artworkAdmissions": requests.count,
-                "admittedShelves": Set(requests.compactMap { $0.url.pathComponents.dropFirst().first }).count,
+                "admittedShelves": admittedShelves.count,
                 "before": before, "attached": try memory(),
                 "limitations":
                     "Unpresented native host; initial layout and admission only, not first usable frame. Artwork immediately returns synthetic unavailability, excluding network/decode/raster costs. No whole-app or live-account performance claim.",

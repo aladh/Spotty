@@ -83,7 +83,7 @@ The report records effective compiler flags and engine provenance. Network, deco
 retention are excluded. Layout timing stops when document height exceeds 200 points per shelf;
 final observed document heights are recorded separately. Neither establishes a first presented frame.
 
-| Shelves | Variant | Document height | Artwork admissions | Layout threshold |
+| Shelves | Variant | Document height | Artwork admissions | Layout readiness |
 | --- | --- | ---: | ---: | ---: |
 | 12 | Eager | 3,801 pt | 96 | 0.384 s |
 | 12 | Visible-shelf artwork | 3,801 pt | 16 | 0.391 s |

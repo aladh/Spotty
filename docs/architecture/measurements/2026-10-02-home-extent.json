@@ -37,7 +37,8 @@
       "xcode": "27.0 (27A266a)",
       "swift": "6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
       "target": "arm64-apple-macosx27.0.0"
-    }
+    },
+    "admissionBarrierSection": "Zero-based synthetic section index whose item0 artwork request must be observed before collecting the report. Eager baseline waits for sections-1; viewport candidate waits for1. It is an observation barrier, not a section count or an excluded-section boundary."
   },
   "runs": [
     {

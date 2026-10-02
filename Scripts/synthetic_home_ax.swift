@@ -90,6 +90,7 @@ private final class HomeAXDiagnostic {
             scenario["guiShellRegression"] as? Bool != true, scenario["expandedLibrary"] as? Bool != true,
             scenario["acceptanceScenarioID"] == nil
         else { throw Failure(reason: "only the exact admitted interactive synthetic Home run is admitted") }
+        evidence["performanceMeasurement"] = measurement
         _ = try safety()
         try checkDeadline()
     }

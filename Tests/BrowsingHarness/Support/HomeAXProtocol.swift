@@ -7,6 +7,21 @@ import Foundation
 enum HomeAXProtocol {
     struct Failure: Error { let reason: String }
 
+    /// Failed read values are discarded. Actions must never use this helper.
+    static func read<Value>(
+        before: (Int) throws -> Void, operation: () throws -> (AXError, Value),
+        observed: (Int, AXError) throws -> Void
+    ) throws -> (AXError, Value?) {
+        for attempt in 1...3 {
+            try before(attempt)
+            let (code, value) = try operation()
+            try observed(attempt, code)
+            if code == .success { return (code, value) }
+            if code != .cannotComplete || attempt == 3 { return (code, nil) }
+        }
+        throw Failure(reason: "bounded AX read exhausted")
+    }
+
     struct Request: Codable {
         let runID: String
         let pid: Int32

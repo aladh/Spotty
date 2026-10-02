@@ -9,6 +9,58 @@ import Testing
 @Suite("Controlled actual Home measurement", .serialized)
 @MainActor
 struct BrowsingHomeMeasurementChecks {
+    @Test func boundedReadDiscardsFailedValuesAndRetriesOnlyCannotComplete() throws {
+        for codes in [
+            [AXError.cannotComplete, .success], [.cannotComplete, .cannotComplete, .success],
+            [.cannotComplete, .cannotComplete, .cannotComplete], [.apiDisabled], [.invalidUIElement], [.noValue],
+        ] {
+            var attempts = 0
+            var observations: [AXError] = []
+            let (code, value) = try HomeAXProtocol.read(
+                before: { #expect($0 == attempts + 1) },
+                operation: {
+                    let code = codes[attempts]
+                    attempts += 1
+                    return (code, [attempts])
+                }, observed: { _, code in observations.append(code) })
+            #expect(attempts == codes.count)
+            #expect(observations == codes)
+            #expect(code == codes.last)
+            #expect(value == (code == .success ? [attempts] : nil))
+        }
+    }
+
+    @Test func repeatedReadAdmissionLossOrPostRPCDeadlineCannotPublishResult() throws {
+        for stopBefore in [false, true] {
+            var calls = 0
+            var results = 0
+            #expect(throws: HomeAXProtocol.Failure.self) {
+                _ = try HomeAXProtocol.read(
+                    before: { attempt in
+                        if stopBefore && attempt == 2 {
+                            throw HomeAXProtocol.Failure(reason: "identity/safety/deadline")
+                        }
+                    },
+                    operation: {
+                        calls += 1
+                        return (calls == 1 ? AXError.cannotComplete : .success, [calls])
+                    },
+                    observed: { attempt, _ in
+                        results += 1
+                        if !stopBefore && attempt == 2 { throw HomeAXProtocol.Failure(reason: "deadline") }
+                    })
+            }
+            #expect(calls == (stopBefore ? 1 : 2))
+            #expect(results == calls)
+        }
+        let (code, malformed) = try HomeAXProtocol.read(
+            before: { _ in }, operation: { (.success, Optional<CFArray>.none) }, observed: { _, _ in })
+        #expect(code == .success)
+        #expect(throws: HomeAXProtocol.Failure.self) {
+            _ = try HomeAXProtocol.childPage(malformed ?? nil, requested: 1)
+        }
+    }
+
     @Test(arguments: [12, 120])
     func initialResponseStaysSuspendedUntilCaptureOwnerReleasesIt(sections: Int) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("HomeGate-\(UUID())")

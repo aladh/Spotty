@@ -153,17 +153,62 @@ private final class HomeAXDiagnostic {
         }
     }
 
+    func readRPC<Value>(
+        _ element: AXUIElement, operation: () throws -> (AXError, Value)
+    ) throws -> (AXError, Value?) {
+        let started = mach_absolute_time()
+        return try HomeAXProtocol.read(
+            before: { attempt in
+                try self.checkDeadline()
+                if attempt > 1 {
+                    Thread.sleep(forTimeInterval: 0.025)
+                    try self.validateTarget()
+                }
+                var pid: pid_t = 0
+                guard AXUIElementGetPid(element, &pid) == .success, pid == self.identity.pid else {
+                    throw Failure(reason: "AX read element differs from exact Demo PID")
+                }
+                let code = AXUIElementSetMessagingTimeout(element, 0.5)
+                guard code == .success else {
+                    self.evidence["messagingTimeoutError"] = code.rawValue
+                    throw Failure(reason: "AX messaging timeout setup failed")
+                }
+                try self.checkDeadline()
+            }, operation: operation,
+            observed: { attempt, code in
+                if code != .success || attempt > 1 {
+                    let receipt: [String: Any] = [
+                        "attempt": attempt, "code": code.rawValue, "startedMachTime": started,
+                        "observedMachTime": mach_absolute_time(),
+                        "rpc": self.evidence["activeAXRPC"] as Any? ?? NSNull(),
+                        "traversal": self.evidence["externalTraversal"] as Any? ?? NSNull(),
+                        "attributeResult": self.evidence["lastAXRPC"] as Any? ?? NSNull(),
+                        "countResult": self.evidence["lastChildCountRPC"] as Any? ?? NSNull(),
+                        "pageResult": self.evidence["lastChildPageRPC"] as Any? ?? NSNull(),
+                    ]
+                    var history = self.evidence["readRPCRecovery"] as? [[String: Any]] ?? []
+                    if history.count < 64 { history.append(receipt) }
+                    self.evidence["readRPCRecovery"] = history
+                    self.evidence["lastReadRPCRecovery"] = receipt
+                }
+                try self.checkDeadline()
+            })
+    }
+
     func attribute(_ element: AXUIElement, _ name: String, requireComplete: Bool = false) throws -> CFTypeRef? {
         evidence["activeAXRPC"] = ["operation": "attribute", "attribute": name]
         try checkDeadline()
-        AXUIElementSetMessagingTimeout(element, 0.5)
-        var value: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(element, name as CFString, &value)
-        evidence["lastAXRPC"] = [
-            "attribute": name, "code": result.rawValue, "typeID": value.map { CFGetTypeID($0) } as Any? ?? NSNull(),
-        ]
+        let (result, returned) = try readRPC(element) {
+            var value: CFTypeRef?
+            let code = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+            self.evidence["lastAXRPC"] = [
+                "attribute": name, "code": code.rawValue, "typeID": value.map { CFGetTypeID($0) } as Any? ?? NSNull(),
+            ]
+            if code != .success { self.attributeErrors["\(name):\(code.rawValue)", default: 0] += 1 }
+            return (code, value)
+        }
+        let value = returned ?? nil
         if result != .success {
-            attributeErrors["\(name):\(result.rawValue)", default: 0] += 1
             if result == .apiDisabled { throw Failure(reason: "Accessibility access unavailable") }
             if requireComplete, result != .attributeUnsupported, result != .noValue {
                 throw Failure(reason: "incomplete target traversal attribute: \(name):\(result.rawValue)")
@@ -270,9 +315,13 @@ private final class HomeAXDiagnostic {
                 var count = 0
                 self.evidence["activeAXRPC"] = ["operation": "child-count", "attribute": kAXChildrenAttribute]
                 try self.checkDeadline()
-                AXUIElementSetMessagingTimeout(node.element, 0.5)
-                let code = AXUIElementGetAttributeValueCount(node.element, kAXChildrenAttribute as CFString, &count)
-                self.evidence["lastChildCountRPC"] = ["code": code.rawValue, "count": count]
+                let (code, returned) = try self.readRPC(node.element) {
+                    var count = 0
+                    let code = AXUIElementGetAttributeValueCount(node.element, kAXChildrenAttribute as CFString, &count)
+                    self.evidence["lastChildCountRPC"] = ["code": code.rawValue, "count": count]
+                    return (code, count)
+                }
+                count = returned ?? 0
                 try self.checkDeadline()
                 if code == .attributeUnsupported || code == .noValue { return 0 }
                 guard code == .success else { throw Failure(reason: "AX child-count RPC failed: \(code.rawValue)") }
@@ -284,15 +333,18 @@ private final class HomeAXDiagnostic {
                     "offset": offset, "requested": requested,
                 ]
                 try self.checkDeadline()
-                AXUIElementSetMessagingTimeout(node.element, 0.5)
-                var value: CFArray?
-                let code = AXUIElementCopyAttributeValues(
-                    node.element, kAXChildrenAttribute as CFString, offset, requested, &value)
-                self.evidence["lastChildPageRPC"] = [
-                    "code": code.rawValue, "offset": offset, "requested": requested,
-                    "returnedCount": value.map(CFArrayGetCount) as Any? ?? NSNull(),
-                    "returnedTypeID": value.map { CFGetTypeID($0) } as Any? ?? NSNull(),
-                ]
+                let (code, returned) = try self.readRPC(node.element) {
+                    var value: CFArray?
+                    let code = AXUIElementCopyAttributeValues(
+                        node.element, kAXChildrenAttribute as CFString, offset, requested, &value)
+                    self.evidence["lastChildPageRPC"] = [
+                        "code": code.rawValue, "offset": offset, "requested": requested,
+                        "returnedCount": value.map(CFArrayGetCount) as Any? ?? NSNull(),
+                        "returnedTypeID": value.map { CFGetTypeID($0) } as Any? ?? NSNull(),
+                    ]
+                    return (code, value)
+                }
+                let value = returned ?? nil
                 try self.checkDeadline()
                 guard code == .success else {
                     throw Failure(reason: "AX child page failed or has malformed members")

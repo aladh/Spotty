@@ -19,6 +19,8 @@ struct HomeExtentMeasurementTests {
         let environment = ProcessInfo.processInfo.environment
         let path = try #require(environment["SPOTTY_HOME_EXTENT_REPORT"])
         let sections = try #require(Int(environment["SPOTTY_HOME_EXTENT_SECTIONS"] ?? "120"))
+        let mode = environment["SPOTTY_HOME_EXTENT_MODE"] ?? "eager"
+        try #require(["eager", "viewport"].contains(mode))
         try #require([12, 120, 500].contains(sections))
         try #require(!FileManager.default.fileExists(atPath: path))
         let snapshot = CatalogHomeSnapshot(
@@ -67,14 +69,14 @@ struct HomeExtentMeasurementTests {
                 return (page(in: host)?.documentView?.bounds.height ?? 0) > CGFloat(sections * 200)
             }
             let layout = start.duration(to: .now)
-            // This baseline deliberately waits for the far-offscreen shelf admission: a later
-            // visibility strategy must replace this condition and record the changed admission scope.
-            try await requireEventually(description: "Eager Home admits offscreen artwork") {
-                await artwork.requests.contains { $0.url.path == "/\(sections - 1)/0" }
+            let admittedSection = mode == "eager" ? sections - 1 : 1
+            try await requireEventually(description: "Home admits artwork at the declared measurement barrier") {
+                await artwork.requests.contains { $0.url.path == "/\(admittedSection)/0" }
             }
             let requests = await artwork.requests
             let report: [String: Any] = [
                 "sections": sections, "itemsPerSection": 8, "viewportWidth": 900, "viewportHeight": 600,
+                "admissionBarrierSection": admittedSection, "mode": mode,
                 "layoutReadinessSeconds": Double(layout.components.seconds) + Double(layout.components.attoseconds)
                     / 1e18,
                 "documentHeight": page(in: host)?.documentView?.bounds.height ?? 0,

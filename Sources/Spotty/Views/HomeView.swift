@@ -112,7 +112,8 @@ private struct HomeRecommendationsView: View {
                     case .shelf:
                         MediaShelf(
                             section: section.element, playback: playback,
-                            scrollState: interaction.shelfScroll(for: section.id), onSelect: onSelect)
+                            scrollState: interaction.shelfScroll(for: section.id),
+                            defersOffscreenContent: true, onSelect: onSelect)
                     }
                 }
             }
@@ -217,7 +218,9 @@ struct MediaShelf: View {
     let playback: CatalogPlaybackAccess
     var titleLineLimit = 1
     var scrollState: NativeListScrollState?
+    var defersOffscreenContent = false
     let onSelect: (CatalogItem) -> Void
+    @State private var isVisible = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -225,11 +228,34 @@ struct MediaShelf: View {
                 .font(.system(size: 24, weight: .bold))
                 .accessibilityAddTraits(.isHeader)
 
-            MediaCardRow(
-                items: section.items, playback: playback, titleLineLimit: titleLineLimit,
-                scrollState: scrollState, onSelect: onSelect)
+            if !defersOffscreenContent || isVisible {
+                MediaCardRow(
+                    items: section.items, playback: playback, titleLineLimit: titleLineLimit,
+                    scrollState: scrollState, onSelect: onSelect)
+            } else {
+                HomeShelfExtentLayout {
+                    ForEach(CatalogDisplayOccurrence.identifying(section.items)) { occurrence in
+                        MediaCardContent(item: occurrence.element, titleLineLimit: titleLineLimit, isPlaying: false) {
+                            Color.clear
+                        }
+                    }
+                }
+                .accessibilityHidden(true)
+            }
         }
+        .onScrollVisibilityChange(threshold: 0) { isVisible = $0 }
     }
+}
+
+/// Reserve the exact card text/artwork geometry without native shelf hosts or controls.
+/// Measuring every item preserves tall subtitles/empty results; no response cap or estimate.
+private struct HomeShelfExtentLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        return CGSize(width: proposal.width ?? 0, height: height + 4)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {}
 }
 
 struct MediaCardRow: View {
@@ -263,30 +289,16 @@ struct MediaCard: View {
 
     var body: some View {
         CatalogCardButton(action: action) { _ in
-            VStack(alignment: .leading, spacing: 8) {
+            MediaCardContent(
+                item: item, titleLineLimit: titleLineLimit, isPlaying: playback.isPlayingPlaylist(item.uri)
+            ) {
                 RemoteArtwork(
                     url: item.artworkURL,
                     kind: item.kind,
                     cornerRadius: item.kind == .artist ? CatalogLayout.cardArtwork / 2 : 4
                 )
-                .frame(width: CatalogLayout.cardArtwork, height: CatalogLayout.cardArtwork)
                 .shadow(color: .black.opacity(isHovering ? 0.18 : 0.08), radius: isHovering ? 10 : 5, y: 4)
-
-                Text(item.title)
-                    .font(.system(size: 16))
-                    .foregroundStyle(
-                        playback.isPlayingPlaylist(item.uri) ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary
-                    )
-                    .lineLimit(titleLineLimit)
-
-                Text(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)
-                    .font(.system(size: 14))
-                    .foregroundStyle(SpottyPalette.textSecondary)
-                    .lineLimit(2)
-                    .frame(minHeight: 30, alignment: .topLeading)
             }
-            .frame(width: CatalogLayout.cardArtwork, alignment: .leading)
-            .padding(CatalogLayout.cardPadding)
             .contentShape(RoundedRectangle(cornerRadius: CatalogLayout.cardCornerRadius, style: .continuous))
             .background(
                 SpottyPalette.mediaCardSurface(isHovering: isHovering),
@@ -305,5 +317,29 @@ struct MediaCard: View {
                 .padding(.trailing, CatalogLayout.cardPadding + 8)
         }
         .hoverSurface(isHovering: $isHovering)
+    }
+}
+
+private struct MediaCardContent<Artwork: View>: View {
+    let item: CatalogItem
+    let titleLineLimit: Int
+    let isPlaying: Bool
+    @ViewBuilder let artwork: Artwork
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            artwork.frame(width: CatalogLayout.cardArtwork, height: CatalogLayout.cardArtwork)
+            Text(item.title)
+                .font(.system(size: 16))
+                .foregroundStyle(isPlaying ? SpottyPalette.mediaGreen : SpottyPalette.textPrimary)
+                .lineLimit(titleLineLimit)
+            Text(item.subtitle.isEmpty ? item.kind.rawValue : item.subtitle)
+                .font(.system(size: 14))
+                .foregroundStyle(SpottyPalette.textSecondary)
+                .lineLimit(2)
+                .frame(minHeight: 30, alignment: .topLeading)
+        }
+        .frame(width: CatalogLayout.cardArtwork, alignment: .leading)
+        .padding(CatalogLayout.cardPadding)
     }
 }

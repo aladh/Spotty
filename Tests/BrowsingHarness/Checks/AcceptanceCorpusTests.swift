@@ -153,11 +153,16 @@ struct AcceptanceCorpusTests {
             playlistMutations: world, artwork: world.environment.artwork)
         let player = PlaybackStore(environment: environment, feedback: TransientFeedbackPresenter(clock: world))
         var retiredWorkers: [Task<Void, Never>] = []
-        var journey: Task<Void, any Error>?
+        var journey: Task<(waiterCount: Int, libraryRequests: Int?), any Error>?
         do {
             await player.restore()
             await player.catalogLoadTask?.value
             try #require(world.snapshot().requests["library"] == 1)
+            let syntheticProfile = try await world.profile()
+            let syntheticURI = try #require(syntheticProfile.uri)
+            // A retired response deliberately differs from the active fixture account.
+            let retiredProfile = CatalogProfileSnapshot(
+                name: "Retired reconnect fixture", uri: syntheticURI + ".retired")
             let oldEpoch = player.accountEpoch
             let oldSession = player.catalogSession.snapshot
             player.withRuntime {
@@ -173,31 +178,37 @@ struct AcceptanceCorpusTests {
                 defer { journeyFinished = true }
                 if joinReconnect {
                     try await PlaybackTrace.reconnectCatalog(player: player, world: world, previousSession: oldSession)
-                    #expect(
-                        catalog.withheld.waiterCount == 0, "The reconnect join must settle before account replacement")
-                    #expect(world.snapshot().requests["library"] == 2)
                 }
+                let observed = (
+                    waiterCount: catalog.withheld.waiterCount, libraryRequests: world.snapshot().requests["library"]
+                )
                 await player.logout()
                 world.restoreSyntheticAccount()
                 await player.restore()
                 await player.catalogLoadTask?.value
+                return observed
             }
             try await PlaybackTrace.until("reconnect.journey-started") { journeyStarted }
             if joinReconnect {
                 #expect(player.accountEpoch == oldEpoch)
                 #expect(world.snapshot().requests["account.synthetic-replacement"] == nil)
-                catalog.withheld.finish(CatalogProfileSnapshot(name: "Reconnect", uri: "spotify:user:synthetic"))
+                catalog.withheld.finish(syntheticProfile)
             }
             try await PlaybackTrace.until("reconnect.journey-finished") { journeyFinished }
-            try await journey?.value
+            let observed = try await journey?.value
+            if joinReconnect {
+                let joined = try #require(observed)
+                #expect(joined.waiterCount == 0, "The reconnect join must settle before account replacement")
+                #expect(joined.libraryRequests == 2)
+            }
             if !joinReconnect {
                 #expect(catalog.withheld.waiterCount == 1, "Retired non-cooperative profile is still withheld")
-                catalog.withheld.finish(CatalogProfileSnapshot(name: "Retired", uri: "spotify:user:retired"))
+                catalog.withheld.finish(retiredProfile)
             }
             for worker in retiredWorkers { await worker.value }
             #expect(player.accountEpoch > oldEpoch)
             #expect(player.catalogSession.snapshot.accountEpoch == player.accountEpoch)
-            #expect(player.catalog.homeLibrary.currentProfileURI == "spotify:user:synthetic")
+            #expect(player.catalog.homeLibrary.currentProfileURI == syntheticProfile.uri)
             #expect(player.catalog.homeLibrary.currentPlaylists.count == world.fixtures.playlists.count)
             #expect(world.snapshot().requests["library"] == (joinReconnect ? 3 : 2))
             await player.shutdownForTermination()

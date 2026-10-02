@@ -25,10 +25,14 @@ Record physical footprint separately from RSS. Capture process wakeup counter de
 supported native profiler; report the profiler's counter definition and sampling overhead. A
 resource snapshot does not establish output latency.
 
-Collect renderer diagnostics before/after each interval: underruns, dropped samples, throttled
-producer time, buffered frames and occupancy. Separate intentional producer pacing and explicit
-seek/stop discards from underruns. Use native time profiling to attribute engine/decode/network,
-UI/main thread and renderer work separately; a whole-process CPU total cannot perform that split.
+The current [renderer](../../Sources/SpottyEngineAdapter/AudioRenderer.swift) emits its metrics only
+at stop: lifetime underrun count, dropped sample count, producer throttle seconds, and a single
+buffered sample count (frames × channels). Preserve that summary with its actual stop boundary;
+it includes settling and transitions and cannot establish individual 60-second interval deltas or
+occupancy history. Mark those interval measurements unmeasured unless an admitted snapshot source
+exists; do not insert extra stops merely to obtain counters. Separate intentional producer pacing
+and explicit seek/stop discards from underruns. Native time profiling must attribute engine/decode/network,
+UI/main thread and renderer work separately; whole-process CPU cannot perform that split.
 Do not infer network bytes from cache-layer synthetic input counts.
 
 Startup-to-ready needs an observed launch boundary and the actual readiness event for that signed

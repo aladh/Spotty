@@ -155,7 +155,7 @@ benefit to justify it. Credential persistence remains separate.
 ## Current Release playback baseline preparation (2026-10-02)
 
 [The repeatable procedure](../development/playback-measurements.md) defines the current Release
-paused/playing × open/closed comparison, exact source/engine/artifact identity, three balanced
+paused/playing × open/closed comparison, exact source/engine/artifact identity, three rotated
 60-second repetitions, CPU/footprint/wakeup observations, renderer counters and actual readiness/output
 boundaries. It preserves historical records and adds no measurement or performance budget.
 Live execution remains gated by explicit workload/artifact authorization; existing synthetic

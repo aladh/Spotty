@@ -268,13 +268,15 @@ struct CatalogLoadContractChecks {
                 load: { await store.load(item("fixture", kind: .playlist), force: $0) }, count: { store.tracks.count },
                 saved: { store.isShowingCachedContent }, error: { store.error })
         case "album":
-            let store = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
+            let store = AlbumDetailStore(
+                provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
             return Detail(
                 load: { await store.load(item("fixture", kind: .album), force: $0) }, count: { store.tracks.count },
                 saved: { store.isShowingCachedContent }, error: { store.error })
         default:
             let store = ArtistDetailStore(
-                provider: provider, session: session, content: surface == "artist" ? .overview : .discography)
+                provider: provider, session: session, content: surface == "artist" ? .overview : .discography,
+                clock: HarnessClock.sticky())
             return Detail(
                 load: { await store.load(item("fixture", kind: .artist), force: $0) }, count: { store.releases.count },
                 saved: { store.isShowingCachedContent }, error: { store.error })

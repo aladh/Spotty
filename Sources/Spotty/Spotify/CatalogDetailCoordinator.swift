@@ -38,12 +38,15 @@ final class CatalogDetailCoordinator {
         var payload: CatalogDetailPayload
         let freshness: CatalogFreshness
         let error: String?
+        let acceptedAt: Date
     }
 
     private(set) var selection: CatalogItem?
     private(set) var contentEpoch: UInt64
     private var payload: CatalogDetailPayload
     private var loadState = CatalogLoadState()
+    private var acceptedAt: Date?
+    @ObservationIgnored private let clock: any PlaybackClock
     @ObservationIgnored private let kind: CatalogDetailKind
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let publication: Publication
@@ -54,27 +57,29 @@ final class CatalogDetailCoordinator {
 
     convenience init(
         kind: CatalogDetailKind, provider: any CatalogProviding,
-        metadata: CatalogMetadataRepository? = nil, session: CatalogSessionAvailability
+        metadata: CatalogMetadataRepository? = nil, session: CatalogSessionAvailability,
+        clock: any PlaybackClock
     ) {
-        self.init(kind: kind, provider: provider, session: session, publication: .independent(metadata))
+        self.init(kind: kind, provider: provider, session: session, clock: clock, publication: .independent(metadata))
     }
 
     static func discographyAlbum(
         provider: any CatalogProviding, session: CatalogSessionAvailability,
-        onReplacement: @escaping @MainActor () -> Void
+        clock: any PlaybackClock, onReplacement: @escaping @MainActor () -> Void
     ) -> CatalogDetailCoordinator {
         CatalogDetailCoordinator(
-            kind: .album, provider: provider, session: session, publication: .discography(onReplacement))
+            kind: .album, provider: provider, session: session, clock: clock, publication: .discography(onReplacement))
     }
 
     private init(
         kind: CatalogDetailKind, provider: any CatalogProviding, session: CatalogSessionAvailability,
-        publication: Publication
+        clock: any PlaybackClock, publication: Publication
     ) {
         self.kind = kind
         self.provider = provider
         self.publication = publication
         self.session = session
+        self.clock = clock
         contentEpoch = session.accountEpoch
         payload = kind.emptyContent()
         flight = Flight(session: session)
@@ -107,6 +112,11 @@ final class CatalogDetailCoordinator {
         return value
     }
 
+    #if DEBUG
+        /// Retain admitted worker handles before cancellation/reset for bounded lifetime checks.
+        func workerSettlements() -> [Task<Void, Never>] { flight.workerSettlements() }
+    #endif
+
     func reset() {
         flight.reset()
         retained.reset()
@@ -115,6 +125,7 @@ final class CatalogDetailCoordinator {
         selection = nil
         payload = kind.emptyContent()
         loadState = CatalogLoadState()
+        acceptedAt = nil
         publishReplacement()
     }
 
@@ -125,17 +136,28 @@ final class CatalogDetailCoordinator {
             flight.reset()
             selection = selected
             loadState = CatalogLoadState()
+            acceptedAt = nil
             if let saved = retained.entry(for: selected.uri) {
                 payload = saved.value.payload
+                acceptedAt = saved.value.acceptedAt
                 loadState.restore(
                     session: saved.session, freshness: saved.value.freshness,
-                    needsRefresh: saved.needsRefresh, error: saved.value.error)
+                    needsRefresh: saved.needsRefresh || isExpired(saved.value.acceptedAt), error: saved.value.error)
             } else {
                 payload = kind.emptyContent(item: selected)
             }
             publishReplacement()
         }
+        if hasLoadedContent, isExpired(acceptedAt) { loadState.markStale() }
         updateEntityObservation()
+    }
+
+    /// Successful details are reused for five minutes; metadata and failed reads never renew them.
+    /// Expired rows remain visible while the existing session-gated read refreshes them.
+    private func isExpired(_ acceptedAt: Date?) -> Bool {
+        guard let acceptedAt else { return true }
+        let elapsed = clock.now().timeIntervalSince(acceptedAt)
+        return !(elapsed >= 0 && elapsed < 300)
     }
 
     func load(_ selected: CatalogItem, force: Bool = false) async {
@@ -219,8 +241,10 @@ final class CatalogDetailCoordinator {
         // Map and normalize rows only after the request has passed its publication gate.
         payload = result.content(for: selected)
         loadState.receive(session: handle.sessionSnapshot, freshness: result.freshness)
+        let acceptedAt = clock.now()
+        self.acceptedAt = acceptedAt
         retained.store(
-            Retained(payload: payload, freshness: freshness, error: error),
+            Retained(payload: payload, freshness: freshness, error: error, acceptedAt: acceptedAt),
             for: handle.key, cost: payload.retentionCost, snapshot: handle.sessionSnapshot)
         updateEntityObservation()
         publishReplacement()

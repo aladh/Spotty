@@ -13,6 +13,9 @@
   retain search, sort, occurrence selection, and scroll. Artists retain scroll, Popular selection/expansion,
   and discography filters/sort/layout/list scroll. Filtering clears hidden selections; removed occurrences stay
   unselected. Account changes clear history/interaction. Retention is bounded; evicted routes reload.
+  Album, artist overview, discography and album-child reads reuse successful details for five minutes.
+  Revisit or reload after expiry refreshes through the current session while keeping useful rows visible;
+  metadata enrichment and failed reads do not extend this window. A backward clock change requires refresh.
 - Playlists/albums share learned labels for matching tracks across active/retained pages,
   preserving duplicates, order, and interaction. Refreshed labels do not
   make saved collections current.

@@ -13,17 +13,22 @@ final class DiscographyStore {
     private(set) var albums: [String: AlbumDetailStore] = [:]
     @ObservationIgnored private var order: [String] = []
     @ObservationIgnored private var contentEpoch: UInt64
+    @ObservationIgnored private let clock: any PlaybackClock
     @ObservationIgnored private let provider: any CatalogProviding
     @ObservationIgnored private let session: CatalogSessionAvailability
     @ObservationIgnored private let metadata: CatalogMetadataRepository
     @ObservationIgnored private let entityObservation: CatalogEntityObservation
 
-    init(provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability) {
+    init(
+        provider: any CatalogProviding, metadata: CatalogMetadataRepository, session: CatalogSessionAvailability,
+        clock: any PlaybackClock
+    ) {
+        self.clock = clock
         self.provider = provider
         self.metadata = metadata
         self.session = session
         contentEpoch = session.accountEpoch
-        artist = ArtistDetailStore(provider: provider, session: session, content: .discography)
+        artist = ArtistDetailStore(provider: provider, session: session, content: .discography, clock: clock)
         entityObservation = CatalogEntityObservation(provider: provider, session: session)
     }
 
@@ -57,7 +62,8 @@ final class DiscographyStore {
         if let retained = albums[item.uri] {
             album = retained
         } else {
-            album = AlbumDetailStore.forDiscography(provider: provider, session: session) { [weak self] child in
+            album = AlbumDetailStore.forDiscography(provider: provider, session: session, clock: clock) {
+                [weak self] child in
                 self?.contentReplaced(child, uri: item.uri)
             }
             albums[item.uri] = album

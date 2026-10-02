@@ -47,8 +47,9 @@ struct CatalogRequestOwnershipTests {
         let session = CatalogSessionAvailability(isAvailable: true)
         let metadata = CatalogMetadataRepository(session: session)
         let home = HomeLibraryStore(provider: provider, metadata: metadata, session: session)
-        let album = AlbumDetailStore(provider: provider, metadata: metadata, session: session)
-        let artist = ArtistDetailStore(provider: provider, session: session)
+        let album = AlbumDetailStore(
+            provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
+        let artist = ArtistDetailStore(provider: provider, session: session, clock: HarnessClock.sticky())
         let playlist = PlaylistStore(provider: provider, metadata: metadata, session: session)
         let search = SearchStore(provider: provider, metadata: metadata, session: session, clock: HarnessClock.sticky())
         func item(_ kind: CatalogItem.Kind) -> CatalogItem {

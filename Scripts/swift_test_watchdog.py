@@ -435,7 +435,6 @@ def retain_bundle_events(owned: OwnedProcesses, output: Path) -> list[dict]:
     retained = []
     remaining = BUNDLE_EVENT_BYTE_BUDGET
     attempted = 0
-    temporary_root = Path(tempfile.gettempdir()).resolve()
     for identity in owned.live():
         command = owned.commands.get(identity.pid, "")
         if host_role(identity, command) is None:
@@ -446,6 +445,7 @@ def retain_bundle_events(owned: OwnedProcesses, output: Path) -> list[dict]:
             if attempted >= BUNDLE_EVENT_STREAM_LIMIT or remaining <= 0:
                 raise ValueError("bundle event packet budget exhausted")
             attempted += 1
+            temporary_root = Path(tempfile.gettempdir()).resolve()
             arguments = shlex.split(command)
             flag = "--event-stream-output-path"
             if (arguments.count(flag) != 1

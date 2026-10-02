@@ -838,6 +838,52 @@ class InterruptReentryTests(unittest.TestCase):
 
 
 class ProcessOwnershipTests(unittest.TestCase):
+    def test_unavailable_temporary_root_preserves_timeout_and_interruption(self):
+        for error_type in (RuntimeError, OSError, ValueError):
+            for interrupted in (False, True):
+                with self.subTest(error=error_type.__name__, interrupted=interrupted), \
+                        tempfile.TemporaryDirectory(prefix="swiftpm-test-output-") as directory:
+                    root = Path(directory)
+                    owned, identities = self.bundle_stream_fixture(root, [b"{}\n"])
+                    process = SimpleNamespace(pid=20, stdout=io.BytesIO(), returncode=None)
+                    owned.process = process
+                    observed = False
+
+                    def observe(**_):
+                        nonlocal observed
+                        if interrupted and not observed:
+                            observed = True
+                            raise watchdog.TerminationRequested(signal.SIGTERM)
+
+                    owned.observe = observe
+                    temporary_root = Path(tempfile.gettempdir())
+                    original_resolve = Path.resolve
+
+                    def resolving(path, *args, **kwargs):
+                        if path == temporary_root:
+                            raise error_type("Synthetic temporary root unavailable")
+                        return original_resolve(path, *args, **kwargs)
+
+                    args = SimpleNamespace(lane="fixture", repetition=1, timeout_seconds=.1,
+                                           event_stream_path=None, require_tests=False)
+                    tree_path = root / "tree.txt"
+                    with mock.patch.object(Path, "resolve", resolving), \
+                            mock.patch.object(watchdog.subprocess, "Popen", return_value=process), \
+                            mock.patch.object(watchdog, "OwnedProcesses", return_value=owned), \
+                            mock.patch.object(watchdog, "process_tree", return_value="{}"), \
+                            mock.patch.object(watchdog, "process_identity", return_value=identities[0]), \
+                            mock.patch.object(watchdog.selectors, "DefaultSelector"), \
+                            mock.patch.object(watchdog, "sample_helper", return_value="synthetic sampler unavailable"), \
+                            mock.patch.object(watchdog, "terminate_owned_group") as cleanup:
+                        status = watchdog.run_logged(args, ["fixture"], False, time.monotonic() - 1,
+                                                     root / "log.txt", tree_path, root / "sample.txt")
+                    self.assertEqual(status, 143 if interrupted else watchdog.TIMEOUT_EXIT)
+                    cleanup.assert_called_once_with(process, owned)
+                    receipt = json.loads(tree_path.read_text())["bundleNativeEvents"][0]
+                    self.assertFalse(receipt["available"])
+                    self.assertIn("Synthetic temporary root unavailable", receipt["limitation"])
+                    self.assertFalse(tree_path.with_suffix(".events").exists())
+
     def bundle_stream_fixture(self, root, contents):
         bundle = root / "GatewayTests.xctest"
         bundle.mkdir()

@@ -149,7 +149,13 @@ struct LoopbackLifecycleTests {
     @Test func cancellationBeforeCallbackEntryClosesTheListener() async throws {
         let server = LoopbackCallbackServer(expectedState: "synthetic")
         defer { Task { await server.stop() } }
-        _ = try await server.start()
+        let port = try await server.start()
+        let peer = LoopbackPeer(port: port)
+        defer { peer.cancel() }
+        try await peer.send("GET /login?code=unfinished")
+        try await requireEventually(description: "loopback socket transition") {
+            await server.activeConnectionCount == 1
+        }
         let admission = HarnessResponseGate<Void>(cancellation: .ignored)
         defer { admission.close() }
         let waiting = Task {
@@ -163,6 +169,7 @@ struct LoopbackLifecycleTests {
         let result = await waiting.result
         #expect(throws: CancellationError.self) { try result.get() }
         #expect(await server.isAwaitingCallback == false)
+        try await requireEventually(description: "loopback socket transition") { peer.closed }
         #expect(await server.activeConnectionCount == 0)
         await #expect(throws: CancellationError.self) { try await server.waitForCallback() }
     }

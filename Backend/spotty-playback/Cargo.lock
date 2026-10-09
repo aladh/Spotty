@@ -1161,7 +1161,7 @@ dependencies = [
  "futures-util",
  "librespot-core",
  "librespot-playback",
- "librespot-protocol",
+ "librespot-protocol 0.8.0 (git+https://github.com/librespot-org/librespot?rev=939dc5ee9d833e1980f9495241219d9d4868a061)",
  "log",
  "protobuf",
  "rand 0.9.3",
@@ -1195,7 +1195,7 @@ dependencies = [
  "hyper-tls",
  "hyper-util",
  "librespot-oauth",
- "librespot-protocol",
+ "librespot-protocol 0.8.0 (git+https://github.com/librespot-org/librespot?rev=939dc5ee9d833e1980f9495241219d9d4868a061)",
  "log",
  "nonzero_ext",
  "num-bigint",
@@ -1236,7 +1236,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "librespot-core",
- "librespot-protocol",
+ "librespot-protocol 0.8.0 (git+https://github.com/librespot-org/librespot?rev=939dc5ee9d833e1980f9495241219d9d4868a061)",
  "log",
  "protobuf",
  "serde",
@@ -1277,6 +1277,15 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "zerocopy",
+]
+
+[[package]]
+name = "librespot-protocol"
+version = "0.8.0"
+source = "git+https://github.com/librespot-org/librespot?rev=4a005903e078d512456fb008aaa9ba6246881bd9#4a005903e078d512456fb008aaa9ba6246881bd9"
+dependencies = [
+ "protobuf",
+ "protobuf-codegen",
 ]
 
 [[package]]
@@ -2244,7 +2253,7 @@ dependencies = [
  "librespot-connect",
  "librespot-core",
  "librespot-playback",
- "librespot-protocol",
+ "librespot-protocol 0.8.0 (git+https://github.com/librespot-org/librespot?rev=4a005903e078d512456fb008aaa9ba6246881bd9)",
  "log",
  "once_cell",
  "protobuf",

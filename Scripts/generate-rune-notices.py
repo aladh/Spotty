@@ -541,9 +541,11 @@ def collect_package(
             fail(f"license file escaped package source directory: {path}")
         if checkout and vcs["path_in_vcs"] != ".":
             source_path = f"{vcs['path_in_vcs']}/{source_path}"
-        license_name = package["license"]
+        license_name = "package-supplied license or notice"
         if rune_checkout:
             license_name = RUNE_ASSET_LICENSES.get(source_path, license_name)
+        if path.name.lower() in {"license.mit", "license-mit"}:
+            license_name = "MIT"
         archive_license_records.append(
             document_reference(
                 resolved.read_bytes(),
@@ -750,6 +752,16 @@ def write_output(
         except ValueError:
             fail(f"override input escaped repository root: {path}")
         input_hashes[relative] = sha256_file(path)
+    notices_name = "ThirdPartyNotices.md"
+    notices = render_markdown(
+        preamble=PREAMBLE.read_text(encoding="utf-8"),
+        target=target,
+        root_package=root_package,
+        package_records=package_records,
+        documents=documents,
+        input_hashes=input_hashes,
+    ).encode("utf-8")
+    (output / notices_name).write_bytes(notices)
     inventory = {
         "schema_version": 1,
         "target": target,
@@ -763,7 +775,8 @@ def write_output(
             for name, digest in input_hashes.items()
         ],
         "outputs": {
-            "notices": "ThirdPartyNotices.md",
+            "notices": notices_name,
+            "notices_sha256": sha256_bytes(notices),
             "manifest": INVENTORY_NAME,
             "license_directory": "licenses",
         },
@@ -787,17 +800,6 @@ def write_output(
         json.dumps(inventory, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-
-    preamble = PREAMBLE.read_text(encoding="utf-8")
-    notices = render_markdown(
-        preamble=preamble,
-        target=target,
-        root_package=root_package,
-        package_records=package_records,
-        documents=documents,
-        input_hashes=input_hashes,
-    )
-    (output / "ThirdPartyNotices.md").write_text(notices, encoding="utf-8")
 
 
 def generate(target: str, output: Path) -> tuple[int, int]:
@@ -917,6 +919,11 @@ def verify_output(output: Path, target: str) -> tuple[int, int]:
             or not texts
         ):
             fail("bundle notice inventory has an unexpected target, root package, or count")
+        lock_record = {"path": LOCKFILE.relative_to(ROOT).as_posix(), "sha256": sha256_file(LOCKFILE)}
+        if lock_record not in inventory["inputs"]:
+            fail("bundle notice inventory does not match the current Rune lockfile")
+        if sha256_file(output / "ThirdPartyNotices.md") != inventory["outputs"]["notices_sha256"]:
+            fail("bundle notice Markdown does not match the inventory")
         checked = set()
         for text in texts:
             digest = text["sha256"]

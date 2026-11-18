@@ -4,6 +4,7 @@ from pathlib import Path
 import runpy
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 GENERATOR = runpy.run_path(str(ROOT / "Scripts/generate-rune-notices.py"))
@@ -54,6 +55,18 @@ class RuneNoticesTests(unittest.TestCase):
             )
             verifier = GENERATOR["verify_output"]
             self.assertEqual(verifier(output, target), (1, 1))
+            lockfile = output / "Rune" / "Cargo.lock"
+            with patch.dict(verifier.__globals__, {"ROOT": output, "LOCKFILE": lockfile}):
+                lockfile.parent.mkdir()
+                lockfile.write_text("# Another build")
+                with self.assertRaisesRegex(GENERATOR["GenerationError"], "current Rune lockfile"):
+                    verifier(output, target)
+            notices = output / "ThirdPartyNotices.md"
+            original_notices = notices.read_bytes()
+            notices.write_text("Stale notice index")
+            with self.assertRaisesRegex(GENERATOR["GenerationError"], "Markdown"):
+                verifier(output, target)
+            notices.write_bytes(original_notices)
             text = output / license_text["bundle_path"]
             text.write_bytes(b"Example changed text")
             with self.assertRaisesRegex(GENERATOR["GenerationError"], "does not match"):

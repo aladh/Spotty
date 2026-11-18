@@ -25,6 +25,8 @@ The reference uses Rune’s 1720×1078 point scene at scale 2. Interaction captu
 - Review automation passed 28 Python and 13 Node tests. The current source policy run passed nine AST rule groups and 16 routing tests. Eight acceptance collector tests passed. [Tooling logs](tooling/) · [37 historical workflow fixture tests](tooling/historical-workflow-fixtures.log)
 - The Linux binary has no exported Spotty playback C symbols. [Binary check](tooling/binary.log)
 
+- The Apple-target dependency notice audit accounted for 352 of 393 dependencies. It records 41 entries that need pinned license files or fork provenance. [Audit data](tooling/notice-audit.json)
+
 ## Reproduce
 
 From the product checkout, with the dependencies in its build guide installed, run the acceptance suite and pass the replay JSON files to the demo wrapper.

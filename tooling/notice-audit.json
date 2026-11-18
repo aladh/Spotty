@@ -1,0 +1,258 @@
+{
+  "sourceRevision": "f27969b8cabc1dae1c52be404d16dadaa49f71c5",
+  "cargoLockSha256": "4411c466d6f1bcbc24de9c568a95c84d7f2c2e7d3d0224e39b055a12572b0077",
+  "host": "x86_64-unknown-linux-gnu",
+  "target": "aarch64-apple-darwin",
+  "graph": "Locked Cargo tree with normal and build edges",
+  "method": "Retargeted the archived notices collector for audit only. Resolved Cargo package IDs from target and host metadata.",
+  "selectedDependencies": 393,
+  "collectedDependencies": 352,
+  "unverifiedDependencies": [
+    {
+      "name": "accesskit",
+      "version": "0.25.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "accesskit@0.25.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "accesskit_consumer",
+      "version": "0.39.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "accesskit_consumer@0.39.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "accesskit_macos",
+      "version": "0.27.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "git revision mismatch for accesskit_macos@0.27.2: expected 10a39584cc1ff739477be52e333a742a024ac956, found f3026222559c7f5f46d8f25cb7404de68eb149f0"
+    },
+    {
+      "name": "block2",
+      "version": "0.5.1",
+      "declaredLicense": "MIT",
+      "detail": "block2@0.5.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "block2",
+      "version": "0.6.2",
+      "declaredLicense": "MIT",
+      "detail": "block2@0.6.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "dispatch",
+      "version": "0.2.0",
+      "declaredLicense": "MIT",
+      "detail": "dispatch@0.2.0 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "dispatch2",
+      "version": "0.3.1",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "dispatch2@0.3.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "naga",
+      "version": "30.0.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "naga@30.0.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "naga-types",
+      "version": "30.0.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "naga-types@30.0.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc-sys",
+      "version": "0.3.5",
+      "declaredLicense": "MIT",
+      "detail": "objc-sys@0.3.5 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2",
+      "version": "0.5.3",
+      "declaredLicense": "MIT",
+      "detail": "objc2@0.5.3 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2",
+      "version": "0.6.5",
+      "declaredLicense": "MIT",
+      "detail": "objc2@0.6.5 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-app-kit",
+      "version": "0.2.2",
+      "declaredLicense": "MIT",
+      "detail": "objc2-app-kit@0.2.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-app-kit",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-app-kit@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-av-foundation",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-av-foundation@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-core-graphics",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-core-graphics@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-core-media",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-core-media@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-core-text",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-core-text@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-core-video",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-core-video@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-foundation",
+      "version": "0.2.2",
+      "declaredLicense": "MIT",
+      "detail": "objc2-foundation@0.2.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-io-surface",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-io-surface@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-media-player",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-media-player@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-metal",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-metal@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "objc2-quartz-core",
+      "version": "0.3.2",
+      "declaredLicense": "Zlib OR Apache-2.0 OR MIT",
+      "detail": "objc2-quartz-core@0.3.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "parley_engine",
+      "version": "0.12.0",
+      "declaredLicense": "Apache-2.0 OR MIT",
+      "detail": "git revision mismatch for parley_engine@0.12.0: expected 10a39584cc1ff739477be52e333a742a024ac956, found 6e1143dda817360dd3a2a64f9133c6e5dfabd881"
+    },
+    {
+      "name": "profiling",
+      "version": "1.0.18",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "profiling@1.0.18 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "rune",
+      "version": "0.0.1",
+      "declaredLicense": "MIT",
+      "detail": "rune@0.0.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "rune-kit",
+      "version": "0.0.1",
+      "declaredLicense": "MIT",
+      "detail": "rune-kit@0.0.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "rune-motion",
+      "version": "0.1.0",
+      "declaredLicense": "MIT",
+      "detail": "rune-motion@0.1.0 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "rune-staging",
+      "version": "0.0.1",
+      "declaredLicense": "MIT",
+      "detail": "rune-staging@0.0.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "rune-taffy",
+      "version": "0.0.1",
+      "declaredLicense": "MIT",
+      "detail": "rune-taffy@0.0.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "taffy",
+      "version": "0.15.1",
+      "declaredLicense": "MIT",
+      "detail": "taffy@0.15.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "tiny-skia-path",
+      "version": "0.11.4",
+      "declaredLicense": "BSD-3-Clause",
+      "detail": "git revision mismatch for tiny-skia-path@0.11.4: expected 10a39584cc1ff739477be52e333a742a024ac956, found ce3fe9bab0659fb928d6c22c03b74e009a8a2b77"
+    },
+    {
+      "name": "wasmparser",
+      "version": "0.245.1",
+      "declaredLicense": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "detail": "wasmparser@0.245.1 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "wgpu",
+      "version": "30.0.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "wgpu@30.0.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "wgpu-core",
+      "version": "30.0.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "wgpu-core@30.0.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "wgpu-core-deps-apple",
+      "version": "30.0.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "wgpu-core-deps-apple@30.0.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "wgpu-hal",
+      "version": "30.0.1",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "git revision mismatch for wgpu-hal@30.0.1: expected 10a39584cc1ff739477be52e333a742a024ac956, found 40f4a34ebaf56f9a046231f54125ad046239d3f3"
+    },
+    {
+      "name": "wgpu-naga-bridge",
+      "version": "30.0.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "wgpu-naga-bridge@30.0.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "wgpu-types",
+      "version": "30.0.2",
+      "declaredLicense": "MIT OR Apache-2.0",
+      "detail": "wgpu-types@30.0.2 has no license or notice file in its source archive and no declared checked-in override"
+    },
+    {
+      "name": "winit",
+      "version": "0.30.13",
+      "declaredLicense": "Apache-2.0",
+      "detail": "git revision mismatch for winit@0.30.13: expected 10a39584cc1ff739477be52e333a742a024ac956, found e9809ef54b18499bb4f2cac945719ecc2a61061b"
+    }
+  ]
+}

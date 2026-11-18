@@ -12,9 +12,10 @@ The [regular acceptance suite](acceptance/summary.json) passed on clean PR head 
 | Playlist interactions | [MP4](replays/playlist-and-connect.mp4) · [animated preview](replays/playlist-and-connect.gif) · [input script](replays/playlist-and-connect.json) |
 | Playlist checkpoints | [filtered](screenshots/filtered.png) · [queue](screenshots/queue.png) · [history](screenshots/history.png) · [Connect](screenshots/connect.png) |
 | Search and navigation | [MP4](replays/search-and-navigation.mp4) · [input script](replays/search-and-navigation.json) |
+| Two-query history, captured at 3dfd957 | [Back and Forward MP4](replays/search-history-round-trip.mp4) · [Input script](replays/search-history-round-trip.json) · [First query restored](screenshots/restored-first-query.png) · [Second query restored](screenshots/restored-second-query.png) |
 | Search checkpoints | [results](screenshots/results.png) · [opened playlist](screenshots/playlist.png) · [restored query](screenshots/restored.png) |
 
-The reference uses Rune’s 1720×1078 point scene at scale 2. Interaction captures use 1280×800 points at scale 1. The recordings replay real app input over synthetic data. They contain no audio. The [trees](trees/) cover all eight Rune still captures and each has zero layout warnings. Device names and playback states in the capture come from the demo.
+The reference uses Rune’s 1720×1078 point scene at scale 2. Interaction captures use 1280×800 points at scale 1. The recordings replay real app input over synthetic data. They contain no audio. The [trees](trees/) cover all ten Rune still captures and each has zero layout warnings. Device names and playback states in the capture come from the demo.
 
 ## Tests
 

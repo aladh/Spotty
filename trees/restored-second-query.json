@@ -1,0 +1,7120 @@
+{
+  "accessibility": {
+    "bounds": [
+      0.0,
+      0.0,
+      1280.0,
+      800.0
+    ],
+    "children": [
+      {
+        "bounds": [
+          0.0,
+          0.0,
+          1280.0,
+          800.0
+        ],
+        "children": [
+          {
+            "bounds": [
+              0.0,
+              0.0,
+              1280.0,
+              52.0
+            ],
+            "children": [
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  420.0,
+                  2.0,
+                  48.0,
+                  48.0
+                ],
+                "key": "nav-home",
+                "name": "Home",
+                "role": "button"
+              },
+              {
+                "bounds": [
+                  476.0,
+                  2.0,
+                  384.0,
+                  48.0
+                ],
+                "children": [
+                  {
+                    "actions": [
+                      "click",
+                      "focus",
+                      "set-value",
+                      "replace-selected-text",
+                      "set-text-selection"
+                    ],
+                    "bounds": [
+                      523.0,
+                      16.0,
+                      286.0,
+                      20.0
+                    ],
+                    "key": "global-search",
+                    "name": "Search",
+                    "placeholder": "What do you want to play?",
+                    "role": "text-input",
+                    "selection": [
+                      1,
+                      4,
+                      1,
+                      4
+                    ],
+                    "states": [
+                      "focused"
+                    ],
+                    "value": "Neon"
+                  },
+                  {
+                    "actions": [
+                      "click",
+                      "focus"
+                    ],
+                    "bounds": [
+                      819.0,
+                      12.5,
+                      27.0,
+                      27.0
+                    ],
+                    "key": "clear-search",
+                    "name": "Clear search",
+                    "role": "button"
+                  }
+                ],
+                "key": "open-search",
+                "role": "group"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  90.0,
+                  6.0,
+                  36.0,
+                  36.0
+                ],
+                "key": "go-back",
+                "name": "Go back",
+                "role": "button"
+              },
+              {
+                "bounds": [
+                  128.0,
+                  6.0,
+                  36.0,
+                  36.0
+                ],
+                "key": "go-forward",
+                "name": "Go forward",
+                "role": "button",
+                "states": [
+                  "disabled"
+                ]
+              }
+            ],
+            "key": "toolbar",
+            "role": "group"
+          },
+          {
+            "bounds": [
+              0.0,
+              52.0,
+              208.0,
+              641.0
+            ],
+            "children": [
+              {
+                "bounds": [
+                  20.0,
+                  70.0,
+                  168.0,
+                  20.0
+                ],
+                "level": 2,
+                "name": "Playlists",
+                "role": "heading"
+              },
+              {
+                "actions": [
+                  "scroll-up",
+                  "scroll-down",
+                  "set-scroll-offset"
+                ],
+                "bounds": [
+                  0.0,
+                  114.0,
+                  208.0,
+                  579.0
+                ],
+                "children": [
+                  {
+                    "actions": [
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      0.0,
+                      125.0,
+                      208.0,
+                      1418.0
+                    ],
+                    "children": [
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          125.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              133.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic0",
+                            "name": "Play Moonlit Drive",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              137.3,
+                              78.0,
+                              20.0
+                            ],
+                            "name": "Moonlit Drive",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              159.3,
+                              78.0,
+                              17.5
+                            ],
+                            "name": "Mara Vale",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-0",
+                        "name": "Moonlit Drive",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          189.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              197.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic1",
+                            "name": "Play Neon Afterglow",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              201.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Neon Afterglow",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              223.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Ellis Rowe",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-1",
+                        "name": "Neon Afterglow",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          253.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              261.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic2",
+                            "name": "Play Sunday Coffee",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              265.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Sunday Coffee",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              287.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Lena Hart",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-2",
+                        "name": "Sunday Coffee",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          317.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              325.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic3",
+                            "name": "Play Soft Focus",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              329.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Soft Focus",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              351.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Theo Lane",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-3",
+                        "name": "Soft Focus",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          381.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              389.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic4",
+                            "name": "Play Coastal Morning",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              393.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Coastal Morning",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              415.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Nina Cole",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-4",
+                        "name": "Coastal Morning",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          445.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              453.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic5",
+                            "name": "Play Night Bus Home",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              457.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Night Bus Home",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              479.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Mara Vale",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-5",
+                        "name": "Night Bus Home",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          509.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              517.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic6",
+                            "name": "Play Golden Hour",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              521.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Golden Hour",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              543.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Ellis Rowe",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-6",
+                        "name": "Golden Hour",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          573.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              581.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic7",
+                            "name": "Play Rain on the Window",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              585.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Rain on the Window",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              607.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Lena Hart",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-7",
+                        "name": "Rain on the Window",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          637.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              645.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic8",
+                            "name": "Play Kitchen Dancing",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              649.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Kitchen Dancing",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              671.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Theo Lane",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-8",
+                        "name": "Kitchen Dancing",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          701.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              709.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic9",
+                            "name": "Play Quiet Momentum",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              713.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Quiet Momentum",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              735.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Nina Cole",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-9",
+                        "name": "Quiet Momentum",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          765.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              773.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic10",
+                            "name": "Play Indie Daydream",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              777.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Indie Daydream",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              799.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Mara Vale",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-10",
+                        "name": "Indie Daydream",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          829.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              837.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic11",
+                            "name": "Play Late Checkout",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              841.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Late Checkout",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              863.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Ellis Rowe",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-11",
+                        "name": "Late Checkout",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          893.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              901.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic12",
+                            "name": "Play City in Bloom",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              905.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "City in Bloom",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              927.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Lena Hart",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-12",
+                        "name": "City in Bloom",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          957.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              965.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic13",
+                            "name": "Play Analog Warmth",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              969.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Analog Warmth",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              991.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Theo Lane",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-13",
+                        "name": "Analog Warmth",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1021.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              1029.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic14",
+                            "name": "Play Open Road",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1033.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Open Road",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1055.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Nina Cole",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-14",
+                        "name": "Open Road",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1085.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              1093.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic15",
+                            "name": "Play Slow Sundays",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1097.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Slow Sundays",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1119.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Mara Vale",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-15",
+                        "name": "Slow Sundays",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1149.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              1157.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic16",
+                            "name": "Play After Work",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1161.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "After Work",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1183.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Ellis Rowe",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-16",
+                        "name": "After Work",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1213.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              1221.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic17",
+                            "name": "Play Fresh Air",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1225.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Fresh Air",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1247.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Lena Hart",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-17",
+                        "name": "Fresh Air",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1277.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              1285.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic18",
+                            "name": "Play Midnight Radio",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1289.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Midnight Radio",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1311.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Theo Lane",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-18",
+                        "name": "Midnight Radio",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1341.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              23.0,
+                              1349.0,
+                              48.0,
+                              48.0
+                            ],
+                            "key": "sidebar-play-spotify:playlist:synthetic19",
+                            "name": "Play Low-Key Favorites",
+                            "role": "button"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1353.3,
+                              106.0,
+                              20.0
+                            ],
+                            "name": "Low-Key Favorites",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1375.3,
+                              106.0,
+                              17.5
+                            ],
+                            "name": "Nina Cole",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "shortcut-19",
+                        "name": "Low-Key Favorites",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1405.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1417.3,
+                              72.0,
+                              20.0
+                            ],
+                            "name": "Focus",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1439.3,
+                              72.0,
+                              17.5
+                            ],
+                            "name": "Folder",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              167.0,
+                              1426.0,
+                              22.0,
+                              22.0
+                            ],
+                            "key": "sidebar-disclosure-spotify:folder:synthetic0",
+                            "name": "Expand Focus",
+                            "role": "button"
+                          }
+                        ],
+                        "key": "shortcut-20",
+                        "name": "Focus",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          11.0,
+                          1469.0,
+                          186.0,
+                          64.0
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1481.3,
+                              72.0,
+                              20.0
+                            ],
+                            "name": "Weekend",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              83.0,
+                              1503.3,
+                              72.0,
+                              17.5
+                            ],
+                            "name": "Folder",
+                            "role": "label"
+                          },
+                          {
+                            "actions": [
+                              "click",
+                              "focus",
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              167.0,
+                              1490.0,
+                              22.0,
+                              22.0
+                            ],
+                            "key": "sidebar-disclosure-spotify:folder:synthetic1",
+                            "name": "Expand Weekend",
+                            "role": "button"
+                          }
+                        ],
+                        "key": "shortcut-21",
+                        "name": "Weekend",
+                        "role": "row",
+                        "states": [
+                          "unselected"
+                        ]
+                      }
+                    ],
+                    "role": "list"
+                  }
+                ],
+                "key": "library-scroll",
+                "role": "scroll-view",
+                "scroll": [
+                  0.0,
+                  0.0,
+                  850.0
+                ],
+                "states": [
+                  "clips"
+                ]
+              }
+            ],
+            "key": "library-sidebar",
+            "role": "group"
+          },
+          {
+            "bounds": [
+              208.0,
+              52.0,
+              8.0,
+              641.0
+            ],
+            "key": "sidebar-resize",
+            "role": "group"
+          },
+          {
+            "bounds": [
+              216.0,
+              52.0,
+              1064.0,
+              641.0
+            ],
+            "children": [
+              {
+                "actions": [
+                  "scroll-up",
+                  "scroll-down",
+                  "set-scroll-offset"
+                ],
+                "bounds": [
+                  216.0,
+                  52.0,
+                  1064.0,
+                  641.0
+                ],
+                "children": [
+                  {
+                    "actions": [
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      216.0,
+                      52.0,
+                      1064.0,
+                      76.0
+                    ],
+                    "level": 1,
+                    "name": "Search",
+                    "role": "heading"
+                  },
+                  {
+                    "actions": [
+                      "click",
+                      "focus",
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      242.0,
+                      136.0,
+                      45.5,
+                      32.0
+                    ],
+                    "key": "search-All",
+                    "name": "All",
+                    "role": "tab",
+                    "states": [
+                      "selected"
+                    ]
+                  },
+                  {
+                    "actions": [
+                      "click",
+                      "focus",
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      295.5,
+                      136.0,
+                      72.8,
+                      32.0
+                    ],
+                    "key": "search-Artists",
+                    "name": "Artists",
+                    "role": "tab"
+                  },
+                  {
+                    "actions": [
+                      "click",
+                      "focus",
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      376.3,
+                      136.0,
+                      70.7,
+                      32.0
+                    ],
+                    "key": "search-Songs",
+                    "name": "Songs",
+                    "role": "tab"
+                  },
+                  {
+                    "actions": [
+                      "click",
+                      "focus",
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      455.0,
+                      136.0,
+                      79.5,
+                      32.0
+                    ],
+                    "key": "search-Albums",
+                    "name": "Albums",
+                    "role": "tab"
+                  },
+                  {
+                    "actions": [
+                      "click",
+                      "focus",
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      542.4,
+                      136.0,
+                      84.3,
+                      32.0
+                    ],
+                    "key": "search-Playlists",
+                    "name": "Playlists",
+                    "role": "tab"
+                  },
+                  {
+                    "actions": [
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      242.0,
+                      189.0,
+                      96.6,
+                      30.0
+                    ],
+                    "level": 2,
+                    "name": "Playlists",
+                    "role": "heading"
+                  },
+                  {
+                    "actions": [
+                      "click",
+                      "focus",
+                      "scroll-into-view"
+                    ],
+                    "bounds": [
+                      1171.4,
+                      186.0,
+                      82.6,
+                      36.0
+                    ],
+                    "key": "show-search-Playlists",
+                    "name": "Show all Playlists",
+                    "role": "button"
+                  },
+                  {
+                    "actions": [
+                      "scroll-into-view",
+                      "scroll-up",
+                      "scroll-down",
+                      "set-scroll-offset"
+                    ],
+                    "bounds": [
+                      242.0,
+                      229.0,
+                      1012.0,
+                      229.5
+                    ],
+                    "children": [
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          242.0,
+                          229.0,
+                          176.0,
+                          229.5
+                        ],
+                        "children": [
+                          {
+                            "actions": [
+                              "scroll-into-view"
+                            ],
+                            "bounds": [
+                              250.0,
+                              433.0,
+                              160.0,
+                              17.5
+                            ],
+                            "name": "Ellis Rowe",
+                            "role": "label"
+                          }
+                        ],
+                        "key": "card-0-0",
+                        "name": "Neon Afterglow",
+                        "role": "button"
+                      },
+                      {
+                        "actions": [
+                          "click",
+                          "focus",
+                          "scroll-into-view"
+                        ],
+                        "bounds": [
+                          358.0,
+                          345.0,
+                          48.0,
+                          48.0
+                        ],
+                        "key": "card-0-0-play",
+                        "name": "Play Neon Afterglow",
+                        "role": "button"
+                      }
+                    ],
+                    "role": "scroll-view",
+                    "scroll": [
+                      0.0,
+                      0.0,
+                      0.0
+                    ],
+                    "states": [
+                      "clips"
+                    ]
+                  }
+                ],
+                "key": "main-scroll",
+                "role": "scroll-view",
+                "scroll": [
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                "states": [
+                  "clips"
+                ]
+              }
+            ],
+            "key": "main-column",
+            "role": "group"
+          },
+          {
+            "bounds": [
+              0.0,
+              693.0,
+              1280.0,
+              78.0
+            ],
+            "children": [
+              {
+                "actions": [
+                  "click"
+                ],
+                "bounds": [
+                  83.0,
+                  714.8,
+                  262.2,
+                  17.5
+                ],
+                "name": "Silver Lining",
+                "role": "link"
+              },
+              {
+                "actions": [
+                  "click"
+                ],
+                "bounds": [
+                  83.0,
+                  734.3,
+                  262.2,
+                  15.0
+                ],
+                "name": "Harbor Lights",
+                "role": "link"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  542.0,
+                  704.5,
+                  32.0,
+                  32.0
+                ],
+                "key": "shuffle",
+                "name": "Shuffle off",
+                "role": "button"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  583.0,
+                  704.5,
+                  32.0,
+                  32.0
+                ],
+                "key": "previous",
+                "name": "Previous track",
+                "role": "button"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  624.0,
+                  704.5,
+                  32.0,
+                  32.0
+                ],
+                "key": "toggle",
+                "name": "Play",
+                "role": "button"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  665.0,
+                  704.5,
+                  32.0,
+                  32.0
+                ],
+                "key": "next",
+                "name": "Next track",
+                "role": "button"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  706.0,
+                  704.5,
+                  32.0,
+                  32.0
+                ],
+                "key": "repeat",
+                "name": "Repeat off",
+                "role": "button"
+              },
+              {
+                "bounds": [
+                  377.9,
+                  745.1,
+                  25.3,
+                  13.8
+                ],
+                "name": "0:00",
+                "role": "label"
+              },
+              {
+                "actions": [
+                  "focus",
+                  "increment",
+                  "decrement",
+                  "set-value"
+                ],
+                "bounds": [
+                  414.2,
+                  741.0,
+                  450.6,
+                  22.0
+                ],
+                "key": "seek",
+                "name": "Playback position",
+                "range": [
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.025
+                ],
+                "role": "slider"
+              },
+              {
+                "bounds": [
+                  875.8,
+                  745.1,
+                  44.0,
+                  13.8
+                ],
+                "name": "-3:00",
+                "role": "label"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  1199.0,
+                  716.0,
+                  32.0,
+                  32.0
+                ],
+                "key": "open-queue",
+                "name": "Queue",
+                "role": "button"
+              },
+              {
+                "actions": [
+                  "click",
+                  "focus"
+                ],
+                "bounds": [
+                  1232.0,
+                  716.0,
+                  32.0,
+                  32.0
+                ],
+                "key": "open-devices",
+                "name": "Connect to a device",
+                "role": "button"
+              }
+            ],
+            "key": "player",
+            "role": "group"
+          },
+          {
+            "actions": [
+              "click",
+              "focus"
+            ],
+            "bounds": [
+              8.0,
+              771.0,
+              1264.0,
+              23.0
+            ],
+            "key": "connect-status",
+            "name": "Paused on Living Room",
+            "role": "button"
+          }
+        ],
+        "key": "window",
+        "role": "group"
+      },
+      {
+        "bounds": [
+          0.0,
+          0.0,
+          1.0,
+          1.0
+        ],
+        "role": "status",
+        "states": [
+          "live-polite"
+        ]
+      }
+    ],
+    "name": "Spotty",
+    "role": "window"
+  },
+  "anim_t": 7.299999999999979,
+  "animating": true,
+  "dark_system": true,
+  "elements": [
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "window",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window",
+      "rect": [
+        0.0,
+        0.0,
+        1280.0,
+        800.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "toolbar",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar",
+      "rect": [
+        0.0,
+        0.0,
+        1280.0,
+        52.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0",
+      "rect": [
+        420.0,
+        2.0,
+        440.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "nav-home",
+      "label": "Home",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0/nav-home",
+      "rect": [
+        420.0,
+        2.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0/nav-home/#0",
+      "rect": [
+        431.5,
+        13.5,
+        25.0,
+        25.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "open-search",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0/open-search",
+      "rect": [
+        476.0,
+        2.0,
+        384.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0/open-search/#0",
+      "rect": [
+        490.0,
+        14.5,
+        23.0,
+        23.0
+      ],
+      "role": "icon",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "caret": [
+        563.79,
+        16.0,
+        1.5,
+        20.0
+      ],
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": true,
+      "inert": false,
+      "key": "global-search",
+      "label": "Search",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0/open-search/global-search",
+      "rect": [
+        523.0,
+        16.0,
+        286.0,
+        20.0
+      ],
+      "role": "textbox",
+      "scale": 1.0,
+      "selection": [
+        4,
+        4
+      ],
+      "text": "Neon"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "clear-search",
+      "label": "Clear search",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0/open-search/clear-search",
+      "rect": [
+        819.0,
+        12.5,
+        27.0,
+        27.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#0/open-search/clear-search/#0",
+      "rect": [
+        824.5,
+        18.0,
+        16.0,
+        16.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#1",
+      "rect": [
+        90.0,
+        6.0,
+        74.0,
+        36.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "go-back",
+      "label": "Go back",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#1/go-back",
+      "rect": [
+        90.0,
+        6.0,
+        36.0,
+        36.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#1/go-back/#0",
+      "rect": [
+        97.0,
+        13.0,
+        22.0,
+        22.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "hover": 1.0,
+      "inert": false,
+      "key": "go-forward",
+      "label": "Go forward",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#1/go-forward",
+      "rect": [
+        128.0,
+        6.0,
+        36.0,
+        36.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#1/go-forward/#0",
+      "rect": [
+        135.0,
+        13.0,
+        22.0,
+        22.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ff5f57ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#2",
+      "rect": [
+        20.0,
+        20.0,
+        12.0,
+        12.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#febc2eff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#3",
+      "rect": [
+        41.0,
+        20.0,
+        12.0,
+        12.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#28c840ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/toolbar/#4",
+      "rect": [
+        62.0,
+        20.0,
+        12.0,
+        12.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1",
+      "rect": [
+        0.0,
+        52.0,
+        1280.0,
+        641.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "library-sidebar",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar",
+      "rect": [
+        0.0,
+        52.0,
+        208.0,
+        641.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/#0",
+      "rect": [
+        0.0,
+        52.0,
+        208.0,
+        56.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "level": 2,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/#0/#0",
+      "rect": [
+        20.0,
+        70.0,
+        168.0,
+        20.0
+      ],
+      "role": "heading",
+      "scale": 1.0,
+      "text": "Playlists"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/#1",
+      "rect": [
+        22.0,
+        108.0,
+        51.0,
+        6.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "library-scroll",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll",
+      "rect": [
+        0.0,
+        114.0,
+        208.0,
+        579.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0",
+      "rect": [
+        0.0,
+        125.0,
+        208.0,
+        1418.0
+      ],
+      "role": "list",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-0",
+      "label": "Moonlit Drive",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0",
+      "rect": [
+        11.0,
+        125.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0/#0",
+      "rect": [
+        23.0,
+        133.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic0",
+      "label": "Play Moonlit Drive",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0/#0/sidebar-play-spotify:playlist:synthetic0",
+      "rect": [
+        23.0,
+        133.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0/#0/sidebar-play-spotify:playlist:synthetic0/#0",
+      "rect": [
+        35.5,
+        145.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0/#1",
+      "rect": [
+        83.0,
+        137.25,
+        78.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#1ed760ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0/#1/#0",
+      "rect": [
+        83.0,
+        137.25,
+        78.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Moonlit Drive"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0/#1/#1",
+      "rect": [
+        83.0,
+        159.25,
+        78.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Mara Vale"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-0/#2",
+      "rect": [
+        173.0,
+        149.0,
+        16.0,
+        16.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-1",
+      "label": "Neon Afterglow",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-1",
+      "rect": [
+        11.0,
+        189.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-1/#0",
+      "rect": [
+        23.0,
+        197.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic1",
+      "label": "Play Neon Afterglow",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-1/#0/sidebar-play-spotify:playlist:synthetic1",
+      "rect": [
+        23.0,
+        197.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-1/#0/sidebar-play-spotify:playlist:synthetic1/#0",
+      "rect": [
+        35.5,
+        209.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-1/#1",
+      "rect": [
+        83.0,
+        201.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-1/#1/#0",
+      "rect": [
+        83.0,
+        201.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Neon Afterglow"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-1/#1/#1",
+      "rect": [
+        83.0,
+        223.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Ellis Rowe"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-2",
+      "label": "Sunday Coffee",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-2",
+      "rect": [
+        11.0,
+        253.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-2/#0",
+      "rect": [
+        23.0,
+        261.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic2",
+      "label": "Play Sunday Coffee",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-2/#0/sidebar-play-spotify:playlist:synthetic2",
+      "rect": [
+        23.0,
+        261.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-2/#0/sidebar-play-spotify:playlist:synthetic2/#0",
+      "rect": [
+        35.5,
+        273.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-2/#1",
+      "rect": [
+        83.0,
+        265.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-2/#1/#0",
+      "rect": [
+        83.0,
+        265.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Sunday Coffee"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-2/#1/#1",
+      "rect": [
+        83.0,
+        287.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Lena Hart"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-3",
+      "label": "Soft Focus",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-3",
+      "rect": [
+        11.0,
+        317.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-3/#0",
+      "rect": [
+        23.0,
+        325.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic3",
+      "label": "Play Soft Focus",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-3/#0/sidebar-play-spotify:playlist:synthetic3",
+      "rect": [
+        23.0,
+        325.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-3/#0/sidebar-play-spotify:playlist:synthetic3/#0",
+      "rect": [
+        35.5,
+        337.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-3/#1",
+      "rect": [
+        83.0,
+        329.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-3/#1/#0",
+      "rect": [
+        83.0,
+        329.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Soft Focus"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-3/#1/#1",
+      "rect": [
+        83.0,
+        351.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Theo Lane"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-4",
+      "label": "Coastal Morning",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-4",
+      "rect": [
+        11.0,
+        381.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-4/#0",
+      "rect": [
+        23.0,
+        389.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic4",
+      "label": "Play Coastal Morning",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-4/#0/sidebar-play-spotify:playlist:synthetic4",
+      "rect": [
+        23.0,
+        389.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-4/#0/sidebar-play-spotify:playlist:synthetic4/#0",
+      "rect": [
+        35.5,
+        401.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-4/#1",
+      "rect": [
+        83.0,
+        393.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-4/#1/#0",
+      "rect": [
+        83.0,
+        393.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Coastal Morning"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-4/#1/#1",
+      "rect": [
+        83.0,
+        415.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Nina Cole"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-5",
+      "label": "Night Bus Home",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-5",
+      "rect": [
+        11.0,
+        445.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-5/#0",
+      "rect": [
+        23.0,
+        453.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic5",
+      "label": "Play Night Bus Home",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-5/#0/sidebar-play-spotify:playlist:synthetic5",
+      "rect": [
+        23.0,
+        453.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-5/#0/sidebar-play-spotify:playlist:synthetic5/#0",
+      "rect": [
+        35.5,
+        465.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-5/#1",
+      "rect": [
+        83.0,
+        457.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-5/#1/#0",
+      "rect": [
+        83.0,
+        457.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Night Bus Home"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-5/#1/#1",
+      "rect": [
+        83.0,
+        479.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Mara Vale"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-6",
+      "label": "Golden Hour",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-6",
+      "rect": [
+        11.0,
+        509.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-6/#0",
+      "rect": [
+        23.0,
+        517.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic6",
+      "label": "Play Golden Hour",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-6/#0/sidebar-play-spotify:playlist:synthetic6",
+      "rect": [
+        23.0,
+        517.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-6/#0/sidebar-play-spotify:playlist:synthetic6/#0",
+      "rect": [
+        35.5,
+        529.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-6/#1",
+      "rect": [
+        83.0,
+        521.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-6/#1/#0",
+      "rect": [
+        83.0,
+        521.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Golden Hour"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-6/#1/#1",
+      "rect": [
+        83.0,
+        543.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Ellis Rowe"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-7",
+      "label": "Rain on the Window",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-7",
+      "rect": [
+        11.0,
+        573.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-7/#0",
+      "rect": [
+        23.0,
+        581.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic7",
+      "label": "Play Rain on the Window",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-7/#0/sidebar-play-spotify:playlist:synthetic7",
+      "rect": [
+        23.0,
+        581.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-7/#0/sidebar-play-spotify:playlist:synthetic7/#0",
+      "rect": [
+        35.5,
+        593.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-7/#1",
+      "rect": [
+        83.0,
+        585.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-7/#1/#0",
+      "rect": [
+        83.0,
+        585.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Rain on the Window"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-7/#1/#1",
+      "rect": [
+        83.0,
+        607.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Lena Hart"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-8",
+      "label": "Kitchen Dancing",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-8",
+      "rect": [
+        11.0,
+        637.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-8/#0",
+      "rect": [
+        23.0,
+        645.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic8",
+      "label": "Play Kitchen Dancing",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-8/#0/sidebar-play-spotify:playlist:synthetic8",
+      "rect": [
+        23.0,
+        645.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-8/#0/sidebar-play-spotify:playlist:synthetic8/#0",
+      "rect": [
+        35.5,
+        657.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-8/#1",
+      "rect": [
+        83.0,
+        649.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-8/#1/#0",
+      "rect": [
+        83.0,
+        649.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Kitchen Dancing"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-8/#1/#1",
+      "rect": [
+        83.0,
+        671.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Theo Lane"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-9",
+      "label": "Quiet Momentum",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-9",
+      "rect": [
+        11.0,
+        701.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-9/#0",
+      "rect": [
+        23.0,
+        709.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic9",
+      "label": "Play Quiet Momentum",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-9/#0/sidebar-play-spotify:playlist:synthetic9",
+      "rect": [
+        23.0,
+        709.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-9/#0/sidebar-play-spotify:playlist:synthetic9/#0",
+      "rect": [
+        35.5,
+        721.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-9/#1",
+      "rect": [
+        83.0,
+        713.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-9/#1/#0",
+      "rect": [
+        83.0,
+        713.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Quiet Momentum"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-9/#1/#1",
+      "rect": [
+        83.0,
+        735.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Nina Cole"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-10",
+      "label": "Indie Daydream",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-10",
+      "rect": [
+        11.0,
+        765.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-10/#0",
+      "rect": [
+        23.0,
+        773.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic10",
+      "label": "Play Indie Daydream",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-10/#0/sidebar-play-spotify:playlist:synthetic10",
+      "rect": [
+        23.0,
+        773.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-10/#0/sidebar-play-spotify:playlist:synthetic10/#0",
+      "rect": [
+        35.5,
+        785.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-10/#1",
+      "rect": [
+        83.0,
+        777.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-10/#1/#0",
+      "rect": [
+        83.0,
+        777.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Indie Daydream"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-10/#1/#1",
+      "rect": [
+        83.0,
+        799.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Mara Vale"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-11",
+      "label": "Late Checkout",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-11",
+      "rect": [
+        11.0,
+        829.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-11/#0",
+      "rect": [
+        23.0,
+        837.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic11",
+      "label": "Play Late Checkout",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-11/#0/sidebar-play-spotify:playlist:synthetic11",
+      "rect": [
+        23.0,
+        837.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-11/#0/sidebar-play-spotify:playlist:synthetic11/#0",
+      "rect": [
+        35.5,
+        849.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-11/#1",
+      "rect": [
+        83.0,
+        841.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-11/#1/#0",
+      "rect": [
+        83.0,
+        841.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Late Checkout"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-11/#1/#1",
+      "rect": [
+        83.0,
+        863.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Ellis Rowe"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-12",
+      "label": "City in Bloom",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-12",
+      "rect": [
+        11.0,
+        893.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-12/#0",
+      "rect": [
+        23.0,
+        901.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic12",
+      "label": "Play City in Bloom",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-12/#0/sidebar-play-spotify:playlist:synthetic12",
+      "rect": [
+        23.0,
+        901.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-12/#0/sidebar-play-spotify:playlist:synthetic12/#0",
+      "rect": [
+        35.5,
+        913.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-12/#1",
+      "rect": [
+        83.0,
+        905.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-12/#1/#0",
+      "rect": [
+        83.0,
+        905.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "City in Bloom"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-12/#1/#1",
+      "rect": [
+        83.0,
+        927.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Lena Hart"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-13",
+      "label": "Analog Warmth",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-13",
+      "rect": [
+        11.0,
+        957.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-13/#0",
+      "rect": [
+        23.0,
+        965.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic13",
+      "label": "Play Analog Warmth",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-13/#0/sidebar-play-spotify:playlist:synthetic13",
+      "rect": [
+        23.0,
+        965.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-13/#0/sidebar-play-spotify:playlist:synthetic13/#0",
+      "rect": [
+        35.5,
+        977.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-13/#1",
+      "rect": [
+        83.0,
+        969.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-13/#1/#0",
+      "rect": [
+        83.0,
+        969.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Analog Warmth"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-13/#1/#1",
+      "rect": [
+        83.0,
+        991.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Theo Lane"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-14",
+      "label": "Open Road",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-14",
+      "rect": [
+        11.0,
+        1021.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-14/#0",
+      "rect": [
+        23.0,
+        1029.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic14",
+      "label": "Play Open Road",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-14/#0/sidebar-play-spotify:playlist:synthetic14",
+      "rect": [
+        23.0,
+        1029.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-14/#0/sidebar-play-spotify:playlist:synthetic14/#0",
+      "rect": [
+        35.5,
+        1041.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-14/#1",
+      "rect": [
+        83.0,
+        1033.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-14/#1/#0",
+      "rect": [
+        83.0,
+        1033.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Open Road"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-14/#1/#1",
+      "rect": [
+        83.0,
+        1055.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Nina Cole"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-15",
+      "label": "Slow Sundays",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-15",
+      "rect": [
+        11.0,
+        1085.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-15/#0",
+      "rect": [
+        23.0,
+        1093.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic15",
+      "label": "Play Slow Sundays",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-15/#0/sidebar-play-spotify:playlist:synthetic15",
+      "rect": [
+        23.0,
+        1093.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-15/#0/sidebar-play-spotify:playlist:synthetic15/#0",
+      "rect": [
+        35.5,
+        1105.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-15/#1",
+      "rect": [
+        83.0,
+        1097.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-15/#1/#0",
+      "rect": [
+        83.0,
+        1097.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Slow Sundays"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-15/#1/#1",
+      "rect": [
+        83.0,
+        1119.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Mara Vale"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-16",
+      "label": "After Work",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-16",
+      "rect": [
+        11.0,
+        1149.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-16/#0",
+      "rect": [
+        23.0,
+        1157.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic16",
+      "label": "Play After Work",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-16/#0/sidebar-play-spotify:playlist:synthetic16",
+      "rect": [
+        23.0,
+        1157.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-16/#0/sidebar-play-spotify:playlist:synthetic16/#0",
+      "rect": [
+        35.5,
+        1169.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-16/#1",
+      "rect": [
+        83.0,
+        1161.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-16/#1/#0",
+      "rect": [
+        83.0,
+        1161.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "After Work"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-16/#1/#1",
+      "rect": [
+        83.0,
+        1183.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Ellis Rowe"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-17",
+      "label": "Fresh Air",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-17",
+      "rect": [
+        11.0,
+        1213.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-17/#0",
+      "rect": [
+        23.0,
+        1221.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic17",
+      "label": "Play Fresh Air",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-17/#0/sidebar-play-spotify:playlist:synthetic17",
+      "rect": [
+        23.0,
+        1221.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-17/#0/sidebar-play-spotify:playlist:synthetic17/#0",
+      "rect": [
+        35.5,
+        1233.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-17/#1",
+      "rect": [
+        83.0,
+        1225.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-17/#1/#0",
+      "rect": [
+        83.0,
+        1225.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Fresh Air"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-17/#1/#1",
+      "rect": [
+        83.0,
+        1247.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Lena Hart"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-18",
+      "label": "Midnight Radio",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-18",
+      "rect": [
+        11.0,
+        1277.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-18/#0",
+      "rect": [
+        23.0,
+        1285.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic18",
+      "label": "Play Midnight Radio",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-18/#0/sidebar-play-spotify:playlist:synthetic18",
+      "rect": [
+        23.0,
+        1285.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-18/#0/sidebar-play-spotify:playlist:synthetic18/#0",
+      "rect": [
+        35.5,
+        1297.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-18/#1",
+      "rect": [
+        83.0,
+        1289.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-18/#1/#0",
+      "rect": [
+        83.0,
+        1289.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Midnight Radio"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-18/#1/#1",
+      "rect": [
+        83.0,
+        1311.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Theo Lane"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-19",
+      "label": "Low-Key Favorites",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-19",
+      "rect": [
+        11.0,
+        1341.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-19/#0",
+      "rect": [
+        23.0,
+        1349.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-play-spotify:playlist:synthetic19",
+      "label": "Play Low-Key Favorites",
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-19/#0/sidebar-play-spotify:playlist:synthetic19",
+      "rect": [
+        23.0,
+        1349.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-19/#0/sidebar-play-spotify:playlist:synthetic19/#0",
+      "rect": [
+        35.5,
+        1361.5,
+        23.0,
+        23.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-19/#1",
+      "rect": [
+        83.0,
+        1353.25,
+        106.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-19/#1/#0",
+      "rect": [
+        83.0,
+        1353.25,
+        106.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Low-Key Favorites"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-19/#1/#1",
+      "rect": [
+        83.0,
+        1375.25,
+        106.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Nina Cole"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-20",
+      "label": "Focus",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20",
+      "rect": [
+        11.0,
+        1405.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20/#0",
+      "rect": [
+        23.0,
+        1413.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20/#0/#0",
+      "rect": [
+        34.5,
+        1424.5,
+        25.0,
+        25.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20/#1",
+      "rect": [
+        83.0,
+        1417.25,
+        72.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20/#1/#0",
+      "rect": [
+        83.0,
+        1417.25,
+        72.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Focus"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20/#1/#1",
+      "rect": [
+        83.0,
+        1439.25,
+        72.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Folder"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-disclosure-spotify:folder:synthetic0",
+      "label": "Expand Focus",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20/sidebar-disclosure-spotify:folder:synthetic0",
+      "rect": [
+        167.0,
+        1426.0,
+        22.0,
+        22.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-20/sidebar-disclosure-spotify:folder:synthetic0/#0",
+      "rect": [
+        170.5,
+        1429.5,
+        15.0,
+        15.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shortcut-21",
+      "label": "Weekend",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21",
+      "rect": [
+        11.0,
+        1469.0,
+        186.0,
+        64.0
+      ],
+      "role": "row",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21/#0",
+      "rect": [
+        23.0,
+        1477.0,
+        48.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21/#0/#0",
+      "rect": [
+        34.5,
+        1488.5,
+        25.0,
+        25.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21/#1",
+      "rect": [
+        83.0,
+        1481.25,
+        72.0,
+        39.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21/#1/#0",
+      "rect": [
+        83.0,
+        1481.25,
+        72.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Weekend"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21/#1/#1",
+      "rect": [
+        83.0,
+        1503.25,
+        72.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Folder"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-disclosure-spotify:folder:synthetic1",
+      "label": "Expand Weekend",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21/sidebar-disclosure-spotify:folder:synthetic1",
+      "rect": [
+        167.0,
+        1490.0,
+        22.0,
+        22.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/library-sidebar/library-scroll/#0/shortcut-21/sidebar-disclosure-spotify:folder:synthetic1/#0",
+      "rect": [
+        170.5,
+        1493.5,
+        15.0,
+        15.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#161616ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "sidebar-resize",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/sidebar-resize",
+      "rect": [
+        208.0,
+        52.0,
+        8.0,
+        641.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#121212ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "main-column",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/main-column",
+      "rect": [
+        216.0,
+        52.0,
+        1064.0,
+        641.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "main-scroll",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll",
+      "rect": [
+        216.0,
+        52.0,
+        1064.0,
+        641.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0",
+      "rect": [
+        216.0,
+        52.0,
+        1064.0,
+        456.11
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        216.0,
+        52.0,
+        1064.0,
+        446.5
+      ]
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "level": 1,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#0",
+      "rect": [
+        216.0,
+        52.0,
+        1064.0,
+        76.0
+      ],
+      "role": "heading",
+      "scale": 1.0,
+      "text": "Search"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1",
+      "rect": [
+        216.0,
+        128.0,
+        1064.0,
+        48.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ffffffff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "itemSelected": true,
+      "key": "search-All",
+      "label": "All",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-All",
+      "rect": [
+        242.0,
+        136.0,
+        45.52,
+        32.0
+      ],
+      "role": "tab",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#121212ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-All/#0",
+      "rect": [
+        256.0,
+        143.25,
+        17.52,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "All"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "search-Artists",
+      "label": "Artists",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Artists",
+      "rect": [
+        295.52,
+        136.0,
+        72.81,
+        32.0
+      ],
+      "role": "tab",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Artists/#0",
+      "rect": [
+        309.52,
+        143.25,
+        44.81,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Artists"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "search-Songs",
+      "label": "Songs",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Songs",
+      "rect": [
+        376.33,
+        136.0,
+        70.66,
+        32.0
+      ],
+      "role": "tab",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Songs/#0",
+      "rect": [
+        390.33,
+        143.25,
+        42.66,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Songs"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "search-Albums",
+      "label": "Albums",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Albums",
+      "rect": [
+        454.98,
+        136.0,
+        79.45,
+        32.0
+      ],
+      "role": "tab",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Albums/#0",
+      "rect": [
+        468.98,
+        143.25,
+        51.45,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Albums"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "search-Playlists",
+      "label": "Playlists",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Playlists",
+      "rect": [
+        542.44,
+        136.0,
+        84.33,
+        32.0
+      ],
+      "role": "tab",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#1/search-Playlists/#0",
+      "rect": [
+        556.44,
+        143.25,
+        56.33,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Playlists"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2",
+      "rect": [
+        216.0,
+        176.0,
+        1064.0,
+        292.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#0",
+      "rect": [
+        242.0,
+        186.0,
+        1012.0,
+        36.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "level": 2,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#0/#0",
+      "rect": [
+        242.0,
+        189.0,
+        96.55,
+        30.0
+      ],
+      "role": "heading",
+      "scale": 1.0,
+      "text": "Playlists"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "show-search-Playlists",
+      "label": "Show all Playlists",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#0/show-search-Playlists",
+      "rect": [
+        1171.41,
+        186.0,
+        82.59,
+        36.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#0/show-search-Playlists/#0",
+      "rect": [
+        1186.41,
+        195.88,
+        52.59,
+        16.25
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Show all"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1",
+      "rect": [
+        242.0,
+        229.0,
+        1012.0,
+        229.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0",
+      "rect": [
+        242.0,
+        229.0,
+        1012.0,
+        229.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0/#0",
+      "rect": [
+        242.0,
+        229.0,
+        176.0,
+        229.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "card-0-0",
+      "label": "Neon Afterglow",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0/#0/card-0-0",
+      "rect": [
+        242.0,
+        229.0,
+        176.0,
+        229.5
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0/#0/card-0-0/#0",
+      "rect": [
+        250.0,
+        237.0,
+        160.0,
+        160.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0/#0/card-0-0/#1",
+      "rect": [
+        250.0,
+        405.0,
+        160.0,
+        20.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Neon Afterglow"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 1.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0/#0/card-0-0/#2",
+      "rect": [
+        250.0,
+        433.0,
+        160.0,
+        17.5
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Ellis Rowe"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1ed760ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "help": "Play Neon Afterglow",
+      "inert": false,
+      "key": "card-0-0-play",
+      "label": "Play Neon Afterglow",
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 0.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0/#0/card-0-0-play",
+      "rect": [
+        358.0,
+        345.0,
+        48.0,
+        48.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "moving": true,
+      "opacity": 0.0,
+      "path": "window/#1/main-column/main-scroll/#0/#2/#1/#0/#0/card-0-0-play/#0",
+      "rect": [
+        370.0,
+        357.0,
+        24.0,
+        24.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2",
+      "rect": [
+        0.0,
+        693.0,
+        1280.0,
+        107.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "key": "player",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player",
+      "rect": [
+        0.0,
+        693.0,
+        1280.0,
+        78.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#0",
+      "rect": [
+        16.0,
+        704.0,
+        329.19,
+        56.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1f1f1fff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#0/#0",
+      "rect": [
+        16.0,
+        704.0,
+        56.0,
+        56.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#0/#1",
+      "rect": [
+        83.0,
+        714.75,
+        262.19,
+        34.5
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#ffffffff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#0/#1/#0",
+      "rect": [
+        83.0,
+        714.75,
+        262.19,
+        17.5
+      ],
+      "role": "link",
+      "scale": 1.0,
+      "text": "Silver Lining"
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#0/#1/#1",
+      "rect": [
+        83.0,
+        734.25,
+        262.19,
+        15.0
+      ],
+      "role": "link",
+      "scale": 1.0,
+      "text": "Harbor Lights"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1",
+      "rect": [
+        360.19,
+        700.5,
+        559.63,
+        63.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0",
+      "rect": [
+        542.0,
+        700.5,
+        196.0,
+        40.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "shuffle",
+      "label": "Shuffle off",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/shuffle",
+      "rect": [
+        542.0,
+        704.5,
+        32.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/shuffle/#0",
+      "rect": [
+        548.0,
+        710.5,
+        20.0,
+        20.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "previous",
+      "label": "Previous track",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/previous",
+      "rect": [
+        583.0,
+        704.5,
+        32.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/previous/#0",
+      "rect": [
+        589.0,
+        710.5,
+        20.0,
+        20.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ffffffff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "toggle",
+      "label": "Play",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/toggle",
+      "rect": [
+        624.0,
+        704.5,
+        32.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/toggle/#0",
+      "rect": [
+        629.5,
+        710.0,
+        21.0,
+        21.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "next",
+      "label": "Next track",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/next",
+      "rect": [
+        665.0,
+        704.5,
+        32.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/next/#0",
+      "rect": [
+        671.0,
+        710.5,
+        20.0,
+        20.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "repeat",
+      "label": "Repeat off",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/repeat",
+      "rect": [
+        706.0,
+        704.5,
+        32.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#0/repeat/#0",
+      "rect": [
+        712.0,
+        710.5,
+        20.0,
+        20.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1",
+      "rect": [
+        360.19,
+        740.5,
+        559.63,
+        23.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1/#0",
+      "rect": [
+        360.19,
+        745.13,
+        43.0,
+        13.75
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1/#0/#0",
+      "rect": [
+        377.91,
+        745.13,
+        25.28,
+        13.75
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "0:00"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "seek",
+      "label": "Playback position",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1/seek",
+      "rect": [
+        414.19,
+        741.0,
+        450.63,
+        22.0
+      ],
+      "role": "slider",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#555555ff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1/seek/#0",
+      "rect": [
+        414.19,
+        750.0,
+        450.63,
+        4.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ffffffff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1/seek/#0/#0",
+      "rect": [
+        414.19,
+        750.0,
+        12.0,
+        4.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#ffffffff",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 0.0,
+      "path": "window/#2/player/#1/#1/seek/#0/#0/#0",
+      "rect": [
+        420.19,
+        738.0,
+        12.0,
+        12.0
+      ],
+      "role": "group",
+      "scale": 1.0,
+      "target": [
+        414.19,
+        742.0,
+        12.0,
+        12.0
+      ]
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1/seek/#0/#1",
+      "rect": [
+        426.19,
+        750.0,
+        438.63,
+        4.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#b3b3b3ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#1/#1/#2",
+      "rect": [
+        875.81,
+        745.13,
+        44.0,
+        13.75
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "-3:00"
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#2",
+      "rect": [
+        934.81,
+        716.0,
+        329.19,
+        32.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "open-queue",
+      "label": "Queue",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#2/open-queue",
+      "rect": [
+        1199.0,
+        716.0,
+        32.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#2/open-queue/#0",
+      "rect": [
+        1205.5,
+        722.5,
+        19.0,
+        19.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#000000ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "open-devices",
+      "label": "Connect to a device",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#2/open-devices",
+      "rect": [
+        1232.0,
+        716.0,
+        32.0,
+        32.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/player/#2/open-devices/#0",
+      "rect": [
+        1238.5,
+        722.5,
+        19.0,
+        19.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/#1",
+      "rect": [
+        0.0,
+        771.0,
+        1280.0,
+        29.0
+      ],
+      "role": "group",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#1ed760ff",
+      "focusVisible": false,
+      "focusable": true,
+      "focused": false,
+      "inert": false,
+      "key": "connect-status",
+      "label": "Paused on Living Room",
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/#1/connect-status",
+      "rect": [
+        8.0,
+        771.0,
+        1264.0,
+        23.0
+      ],
+      "role": "button",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/#1/connect-status/#0",
+      "rect": [
+        1106.17,
+        775.0,
+        15.0,
+        15.0
+      ],
+      "role": "image",
+      "scale": 1.0
+    },
+    {
+      "blur": 0.0,
+      "color": "#000000ff",
+      "fill": "#00000000",
+      "focusVisible": false,
+      "focusable": false,
+      "focused": false,
+      "inert": false,
+      "loopPhase": null,
+      "opacity": 1.0,
+      "path": "window/#2/#1/connect-status/#1",
+      "rect": [
+        1127.17,
+        775.0,
+        134.83,
+        15.0
+      ],
+      "role": "text",
+      "scale": 1.0,
+      "text": "Paused on Living Room"
+    }
+  ],
+  "imeArea": [
+    563.79,
+    16.0,
+    2.0,
+    20.0
+  ],
+  "reduced_motion": false,
+  "scale": 1.0,
+  "t": 7.3,
+  "time_scale": 1.0,
+  "title": "Spotty",
+  "viewport": [
+    1280.0,
+    800.0
+  ],
+  "warnings": []
+}

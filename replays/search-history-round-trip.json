@@ -1,0 +1,16 @@
+[
+  {"t":0.55,"type":"click","key":"global-search"},
+  {"t":0.95,"type":"type","text":"Moonlit","every":0.08},
+  {"t":1.75,"type":"mark","name":"first-query"},
+  {"t":2.20,"type":"click","key":"card-0-0"},
+  {"t":2.95,"type":"click","key":"clear-search"},
+  {"t":3.35,"type":"type","text":"Neon","every":0.08},
+  {"t":4.05,"type":"mark","name":"second-query"},
+  {"t":4.60,"type":"click","key":"go-back"},
+  {"t":5.05,"type":"click","key":"go-back"},
+  {"t":5.70,"type":"mark","name":"restored-first-query"},
+  {"t":6.25,"type":"click","key":"go-forward"},
+  {"t":6.70,"type":"click","key":"go-forward"},
+  {"t":7.30,"type":"mark","name":"restored-second-query"},
+  {"t":8.05,"type":"mark","name":"end"}
+]

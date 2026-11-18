@@ -1,0 +1,451 @@
+
+> test
+> python3 -B ../script_tests.py review
+
+review: Scripts/agent-review-tests/publication_test.py
+review: Scripts/agent-review-tests/review.test.mjs
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: present
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: unavailable (repos/owner/repo/actions/runs/123/artifacts?per_page=100: response unavailable, invalid, or timed out)
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: present
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: missing
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: unavailable (repos/owner/repo/actions/runs/123/attempts/2/jobs?per_page=100: HTTP 403)
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: missing
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: missing
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: missing
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=5e42713f10f5d23f1c4e84731f28480cd746d82a&per_page=10: response unavailable, invalid, or timed out)
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: missing
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=5e42713f10f5d23f1c4e84731f28480cd746d82a&per_page=10: response unavailable, invalid, or timed out)
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: present
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: present
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: present
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: present
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Evidence pr_description: present
+Evidence pr_diff: present
+Evidence changes_diff: present
+Evidence threads: present
+Evidence source_and_history: present
+Evidence acceptance_manifest: missing
+Evidence branch_rules: present
+Evidence check_runs: present
+Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=5e42713f10f5d23f1c4e84731f28480cd746d82a&per_page=10: response unavailable, invalid, or timed out)
+Evidence acceptance_scenarios: not_supplied
+Evidence ui_runtime_report: not_supplied
+Evidence app_installation_permissions: not_collected
+Removed this run's unsubmitted pending review
+Published one APPROVE review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one APPROVE review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Removed this run's unsubmitted pending review
+Removed this run's unsubmitted pending review
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 1 finding(s) (body)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one APPROVE review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one APPROVE review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 1 finding(s) (inline)
+Thread state or PR eligibility changed after submission; resolution withheld
+Published one APPROVE review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one APPROVE review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+Published one COMMENT review of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with 0 finding(s) (inline)
+test_acceptance_evidence_binds_head_manifest_and_latest_attempt (script_test_publication_test.EvidenceTests.test_acceptance_evidence_binds_head_manifest_and_latest_attempt) ... ok
+test_acceptance_evidence_rejects_changed_identity_and_incomplete_corpus (script_test_publication_test.EvidenceTests.test_acceptance_evidence_rejects_changed_identity_and_incomplete_corpus) ... ok
+test_artifact_archive_reads_only_bounded_summary_without_extraction (script_test_publication_test.EvidenceTests.test_artifact_archive_reads_only_bounded_summary_without_extraction) ... ok
+test_artifact_metadata_is_validated_before_download (script_test_publication_test.EvidenceTests.test_artifact_metadata_is_validated_before_download) ... ok
+test_failed_acceptance_packet_is_retained_as_failed_evidence (script_test_publication_test.EvidenceTests.test_failed_acceptance_packet_is_retained_as_failed_evidence) ... ok
+test_failed_nested_endpoint_is_named_and_missing_report_is_not_gh_access_failure (script_test_publication_test.EvidenceTests.test_failed_nested_endpoint_is_named_and_missing_report_is_not_gh_access_failure) ... ok
+test_full_review_does_not_require_obsolete_rewritten_history (script_test_publication_test.EvidenceTests.test_full_review_does_not_require_obsolete_rewritten_history) ... ok
+test_malformed_step_and_missing_git_still_produce_preflight (script_test_publication_test.EvidenceTests.test_malformed_step_and_missing_git_still_produce_preflight) ... ok
+test_missing_old_attempt_and_pending_artifacts_never_supply_execution (script_test_publication_test.EvidenceTests.test_missing_old_attempt_and_pending_artifacts_never_supply_execution) ... ok
+test_old_head_or_pending_run_cannot_be_reported_as_passed_current_execution (script_test_publication_test.EvidenceTests.test_old_head_or_pending_run_cannot_be_reported_as_passed_current_execution) ... ok
+test_preflight_supplies_sanitized_settings_and_head_matched_runtime (script_test_publication_test.EvidenceTests.test_preflight_supplies_sanitized_settings_and_head_matched_runtime) ... ok
+test_truncated_run_list_is_unavailable (script_test_publication_test.EvidenceTests.test_truncated_run_list_is_unavailable) ... ok
+test_cleanup_finds_only_this_run_after_uncertain_creation (script_test_publication_test.PublicationTests.test_cleanup_finds_only_this_run_after_uncertain_creation) ... ok
+test_cleanup_never_deletes_submitted_review (script_test_publication_test.PublicationTests.test_cleanup_never_deletes_submitted_review) ... ok
+test_empty_thread_comments_withhold_approval_without_losing_review (script_test_publication_test.PublicationTests.test_empty_thread_comments_withhold_approval_without_losing_review) ... ok
+test_external_resolution_with_unchanged_history_allows_approval (script_test_publication_test.PublicationTests.test_external_resolution_with_unchanged_history_allows_approval) ... ok
+test_failed_reply_or_submission_leaves_threads_open_and_pending_is_cleaned (script_test_publication_test.PublicationTests.test_failed_reply_or_submission_leaves_threads_open_and_pending_is_cleaned) ... ok
+test_invalid_inline_placement_falls_back_but_network_failure_is_not_retried (script_test_publication_test.PublicationTests.test_invalid_inline_placement_falls_back_but_network_failure_is_not_retried) ... ok
+test_moved_head_withholds_approval_and_resolution (script_test_publication_test.PublicationTests.test_moved_head_withholds_approval_and_resolution) ... ok
+test_null_review_keeps_owned_thread_visible (script_test_publication_test.PublicationTests.test_null_review_keeps_owned_thread_visible) ... ok
+test_own_staged_reply_does_not_count_as_unseen_history (script_test_publication_test.PublicationTests.test_own_staged_reply_does_not_count_as_unseen_history) ... ok
+test_paginated_comments_withhold_approval_and_resolution (script_test_publication_test.PublicationTests.test_paginated_comments_withhold_approval_and_resolution) ... ok
+test_pending_conflict_retries_without_deleting_other_reviewer (script_test_publication_test.PublicationTests.test_pending_conflict_retries_without_deleting_other_reviewer) ... ok
+test_reply_and_inline_finding_share_one_review_before_resolution (script_test_publication_test.PublicationTests.test_reply_and_inline_finding_share_one_review_before_resolution) ... ok
+test_reply_arriving_during_submission_prevents_resolution (script_test_publication_test.PublicationTests.test_reply_arriving_during_submission_prevents_resolution) ... ok
+test_unresolved_or_truncated_history_withholds_approval (script_test_publication_test.PublicationTests.test_unresolved_or_truncated_history_withholds_approval) ... ok
+test_unseen_reply_edit_or_removal_withholds_approval_and_all_resolutions (script_test_publication_test.PublicationTests.test_unseen_reply_edit_or_removal_withholds_approval_and_all_resolutions) ... ok
+test_verified_disposition_allows_approval_but_docs_never_approves (script_test_publication_test.PublicationTests.test_verified_disposition_allows_approval_but_docs_never_approves) ... ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 0.423s
+
+OK
+review: 28 Python tests in 0.63s (4 workers)
+✔ thermos-review.yml: caller allows only read access to acceptance artifacts (63.346779ms)
+✔ thermos-review.yml: valid reruns and newer heads share only their PR's group (12.045474ms)
+✔ thermos-review.yml: ignored events cannot cancel running or evict pending reviews (9.402374ms)
+✔ docs-review.yml: caller allows only read access to acceptance artifacts (60.558965ms)
+✔ docs-review.yml: valid reruns and newer heads share only their PR's group (1.913867ms)
+✔ docs-review.yml: ignored events cannot cancel running or evict pending reviews (4.644314ms)
+✔ reviewers do not cancel each other for the same PR (121.081545ms)
+✔ both published review bodies include the trusted-collaborator rerun hint (53.134327ms)
+✔ documentation review reaches the agent even when no documentation changed (115.907747ms)
+✔ review inputs retain implementation changes (docs changed: false) (59.044681ms)
+✔ review inputs retain implementation changes (docs changed: true) (56.114943ms)
+✔ range selection ignores pending reviews and retains dismissed published approvals (18.46826ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 957.413102
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.3
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.3
+npm notice To update run: npm install -g npm@12.2.3
+npm notice

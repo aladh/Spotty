@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running unittests src/main.rs (Rune/target/debug/deps/spotty_rune-c959a452d84adbfe)
+
+running 3 tests
+test playback::audio_cache_evaluation::record_synthetic_cold_and_warm_cache_io ... ok
+test playback::engine_resources::teardown_tests::measure_stalled_spirc_task_deadline ... ok
+test playback::lifecycle_measurements::named_lifecycle_fault_measurements ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 192 filtered out; finished in 12.86s
+

@@ -1,0 +1,1 @@
+No exported spotty_playback_ C symbols in the Linux executable (nm -g --defined-only)

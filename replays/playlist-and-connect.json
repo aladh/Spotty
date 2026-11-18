@@ -1,0 +1,13 @@
+[
+  {"t":0.55,"type":"click","key":"sort-added"},
+  {"t":1.20,"type":"click","key":"filter-playlist"},
+  {"t":1.60,"type":"type","text":"Coastline","every":0.06},
+  {"t":2.25,"type":"mark","name":"filtered"},
+  {"t":2.75,"type":"click","key":"open-queue"},
+  {"t":3.35,"type":"mark","name":"queue"},
+  {"t":3.85,"type":"click","key":"history-tab"},
+  {"t":4.35,"type":"mark","name":"history"},
+  {"t":4.85,"type":"click","key":"open-devices"},
+  {"t":5.45,"type":"mark","name":"connect"},
+  {"t":6.15,"type":"mark","name":"end"}
+]

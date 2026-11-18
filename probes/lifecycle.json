@@ -1,0 +1,96 @@
+{
+  "limitations": "No live network, AP construction, audio, dealer close or UI work measured here",
+  "shutdown": {
+    "clock": "wall monotonic",
+    "fault": "five parked cancellable engine children; no Session/Spirc",
+    "milliseconds": [
+      0.361945,
+      0.095694,
+      0.095694,
+      0.085348,
+      0.086781,
+      0.089174,
+      0.114863,
+      0.127532,
+      0.08848400000000001,
+      0.095064,
+      0.089935,
+      0.07975,
+      0.20191499999999998,
+      0.110116,
+      0.103897,
+      0.06475700000000001,
+      0.107482,
+      0.108234,
+      0.14873499999999998,
+      0.10387600000000001,
+      0.09126799999999999,
+      0.108944,
+      0.102354,
+      0.135485,
+      0.186131,
+      0.087211,
+      0.098648,
+      0.08779200000000001,
+      0.084647,
+      0.068573
+    ]
+  },
+  "silentDetection": [
+    {
+      "clock": "paused Tokio policy clock",
+      "detectionMilliseconds": 60000,
+      "fault": "silent-invalid-session",
+      "phaseMilliseconds": 0
+    },
+    {
+      "clock": "paused Tokio policy clock",
+      "detectionMilliseconds": 43000,
+      "fault": "silent-invalid-session",
+      "phaseMilliseconds": 17000
+    },
+    {
+      "clock": "paused Tokio policy clock",
+      "detectionMilliseconds": 500,
+      "fault": "silent-invalid-session",
+      "phaseMilliseconds": 59500
+    }
+  ],
+  "version": 1,
+  "wake": {
+    "clock": "wall monotonic",
+    "fault": "overlapping-wake; injected cleanup 5ms + build 20ms",
+    "milliseconds": [
+      27.55877,
+      27.336304,
+      27.51926,
+      27.372749,
+      27.365127,
+      27.399459,
+      27.384917,
+      27.481441999999998,
+      27.489184,
+      27.498218,
+      27.536085,
+      27.615014,
+      27.507923,
+      27.456735,
+      27.467792000000003,
+      26.377868,
+      27.474968,
+      27.440251,
+      26.921628,
+      26.445851,
+      27.372949000000002,
+      27.640647,
+      27.475523000000003,
+      27.615585000000003,
+      27.442128999999998,
+      26.575276,
+      27.396054,
+      27.492038,
+      27.422994,
+      27.335142
+    ]
+  }
+}

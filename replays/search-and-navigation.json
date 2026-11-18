@@ -1,0 +1,10 @@
+[
+  {"t":0.55,"type":"click","key":"global-search"},
+  {"t":0.95,"type":"type","text":"Moonlit","every":0.08},
+  {"t":1.90,"type":"mark","name":"results"},
+  {"t":2.45,"type":"click","key":"card-0-0"},
+  {"t":3.10,"type":"mark","name":"playlist"},
+  {"t":3.75,"type":"click","key":"go-back"},
+  {"t":4.35,"type":"mark","name":"restored"},
+  {"t":5.20,"type":"mark","name":"end"}
+]

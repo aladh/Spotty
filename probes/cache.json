@@ -1,0 +1,93 @@
+{
+  "limitations": "Synthetic memory-sourced bytes and filesystem operations only; OS page cache may be warm. No Session, encrypted Spotify payload, key request, network transfer, decoding, playback/startup latency or live benefit measurement. Disabled baseline byte count is three fixture reads, not observed network traffic.",
+  "sourceRevision": "b07f63e439ff2450babb0620f0ea0e0b8c7b4420",
+  "syntheticPayloadBytes": 65536,
+  "trialQuotaBytes": 131072,
+  "waves": [
+    {
+      "baselineMemoryReadMilliseconds": [
+        0.27210100000000004,
+        0.0031650000000000003,
+        0.002204
+      ],
+      "cacheBytesReadWarm": 131072,
+      "cacheBytesWritten": 65536,
+      "coldSaveMilliseconds": 0.287483,
+      "retainedBytes": 65536,
+      "syntheticInputBytesWithRetention": 65536,
+      "syntheticInputBytesWithoutRetention": 196608,
+      "warmReadMilliseconds": [
+        0.5319619999999999,
+        0.030305
+      ]
+    },
+    {
+      "baselineMemoryReadMilliseconds": [
+        0.0043560000000000005,
+        0.002253,
+        0.002224
+      ],
+      "cacheBytesReadWarm": 131072,
+      "cacheBytesWritten": 65536,
+      "coldSaveMilliseconds": 0.091798,
+      "retainedBytes": 65536,
+      "syntheticInputBytesWithRetention": 65536,
+      "syntheticInputBytesWithoutRetention": 196608,
+      "warmReadMilliseconds": [
+        0.015844,
+        0.011507
+      ]
+    },
+    {
+      "baselineMemoryReadMilliseconds": [
+        0.003214,
+        0.002274,
+        0.002203
+      ],
+      "cacheBytesReadWarm": 131072,
+      "cacheBytesWritten": 65536,
+      "coldSaveMilliseconds": 0.107753,
+      "retainedBytes": 65536,
+      "syntheticInputBytesWithRetention": 65536,
+      "syntheticInputBytesWithoutRetention": 196608,
+      "warmReadMilliseconds": [
+        0.016745,
+        0.011317
+      ]
+    },
+    {
+      "baselineMemoryReadMilliseconds": [
+        0.004026,
+        0.002313,
+        0.002233
+      ],
+      "cacheBytesReadWarm": 131072,
+      "cacheBytesWritten": 65536,
+      "coldSaveMilliseconds": 0.0593,
+      "retainedBytes": 65536,
+      "syntheticInputBytesWithRetention": 65536,
+      "syntheticInputBytesWithoutRetention": 196608,
+      "warmReadMilliseconds": [
+        0.014072,
+        0.011307000000000001
+      ]
+    },
+    {
+      "baselineMemoryReadMilliseconds": [
+        0.003856,
+        0.002293,
+        0.002223
+      ],
+      "cacheBytesReadWarm": 131072,
+      "cacheBytesWritten": 65536,
+      "coldSaveMilliseconds": 0.054131,
+      "retainedBytes": 65536,
+      "syntheticInputBytesWithRetention": 65536,
+      "syntheticInputBytesWithoutRetention": 196608,
+      "warmReadMilliseconds": [
+        0.013831,
+        0.011036
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "deadlineMilliseconds": 4000,
+  "fault": "parked task ignores shutdown request; no actual Spirc or dealer",
+  "milliseconds": [
+    4003.2738529999997,
+    4004.004432,
+    4004.382446
+  ]
+}

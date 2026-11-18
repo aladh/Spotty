@@ -28,6 +28,7 @@ jobs:
           rules='^(workflow-action-pins|workflow-checkout-credentials|workflow-explicit-permissions|workflow-shell-interpolation|ci-fail-closed|ci-read-permissions|script-no-xtrace|development-signing-input)$'
           npm exec --yes --package "@ast-grep/cli@$version" -- ast-grep test --filter "$rules" --skip-snapshot-tests
           npm exec --yes --package "@ast-grep/cli@$version" -- ast-grep scan --filter "$rules" .github/workflows Scripts script Rune
+          npm exec --yes --package "@ast-grep/cli@$version" -- python3 -B Scripts/test_source_policy.py
       - name: Verify review automation
         run: |
           npm ci --ignore-scripts --prefix Scripts/agent-review-tests
@@ -36,8 +37,12 @@ jobs:
         run: |
           python3 Scripts/documentation_policy.py
           python3 -B Scripts/test_notices_policy.py
-      - name: Test acceptance evidence collection
-        run: python3 -B Scripts/test_verify.py
+      - name: Test build and acceptance scripts
+        run: |
+          python3 -B Scripts/test_verify.py
+          python3 -B Scripts/test_harness_ui_smoke.py
+          python3 -B Scripts/test_report_size.py
+          python3 -B Scripts/test_ci_timings.py
 
   linux:
     name: Linux tests and synthetic UI

@@ -97,12 +97,14 @@ struct ArtworkRequests {
 }
 
 impl ArtworkRequests {
+    const RETRY_DELAY: Duration = Duration::from_secs(30);
+
     fn start(&mut self, url: &str, now: Instant) -> bool {
         if self.pending.contains(url)
             || self
                 .failed
                 .get(url)
-                .is_some_and(|failure| now.duration_since(*failure) < Duration::from_secs(30))
+                .is_some_and(|failure| now.duration_since(*failure) < Self::RETRY_DELAY)
         {
             return false;
         }
@@ -125,13 +127,41 @@ impl ArtworkRequests {
             self.failed.insert(url.to_owned(), now);
         }
     }
+
+    fn expire(&mut self, now: Instant) -> bool {
+        let before = self.failed.len();
+        self.failed
+            .retain(|_, failure| now < *failure + Self::RETRY_DELAY);
+        self.failed.len() < before
+    }
+
+    fn next_retry(&self) -> Option<Instant> {
+        self.failed
+            .values()
+            .min()
+            .map(|failure| *failure + Self::RETRY_DELAY)
+    }
+}
+
+struct HistoryEntry {
+    route: Route,
+    search: String,
+}
+
+impl From<Route> for HistoryEntry {
+    fn from(route: Route) -> Self {
+        Self {
+            route,
+            search: String::new(),
+        }
+    }
 }
 
 struct State {
     menus: menu::Menus,
     backend: Backend,
     snapshot: Snapshot,
-    history: Vec<Route>,
+    history: Vec<HistoryEntry>,
     cursor: usize,
     pending_link: Option<String>,
     query: TextEdit,
@@ -156,6 +186,7 @@ struct State {
     window_focused: bool,
     artwork: HashMap<String, Pixels>,
     artwork_requests: ArtworkRequests,
+    artwork_rows: Option<std::ops::Range<usize>>,
     artwork_tints: HashMap<String, [u8; 3]>,
     artwork_order: std::collections::VecDeque<String>,
     seek_preview: Option<f64>,
@@ -187,7 +218,7 @@ impl State {
                 status: "Restoring your Spotify session…".into(),
                 ..Snapshot::default()
             },
-            history: vec![Route::Home],
+            history: vec![Route::Home.into()],
             cursor: 0,
             pending_link: None,
             query: TextEdit::new(""),
@@ -212,6 +243,7 @@ impl State {
             window_focused: true,
             artwork: HashMap::new(),
             artwork_requests: ArtworkRequests::default(),
+            artwork_rows: None,
             artwork_tints: HashMap::new(),
             artwork_order: std::collections::VecDeque::new(),
             seek_preview: None,
@@ -227,7 +259,7 @@ impl State {
     }
 
     fn route(&self) -> &Route {
-        &self.history[self.cursor]
+        &self.history[self.cursor].route
     }
 
     fn is_demo(&self) -> bool {
@@ -266,6 +298,7 @@ impl State {
                 if !self.is_demo() {
                     self.artwork.clear();
                     self.artwork_requests = ArtworkRequests::default();
+                    self.artwork_rows = None;
                     self.artwork_tints.clear();
                     self.artwork_order.clear();
                 }
@@ -382,6 +415,7 @@ impl State {
         let Backend::Live(worker) = &self.backend else {
             return;
         };
+        self.artwork_rows = Some(range.clone());
         let urls = self
             .table
             .order
@@ -472,6 +506,7 @@ impl State {
         self.table = table;
         self.scroll = Rc::new(Cell::new(scroll));
         self.compact = false;
+        self.artwork_rows = None;
         self.send("route", Some(kind), uri);
         self.order_preserving_selection();
         tx.scroll_to_instant("main-scroll", 0.0, scroll);
@@ -484,7 +519,7 @@ impl State {
         if self.route() != &route {
             self.archive_route();
             self.history.truncate(self.cursor + 1);
-            self.history.push(route);
+            self.history.push(route.into());
             self.cursor += 1;
             self.sync_route(tx);
         }
@@ -501,7 +536,22 @@ impl State {
         if cursor != self.cursor {
             self.archive_route();
             self.cursor = cursor;
+            let search = if self.route() == &Route::Search {
+                let query = self.history[self.cursor].search.clone();
+                self.query = TextEdit::new(&query);
+                self.last_query = query.trim().to_owned();
+                if self.last_query.is_empty() {
+                    self.search_filter = "All";
+                }
+                Some(query)
+            } else {
+                None
+            };
             self.sync_route(tx);
+            if let Some(query) = search {
+                self.send("search", Some(&query), None);
+                self.order();
+            }
         }
     }
 
@@ -511,6 +561,7 @@ impl State {
         }
         self.navigate(Route::Search, tx);
         let query = self.query.text.clone();
+        self.history[self.cursor].search.clone_from(&query);
         if query.trim() != self.last_query {
             self.last_query = query.trim().to_owned();
             self.table = Table::default();
@@ -856,6 +907,16 @@ fn poll(state: &mut State, _: f64, tx: &mut Tx) -> bool {
         false
     } else {
         let changed = state.refresh();
+        let now = Instant::now();
+        if state.artwork_requests.expire(now) {
+            state.request_artwork();
+            if let Some(range) = state.artwork_rows.clone() {
+                state.request_row_artwork(range);
+            }
+        }
+        if let Some(deadline) = state.artwork_requests.next_retry() {
+            tx.wake_after(deadline.saturating_duration_since(now));
+        }
         open_pending_link(state, tx) || changed
     }
 }
@@ -947,7 +1008,10 @@ fn reference(state: &mut State) {
         if let Backend::Demo(demo) = &mut state.backend {
             demo.reference();
         }
-        state.history = vec![Route::Home, Route::Detail(demo::REFERENCE_URI.into())];
+        state.history = vec![
+            Route::Home.into(),
+            Route::Detail(demo::REFERENCE_URI.into()).into(),
+        ];
         state.cursor = 1;
         state.sidebar_width = 260.0;
         state.table.sort = Sort::Added;
@@ -1082,6 +1146,28 @@ mod tests {
         click(&mut runtime, "go-back");
         assert_eq!(runtime.state.route(), &Route::Search);
         assert_eq!(runtime.state.query.text, "Moonlit");
+
+        click(&mut runtime, "card-0-0");
+        runtime.update(|state, tx| {
+            state.query = TextEdit::new("Neon");
+            state.search(tx);
+        });
+        assert_eq!(
+            runtime.state.snapshot.sections[0].items[0].title,
+            "Neon Afterglow"
+        );
+        runtime.update(|state, tx| state.move_history(-2, tx));
+        assert_eq!(runtime.state.query.text, "Moonlit");
+        assert_eq!(
+            runtime.state.snapshot.sections[0].items[0].title,
+            "Moonlit Drive"
+        );
+        runtime.update(|state, tx| state.move_history(2, tx));
+        assert_eq!(runtime.state.query.text, "Neon");
+        assert_eq!(
+            runtime.state.snapshot.sections[0].items[0].title,
+            "Neon Afterglow"
+        );
     }
 
     #[test]
@@ -1165,6 +1251,11 @@ mod tests {
                 .as_ref()
                 .is_some_and(|album| row.id.starts_with(&album.uri))
         }));
+        let first = snapshot.tracks[0].clone();
+        let count = snapshot.queue.len();
+        runtime.state.send("queueTrack", Some(&first.id), None);
+        assert_eq!(runtime.state.snapshot.queue.len(), count + 1);
+        assert_eq!(runtime.state.snapshot.queue[count].uri, first.uri);
         click(&mut runtime, "release-sort");
         assert!(runtime.state.artist_controls.sort_name);
         click(&mut runtime, "release-layout");
@@ -1294,7 +1385,13 @@ mod tests {
         assert!(requests.start("cover", started));
         assert!(!requests.start("cover", started));
         requests.finish("cover", false, started);
+        assert_eq!(
+            requests.next_retry(),
+            Some(started + Duration::from_secs(30))
+        );
+        assert!(!requests.expire(started + Duration::from_secs(29)));
         assert!(!requests.start("cover", started + Duration::from_secs(29)));
+        assert!(requests.expire(started + Duration::from_secs(30)));
         assert!(requests.start("cover", started + Duration::from_secs(30)));
         requests.finish("cover", true, started + Duration::from_secs(30));
         assert!(requests.failed.is_empty());

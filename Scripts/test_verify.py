@@ -104,6 +104,17 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.assertEqual(self.acceptance(), 1)
         self.assertTrue(json.loads((self.output / "summary.json").read_text())["source"]["dirty"])
 
+    def test_manifest_schema_version_must_be_an_integer(self):
+        document = json.loads(self.manifest.read_text())
+        for version in (True, 1.0):
+            with self.subTest(version=version):
+                self.manifest.write_text(json.dumps({**document, "schemaVersion": version}))
+                self.commit()
+                self.assertEqual(self.acceptance(), 1)
+                summary = json.loads((self.output / "summary.json").read_text())
+                self.assertEqual(summary["scenarios"], [])
+                self.assertIn("Invalid acceptance manifest", summary["error"])
+
     def test_timed_out_scenario_records_failure(self):
         self.script("rune.integrated", "import time; time.sleep(60)")
         self.commit()

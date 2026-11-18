@@ -71,6 +71,7 @@ pub struct Media {
     last: Option<Metadata>,
     artwork: Option<(u64, String, Retained<MPMediaItemArtwork>)>,
     next_progress: Instant,
+    last_progress: Option<(Instant, f64)>,
 }
 
 impl Media {
@@ -82,6 +83,7 @@ impl Media {
             last: None,
             artwork: None,
             next_progress: Instant::now(),
+            last_progress: None,
         }
     }
 
@@ -184,10 +186,21 @@ impl Media {
             }
         }
         let now = Instant::now();
-        if self.last.as_ref() == Some(&next) && now < self.next_progress {
+        let discontinuity = self.last_progress.is_some_and(|(published, position)| {
+            let mut expected = position;
+            if next.playing {
+                expected += now.duration_since(published).as_secs_f64();
+            }
+            if next.duration > 0.0 {
+                expected = expected.min(next.duration);
+            }
+            (player.position - expected).abs() > 0.25
+        });
+        if self.last.as_ref() == Some(&next) && now < self.next_progress && !discontinuity {
             return;
         }
         self.next_progress = now + Duration::from_secs(1);
+        self.last_progress = Some((now, player.position));
         let title = NSString::from_str(&next.title);
         let artist = NSString::from_str(&next.artist);
         let duration = NSNumber::new_f64(next.duration);
@@ -244,6 +257,7 @@ impl Media {
         }
         self.gate = Arc::default(); // Callbacks already queued for the old account remain fenced.
         self.last = None;
+        self.last_progress = None;
         self.artwork = None;
         unsafe {
             self.center

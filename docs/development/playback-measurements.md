@@ -9,7 +9,11 @@ and artifact admission under the safe testing and launch contracts. Preparation 
 account/device changes or live-app replacement permission.
 
 Before a run, identify a clean source revision and exact optimized signed Release executable,
-record its build flags, SHA256 and Cargo lockfile digest, and record
+record its build flags, SHA256 and Cargo lockfile digest, and capture the resolved Rune and
+librespot revisions. Verify the dependency graph against the lockfile and include the applied
+librespot patch provenance. [Cargo manifest](../../Rune/Cargo.toml) · [Vendored librespot provenance](../../Backend/spotty-playback/vendor/librespot/UPSTREAM)
+
+Record
 OS version, processor class, memory, output device, window dimensions, display rate and scale.
 Keep machine/account identifiers and media names out of public receipts. Record whether the app,
 engine, catalog and audio paths are cold or warm; audio caching is disabled unless the recorded

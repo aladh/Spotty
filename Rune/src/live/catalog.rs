@@ -1,5 +1,5 @@
 use super::auth::{APP_VERSION, Failure, Result, Session, bounded};
-use crate::model::{Item, Route, Section, Track};
+use crate::model::{Item, Route, Section, Track, grouped};
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -11,7 +11,10 @@ use std::{
     },
     time::Duration,
 };
-use tokio::task::JoinSet;
+use tokio::{
+    sync::{Semaphore, SemaphorePermit},
+    task::JoinSet,
+};
 
 // Persisted query documents from Spotty main. The response shape is pinned with each hash.
 const SEARCH_TRACKS: (&str, &str) = (
@@ -77,6 +80,48 @@ const ORIGIN: &str = "https://xpui.app.spotify.com";
 const MAX_PAGES: usize = 500;
 const MAX_LIBRARY_NODES: usize = 10_000;
 
+struct LibraryBudget {
+    pages: AtomicUsize,
+    consumed: AtomicUsize,
+    entries: Semaphore,
+}
+
+impl LibraryBudget {
+    fn new() -> Self {
+        Self {
+            pages: AtomicUsize::new(0),
+            consumed: AtomicUsize::new(0),
+            entries: Semaphore::new(MAX_LIBRARY_NODES),
+        }
+    }
+
+    async fn reserve_page(&self, limit: usize) -> Result<SemaphorePermit<'_>> {
+        if self.pages.fetch_add(1, Ordering::Relaxed) >= MAX_PAGES {
+            return Err(Failure::Response);
+        }
+        let mut page = self
+            .entries
+            .acquire()
+            .await
+            .map_err(|_| Failure::Response)?;
+        let additional = self.entries.available_permits().min(limit - 1);
+        if additional > 0
+            && let Ok(extra) = self.entries.try_acquire_many(additional as u32)
+        {
+            page.merge(extra);
+        }
+        Ok(page)
+    }
+
+    fn consume_page(&self, mut page: SemaphorePermit<'_>, rows: usize) -> Result<()> {
+        page.split(rows).ok_or(Failure::Response)?.forget();
+        if self.consumed.fetch_add(rows, Ordering::Relaxed) + rows == MAX_LIBRARY_NODES {
+            self.entries.close();
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct Page {
     pub title: String,
@@ -129,8 +174,7 @@ impl Catalog {
 
     pub async fn playlists(&self) -> Result<Vec<Item>> {
         // Each traversal shares a global page and entry budget. Four requests can run at once.
-        let pages = Arc::new(AtomicUsize::new(0));
-        let nodes = Arc::new(AtomicUsize::new(0));
+        let budget = Arc::new(LibraryBudget::new());
         let mut frontier = VecDeque::from([(String::new(), 0)]);
         let mut seen = HashSet::new();
         let mut children = HashMap::new();
@@ -141,17 +185,11 @@ impl Catalog {
                     break;
                 };
                 let catalog = self.clone();
-                let pages = Arc::clone(&pages);
-                let nodes = Arc::clone(&nodes);
+                let budget = Arc::clone(&budget);
                 work.spawn(async move {
                     let rows = catalog
-                        .library_rows("Playlists", Some(folder.as_str()), &pages)
+                        .library_rows("Playlists", Some(folder.as_str()), &budget)
                         .await?;
-                    if nodes.fetch_add(rows.len(), Ordering::Relaxed) + rows.len()
-                        > MAX_LIBRARY_NODES
-                    {
-                        return Err(Failure::Response);
-                    }
                     let items = rows
                         .iter()
                         .filter_map(|row| {
@@ -194,30 +232,37 @@ impl Catalog {
         &self,
         filter: &str,
         folder: Option<&str>,
-        pages: &AtomicUsize,
+        budget: &LibraryBudget,
     ) -> Result<Vec<Value>> {
         let (_, rows) = collect(|offset| async move {
-            if pages.fetch_add(1, Ordering::Relaxed) >= MAX_PAGES { return Err(Failure::Response); }
+            let capacity = budget
+                .reserve_page(if folder.is_some() { 200 } else { 50 })
+                .await?;
             let mut vars = json!({
-                "filters": [filter], "offset": offset, "limit": if folder.is_some() { 200 } else { 50 },
+                "filters": [filter], "offset": offset, "limit": capacity.num_permits(),
                 "textFilter": "", "flatten": folder.is_none(), "expandedFolders": [],
                 "includeFoldersWhenFlattening": false
             });
             if let Some(folder) = folder {
                 vars["order"] = json!("Custom Order");
-                if !folder.is_empty() { vars["folderUri"] = json!(folder); }
+                if !folder.is_empty() {
+                    vars["folderUri"] = json!(folder);
+                }
             }
             let data = self.query(LIBRARY_V3, vars, false).await?;
-            page(Value::Null, &data["me"]["libraryV3"])
-        }).await?;
+            let page = page(Value::Null, &data["me"]["libraryV3"])?;
+            budget.consume_page(capacity, page.1.len())?;
+            Ok(page)
+        })
+        .await?;
         Ok(rows)
     }
 
     async fn library(&self) -> Result<Page> {
-        let pages = AtomicUsize::new(0);
+        let budget = LibraryBudget::new();
         let (albums, artists) = tokio::try_join!(
-            self.library_rows("Albums", None, &pages),
-            self.library_rows("Artists", None, &pages),
+            self.library_rows("Albums", None, &budget),
+            self.library_rows("Artists", None, &budget),
         )?;
         let section = |title: &str, rows: Vec<Value>| Section {
             title: title.into(),
@@ -1125,23 +1170,31 @@ fn clean_description(value: &str) -> String {
         .replace("&nbsp;", " ")
 }
 
-fn grouped(number: u64) -> String {
-    let digits = number.to_string();
-    let mut text = String::new();
-    for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            text.push(',');
-        }
-        text.push(ch);
-    }
-    text
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     fn fixture(text: &str) -> Value {
         serde_json::from_str(text).unwrap()
+    }
+
+    #[tokio::test]
+    async fn library_pages_reserve_capacity_and_refund_unused_rows() {
+        let budget = LibraryBudget::new();
+        let first = budget.reserve_page(MAX_LIBRARY_NODES - 2).await.unwrap();
+        let second = budget.reserve_page(200).await.unwrap();
+        assert_eq!(second.num_permits(), 2);
+        let waiter = budget.reserve_page(200);
+        tokio::pin!(waiter);
+        assert!(matches!(
+            futures_util::poll!(&mut waiter),
+            std::task::Poll::Pending
+        ));
+        budget.consume_page(first, MAX_LIBRARY_NODES - 3).unwrap();
+        let final_page = waiter.await.unwrap();
+        assert_eq!(final_page.num_permits(), 1);
+        budget.consume_page(second, 2).unwrap();
+        budget.consume_page(final_page, 1).unwrap();
+        assert!(budget.reserve_page(200).await.is_err());
     }
 
     #[test]

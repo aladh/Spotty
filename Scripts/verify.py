@@ -64,7 +64,8 @@ def acceptance(output):
         manifest = MANIFEST.read_bytes()
         document = json.loads(manifest)
         entries = document["scenarios"]
-        if (document["schemaVersion"] != 1 or not isinstance(entries, list)
+        if (type(document["schemaVersion"]) is not int or document["schemaVersion"] != 1
+                or not isinstance(entries, list)
                 or len(entries) != len(SCENARIOS)
                 or {row["id"] for row in entries} != SCENARIOS.keys()
                 or any(type(row["version"]) is not int or row["version"] < 1

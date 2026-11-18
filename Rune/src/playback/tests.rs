@@ -7,6 +7,7 @@ fn playback_urls_preserve_spotify_resources_and_ignore_query_and_fragment() {
         let expected = format!("spotify:{kind}:{ID}");
         for url in [
             format!("https://open.spotify.com/{kind}/{ID}"),
+            format!("HTTPS://open.spotify.com/{kind}/{ID}"),
             format!("http://open.spotify.com/{kind}/{ID}?si=shared"),
             format!("https://OPEN.SPOTIFY.COM/intl-de/{kind}/{ID}#details"),
             format!("https://open.spotify.com/intl-en/{kind}/{ID}?si=shared#details"),
@@ -36,6 +37,11 @@ fn playback_urls_leave_protocol_uri_forms_to_librespot() {
         "spotify:genre:pop",
     ] {
         assert_eq!(url_to_uri(uri).as_deref(), Some(uri));
+        let resource = uri.strip_prefix("spotify:").unwrap();
+        assert_eq!(
+            url_to_uri(&format!("SpOtIfY:{resource}")).as_deref(),
+            Some(uri)
+        );
     }
 }
 

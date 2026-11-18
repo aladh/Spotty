@@ -31,6 +31,7 @@ const PLAYLIST_NAMES: &[&str] = &[
     "Dinner with Friends",
     "Sunday Reset",
 ];
+const FOLDERS: [(&str, usize); 2] = [("Focus", 4), ("Weekend", 4)];
 const PLAYLIST_DESCRIPTIONS: &[&str] = &[
     "Dreamy songs for the drive home",
     "Electric nights and glowing city streets",
@@ -301,7 +302,10 @@ impl Demo {
         let track = demo.track(0, 0);
         demo.play(track, Some(REFERENCE_URI));
         demo.playback.playing = false;
-        demo.history = (1..4).map(|i| demo.track(0, i * 4)).collect();
+        for i in 1..4 {
+            let track = demo.track(0, i * 4);
+            demo.history.push(track);
+        }
         demo.queue = (1..7)
             .map(|i| Track {
                 id: format!("demo-queue-{i}"),
@@ -393,13 +397,17 @@ impl Demo {
     }
 
     fn library(&self) -> Vec<Item> {
-        let mut items = self.playlists[..20].to_vec();
-        for (i, title) in ["Focus", "Weekend"].into_iter().enumerate() {
+        let folder_rows = FOLDERS.iter().map(|(_, count)| count).sum::<usize>();
+        let (root, mut remaining) = self.playlists.split_at(self.playlists.len() - folder_rows);
+        let mut items = root.to_vec();
+        for (i, (title, count)) in FOLDERS.into_iter().enumerate() {
+            let (children, rest) = remaining.split_at(count);
+            remaining = rest;
             items.push(Item {
                 uri: format!("spotify:folder:synthetic{i}"),
                 title: title.into(),
                 kind: "Folder".into(),
-                children: self.playlists[20 + i * 4..24 + i * 4].to_vec(),
+                children: children.to_vec(),
                 ..Item::default()
             });
         }
@@ -437,6 +445,14 @@ impl Demo {
     }
 
     pub fn command(&mut self, request: &Request<'_>) {
+        let stamp = self.stamp;
+        if request.stamp.account != stamp.account {
+            return;
+        }
+        let current_catalog = request.stamp.catalog == stamp.catalog;
+        let current_view = current_catalog && request.stamp.view == stamp.view;
+        let current_playlist = current_view && request.stamp.playlist == stamp.playlist;
+        let current_queue = request.stamp.queue == stamp.queue;
         self.feedback = None;
         let value = request.value.unwrap_or_default();
         let target = request.target.unwrap_or_default();
@@ -454,7 +470,7 @@ impl Demo {
             return;
         }
         match request.action {
-            "route" => {
+            "route" if current_catalog => {
                 self.requested_releases.clear();
                 self.route = match value {
                     "search" => Route::Search,
@@ -466,12 +482,17 @@ impl Demo {
                 };
                 self.stamp.view += 1;
             }
-            "releaseTracks" | "retryRelease" => {
-                self.requested_releases.insert(value.into());
+            "releaseTracks" | "retryRelease" if current_view => {
+                if self.requested_releases.insert(value.into()) {
+                    self.stamp.playlist += 1;
+                }
             }
-            "search" => self.query = value.into(),
+            "search" if current_catalog && self.route == Route::Search && self.query != value => {
+                self.query = value.into();
+                self.stamp.view += 1;
+            }
             "toggle" => self.playback.playing = !self.playback.playing,
-            "playTrack" | "startTrack" => {
+            "playTrack" | "startTrack" if current_view => {
                 if let Some(track) = self
                     .snapshot(&self.route, &self.query)
                     .tracks
@@ -481,11 +502,15 @@ impl Demo {
                     if self.playback.uri == track.uri && request.action != "startTrack" {
                         self.playback.playing = !self.playback.playing;
                     } else {
-                        self.play(track, None);
+                        let context = match &self.route {
+                            Route::Detail(uri) => Some(uri.clone()),
+                            _ => None,
+                        };
+                        self.play(track, context.as_deref());
                     }
                 }
             }
-            "playContext" | "playItem" => {
+            "playContext" | "playItem" if current_view => {
                 if request.action == "playItem" && self.playback.context == value {
                     self.playback.playing = !self.playback.playing;
                 } else if let Some(track) = self
@@ -522,9 +547,13 @@ impl Demo {
                 }
                 .into()
             }
-            "queueTrack" => {
-                let tracks = self.tracks(&self.route, &self.query);
-                for track in ordered_tracks(&tracks, &ids) {
+            "queueTrack" if current_playlist => {
+                let tracks = self.snapshot(&self.route, &self.query).tracks;
+                let selected = ordered_tracks(&tracks, &ids);
+                if selected.is_empty() {
+                    return;
+                }
+                for track in selected {
                     self.queue_id += 1;
                     self.queue.push(Track {
                         id: format!("local-queue-{}", self.queue_id),
@@ -535,7 +564,7 @@ impl Demo {
                 self.stamp.queue += 1;
                 self.feedback = Some("Queue request sent".into());
             }
-            "playQueue" => {
+            "playQueue" if current_queue => {
                 if let Some(track) = self.queue.iter().find(|track| track.id == value).cloned() {
                     self.play(track, None);
                 }
@@ -545,23 +574,21 @@ impl Demo {
                     self.play(track, None);
                 }
             }
-            "removeQueue" if self.playback.device != "This computer" => {
+            "removeQueue" if current_queue && self.playback.device != "This computer" => {
                 self.queue.retain(|track| !ids.contains(&track.id));
                 self.stamp.queue += 1;
                 self.feedback = Some("Queue updated".into());
             }
-            "addPlaylist" | "removePlaylist" => {
+            "addPlaylist" | "removePlaylist" if current_playlist => {
                 if let Some(item) = self
                     .item(target)
                     .filter(|item| item.owner.as_deref() == Some("spotify:user:demo"))
                 {
                     let mut tracks = self.tracks(&Route::Detail(target.into()), "");
                     if request.action == "addPlaylist" {
-                        for mut track in self
-                            .tracks(&self.route, &self.query)
-                            .into_iter()
-                            .filter(|row| ids.contains(&row.id))
-                        {
+                        let visible = self.snapshot(&self.route, &self.query).tracks;
+                        for row in ordered_tracks(&visible, &ids) {
+                            let mut track = row.clone();
                             self.queue_id += 1;
                             track.id = format!("new-{}", self.queue_id);
                             track.occurrence = Some(track.id.clone());
@@ -707,6 +734,7 @@ impl Demo {
                 }
             }
         }
+        snapshot.stamp.playlist = self.stamp.playlist;
         snapshot
     }
 

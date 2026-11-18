@@ -215,75 +215,24 @@ printf 'forbidden-after-failure\\n'
                 self.assertEqual(result.stdout, "")
                 self.assertEqual(result.stderr, "ci-timings: timing report unavailable\n")
 
-    @unittest.skipUnless(shutil.which("zsh"), "Release entry point requires zsh")
-    def test_release_captured_resolver_failure_records_original_status_once(self):
+    def test_rune_release_invokes_the_caller_tool_once_and_propagates_failure(self):
         scripts = self.root / "Scripts"
-        shutil.copy(ROOT / "Scripts/compile-release-spotty.sh", scripts)
-        (scripts / "swiftpm-env.sh").write_text("# Toolchain-free environment fixture\n")
-        (scripts / "playback-xcframework.sh").write_text(
-            "spotty_playback_resolve_xcframework() { printf 'captured-artifact'; return 37; }\n")
-        result = subprocess.run([shutil.which("zsh"), str(scripts / "compile-release-spotty.sh")],
-                                env={**os.environ, "SPOTTY_CI_TIMINGS_REPORT": str(self.report)},
+        shutil.copy2(ROOT / "Scripts/compile-release-spotty.sh", scripts)
+        (self.root / "Rune").mkdir()
+        cargo = self.root / "cargo-fixture"
+        cargo.write_text(f'''#!{sys.executable}
+import json, pathlib, sys
+with pathlib.Path("calls.jsonl").open("a") as output:
+    output.write(json.dumps(sys.argv[1:]) + "\\n")
+sys.exit(37)
+''')
+        cargo.chmod(0o755)
+        result = subprocess.run([str(scripts / "compile-release-spotty.sh")],
+                                cwd=self.root, env={**os.environ, "SPOTTY_CARGO": "./cargo-fixture"},
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual((result.returncode, result.stdout, result.stderr), (37, "", ""))
-        rows = [json.loads(line) for line in self.report.read_text().splitlines()]
-        resolution = [row for row in rows if row["phase"] == "release.artifact.resolve"]
-        self.assertEqual(len(resolution), 1)
-        self.assertEqual(resolution[0]["status"], 37)
-
-
-@unittest.skipUnless(shutil.which("zsh"), "playback build entry point requires zsh")
-class CargoTimingFlagTests(unittest.TestCase):
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
-        self.backend = self.root / "Backend/spotty-playback"
-        self.backend.mkdir(parents=True)
-        shutil.copy(ROOT / "Backend/spotty-playback/build.sh", self.backend)
-        (self.backend / "macos-deployment-target").write_text("26.0\n")
-        self.cargo = self.root / "cargo-fixture"
-        self.cargo.write_text(f'''#!{sys.executable}
-import json, os, pathlib, sys
-with pathlib.Path("cargo-calls.jsonl").open("a") as output:
-    output.write(json.dumps(sys.argv[1:]) + "\\n")
-if int(os.environ.get("FIXTURE_CARGO_STATUS", "0")):
-    sys.exit(int(os.environ["FIXTURE_CARGO_STATUS"]))
-archive = pathlib.Path("target/aarch64-apple-darwin/release/libspotty_playback.a")
-archive.parent.mkdir(parents=True, exist_ok=True)
-archive.write_bytes(b"fixture archive")
-''')
-        self.cargo.chmod(0o755)
-
-    def run_build(self, *, enabled, status=0):
-        environment = {**os.environ, "SPOTTY_CARGO": str(self.cargo),
-                       "FIXTURE_CARGO_STATUS": str(status)}
-        for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_WRAPPER",
-                     "RUSTC_WORKSPACE_WRAPPER", "MACOSX_DEPLOYMENT_TARGET",
-                     "SPOTTY_CI_TIMINGS_REPORT"):
-            environment.pop(name, None)
-        if enabled:
-            environment["SPOTTY_CI_TIMINGS_REPORT"] = str(self.root / "timings.jsonl")
-        return subprocess.run([str(self.backend / "build.sh"), "--output", str(self.root / "output.a")],
-                              env=environment, capture_output=True, text=True, timeout=10)
-
-    def test_opt_in_retains_exact_locked_release_target_flags(self):
-        expected = ["build", "--release", "--locked", "--target", "aarch64-apple-darwin"]
-        for enabled in (False, True):
-            with self.subTest(enabled=enabled):
-                calls = self.backend / "cargo-calls.jsonl"
-                calls.unlink(missing_ok=True)
-                result = self.run_build(enabled=enabled)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual([json.loads(line) for line in calls.read_text().splitlines()],
-                                 [expected + (["--timings"] if enabled else [])])
-                self.assertEqual((self.root / "output.a").read_bytes(), b"fixture archive")
-
-    def test_failed_cargo_is_not_retried_or_copied(self):
-        result = self.run_build(enabled=True, status=41)
-        self.assertEqual(result.returncode, 41, result.stderr)
-        self.assertEqual(len((self.backend / "cargo-calls.jsonl").read_text().splitlines()), 1)
-        self.assertFalse((self.root / "output.a").exists())
+        calls = (self.root / "Rune" / "calls.jsonl").read_text().splitlines()
+        self.assertEqual([json.loads(line) for line in calls], [["build", "--locked", "--release"]])
 
 
 if __name__ == "__main__":

@@ -273,15 +273,3 @@ pub fn duration(seconds: f64) -> String {
         format!("{} sec", seconds % 60)
     }
 }
-
-pub fn grouped(number: u64) -> String {
-    let digits = number.to_string();
-    let mut grouped = String::new();
-    for (i, digit) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            grouped.push(',');
-        }
-        grouped.push(digit);
-    }
-    grouped
-}

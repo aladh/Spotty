@@ -4,7 +4,7 @@ The Cargo graph builds the Rune app and its internal playback module in one bina
 
 ## CI and release workflow
 
-CI verifies the locked Rust graph on Linux and Apple Silicon. Linux runs the integrated checks, checks each transport trace and records the reference UI scene. The Apple job builds, tests, signs and validates the release app bundle. The required `macOS checks` job requires both lanes to succeed. [CI](../../../.github/workflows/ci.yml) · [Synthetic evidence](../../development/synthetic-acceptance.md)
+CI verifies the locked Rust graph on Linux and Apple Silicon. Linux runs the integrated checks, checks each transport trace and records the reference UI scene. The Apple job builds, tests, signs and validates the release app bundle. The required `macOS checks` job requires both lanes and `Source policies` to succeed. [CI](../../../.github/workflows/ci.yml) · [Synthetic evidence](../../development/synthetic-acceptance.md)
 
 Rune archive staging requires a matching tag, app version, release notes and successful CI for the source revision. [Release workflow](../../../.github/workflows/release.yml) · [Release procedure](../../development/releases.md)
 

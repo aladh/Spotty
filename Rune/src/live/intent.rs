@@ -31,19 +31,24 @@ impl Dispatch {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) enum Occurrence {
-    Id(String),
-    Uri(String),
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Occurrence {
+    uid: String,
+    uri: String,
+    provider: String,
 }
 
 impl Occurrence {
     pub(super) fn of(track: &engine::QueueTrack) -> Self {
-        if track.uid.is_empty() {
-            Self::Uri(track.uri.clone())
-        } else {
-            Self::Id(track.uid.clone())
+        Self {
+            uid: track.uid.clone(),
+            uri: track.uri.clone(),
+            provider: track.provider.clone(),
         }
+    }
+
+    fn matches(&self, track: &engine::QueueTrack) -> bool {
+        self.uid == track.uid && self.uri == track.uri && self.provider == track.provider
     }
 }
 
@@ -285,11 +290,10 @@ impl Pending {
         {
             return Match::Awaiting;
         }
-        let rows = upcoming(queue);
         let confirmed = match &self.intent {
             Intent::Add(_) => self.added.as_ref().is_some_and(|expected| {
                 let mut counts = HashMap::new();
-                for (_, track) in &rows {
+                for (_, track) in upcoming(queue) {
                     if track.provider == "queue" && expected.contains_key(&track.uri) {
                         *counts.entry(&track.uri).or_insert(0) += 1;
                     }
@@ -298,9 +302,13 @@ impl Pending {
                     .iter()
                     .all(|(uri, count)| counts.get(uri).is_some_and(|seen| seen >= count))
             }),
-            Intent::Replace { removed, .. } => rows
-                .iter()
-                .all(|(_, row)| !removed.contains(&Occurrence::of(row))),
+            Intent::Replace { remaining, .. } => {
+                remaining.len() == queue.next.len()
+                    && remaining
+                        .iter()
+                        .zip(&queue.next)
+                        .all(|(expected, row)| expected.matches(row))
+            }
             _ => false,
         };
         if confirmed {
@@ -382,7 +390,7 @@ mod tests {
         let mut pending = Pending::new(
             Intent::Replace {
                 payload: serde_json::Value::Null,
-                removed: Vec::new(),
+                remaining: Vec::new(),
             },
             &Playback::default(),
             Owner::Remote("speaker".into()),
@@ -399,5 +407,54 @@ mod tests {
         assert!(pending.acknowledge());
         drop(pending);
         assert!(!permit.begin(), "a settled permit cannot send again");
+    }
+
+    #[test]
+    fn replacement_requires_the_requested_remaining_occurrences_in_order() {
+        let track = |id: &str| engine::QueueTrack {
+            uri: "spotify:track:duplicate".into(),
+            uid: id.into(),
+            provider: "queue".into(),
+            metadata: Default::default(),
+            removed: Vec::new(),
+            blocked: Vec::new(),
+            restrictions: Default::default(),
+            album_uri: String::new(),
+            disallow_reasons: Vec::new(),
+            artist_uri: String::new(),
+        };
+        let playback = Playback {
+            uri: "spotify:track:current".into(),
+            ..Playback::default()
+        };
+        let owner = Owner::Remote("speaker".into());
+        let pending = Pending::new(
+            Intent::Replace {
+                payload: serde_json::Value::Null,
+                remaining: [track("one"), track("two")]
+                    .iter()
+                    .map(Occurrence::of)
+                    .collect(),
+            },
+            &playback,
+            owner.clone(),
+            None,
+        );
+        pending.dispatch.started.set((10, Instant::now())).unwrap();
+        let observation = |next| engine::Queue {
+            sequence: 11,
+            generation: 7,
+            revision: Some("revision".into()),
+            track: playback.uri.clone(),
+            context: String::new(),
+            next,
+            previous: Vec::new(),
+            removal_disallowed: false,
+        };
+        let matches = |next| pending.queue(&observation(next), &playback, &owner);
+        assert!(matches(vec![track("one")]) == Match::Awaiting);
+        assert!(matches(vec![track("two"), track("one")]) == Match::Awaiting);
+        assert!(matches(vec![track("one"), track("replacement")]) == Match::Awaiting);
+        assert!(matches(vec![track("one"), track("two")]) == Match::Confirmed);
     }
 }

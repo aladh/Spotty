@@ -2,9 +2,31 @@
 import base64
 import os
 import plistlib
+import posixpath
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+
+
+def feed_endpoint(url):
+    return (
+        url.hostname.rstrip("."),
+        url.port or 443,
+        posixpath.normpath(unquote(url.path or "/")),
+    )
+
+
+def validate_update_feed(feed, legacy_feed):
+    message = "Set SPOTTY_RUNE_UPDATE_FEED_URL to the dedicated HTTPS Rune appcast"
+    try:
+        url = urlsplit(feed)
+        if (url.scheme == "https" and url.hostname and url.port != 0 and
+                url.username is None and url.password is None and "#" not in feed and
+                feed_endpoint(url) != feed_endpoint(urlsplit(legacy_feed))):
+            return
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ValueError(message) from error
+    raise ValueError(message)
 
 
 def configure(info, upstream, env):
@@ -16,10 +38,7 @@ def configure(info, upstream, env):
     key = env.get("SPOTTY_RUNE_UPDATE_PUBLIC_KEY", "")
     if not (feed or key):
         return
-    url = urlsplit(feed)
-    if (url.scheme != "https" or not url.hostname or url.username is not None or
-            url.password is not None or url.fragment or feed == upstream["SUFeedURL"]):
-        raise ValueError("Set SPOTTY_RUNE_UPDATE_FEED_URL to the dedicated HTTPS Rune appcast")
+    validate_update_feed(feed, upstream["SUFeedURL"])
     public_key = base64.b64decode(key, validate=True)
     if len(public_key) != 32 or public_key == base64.b64decode(upstream["SUPublicEDKey"]):
         raise ValueError("Set SPOTTY_RUNE_UPDATE_PUBLIC_KEY to the dedicated Rune Ed25519 public key")

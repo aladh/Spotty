@@ -81,20 +81,20 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$info_plist")" !=
 fi
 
 sparkle_framework="$app_path/Contents/Frameworks/Sparkle.framework"
-python3 - "$info_plist" "${0:A:h:h}/Packaging/Info.plist" "$sparkle_framework" <<'PYTHON'
+python3 - "$info_plist" "${0:A:h:h}/Packaging/Info.plist" "$sparkle_framework" "${0:A:h:h}/Rune/configure-updates.py" <<'PYTHON'
 import base64
 import os
 import pathlib
 import plistlib
+import runpy
 import sys
-from urllib.parse import urlsplit
 
-plist, legacy, framework = map(pathlib.Path, sys.argv[1:])
+plist, legacy, framework, config = map(pathlib.Path, sys.argv[1:])
 info = plistlib.loads(plist.read_bytes())
 upstream = plistlib.loads(legacy.read_bytes())
 if info.get("SpottyRuneUpdateChannel") == "rune":
     try:
-        feed = urlsplit(info.get("SUFeedURL", ""))
+        runpy.run_path(str(config))["validate_update_feed"](info.get("SUFeedURL", ""), upstream["SUFeedURL"])
         key = base64.b64decode(info.get("SUPublicEDKey", ""), validate=True)
     except (TypeError, ValueError):
         raise SystemExit("Invalid Rune update feed or Ed25519 key")
@@ -102,9 +102,6 @@ if info.get("SpottyRuneUpdateChannel") == "rune":
                "SUAllowsAutomaticUpdates": False, "SUEnableAutomaticChecks": True, "SUSendProfileInfo": False}
     executable = framework / "Sparkle"
     if (not executable.is_file() or not os.access(executable, os.X_OK)
-            or feed.scheme != "https" or not feed.hostname
-            or feed.username is not None or feed.password is not None or feed.fragment
-            or info["SUFeedURL"] == upstream["SUFeedURL"]
             or len(key) != 32 or key == base64.b64decode(upstream["SUPublicEDKey"])
             or any(info.get(k) is not v for k, v in options.items())):
         raise SystemExit("Invalid Rune update configuration or embedded framework")

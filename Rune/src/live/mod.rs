@@ -1387,21 +1387,16 @@ impl Worker {
     fn cache_directory(&self) -> Option<PathBuf> {
         let account = self.profile.as_ref()?;
         let id = hex(Sha256::digest(account.as_bytes()).as_slice());
-        let path = self.files.root().join("RuneCatalog");
-        auth::secure_dir(&path).ok()?;
-        let path = path.join(id);
-        auth::secure_dir(&path).ok()?;
-        Some(path)
+        Some(self.files.root().join("RuneCatalog").join(id))
     }
 
     fn save(&self, name: &str, payload: &impl serde::Serialize) {
-        if let Some(path) = self.cache_directory()
+        if let Some(session) = &self.session
+            && let Some(path) = self.cache_directory()
             && let Ok(bytes) = serde_json::to_vec(payload)
             && bytes.len() < 16 * 1024 * 1024
         {
-            let _ = self
-                .files
-                .write_catalog(&path.join(format!("{name}.json")), &bytes);
+            let _ = session.write_catalog(&path.join(format!("{name}.json")), &bytes);
         }
     }
 
@@ -2156,7 +2151,7 @@ enum Intent {
     Add(Vec<String>),
     Replace {
         payload: Value,
-        removed: Vec<Occurrence>,
+        remaining: Vec<Occurrence>,
     },
 }
 
@@ -2498,13 +2493,9 @@ impl Worker {
                     .enumerate()
                     .filter_map(|(i, row)| (!indices.contains(&i)).then_some(row))
                     .collect();
-                let removed = indices
-                    .iter()
-                    .map(|index| Occurrence::of(&queue.next[*index]))
-                    .collect();
                 Intent::Replace {
                     payload: json!({"endpoint": "set_queue", "next_tracks": next, "prev_tracks": queue.previous, "queue_revision": queue.revision}),
-                    removed,
+                    remaining: next.into_iter().map(Occurrence::of).collect(),
                 }
             }
             _ => return,

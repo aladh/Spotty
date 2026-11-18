@@ -104,10 +104,21 @@ impl Storage {
         }
     }
 
-    /// Bound account metadata under the same directory lock used by readers, writers and purge.
-    pub fn write_catalog(&self, path: &Path, bytes: &[u8]) -> Result<()> {
+    /// Fence stale writers against the same durable retirement marker used for grants.
+    pub(super) fn write_catalog(&self, grant: &[u8; 32], path: &Path, bytes: &[u8]) -> Result<()> {
+        let session = lock_dir(&self.session)?;
+        if Self::retirement_at(&session)?.is_some()
+            || Self::read_grant(&session)?.is_none_or(|saved| {
+                saved.requires_reauthentication || &saved.fingerprint() != grant
+            })
+        {
+            return Err(Failure::Retired);
+        }
         let directory = path.parent().ok_or(Failure::Storage)?;
+        let root = directory.parent().ok_or(Failure::Storage)?;
+        let _root_lock = catalog_lock(&private_dir(root, true)?, "catalog-ownership.lock")?;
         let name = path.file_name().ok_or(Failure::Storage)?;
+        secure_dir(directory)?;
         let parent = lock_dir(directory)?;
         write_bounded(&parent, name, bytes, 128, 64 * 1024 * 1024)
     }
@@ -202,11 +213,12 @@ fn write_bounded(
     }
     // Prefer complete shared surfaces and history. Among routes, reclaim the oldest first.
     entries.sort_unstable();
+    let mut evictions = Vec::new();
     for (_, _, candidate, size) in entries {
         if count <= limit && total <= budget {
             break;
         }
-        remove_regular(parent, &candidate)?;
+        evictions.push(candidate);
         total -= size;
         count -= 1;
     }
@@ -216,7 +228,14 @@ fn write_bounded(
     let mut stage = std::ffi::OsString::from(".");
     stage.push(name);
     stage.push(".pending");
-    write_at(parent, name, &stage, bytes)
+    write_at(parent, name, &stage, bytes)?;
+    if evictions.is_empty() {
+        return Ok(());
+    }
+    for candidate in evictions {
+        remove_regular(parent, &candidate)?;
+    }
+    parent.sync_all().map_err(io_failure)
 }
 
 fn catalog_lock(parent: &File, name: &str) -> Result<File> {
@@ -241,11 +260,8 @@ fn purge_catalog(storage: &File, name: &str, sqlite: bool) -> Result<()> {
         Err(Errno::NOENT) => return Ok(()),
         Err(error) => return Err(io_failure(error)),
     };
-    // The stable Swift root lock prevents a purge racing an open database, even
-    // before a live Spotify profile proves which account owns this execution.
-    let _root_lock = sqlite
-        .then(|| catalog_lock(&root, "catalog-ownership.lock"))
-        .transpose()?;
+    // Both writers and retirement use the root lock before touching account paths.
+    let _root_lock = catalog_lock(&root, "catalog-ownership.lock")?;
     let mut result = Ok(());
     for entry in unix::Dir::read_from(&root).map_err(io_failure)? {
         let entry = entry.map_err(io_failure)?;
@@ -357,6 +373,21 @@ mod tests {
     }
 
     #[test]
+    fn failed_catalog_publication_keeps_existing_entries() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().canonicalize().unwrap();
+        let parent = lock_dir(&path).unwrap();
+        std::fs::write(path.join("library.json"), b"existing").unwrap();
+        std::fs::create_dir(path.join("home.json")).unwrap();
+        let result = write_bounded(&parent, OsStr::new("home.json"), b"new", 1, 12);
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read(path.join("library.json")).unwrap(),
+            b"existing"
+        );
+    }
+
+    #[test]
     fn purge_respects_main_database_locks_and_preserves_unrelated_files() {
         let fixture = tempfile::tempdir().unwrap();
         let parent = fixture.path().canonicalize().unwrap();
@@ -388,6 +419,14 @@ mod tests {
         assert!(purge_catalog(&root, "Catalog", true).is_err());
         assert!(db.join("catalog.sqlite").exists());
         drop(active);
+        let rune_lock = catalog_lock(
+            &File::open(rune.parent().unwrap()).unwrap(),
+            "catalog-ownership.lock",
+        )
+        .unwrap();
+        assert!(purge_catalog(&root, "RuneCatalog", false).is_err());
+        assert!(rune.join("library.json").exists());
+        drop(rune_lock);
         std::os::unix::fs::symlink(db.join("my-notes"), db.join("catalog.sqlite-wal.fixture"))
             .unwrap();
         purge_catalog(&root, "Catalog", true).unwrap();

@@ -87,6 +87,16 @@ pub struct Grant {
     pub requires_reauthentication: bool,
 }
 
+impl Grant {
+    fn fingerprint(&self) -> [u8; 32] {
+        let mut digest = Sha256::new();
+        digest.update(self.access_token.len().to_be_bytes());
+        digest.update(self.access_token.as_bytes());
+        digest.update(self.refresh_token.as_bytes());
+        digest.finalize().into()
+    }
+}
+
 fn schema() -> u32 {
     1
 }
@@ -411,12 +421,14 @@ pub struct Session {
     pub storage: Arc<Storage>,
     pub device: String,
     grant: AsyncMutex<SessionGrant>,
+    committed_grant: Mutex<[u8; 32]>,
     client_token: AsyncMutex<Option<(String, Instant)>>,
     retired: std::sync::atomic::AtomicBool,
 }
 
 impl Session {
     pub fn new(http: Client, storage: Arc<Storage>, device: String, grant: Grant) -> Self {
+        let committed_grant = Mutex::new(grant.fingerprint());
         Self {
             http,
             storage,
@@ -425,6 +437,7 @@ impl Session {
                 value: grant,
                 previous: None,
             }),
+            committed_grant,
             client_token: AsyncMutex::new(None),
             retired: false.into(),
         }
@@ -444,6 +457,13 @@ impl Session {
             .store(true, std::sync::atomic::Ordering::Release);
     }
 
+    pub fn write_catalog(&self, path: &Path, bytes: &[u8]) -> Result<()> {
+        let _guard = self.storage.gate.lock().map_err(|_| Failure::Storage)?;
+        self.check()?;
+        let committed = self.committed_grant.lock().map_err(|_| Failure::Storage)?;
+        self.storage.write_catalog(&committed, path, bytes)
+    }
+
     fn save_pending(&self, grant: &mut SessionGrant) -> Result<()> {
         let _guard = self.storage.gate.lock().map_err(|_| Failure::Storage)?;
         self.check()?;
@@ -454,6 +474,7 @@ impl Session {
                     .store(true, std::sync::atomic::Ordering::Release);
             }
             result?;
+            *self.committed_grant.lock().map_err(|_| Failure::Storage)? = grant.value.fingerprint();
             grant.previous = None;
         }
         Ok(())
@@ -771,6 +792,33 @@ mod tests {
         let root = directory.path().canonicalize().unwrap().join("Spotty");
         let storage = Arc::new(Storage::at(root).unwrap());
         (directory, storage)
+    }
+
+    #[test]
+    fn a_retired_grant_cannot_restart_catalog_writes_after_another_login() {
+        let (_directory, storage) = fixture();
+        let saved = grant();
+        storage.publish(&saved).unwrap();
+        let account = storage.root().join("RuneCatalog").join("a".repeat(64));
+        let path = account.join("home.json");
+        let stale = Session::new(Client::new(), Arc::clone(&storage), "device".into(), saved);
+        let in_flight_refresh = stale.grant.try_lock().unwrap();
+        stale.write_catalog(&path, b"before").unwrap();
+        drop(in_flight_refresh);
+        storage.clear().unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            stale.write_catalog(&path, b"after"),
+            Err(Failure::Retired)
+        ));
+        let mut replacement = grant();
+        replacement.access_token = "replacement".into();
+        storage.publish(&replacement).unwrap();
+        assert!(matches!(
+            stale.write_catalog(&path, b"after"),
+            Err(Failure::Retired)
+        ));
+        assert!(!path.exists());
     }
 
     fn grant() -> Grant {

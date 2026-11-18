@@ -202,3 +202,15 @@ pub struct Request<'a> {
     pub number: Option<f64>,
     pub stamp: Stamp,
 }
+
+pub fn grouped(number: u64) -> String {
+    let digits = number.to_string();
+    let mut text = String::new();
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            text.push(',');
+        }
+        text.push(ch);
+    }
+    text
+}

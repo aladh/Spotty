@@ -1,5 +1,8 @@
 use super::{SCROLL, components::*};
-use crate::{Menu, MenuSource, Sort, State, model::Route};
+use crate::{
+    Menu, MenuSource, Sort, State,
+    model::{Route, grouped},
+};
 use rune::{Cursor, El, GrowthSpec, col, el, row};
 
 #[derive(Clone, Copy)]

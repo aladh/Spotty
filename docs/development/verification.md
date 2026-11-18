@@ -9,7 +9,7 @@ Run from the repository root. The locked test suite exercises app interaction, a
 ./Scripts/check-transport-traces.sh
 ```
 
-The transport gate verifies all four named regressions are present before running them. Set `SPOTTY_BUILD_CONFIGURATION=release` for the optimized profile. `./Scripts/check-clean.sh` verifies both profiles in a temporary target directory. CI runs Linux and Apple Silicon checks and packages the release configuration on macOS.
+The transport gate verifies all four named regressions are present and runs them in the default debug profile. Set `SPOTTY_BUILD_CONFIGURATION=release` when running `./Scripts/check.sh` to check the optimized profile. `./Scripts/check-clean.sh` verifies both profiles in a temporary target directory. CI runs Linux and Apple Silicon checks and packages the release configuration on macOS.
 
 ## Build and run
 

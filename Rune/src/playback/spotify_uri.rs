@@ -3,8 +3,10 @@ use super::SpotifyUri;
 /// Preserve protocol URI forms; normalize only resource URLs belonging to Spotify.
 pub(crate) fn url_to_uri(input: &str) -> Option<String> {
     // Librespot also supports named, collection, search, and local URI forms.
-    if input.starts_with("spotify:") {
-        return Some(input.to_string());
+    if let Some((scheme, uri)) = input.split_once(':')
+        && scheme.eq_ignore_ascii_case("spotify")
+    {
+        return Some(format!("spotify:{uri}"));
     }
 
     // HTTP URI parsing separates authority, path, and query. Browser fragments are

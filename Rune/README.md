@@ -10,7 +10,7 @@ documentation defines the interaction and layout references. [README screenshot]
 ## Build and run
 
 On an Apple Silicon Mac with macOS 27 or later, install Xcode 27, select it with `xcode-select`,
-and install Python 3 and Rust with rustup. Run the packager from the repository root. It accepts
+and install Python 3.11 or newer and Rust with rustup. Run the packager from the repository root. It accepts
 `SPOTTY_SIGNING_IDENTITY` for signing with a configured identity.
 
 ```sh

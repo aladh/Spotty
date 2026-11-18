@@ -48,7 +48,7 @@ cp "$frontend/Info.plist" "$app/Contents/"
 cp "$project_root/Assets/Spotty.icns" "$app/Contents/Resources/"
 cp "$out/rust/aarch64-apple-darwin/$profile/spotty-rune" "$app/Contents/MacOS/Spotty"
 cp "$project_root/LICENSE" "$project_root/NOTICE" "$app/Contents/Resources/"
-cp "$project_root/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/ThirdPartyNotices.md"
+python3 "$project_root/Scripts/generate-rune-notices.py" --output "$app/Contents/Resources"
 identity="${SPOTTY_SIGNING_IDENTITY:-${SPOTTY_DEVELOPMENT_SIGNING_IDENTITY:--}}"
 sign_args=(--force --options runtime --sign "$identity")
 python3 "$frontend/configure-updates.py" "$app/Contents/Info.plist" "$project_root/Packaging/Info.plist"

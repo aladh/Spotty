@@ -58,6 +58,7 @@ if [[ ! -s "$third_party_notices" ]]; then
     print -u2 "Missing third-party license notices: $third_party_notices"
     exit 1
 fi
+python3 "${0:A:h}/generate-rune-notices.py" --verify "$app_path/Contents/Resources"
 if [[ ! -s "$native_icon_catalog" ]]; then
     print -u2 "Missing compiled native app icon catalog: $native_icon_catalog"
     exit 1

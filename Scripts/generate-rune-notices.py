@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate the notices bundled with the Rust playback XCFramework.
+"""Generate the notices bundled with the Rune app.
 
-The graph is deliberately fixed to the playback manifest and lockfile in this
+The graph is deliberately fixed to the Rune manifest and lockfile in this
 repository. The only inputs that vary for an artifact are the Cargo target
 and the output directory. Python 3.11 is required for its standard-library
 TOML parser.
@@ -16,21 +16,29 @@ import os
 import re
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
-
-if sys.version_info < (3, 11):
-    raise SystemExit("generate-playback-notices.py requires Python 3.11 or newer")
+try:
+    import tomllib
+except ModuleNotFoundError:
+    raise SystemExit("generate-rune-notices.py requires Python 3.11 or newer") from None
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "Backend/spotty-playback/Cargo.toml"
-LOCKFILE = ROOT / "Backend/spotty-playback/Cargo.lock"
+MANIFEST = ROOT / "Rune/Cargo.toml"
+LOCKFILE = ROOT / "Rune/Cargo.lock"
 OVERRIDES = ROOT / "Scripts/playback-license-overrides.json"
 OVERRIDE_DIR = ROOT / "Scripts/playback-license-overrides"
-PREAMBLE = ROOT / "Scripts/playback-notices-preamble.md"
+PREAMBLE = ROOT / "THIRD_PARTY_NOTICES.md"
+INVENTORY_NAME = "ThirdPartyNotices.json"
+RUNE_REPOSITORY = "https://github.com/anomalyco/rune"
+RUNE_ASSET_LICENSES = {
+    "crates/rune/assets/IBMPlexMono-LICENSE.txt": "OFL-1.1",
+    "crates/rune/assets/Inter-LICENSE.txt": "OFL-1.1",
+    "crates/rune-highlights/vendor/LICENSE.md": "Apache-2.0",
+}
 EDGE_SET = "normal,build"
 DEFAULT_TARGET = "aarch64-apple-darwin"
 LEGAL_FILE_PREFIXES = (
@@ -50,6 +58,7 @@ LEGAL_FILE_PREFIXES = (
     "patent",
 )
 LEGAL_TEXT_SUFFIXES = {"", ".txt", ".md", ".markdown", ".rst", ".html"}
+LEGAL_LICENSE_SUFFIXES = {".apache", ".mit", ".chromium"}
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 TREE_PACKAGE_RE = re.compile(
     r"^(?P<name>[^\s]+) v(?P<version>[^\s]+)(?: \((?P<origin>.*)\))?$"
@@ -147,8 +156,8 @@ def load_lockfile() -> dict[tuple[str, str, str], dict[str, Any]]:
     return records
 
 
-def parse_tree(tree: str) -> set[tuple[str, str]]:
-    selected: set[tuple[str, str]] = set()
+def parse_tree(tree: str) -> set[tuple[str, str, str]]:
+    selected: set[tuple[str, str, str]] = set()
     for raw_line in tree.splitlines():
         line = raw_line.strip()
         if not line:
@@ -160,19 +169,33 @@ def parse_tree(tree: str) -> set[tuple[str, str]]:
         match = TREE_PACKAGE_RE.fullmatch(line)
         if not match:
             fail(f"unrecognized cargo tree package line: {raw_line!r}")
-        selected.add((match["name"], match["version"]))
+        selected.add((match["name"], match["version"], match["origin"] or ""))
     if not selected:
         fail("cargo tree returned an empty dependency graph")
     return selected
 
 
-def read_vcs_details(package_dir: Path, kind: str) -> dict[str, str]:
+def tree_key(package: dict[str, Any]) -> tuple[str, str, str]:
+    source = package.get("source")
+    kind = source_kind(source)
+    origin = ""
+    if kind == "path":
+        origin = str(Path(package["manifest_path"]).parent)
+    elif kind == "git":
+        base, revision = source.removeprefix("git+").rsplit("#", 1)
+        origin = f"{base}#{revision[:8]}"
+    return package["name"], package["version"], origin
+
+
+def archive_vcs_details(package_dir: Path) -> dict[str, str]:
     vcs_file = package_dir / ".cargo_vcs_info.json"
     if vcs_file.is_file():
         info = load_json(vcs_file)
         git_info = info.get("git", {}) if isinstance(info, dict) else {}
         revision = git_info.get("sha1") if isinstance(git_info, dict) else None
-        if revision is not None and not REVISION_RE.fullmatch(revision):
+        if revision is not None and (
+            not isinstance(revision, str) or not REVISION_RE.fullmatch(revision)
+        ):
             fail(f"invalid git revision in {vcs_file}: {revision!r}")
         details: dict[str, str] = {}
         if revision:
@@ -181,23 +204,16 @@ def read_vcs_details(package_dir: Path, kind: str) -> dict[str, str]:
         if isinstance(path_in_vcs, str) and path_in_vcs:
             details["path_in_vcs"] = path_in_vcs
         return details
+    return {}
 
-    if kind != "git":
-        return {}
 
+def git_checkout(package_dir: Path) -> tuple[Path, str]:
     for ancestor in (package_dir, *package_dir.parents):
         if (ancestor / ".git").exists():
             revision = run(["git", "-C", str(ancestor), "rev-parse", "HEAD"]).strip()
             if not REVISION_RE.fullmatch(revision):
                 fail(f"git returned an invalid revision for {package_dir}: {revision!r}")
-            try:
-                relative = package_dir.resolve().relative_to(ancestor.resolve())
-            except ValueError:
-                relative = Path()
-            details = {"revision": revision}
-            if str(relative) not in ("", "."):
-                details["path_in_vcs"] = relative.as_posix()
-            return details
+            return ancestor, revision
     fail(f"cannot verify the pinned git revision for {package_dir}")
 
 
@@ -256,10 +272,18 @@ def validate_override(
     package: dict[str, Any],
     vcs_details: dict[str, str],
 ) -> tuple[str, list[dict[str, Any]]]:
+    def repository_path(url: str) -> str:
+        parsed = urlsplit(url)
+        path = parsed.path.split("/tree/", 1)[0].rstrip("/").removesuffix(".git")
+        return f"{parsed.netloc}{path}".lower()
+
+    repository = override.get("source_repository")
+    if not repository or repository_path(repository) != repository_path(package.get("repository") or ""):
+        fail(f"override {override_key} does not match the repository for {package_key(package)}")
     expected = expected_override_revision(override, package)
     if not isinstance(expected, str) or not REVISION_RE.fullmatch(expected):
         fail(f"override {override_key} has no valid source revision for {package_key(package)}")
-    actual = vcs_details.get("revision")
+    actual = vcs_details.get("embedded_revision", vcs_details.get("revision"))
     if not actual:
         fail(f"cannot verify source revision for overridden package {package_key(package)}")
     if actual != expected:
@@ -299,7 +323,7 @@ def validate_override(
                 f"override {override_key} license source URL is not tied to "
                 f"{file_revision}: {source}"
             )
-        explicit_ids.add(license_name)
+        explicit_ids.update(license_ids(license_name))
         validated.append(
             {
                 "path": path,
@@ -307,6 +331,7 @@ def validate_override(
                 "source_path": source_path,
                 "source_url": source,
                 "source_revision": file_revision,
+                "origin": descriptor.get("origin", "checked-in upstream override"),
             }
         )
 
@@ -326,11 +351,12 @@ def package_license_candidates(package: dict[str, Any]) -> list[Path]:
         fail(f"Cargo metadata package directory is missing: {package_dir}")
     candidates: set[Path] = set()
     for path in package_dir.rglob("*"):
-        if (
-            path.is_file()
-            and path.name.lower().startswith(LEGAL_FILE_PREFIXES)
-            and path.suffix.lower() in LEGAL_TEXT_SUFFIXES
-        ):
+        suffix = path.suffix.lower()
+        stem = path.stem.lower()
+        legal_name = stem.endswith("-license") or path.name.lower().startswith(LEGAL_FILE_PREFIXES)
+        legal_text = legal_name and suffix in LEGAL_TEXT_SUFFIXES
+        named_license = stem == "license" and suffix in LEGAL_LICENSE_SUFFIXES
+        if (legal_text or named_license) and path.is_file():
             resolved = path.resolve()
             try:
                 resolved.relative_to(package_dir)
@@ -418,6 +444,7 @@ def collect_package(
     key = package_key(package)
     source = package.get("source")
     kind = source_kind(source)
+    rune_checkout = kind == "git" and source.split("?", 1)[0] == f"git+{RUNE_REPOSITORY}"
     lock_key = (package["name"], package["version"], source or "")
     lock_record = lock_records.get(lock_key)
     if lock_record is None:
@@ -432,6 +459,8 @@ def collect_package(
         "authors": sorted(package.get("authors") or []),
         "license_files": [],
     }
+    if not package["license"] and not package.get("license_file"):
+        fail(f"Cargo package {key} has no declared license metadata")
     if package.get("repository"):
         record["repository"] = package["repository"]
 
@@ -454,7 +483,15 @@ def collect_package(
         fail(f"unsupported non-workspace package source for {key}: {source!r}")
 
     package_dir = Path(package["manifest_path"]).resolve().parent
-    vcs = read_vcs_details(package_dir, kind)
+    vcs = archive_vcs_details(package_dir)
+    checkout = None
+    if kind == "git":
+        checkout, revision = git_checkout(package_dir)
+        relative = package_dir.relative_to(checkout).as_posix()
+        embedded = vcs
+        vcs = {"revision": revision, "path_in_vcs": relative}
+        if rune_checkout and relative.startswith("vendor/"):
+            vcs.update({f"embedded_{name}": value for name, value in embedded.items()})
     if kind == "path":
         upstream_file = expected.parent.parent / "UPSTREAM"
         try:
@@ -471,6 +508,9 @@ def collect_package(
         record["source_revision"] = vcs["revision"]
     if vcs.get("path_in_vcs"):
         record["source_path_in_vcs"] = vcs["path_in_vcs"]
+    if vcs.get("embedded_revision"):
+        record["embedded_source_revision"] = vcs["embedded_revision"]
+        record["embedded_source_path_in_vcs"] = vcs.get("embedded_path_in_vcs", "")
     if kind == "git" and vcs.get("revision") != record["git_revision"]:
         fail(
             f"git revision mismatch for {key}: expected {record['git_revision']}, "
@@ -490,21 +530,48 @@ def collect_package(
     archive_files = package_license_candidates(package)
     archive_license_records: list[dict[str, Any]] = []
     package_url = source_url(package, kind)
+    origin = {"git": "Cargo git checkout", "path": "retained workspace source"}.get(
+        kind, "package source archive"
+    )
     for path in archive_files:
         resolved = path.resolve()
         try:
             source_path = resolved.relative_to(package_dir).as_posix()
         except ValueError:
             fail(f"license file escaped package source directory: {path}")
+        if checkout and vcs["path_in_vcs"] != ".":
+            source_path = f"{vcs['path_in_vcs']}/{source_path}"
+        license_name = package["license"]
+        if rune_checkout:
+            license_name = RUNE_ASSET_LICENSES.get(source_path, license_name)
         archive_license_records.append(
             document_reference(
                 resolved.read_bytes(),
                 package=key,
-                license_name=package["license"],
-                origin="package source archive",
+                license_name=license_name,
+                origin=origin,
                 source_path=source_path,
                 source_url=package_url,
                 source_revision=vcs.get("revision"),
+                documents=documents,
+            )
+        )
+
+    if (
+        checkout
+        and rune_checkout
+        and vcs["path_in_vcs"].startswith("crates/rune")
+        and package["license"] in {"MIT", "MIT AND Apache-2.0"}
+    ):
+        archive_license_records.append(
+            document_reference(
+                (checkout / "LICENSE").read_bytes(),
+                package=key,
+                license_name="MIT",
+                origin="checkout workspace license",
+                source_path="LICENSE",
+                source_url=f"{RUNE_REPOSITORY}/blob/{vcs['revision']}/LICENSE",
+                source_revision=vcs["revision"],
                 documents=documents,
             )
         )
@@ -517,7 +584,7 @@ def collect_package(
                 descriptor["path"].read_bytes(),
                 package=key,
                 license_name=descriptor["license"],
-                origin="checked-in upstream override",
+                origin=descriptor["origin"],
                 source_path=descriptor["source_path"],
                 source_url=descriptor["source_url"],
                 source_revision=descriptor["source_revision"],
@@ -540,8 +607,8 @@ def collect_package(
     if override_key:
         record["license_override"] = override_key
         record["license_override_note"] = (
-            f"Checked-in text is tied to upstream commit {expected_override}; "
-            "the per-file source URLs are recorded in the manifest."
+            f"Override selected for upstream commit {expected_override}. "
+            "Each text has its own source URL and revision."
         )
     return record
 
@@ -560,10 +627,10 @@ def render_markdown(
     input_hashes: dict[str, str],
 ) -> str:
     tick = chr(96)
-    lines = [preamble.rstrip(), "", "<!-- BEGIN GENERATED PLAYBACK DEPENDENCY REPORT -->", ""]
+    lines = [preamble.rstrip(), ""]
     lines.extend(
         [
-            "## Generated playback dependency report",
+            "## Generated Rune dependency inventory",
             "",
             f"- Target: {tick}{target}{tick}",
             f"- Cargo graph edges: {tick}{EDGE_SET}{tick}",
@@ -573,20 +640,19 @@ def render_markdown(
             ),
             f"- Third-party packages: {len(package_records)}",
             f"- Unique full license texts: {len(documents)}",
-            f"- Machine-readable inventory: {tick}manifest.json{tick}",
+            f"- Machine-readable inventory: [{INVENTORY_NAME}]({INVENTORY_NAME})",
             "",
             (
-                "Every file in the adjacent licenses directory is a full UTF-8 "
-                "license or notice text copied byte-for-byte from the package source "
-                "archive or from an explicitly pinned upstream override. The manifest "
-                "records each file's digest, source location, and package association."
+                "The licenses directory contains the collected license and notice texts. "
+                "The inventory records each file's digest, source location, and package association. "
+                "It labels canonical license references and package declarations where "
+                "the upstream archive omits the license text."
             ),
             "",
             (
-                "The graph and all source inputs are regenerated by the fixed-input "
-                "Scripts/generate-playback-notices.py command. The generator fails "
-                "when a package has no discoverable license text and no explicit "
-                "override."
+                "Scripts/generate-rune-notices.py regenerates the inventory from the "
+                "locked graph and fails when a package has neither a discoverable license "
+                "text nor an explicit override."
             ),
             "",
             "Input SHA-256:",
@@ -612,7 +678,7 @@ def render_markdown(
             f"[{markdown_cell(source)}]({source})" if source else "(workspace)"
         )
         text_cell = "<br>".join(
-            f"{tick}{item['bundle_path']}{tick}"
+            f"[{tick}{item['bundle_path']}{tick}]({item['bundle_path']})"
             for item in package["license_files"]
         )
         lines.append(
@@ -652,7 +718,7 @@ def render_markdown(
             )
             + " |"
         )
-    lines.extend(["", "<!-- END GENERATED PLAYBACK DEPENDENCY REPORT -->", ""])
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -675,11 +741,8 @@ def write_output(
         (output / document["bundle_path"]).write_bytes(document["content"])
 
     input_hashes = {
-        "Backend/spotty-playback/Cargo.toml": sha256_file(MANIFEST),
-        "Backend/spotty-playback/Cargo.lock": sha256_file(LOCKFILE),
-        "Scripts/playback-license-overrides.json": sha256_file(OVERRIDES),
-        "Scripts/playback-notices-preamble.md": sha256_file(PREAMBLE),
-        "Scripts/generate-playback-notices.py": sha256_file(Path(__file__).resolve()),
+        path.relative_to(ROOT).as_posix(): sha256_file(path)
+        for path in (MANIFEST, LOCKFILE, OVERRIDES, PREAMBLE, Path(__file__).resolve())
     }
     for path in sorted(override_inputs):
         try:
@@ -701,7 +764,7 @@ def write_output(
         ],
         "outputs": {
             "notices": "ThirdPartyNotices.md",
-            "manifest": "manifest.json",
+            "manifest": INVENTORY_NAME,
             "license_directory": "licenses",
         },
         "packages": package_records,
@@ -720,7 +783,7 @@ def write_output(
             for digest, document in sorted(documents.items())
         ],
     }
-    (output / "manifest.json").write_text(
+    (output / INVENTORY_NAME).write_text(
         json.dumps(inventory, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
@@ -744,29 +807,7 @@ def generate(target: str, output: Path) -> tuple[int, int]:
         if not path.is_file():
             fail(f"required input is missing: {path}")
 
-    metadata = load_json_from_cargo(
-        [
-            "cargo",
-            "metadata",
-            "--manifest-path",
-            str(MANIFEST),
-            "--locked",
-            "--format-version",
-            "1",
-            "--filter-platform",
-            target,
-        ]
-    )
-    packages = metadata.get("packages")
-    if not isinstance(packages, list):
-        fail("cargo metadata did not return a package list")
-    by_name_version: dict[tuple[str, str], dict[str, Any]] = {}
-    for package in packages:
-        key = (package["name"], package["version"])
-        if key in by_name_version:
-            fail(f"ambiguous package identity in cargo metadata: {package_key(package)}")
-        by_name_version[key] = package
-
+    metadata = cargo_metadata(target)
     tree = run(
         [
             "cargo",
@@ -782,15 +823,27 @@ def generate(target: str, output: Path) -> tuple[int, int]:
             "none",
             "--format",
             "{p}",
-        ]
+        ],
+        cwd=MANIFEST.parent,
     )
     graph_keys = parse_tree(tree)
-    selected: list[dict[str, Any]] = []
-    for key in sorted(graph_keys):
-        package = by_name_version.get(key)
-        if package is None:
-            fail(f"cargo tree package is missing from cargo metadata: {key[0]} v{key[1]}")
-        selected.append(package)
+    packages = {package["id"]: package for package in metadata["packages"]}
+    if graph_keys - {tree_key(package) for package in packages.values()}:
+        # Cargo tree includes the host's build dependencies even when targeting another platform.
+        cargo_version = run(["cargo", "-vV"], cwd=MANIFEST.parent)
+        host = re.search(r"^host: (\S+)$", cargo_version, re.MULTILINE)
+        if host and host[1] != target:
+            packages.update({package["id"]: package for package in cargo_metadata(host[1])["packages"]})
+    by_origin: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for package in packages.values():
+        key = tree_key(package)
+        if key in graph_keys:
+            if key in by_origin:
+                fail(f"ambiguous package identity in cargo tree: {key}")
+            by_origin[key] = package
+    if missing := graph_keys - by_origin.keys():
+        fail(f"cargo tree packages are missing from cargo metadata: {sorted(missing)}")
+    selected = list(by_origin.values())
 
     workspace_members = set(metadata.get("workspace_members") or [])
     roots = [package for package in selected if package["id"] in workspace_members]
@@ -819,7 +872,7 @@ def generate(target: str, output: Path) -> tuple[int, int]:
         key=lambda package: (
             package["name"],
             package["version"],
-            package.get("source", ""),
+            package["source"] or "",
         )
     )
     write_output(
@@ -833,31 +886,81 @@ def generate(target: str, output: Path) -> tuple[int, int]:
     return len(package_records), len(documents)
 
 
-def load_json_from_cargo(command: list[str]) -> dict[str, Any]:
-    text = run(command)
+def cargo_metadata(target: str) -> dict[str, Any]:
+    text = run(
+        [
+            "cargo", "metadata", "--manifest-path", str(MANIFEST), "--locked",
+            "--format-version", "1", "--filter-platform", target,
+        ],
+        cwd=MANIFEST.parent,
+    )
     try:
         value = json.loads(text)
     except json.JSONDecodeError as exc:
         fail(f"cargo metadata returned invalid JSON: {exc}")
-    if not isinstance(value, dict):
-        fail("cargo metadata returned a non-object")
+    if not isinstance(value, dict) or not isinstance(value.get("packages"), list):
+        fail("cargo metadata did not return a package list")
     return value
+
+
+def verify_output(output: Path, target: str) -> tuple[int, int]:
+    inventory = load_json(output / INVENTORY_NAME)
+    try:
+        packages = inventory["packages"]
+        texts = inventory["license_texts"]
+        if (
+            inventory["target"] != target
+            or inventory["root_package"]["name"] != "spotty-rune"
+            or inventory["package_count"] != len(packages)
+            or inventory["license_text_count"] != len(texts)
+            or not packages
+            or not texts
+        ):
+            fail("bundle notice inventory has an unexpected target, root package, or count")
+        checked = set()
+        for text in texts:
+            digest = text["sha256"]
+            path = f"licenses/sha256-{digest}.txt"
+            if not re.fullmatch(r"[0-9a-f]{64}", digest) or text["bundle_path"] != path:
+                fail("bundle notice inventory contains an invalid license path")
+            content = (output / path).read_bytes()
+            if len(content) != text["bytes"] or sha256_bytes(content) != digest:
+                fail(f"bundle license text does not match the inventory: {path}")
+            checked.add(path)
+        references = set()
+        for package in packages:
+            paths = {text["bundle_path"] for text in package["license_files"]}
+            if not paths:
+                fail(f"bundle notice inventory lacks a license for {package_key(package)}")
+            references.update(paths)
+        if references != checked or len(checked) != len(texts):
+            fail("bundle notice inventory contains inconsistent license references")
+    except (KeyError, TypeError, OSError) as exc:
+        fail(f"cannot verify bundle notice inventory: {exc}")
+    return len(packages), len(texts)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate the locked Rust playback dependency notices."
+        description="Generate the locked Rune dependency notices."
     )
     parser.add_argument("--target", default=DEFAULT_TARGET)
-    parser.add_argument("--output", required=True, type=Path)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--output", type=Path, help="generate notices in this directory")
+    action.add_argument("--verify", type=Path, help="verify notices in this directory")
     args = parser.parse_args()
     try:
-        package_count, document_count = generate(args.target, args.output.resolve())
+        if args.verify:
+            package_count, document_count = verify_output(args.verify, args.target)
+            verb = "verified"
+        else:
+            package_count, document_count = generate(args.target, args.output.resolve())
+            verb = "generated"
     except GenerationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(
-        f"generated {package_count} package notices and "
+        f"{verb} {package_count} package notices and "
         f"{document_count} unique license texts"
     )
     return 0

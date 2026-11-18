@@ -88,8 +88,20 @@ jobs:
           test "$(xcrun --sdk macosx --show-sdk-version)" = 27.0
       - name: Build and test the native app
         run: ./Scripts/check.sh
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
       - name: Package and verify the release bundle
         run: ./Scripts/package-app.sh --release
+      - name: Upload verified bundle notice inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundle-notices-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            Spotty.app/Contents/Resources/ThirdPartyNotices.md
+            Spotty.app/Contents/Resources/ThirdPartyNotices.json
+            Spotty.app/Contents/Resources/licenses
+          if-no-files-found: error
 
   macos:
     name: macOS checks

@@ -1,195 +1,369 @@
 {
-  "dasp_sample@0.11.0": {
-    "source_repository": "https://github.com/RustAudio/dasp",
-    "source_revision": "97c3bb9b2363c0b46ac1633858bf1054fd02a980",
-    "source_path": "dasp_sample",
+  "accesskit": {
     "files": [
       {
-        "path": "dasp-LICENSE-MIT.txt",
-        "license": "MIT",
-        "source_path": "LICENSE-MIT",
-        "source_url": "https://github.com/RustAudio/dasp/blob/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT"
-      },
-      {
-        "path": "dasp-LICENSE-APACHE.txt",
         "license": "Apache-2.0",
+        "path": "accesskit-APACHE.txt",
         "source_path": "LICENSE-APACHE",
-        "source_url": "https://github.com/RustAudio/dasp/blob/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-APACHE"
+        "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE-APACHE"
+      },
+      {
+        "license": "MIT",
+        "path": "accesskit-MIT.txt",
+        "source_path": "LICENSE-MIT",
+        "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE-MIT"
+      },
+      {
+        "license": "BSD-3-Clause",
+        "path": "accesskit-CHROMIUM.txt",
+        "source_path": "LICENSE.chromium",
+        "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE.chromium"
       }
-    ]
+    ],
+    "source_repository": "https://github.com/AccessKit/accesskit",
+    "source_revisions": {
+      "accesskit@0.25.2": "f3026222559c7f5f46d8f25cb7404de68eb149f0",
+      "accesskit_consumer@0.39.2": "f3026222559c7f5f46d8f25cb7404de68eb149f0",
+      "accesskit_macos@0.27.2": "f3026222559c7f5f46d8f25cb7404de68eb149f0"
+    }
   },
-  "governor@0.10.4": {
-    "source_repository": "https://github.com/boinkor-net/governor",
-    "source_revision": "9f3a79dd47dd32acd589c562b8d4fefe99b93372",
-    "source_path": "governor",
+  "block2-0.5-and-objc-sys": {
     "files": [
       {
-        "path": "governor-LICENSE.txt",
         "license": "MIT",
-        "source_path": "LICENSE",
-        "source_url": "https://github.com/boinkor-net/governor/blob/9f3a79dd47dd32acd589c562b8d4fefe99b93372/LICENSE"
+        "path": "objc2-LICENSE-legacy.txt",
+        "source_path": "LICENSE.txt",
+        "source_url": "https://github.com/madsmtm/objc2/blob/4fc083f1c6d6784577e38b0ee8dbd344481e2fd2/LICENSE.txt"
       }
-    ]
-  },
-  "dispatch2@0.3.0": {
+    ],
     "source_repository": "https://github.com/madsmtm/objc2",
-    "source_revision": "e68410e22a2d29d5f37a0b4c1b7e8e194808eade",
-    "source_path": "crates/dispatch2 plus workspace LICENSE.md and SPDX license-list-data",
-    "files": [
-      {
-        "path": "objc2-LICENSE.md",
-        "license": "upstream policy",
-        "source_path": "LICENSE.md",
-        "source_url": "https://github.com/madsmtm/objc2/blob/e68410e22a2d29d5f37a0b4c1b7e8e194808eade/LICENSE.md"
-      },
-      {
-        "path": "objc2-MIT.txt",
-        "license": "MIT",
-        "source_path": "text/MIT.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
-      },
-      {
-        "path": "objc2-APACHE-2.0.txt",
-        "license": "Apache-2.0",
-        "source_path": "text/Apache-2.0.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
-      },
-      {
-        "path": "objc2-ZLIB.txt",
-        "license": "Zlib",
-        "source_path": "text/Zlib.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Zlib.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
-      }
-    ]
+    "source_revisions": {
+      "block2@0.5.1": "4fc083f1c6d6784577e38b0ee8dbd344481e2fd2",
+      "objc-sys@0.3.5": "4fc083f1c6d6784577e38b0ee8dbd344481e2fd2"
+    }
   },
-  "librespot-*": {
-    "source_repository": "https://github.com/librespot-org/librespot",
-    "source_revision": "939dc5ee9d833e1980f9495241219d9d4868a061",
-    "source_path": "workspace root",
+  "block2@0.6.2": {
     "files": [
       {
-        "path": "librespot-LICENSE.txt",
-        "license": "MIT",
-        "source_path": "LICENSE",
-        "source_url": "https://github.com/librespot-org/librespot/blob/939dc5ee9d833e1980f9495241219d9d4868a061/LICENSE"
-      }
-    ]
-  },
-  "objc2@0.6.3": {
-    "source_repository": "https://github.com/madsmtm/objc2",
-    "source_revision": "b4167b582b2f75f9a1be75495c41b765344fd03c",
-    "source_path": "workspace LICENSE.md plus SPDX license-list-data",
-    "files": [
-      {
-        "path": "objc2-LICENSE.md",
         "license": "upstream policy",
+        "path": "objc2-LICENSE.md",
         "source_path": "LICENSE.md",
         "source_url": "https://github.com/madsmtm/objc2/blob/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md"
       },
       {
-        "path": "objc2-MIT.txt",
         "license": "MIT",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-MIT.txt",
         "source_path": "text/MIT.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
       }
-    ]
-  },
-  "objc2-encode@4.1.0": {
+    ],
     "source_repository": "https://github.com/madsmtm/objc2",
-    "source_revision": "8d214f5477365ffcbcbb7de058c86ed9a518efb7",
-    "source_path": "workspace LICENSE.md plus SPDX license-list-data",
+    "source_revision": "b4167b582b2f75f9a1be75495c41b765344fd03c"
+  },
+  "dasp_sample@0.11.0": {
     "files": [
       {
-        "path": "objc2-LICENSE.md",
+        "license": "MIT",
+        "path": "dasp-LICENSE-MIT.txt",
+        "source_path": "LICENSE-MIT",
+        "source_url": "https://github.com/RustAudio/dasp/blob/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT"
+      },
+      {
+        "license": "Apache-2.0",
+        "path": "dasp-LICENSE-APACHE.txt",
+        "source_path": "LICENSE-APACHE",
+        "source_url": "https://github.com/RustAudio/dasp/blob/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-APACHE"
+      }
+    ],
+    "source_repository": "https://github.com/rustaudio/sample",
+    "source_revision": "97c3bb9b2363c0b46ac1633858bf1054fd02a980"
+  },
+  "dispatch2@0.3.1": {
+    "files": [
+      {
         "license": "upstream policy",
+        "path": "objc2-LICENSE.md",
+        "source_path": "LICENSE.md",
+        "source_url": "https://github.com/madsmtm/objc2/blob/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md"
+      },
+      {
+        "license": "MIT",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-MIT.txt",
+        "source_path": "text/MIT.txt",
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
+      },
+      {
+        "license": "Apache-2.0",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-APACHE-2.0.txt",
+        "source_path": "text/Apache-2.0.txt",
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
+      },
+      {
+        "license": "Zlib",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-ZLIB.txt",
+        "source_path": "text/Zlib.txt",
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Zlib.txt"
+      }
+    ],
+    "source_repository": "https://github.com/madsmtm/objc2",
+    "source_revision": "8852b424193ca41602281b3d7540d7c8ed51e49a"
+  },
+  "dispatch@0.2.0": {
+    "files": [
+      {
+        "license": "package declaration",
+        "origin": "upstream package license declaration",
+        "path": "dispatch-Cargo.toml.txt",
+        "source_path": "Cargo.toml",
+        "source_url": "https://github.com/SSheldon/rust-dispatch/blob/82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748/Cargo.toml"
+      },
+      {
+        "license": "MIT",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-MIT.txt",
+        "source_path": "text/MIT.txt",
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
+      }
+    ],
+    "source_repository": "https://github.com/SSheldon/rust-dispatch",
+    "source_revision": "82d6c7a5b75dc0c71c3f46f87bb6c16a476f7748"
+  },
+  "governor@0.10.4": {
+    "files": [
+      {
+        "license": "MIT",
+        "path": "governor-LICENSE.txt",
+        "source_path": "LICENSE",
+        "source_url": "https://github.com/boinkor-net/governor/blob/9f3a79dd47dd32acd589c562b8d4fefe99b93372/LICENSE"
+      }
+    ],
+    "source_repository": "https://github.com/boinkor-net/governor",
+    "source_revision": "9f3a79dd47dd32acd589c562b8d4fefe99b93372"
+  },
+  "librespot-*": {
+    "files": [
+      {
+        "license": "MIT",
+        "path": "librespot-LICENSE.txt",
+        "source_path": "LICENSE",
+        "source_url": "https://github.com/librespot-org/librespot/blob/939dc5ee9d833e1980f9495241219d9d4868a061/LICENSE"
+      }
+    ],
+    "source_repository": "https://github.com/librespot-org/librespot",
+    "source_revision": "939dc5ee9d833e1980f9495241219d9d4868a061"
+  },
+  "objc2-encode@4.1.0": {
+    "files": [
+      {
+        "license": "upstream policy",
+        "path": "objc2-LICENSE.md",
         "source_path": "LICENSE.md",
         "source_url": "https://github.com/madsmtm/objc2/blob/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md"
       },
       {
-        "path": "objc2-MIT.txt",
         "license": "MIT",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-MIT.txt",
         "source_path": "text/MIT.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
       }
-    ]
+    ],
+    "source_repository": "https://github.com/madsmtm/objc2",
+    "source_revision": "8d214f5477365ffcbcbb7de058c86ed9a518efb7"
   },
   "objc2-foundation@0.3.2": {
-    "source_repository": "https://github.com/madsmtm/objc2",
-    "source_revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
-    "source_path": "workspace LICENSE.md plus SPDX license-list-data",
     "files": [
       {
-        "path": "objc2-LICENSE.md",
         "license": "upstream policy",
+        "path": "objc2-LICENSE.md",
         "source_path": "LICENSE.md",
         "source_url": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
       },
       {
-        "path": "objc2-MIT.txt",
         "license": "MIT",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-MIT.txt",
         "source_path": "text/MIT.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
       }
-    ]
+    ],
+    "source_repository": "https://github.com/madsmtm/objc2",
+    "source_revision": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b"
   },
-  "objc2-trio": {
-    "source_repository": "https://github.com/madsmtm/objc2",
-    "source_revision": "b4167b582b2f75f9a1be75495c41b765344fd03c",
-    "source_revisions": {
-      "objc2-audio-toolbox@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
-      "objc2-core-audio@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
-      "objc2-core-audio-types@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
-      "objc2-core-foundation@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
-      "objc2-io-kit@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b"
-    },
-    "source_path": "workspace LICENSE.md plus SPDX license-list-data",
+  "objc2-frameworks-0.2.2": {
     "files": [
       {
-        "path": "objc2-LICENSE.md",
+        "license": "MIT",
+        "path": "objc2-LICENSE-legacy.txt",
+        "source_path": "LICENSE.txt",
+        "source_url": "https://github.com/madsmtm/objc2/blob/e282618be4c3a3b9542957e0c8540e9588472ce8/LICENSE.txt"
+      }
+    ],
+    "source_repository": "https://github.com/madsmtm/objc2",
+    "source_revisions": {
+      "objc2-app-kit@0.2.2": "e282618be4c3a3b9542957e0c8540e9588472ce8",
+      "objc2-foundation@0.2.2": "e282618be4c3a3b9542957e0c8540e9588472ce8"
+    }
+  },
+  "objc2-frameworks-0.3.2": {
+    "files": [
+      {
         "license": "upstream policy",
+        "path": "objc2-LICENSE.md",
         "source_path": "LICENSE.md",
         "source_url": "https://github.com/madsmtm/objc2/blob/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md"
       },
       {
-        "path": "objc2-MIT.txt",
         "license": "MIT",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-MIT.txt",
         "source_path": "text/MIT.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
       },
       {
-        "path": "objc2-APACHE-2.0.txt",
         "license": "Apache-2.0",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-APACHE-2.0.txt",
         "source_path": "text/Apache-2.0.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
       },
       {
-        "path": "objc2-ZLIB.txt",
         "license": "Zlib",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-ZLIB.txt",
         "source_path": "text/Zlib.txt",
-        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Zlib.txt",
-        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf"
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Zlib.txt"
       }
-    ]
+    ],
+    "source_repository": "https://github.com/madsmtm/objc2",
+    "source_revisions": {
+      "objc2-app-kit@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-audio-toolbox@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-av-foundation@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-core-audio-types@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-core-audio@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-core-foundation@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-core-graphics@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-core-media@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-core-text@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-core-video@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-io-kit@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-io-surface@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-media-player@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-metal@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "objc2-quartz-core@0.3.2": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b"
+    }
+  },
+  "objc2@0.5.3": {
+    "files": [
+      {
+        "license": "MIT",
+        "path": "objc2-LICENSE-legacy.txt",
+        "source_path": "LICENSE.txt",
+        "source_url": "https://github.com/madsmtm/objc2/blob/5237cbf081d04ef75a1f6a207b4018e7c1ae7438/LICENSE.txt"
+      }
+    ],
+    "source_repository": "https://github.com/madsmtm/objc2",
+    "source_revision": "5237cbf081d04ef75a1f6a207b4018e7c1ae7438"
+  },
+  "objc2@0.6.5": {
+    "files": [
+      {
+        "license": "upstream policy",
+        "path": "objc2-LICENSE.md",
+        "source_path": "LICENSE.md",
+        "source_url": "https://github.com/madsmtm/objc2/blob/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md"
+      },
+      {
+        "license": "MIT",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-MIT.txt",
+        "source_path": "text/MIT.txt",
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/MIT.txt"
+      }
+    ],
+    "source_repository": "https://github.com/madsmtm/objc2",
+    "source_revision": "d7d2fa23ceaa5e6096c923b081040e5d81b3b9df"
+  },
+  "profiling@1.0.18": {
+    "files": [
+      {
+        "license": "Apache-2.0",
+        "path": "profiling-APACHE.txt",
+        "source_path": "LICENSE-APACHE",
+        "source_url": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-APACHE"
+      },
+      {
+        "license": "MIT",
+        "path": "profiling-MIT.txt",
+        "source_path": "LICENSE-MIT",
+        "source_url": "https://github.com/aclysma/profiling/blob/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT"
+      }
+    ],
+    "source_repository": "https://github.com/aclysma/profiling",
+    "source_revision": "8271551172eb6fa4cba47369aedd93790c623df9"
   },
   "symphonia-*": {
-    "source_repository": "https://github.com/pdeljanov/Symphonia",
-    "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-    "source_path": "workspace root",
     "files": [
       {
-        "path": "symphonia-LICENSE.txt",
         "license": "MPL-2.0",
+        "path": "symphonia-LICENSE.txt",
         "source_path": "LICENSE",
         "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
       }
-    ]
+    ],
+    "source_repository": "https://github.com/pdeljanov/Symphonia",
+    "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5"
+  },
+  "taffy@0.15.1": {
+    "files": [
+      {
+        "license": "MIT",
+        "path": "taffy-LICENSE.txt",
+        "source_path": "LICENSE",
+        "source_url": "https://github.com/DioxusLabs/taffy/blob/0064bd54cbe38bf1d8bcd6ec6ab0704d45fb048a/LICENSE"
+      }
+    ],
+    "source_repository": "https://github.com/DioxusLabs/taffy",
+    "source_revision": "0064bd54cbe38bf1d8bcd6ec6ab0704d45fb048a"
+  },
+  "wasmparser@0.245.1": {
+    "files": [
+      {
+        "license": "Apache-2.0",
+        "path": "wasmparser-APACHE.txt",
+        "source_path": "LICENSE-APACHE",
+        "source_url": "https://github.com/bytecodealliance/wasm-tools/blob/76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5/LICENSE-APACHE"
+      },
+      {
+        "license": "MIT",
+        "path": "accesskit-MIT.txt",
+        "source_path": "LICENSE-MIT",
+        "source_url": "https://github.com/bytecodealliance/wasm-tools/blob/76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5/LICENSE-MIT"
+      },
+      {
+        "license": "Apache-2.0 WITH LLVM-exception",
+        "path": "wasmparser-LLVM.txt",
+        "source_path": "LICENSE-Apache-2.0_WITH_LLVM-exception",
+        "source_url": "https://github.com/bytecodealliance/wasm-tools/blob/76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5/LICENSE-Apache-2.0_WITH_LLVM-exception"
+      }
+    ],
+    "source_repository": "https://github.com/bytecodealliance/wasm-tools",
+    "source_revision": "76927bf4bdbddf4b15f835c5eddfffbdfe3bdbd5"
   }
 }

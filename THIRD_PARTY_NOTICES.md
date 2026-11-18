@@ -84,8 +84,9 @@ SOFTWARE.
 
 ## Rust dependency graph
 
-The current dependency graph is pinned in `Rune/Cargo.lock`.
-The earlier [playback artifact inventory generator](https://github.com/aladh/Spotty/blob/9b5d72b686ac094148b395006918cc1215cbb8e3/Scripts/generate-playback-notices.py) runs against the matching Swift-era revision.
+Apple Silicon packaging generates a dependency inventory from `Rune/Cargo.lock` with
+`Scripts/generate-rune-notices.py`. The app bundle includes the inventory and its
+license texts in `Contents/Resources`.
 
 ## Sparkle
 

@@ -334,36 +334,26 @@ pub(crate) async fn build_player_owned(
 
     // The rebuild owns both load submission and its confirmation window.
     if !resume_targets.is_empty() {
-        let Some((seq_before, notification)) =
-            with_current_generation_mutation(current_generation, || {
-                let seq_before = playing_event_stamp().sequence;
-                with_connection(|connection| {
-                    connection.session_connected = true;
-                    connection.resume_pending = true;
-                    connection.last_error = None;
-                });
-                (
-                    seq_before,
-                    capture_connection_state_notification(current_generation),
-                )
-            })
-        else {
+        let Some(notification) = with_current_generation_mutation(current_generation, || {
+            with_connection(|connection| {
+                connection.session_connected = true;
+                connection.resume_pending = true;
+                connection.last_error = None;
+            });
+            capture_connection_state_notification(current_generation)
+        }) else {
             return Err(
                 abandon_installed_generation(current_generation, &mut installed_guard).await,
             );
         };
         deliver_connection_state_notification(notification);
 
-        let outcome = match queue_rehydration(current_generation, &spirc, resume_targets) {
-            Ok(()) => {
-                wait_for_rehydration(current_generation, seq_before, REHYDRATION_WINDOW).await
-            }
-            Err(CommandError::NeedsReinitialization) => RehydrationOutcome::NeedsReinit,
-            _ => RehydrationOutcome::TimedOut,
-        };
-        with_generation_mutation(|| {
-            let _ = with_connection_owned(current_generation, |c| c.resume_pending = false);
-        });
+        let outcome = rehydrate_targets(
+            resume_targets,
+            |target| queue_rehydration(current_generation, &spirc, target),
+            |sequence, budget| wait_for_rehydration(current_generation, sequence, budget),
+        )
+        .await;
         debug!(
             "[WAKE +{}ms] Rehydrate after reconnect: {:?}",
             elapsed_since_wake_ms(),

@@ -37,6 +37,12 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.script("rune.integrated", "print('integration passed')")
         self.script("playback.transport", "print('transport passed')")
         self.script("rune.reference", f"print({str(self.capture)!r})")
+        self.commit()
+
+    def commit(self):
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
+        subprocess.run(["git", "-c", "user.name=Spotty fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "Save fixture"], cwd=self.root, check=True)
 
     def script(self, key, python):
         script = self.scripts / verify.SCENARIOS[key]
@@ -57,6 +63,7 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         summary = json.loads((self.output / "summary.json").read_text())
         self.assertEqual(summary["outcome"], "passed")
         self.assertTrue(summary["sourceUnchanged"])
+        self.assertFalse(summary["source"]["dirty"])
         self.assertEqual({row["id"] for row in summary["scenarios"]}, verify.SCENARIOS.keys())
         for name in verify.REFERENCE_FILES:
             self.assertEqual((self.output / name).read_bytes(), name.encode())
@@ -74,12 +81,35 @@ class AcceptanceEvidenceTests(unittest.TestCase):
 
     def test_missing_executable_reports_failure_and_runs_other_scenarios(self):
         (self.scripts / verify.SCENARIOS["rune.integrated"]).unlink()
+        self.commit()
         for name in verify.REFERENCE_FILES:
             (self.capture / name).write_text("synthetic")
         self.assertEqual(self.acceptance(), 1)
         summary = json.loads((self.output / "summary.json").read_text())
         self.assertEqual([row["outcome"] for row in summary["scenarios"]],
                          ["failed", "passed", "passed"])
+
+    def test_malformed_manifest_reports_failure(self):
+        self.manifest.write_text("not-json")
+        self.commit()
+        self.assertEqual(self.acceptance(), 1)
+        summary = json.loads((self.output / "summary.json").read_text())
+        self.assertEqual(summary["outcome"], "failed")
+        self.assertIn("Invalid acceptance manifest", summary["error"])
+
+    def test_dirty_checkout_cannot_produce_passing_evidence(self):
+        (self.root / "dirty").touch()
+        for name in verify.REFERENCE_FILES:
+            (self.capture / name).write_text("synthetic")
+        self.assertEqual(self.acceptance(), 1)
+        self.assertTrue(json.loads((self.output / "summary.json").read_text())["source"]["dirty"])
+
+    def test_timed_out_scenario_records_failure(self):
+        self.script("rune.integrated", "import time; time.sleep(60)")
+        self.commit()
+        with patch.dict(verify.SCENARIO_TIMEOUTS, {"rune.integrated": 0.2}):
+            self.assertEqual(self.acceptance(), 1)
+        self.assertIn("Scenario exceeded", (self.output / "rune.integrated.log").read_text())
 
 
 if __name__ == "__main__":

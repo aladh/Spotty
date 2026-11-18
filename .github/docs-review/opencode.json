@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "opencode/muse-spark-1.3-contributor-free",
+  "model": "opencode/longcat-2.5-free",
   "share": "disabled",
   "autoupdate": false,
   "lsp": false,
@@ -19,8 +19,7 @@
   "agent": {
     "docs-review": {
       "mode": "primary",
-      "model": "opencode/muse-spark-1.3-contributor-free",
-      "variant": "xhigh",
+      "model": "opencode/longcat-2.5-free",
       "description": "Coordinate the documentation review and write its findings, thread actions, and summary.",
       "prompt": "{file:orchestration.md}",
       "permission": {
@@ -33,8 +32,7 @@
     },
     "docs-sense": {
       "mode": "subagent",
-      "model": "opencode/muse-spark-1.3-contributor-free",
-      "variant": "xhigh",
+      "model": "opencode/longcat-2.5-free",
       "description": "Reviews whether documentation changes are correct, placed in their canonical owner, and useful.",
       "prompt": "{file:sense.md}",
       "permission": {
@@ -46,8 +44,7 @@
     },
     "docs-spec": {
       "mode": "subagent",
-      "model": "opencode/muse-spark-1.3-contributor-free",
-      "variant": "xhigh",
+      "model": "opencode/longcat-2.5-free",
       "description": "Guards product contracts, repository rules, and historical records against undeclared changes.",
       "prompt": "{file:spec.md}",
       "permission": {

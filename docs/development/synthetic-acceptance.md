@@ -4,4 +4,4 @@ Run `./script/build_and_run.sh --demo` for interactive work with synthetic playb
 
 The synthetic suite exercises keyboard and mouse selection, search filters, queue ownership, album track expansion, and observed transport settlement. Capture the specific interaction or state being changed. Native device and account acceptance follows the [safe testing contract](../product/safe-testing.md).
 
-`python3 Scripts/verify.py acceptance` runs each [named scenario](../../Rune/acceptance.json) and writes a revision-bound result, the test logs, screenshot and tree under `.build/rune-evidence`. The CI review artifact carries the same summary.
+`python3 Scripts/verify.py acceptance` runs each [named scenario](../../Rune/acceptance.json) and writes a revision-bound result, the test logs, screenshot and tree under `.build/rune-evidence`. Run it from a clean checkout for a passing evidence summary. CI also records the PR head alongside the checked-out merge revision. The report covers synthetic scenarios. Account, audio device, and signed bundle checks have their own evidence.

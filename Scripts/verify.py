@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 
 from browsing_provenance import source_identity
@@ -15,18 +16,26 @@ MANIFEST = ROOT / "Rune" / "acceptance.json"
 SCENARIOS = {"rune.integrated": "check.sh", "playback.transport": "check-transport-traces.sh",
              "rune.reference": "browse-synthetic.sh"}
 REFERENCE_FILES = ("reference.json", "reference.png")
+SCENARIO_TIMEOUTS = {"rune.integrated": 35 * 60, "playback.transport": 5 * 60, "rune.reference": 5 * 60}
 
 
 def run_scenario(key, output):
-    with (output / f"{key}.log").open("w") as log:
+    with (output / f"{key}.log").open("w+") as log:
         try:
-            result = subprocess.run([SCRIPTS / SCENARIOS[key]], cwd=ROOT, text=True,
-                                    stderr=log, stdout=subprocess.PIPE)
-            log.write(result.stdout)
-            if result.returncode:
-                return False
+            with subprocess.Popen([SCRIPTS / SCENARIOS[key]], cwd=ROOT, start_new_session=True,
+                                  stdout=log, stderr=subprocess.STDOUT) as process:
+                try:
+                    if process.wait(timeout=SCENARIO_TIMEOUTS[key]):
+                        return False
+                except subprocess.TimeoutExpired as error:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    raise ValueError(f"Scenario exceeded {error.timeout} seconds.") from error
             if key == "rune.reference":
-                lines = result.stdout.rstrip().splitlines()
+                log.seek(0)
+                lines = log.read().rstrip().splitlines()
                 if not lines:
                     raise ValueError("The renderer did not report its output directory.")
                 capture = Path(lines[-1])
@@ -49,10 +58,22 @@ def acceptance(output):
         (output / name).unlink(missing_ok=True)
     before = source_identity(ROOT)
     dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT))
-    manifest = MANIFEST.read_bytes()
-    entries = json.loads(manifest)["scenarios"]
-    if {row["id"] for row in entries} != SCENARIOS.keys() or len(entries) != len(SCENARIOS):
-        raise ValueError("Acceptance manifest and its runnable scenarios disagree")
+    manifest = b""
+    manifest_error = None
+    try:
+        manifest = MANIFEST.read_bytes()
+        document = json.loads(manifest)
+        entries = document["scenarios"]
+        if (document["schemaVersion"] != 1 or not isinstance(entries, list)
+                or len(entries) != len(SCENARIOS)
+                or {row["id"] for row in entries} != SCENARIOS.keys()
+                or any(type(row["version"]) is not int or row["version"] < 1
+                       or not isinstance(row["corpus"], str) or not row["corpus"] for row in entries)):
+            raise ValueError("Acceptance manifest and its runnable scenarios disagree")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        manifest_error = f"Invalid acceptance manifest: {error}"
+        entries = []
+        print(manifest_error, flush=True)
     results = []
     for row in entries:
         key = row["id"]
@@ -61,12 +82,14 @@ def acceptance(output):
         results.append({k: row[k] for k in ("id", "version", "corpus")} |
                        {"outcome": "passed" if passed else "failed"})
     unchanged = before == source_identity(ROOT)
-    passed = unchanged and all(row["outcome"] == "passed" for row in results)
+    passed = manifest_error is None and unchanged and not dirty and all(row["outcome"] == "passed" for row in results)
     summary = {"schemaVersion": 1, "manifestDigest": hashlib.sha256(manifest).hexdigest(),
                "source": {"revision": before["revision"], "trackedDiffDigest": before["diffSHA256"],
                           "dirty": dirty,
                           "prHeadRevision": os.environ.get("SPOTTY_ACCEPTANCE_HEAD_SHA", before["revision"])},
                "sourceUnchanged": unchanged, "outcome": "passed" if passed else "failed", "scenarios": results}
+    if manifest_error is not None:
+        summary["error"] = manifest_error
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return 0 if passed else 1
 

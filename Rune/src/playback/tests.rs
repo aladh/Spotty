@@ -266,7 +266,7 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
     let previous_resume = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
     let spirc = librespot_connect::SpottyTransportFixture::closed_handle();
     let target = || {
-        vec![(
+        (
             ResumeLoadTarget::Track {
                 uri: "spotify:track:fixture".into(),
                 position_ms: 10,
@@ -274,7 +274,7 @@ fn a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window()
             selection_load_policy::SelectionLoadPolicy::capture(
                 selection_load_policy::SelectionOrder::Supplied,
             ),
-        )]
+        )
     };
 
     set_session_generation_for_test(0);

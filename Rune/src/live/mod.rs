@@ -1758,6 +1758,10 @@ impl Worker {
     }
 
     fn apply_playback(&mut self, observation: engine::Playback, protocol: bool) {
+        if observation.sequence <= self.playback_sequence {
+            return;
+        }
+        self.playback_sequence = observation.sequence;
         if let Some(pending) = self.pending.as_ref() {
             let outcome =
                 pending.playback(&observation, &self.owner, self.active.as_deref(), protocol);
@@ -1783,10 +1787,6 @@ impl Worker {
                 }
             }
         }
-        if observation.sequence <= self.playback_sequence {
-            return;
-        }
-        self.playback_sequence = observation.sequence;
         if observation.unavailable {
             self.report(if observation.rejected {
                 "Spotify refused audio for this track."

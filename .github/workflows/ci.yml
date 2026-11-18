@@ -11,10 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  linux:
-    name: Linux tests and synthetic UI
+  policy:
+    name: Source policies
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,17 +25,9 @@ jobs:
         run: |
           version="$(cat Scripts/ast-grep/version)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          rules='^(workflow-action-pins|workflow-checkout-credentials|workflow-explicit-permissions|workflow-shell-interpolation|ci-fail-closed|ci-read-permissions|script-no-xtrace)$'
+          rules='^(workflow-action-pins|workflow-checkout-credentials|workflow-explicit-permissions|workflow-shell-interpolation|ci-fail-closed|ci-read-permissions|script-no-xtrace|development-signing-input)$'
           npm exec --yes --package "@ast-grep/cli@$version" -- ast-grep test --filter "$rules" --skip-snapshot-tests
           npm exec --yes --package "@ast-grep/cli@$version" -- ast-grep scan --filter "$rules" .github/workflows Scripts script Rune
-      - name: Cache locked Cargo source dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/cache
-            ~/.cargo/registry/index
-            ~/.cargo/git/db
-          key: cargo-sources-${{ runner.os }}-${{ hashFiles('Rune/Cargo.lock', 'rust-toolchain.toml') }}
       - name: Verify review automation
         run: |
           npm ci --ignore-scripts --prefix Scripts/agent-review-tests
@@ -46,6 +38,24 @@ jobs:
           python3 -B Scripts/test_notices_policy.py
       - name: Test acceptance evidence collection
         run: python3 -B Scripts/test_verify.py
+
+  linux:
+    name: Linux tests and synthetic UI
+    needs: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Cache locked Cargo source dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+          key: cargo-sources-${{ runner.os }}-${{ hashFiles('Rune/Cargo.lock', 'rust-toolchain.toml') }}
       - name: Install build and graphics dependencies
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libssl-dev libseccomp2 mesa-vulkan-drivers
       - name: Verify the integrated app, named traces and synthetic reference
@@ -65,6 +75,7 @@ jobs:
 
   apple:
     name: Apple Silicon verification
+    needs: policy
     runs-on: xcode-27
     timeout-minutes: 90
     env:
@@ -94,11 +105,12 @@ jobs:
   macos:
     name: macOS checks
     if: always()
-    needs: [linux, apple]
+    needs: [policy, linux, apple]
     runs-on: ubuntu-latest
     steps:
-      - name: Require both platforms
+      - name: Require source policy and both platforms
         env:
+          POLICY: ${{ needs.policy.result }}
           LINUX: ${{ needs.linux.result }}
           APPLE: ${{ needs.apple.result }}
-        run: test "$LINUX" = success && test "$APPLE" = success
+        run: test "$POLICY" = success && test "$LINUX" = success && test "$APPLE" = success

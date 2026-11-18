@@ -10,7 +10,10 @@ use crate::playback::*;
 pub(crate) fn require_session_connected(generation: u64) -> Result<(), CommandError> {
     let transition = with_current_generation_mutation(generation, || {
         let recovery = with_engine_owned(generation, |engine| {
-            if !engine.connection.session_connected || !engine.owns_resources() {
+            if !engine.connection.session_connected
+                || engine.connection.resume_pending
+                || !engine.owns_resources()
+            {
                 return Err(CommandError::NotConnected);
             }
             if !engine.session_missing_or_invalid() {
@@ -54,6 +57,7 @@ fn with_session_spirc<T>(
     with_current_generation_mutation(generation, || {
         let spirc = with_engine_owned(generation, |engine| {
             if engine.connection.session_connected
+                && !engine.connection.resume_pending
                 && engine.owns_resources()
                 && !teardown_in_progress()
                 && (transfer || !engine.observed_resume.remote_owner)

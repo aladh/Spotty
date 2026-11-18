@@ -6,7 +6,7 @@ message: Read SPOTTY_DEVELOPMENT_SIGNING_IDENTITY for the established developmen
   signing path.
 files:
 - script/build_and_run.sh
-- Scripts/package-app.sh
+- Rune/package-macos.sh
 rule:
   kind: program
   not:

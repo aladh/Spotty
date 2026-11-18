@@ -109,25 +109,48 @@ fn resume_targets(
     targets
 }
 
-/// Tries the next target only if the previous target failed before queueing.
-/// A queued load has one confirmation window, independent of the renderer or UI.
+/// Starts one attempt and records its event watermark under the generation gate.
 pub(crate) fn queue_rehydration(
     generation: u64,
     spirc: &Spirc,
-    targets: Vec<(ResumeLoadTarget, SelectionLoadPolicy)>,
-) -> Result<(), CommandError> {
+    (target, policy): (ResumeLoadTarget, SelectionLoadPolicy),
+) -> Result<u64, CommandError> {
     with_current_generation_mutation(generation, || {
         if !rehydration_load_is_current(generation) || !is_active_device() {
             return Err(CommandError::NotConnected);
         }
-        for (target, policy) in targets {
-            if let Some(result) = issue_load_target(spirc, target, policy, generation) {
-                return result;
-            }
-        }
-        Err(CommandError::Failed)
+        let sequence = playing_event_stamp().sequence;
+        issue_load_target(spirc, target, policy, generation)
+            .unwrap_or(Err(CommandError::Failed))
+            .map(|()| sequence)
     })
     .unwrap_or(Err(CommandError::NotConnected))
+}
+
+/// Each attempt owns its evidence, and later fallbacks share the original deadline.
+pub(crate) async fn rehydrate_targets<F: Future<Output = RehydrationOutcome>>(
+    targets: Vec<(ResumeLoadTarget, SelectionLoadPolicy)>,
+    mut submit: impl FnMut((ResumeLoadTarget, SelectionLoadPolicy)) -> Result<u64, CommandError>,
+    mut confirm: impl FnMut(u64, Duration) -> F,
+) -> RehydrationOutcome {
+    let deadline = tokio::time::Instant::now() + REHYDRATION_WINDOW;
+    let mut targets = targets.into_iter();
+    while let Some(target) = targets.next() {
+        let budget = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if budget.is_zero() {
+            break;
+        }
+        match submit(target) {
+            Ok(sequence) => match confirm(sequence, budget / (targets.len() as u32 + 1)).await {
+                RehydrationOutcome::TimedOut => continue,
+                outcome => return outcome,
+            },
+            Err(CommandError::NeedsReinitialization) => return RehydrationOutcome::NeedsReinit,
+            Err(CommandError::Failed) => continue,
+            Err(_) => break,
+        }
+    }
+    RehydrationOutcome::TimedOut
 }
 
 /// How a rehydration window closed.
@@ -157,16 +180,20 @@ pub(crate) async fn wait_for_rehydration(
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let stamp = playing_event_stamp();
+        let now = tokio::time::Instant::now();
+        if !rehydration_load_is_current(generation) {
+            return RehydrationOutcome::TimedOut;
+        }
         if stamp.sequence > previous_seq
             && stamp.generation == generation
             && load_observation_confirmed(generation, None)
         {
             return RehydrationOutcome::Playing;
         }
-        if !rehydration_load_is_current(generation) || tokio::time::Instant::now() >= deadline {
+        if now >= deadline {
             return RehydrationOutcome::TimedOut;
         }
-        tokio::time::sleep(PLAYING_EVENT_POLL_INTERVAL).await;
+        tokio::time::sleep_until(deadline.min(now + PLAYING_EVENT_POLL_INTERVAL)).await;
     }
 }
 
@@ -248,5 +275,55 @@ mod native_resume_tests {
             }]
         );
         assert!(resume_targets(None, None, 0).is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_unconfirmed_context_falls_back_to_the_same_track_within_one_deadline() {
+        let track = "spotify:track:saved".to_owned();
+        let targets = resume_targets(
+            Some("spotify:playlist:saved".into()),
+            Some(track.clone()),
+            900,
+        )
+        .into_iter()
+        .map(|target| {
+            (
+                target,
+                SelectionLoadPolicy::capture(SelectionOrder::Context),
+            )
+        })
+        .collect();
+        let started = tokio::time::Instant::now();
+        let mut submitted = Vec::new();
+        let outcome = rehydrate_targets(
+            targets,
+            |(target, _)| {
+                submitted.push(target);
+                Ok(submitted.len() as u64)
+            },
+            |sequence, budget| async move {
+                assert!(budget <= REHYDRATION_WINDOW / 2);
+                tokio::time::sleep(budget).await;
+                if sequence == 1 {
+                    RehydrationOutcome::TimedOut
+                } else {
+                    RehydrationOutcome::Playing
+                }
+            },
+        )
+        .await;
+        assert!(matches!(
+            submitted.first(),
+            Some(ResumeLoadTarget::Context { .. })
+        ));
+        assert_eq!(
+            submitted[1],
+            ResumeLoadTarget::Track {
+                uri: track,
+                position_ms: 900
+            }
+        );
+        assert_eq!(outcome, RehydrationOutcome::Playing);
+        assert_eq!(started.elapsed(), REHYDRATION_WINDOW);
     }
 }

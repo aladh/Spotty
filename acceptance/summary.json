@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "manifestDigest": "1b72484c1ea870f32ca4ddbf52f01de71d30fff0783713c764a38e8b2c0755bd",
   "source": {
-    "revision": "a83c546fff49b7c598e6adff797869dc534dc625",
+    "revision": "ad27bfa151f60c996768f9de7de73035ecef7ad1",
     "trackedDiffDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "dirty": false,
-    "prHeadRevision": "a83c546fff49b7c598e6adff797869dc534dc625"
+    "prHeadRevision": "ad27bfa151f60c996768f9de7de73035ecef7ad1"
   },
   "sourceUnchanged": true,
   "outcome": "passed",

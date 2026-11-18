@@ -2,7 +2,7 @@
 
 These captures support [PR #627](https://github.com/aladh/Spotty/pull/627). The original README screenshot comes from [base commit 9b5d72b](https://github.com/aladh/Spotty/tree/9b5d72b686ac094148b395006918cc1215cbb8e3). Rune interaction captures and supplemental test logs come from [clean source commit b07f63e](https://github.com/aladh/Spotty/tree/b07f63e439ff2450babb0620f0ea0e0b8c7b4420).
 
-The [regular acceptance suite](acceptance/summary.json) was rerun on clean PR head [a83c546](https://github.com/aladh/Spotty/tree/a83c546fff49b7c598e6adff797869dc534dc625) after the cross-platform test correction. Its reference PNG matches the original Rune capture byte for byte.
+The [regular acceptance suite](acceptance/summary.json) passed on clean PR head [ad27bfa](https://github.com/aladh/Spotty/tree/ad27bfa151f60c996768f9de7de73035ecef7ad1) after review fixes. Its reference PNG matches the original Rune capture byte for byte.
 
 ## Visual captures
 

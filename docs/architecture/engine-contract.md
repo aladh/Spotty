@@ -1,6 +1,6 @@
 # Playback engine contracts
 
-The [internal Rust module](playback-engine-ownership.md) retains these generation, lifecycle and evidence guarantees.
+This record describes the Swift-era boundary and its generation, lifecycle and evidence guarantees. The [Rune ownership guide](playback-engine-ownership.md) names current owners.
 
 ## Retained-engine guarantees
 

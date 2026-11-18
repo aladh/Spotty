@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/../Rune"
 cargo_bin=${SPOTTY_CARGO:-cargo}
+case "$cargo_bin" in
+    /*) ;;
+    */*) cargo_bin="$PWD/$cargo_bin" ;;
+esac
+cd "$(dirname "$0")/../Rune"
 trace_listing=$("$cargo_bin" test --locked --bin spotty-rune transport_trace -- --list)
 for trace in \
     player_event_pump::player_event_pump_policy::transport_trace_play_before_old_paused_and_pause_before_old_playing \

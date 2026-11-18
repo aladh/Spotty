@@ -15,9 +15,8 @@ The transport gate verifies all four named regressions are present before runnin
 
 ```sh
 ./script/build_and_run.sh --demo
-./Scripts/package-app.sh --release
 ```
 
-The first command starts synthetic Spotty. The second writes a verified `Spotty.app` at the repository root. For an authorized live launch, `./script/build_and_run.sh` validates the Apple-issued signature and Team ID before replacing a running app. [Safe testing](../product/safe-testing.md) · [Development signing](signing.md)
+On Apple Silicon macOS, `./Scripts/package-app.sh --release` writes a verified `Spotty.app` at the repository root. For an authorized live launch, `./script/build_and_run.sh` validates the Apple-issued signature and Team ID before replacing a running app. [Safe testing](../product/safe-testing.md) · [Development signing](signing.md)
 
 Run `./Scripts/browse-synthetic.sh` to capture the reference scene in the isolated demo. [Source build and platform requirements](../../Rune/README.md)

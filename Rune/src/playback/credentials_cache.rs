@@ -108,16 +108,23 @@ pub(crate) fn clear_resolved_credentials() {
 /// Both locations are attempted even when one removal fails. A native client can keep
 /// a failed retirement fenced and allow the user to retry it.
 pub(crate) fn try_clear_resolved_credentials() -> std::io::Result<()> {
-    let active = credentials_cache_dir().map_or(Ok(()), |dir| try_clear_credentials_at(&dir));
-    let retired = retired_credentials_cache_dir().map_or(Ok(()), |dir| {
-        let cleared = try_clear_credentials_at(&dir);
-        if cleared.is_ok() {
-            if let Some(parent) = dir.parent() {
-                let _ = std::fs::remove_dir(parent);
+    let path_error = |error: CredentialsCacheError| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, error.message())
+    };
+    let active = credentials_cache_dir()
+        .map_err(path_error)
+        .and_then(|dir| try_clear_credentials_at(&dir));
+    let retired = retired_credentials_cache_dir()
+        .map_err(path_error)
+        .and_then(|dir| {
+            let cleared = try_clear_credentials_at(&dir);
+            if cleared.is_ok() {
+                if let Some(parent) = dir.parent() {
+                    let _ = std::fs::remove_dir(parent);
+                }
             }
-        }
-        cleared
-    });
+            cleared
+        });
     active.and(retired)
 }
 

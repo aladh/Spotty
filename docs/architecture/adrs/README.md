@@ -17,13 +17,13 @@ preserves earlier implementation details; current records should not instruct ag
 
 | Record | Status | Current decision |
 | --- | --- | --- |
-| [ADR 001: Playback engine boundary](ADR-001-playback-engine.md) | Partially superseded by ADR 008 | Contain private protocol work behind one C module and Swift adapter. Runtime ownership and adapter access follow ADR 008. |
+| [ADR 001: Playback engine boundary](ADR-001-playback-engine.md) | Superseded by ADR 011 | Historical C module and Swift adapter. |
 | [ADR 002: Playback state and dependency ownership](ADR-002-playback-state-and-dependencies.md) | Partially superseded by ADR 008 | Keep atomic reducer state, lifetime checks, and prepared projections. Runtime and dependency ownership follow ADR 008. |
 | [ADR 003: Playback command effects](ADR-003-playback-command-effects.md) | Partially superseded by ADR 008 | Keep explicit effects, dispatch admission, and intent settlement. Effect ownership and revalidation follow ADR 008. |
 | [ADR 005: Retain librespot](ADR-005-retain-librespot.md) | Accepted | Keep the pinned Rust/librespot leaf as the sole production engine; no replacement roadmap. |
-| [ADR 006: Prebuilt playback engine](ADR-006-prebuilt-playback-engine.md) | Accepted | Consume a checksum-pinned XCFramework for ordinary app builds; retain explicit engine source workflows. |
+| [ADR 006: Prebuilt playback engine](ADR-006-prebuilt-playback-engine.md) | Superseded by ADR 011 | Historical Swift builds consume a checksum-pinned XCFramework. |
 | [ADR 007: File-backed session persistence](ADR-007-session-persistence.md) | Accepted | Store the OAuth grant in a private file independently of release signing. |
-| [ADR 008: Headless session runtime](ADR-008-headless-session-runtime.md) | Accepted | Put account/playback authority on a dedicated session executor; use an in-process desktop client with a typed contract boundary. |
+| [ADR 008: Headless session runtime](ADR-008-headless-session-runtime.md) | Partially superseded by ADR 011 | Preserve account and playback ownership on a dedicated executor and settle typed intents against observed state. |
 | [ADR 009: Account catalog retention](ADR-009-account-catalog-retention.md) | Accepted | Retain bounded browsing results with account admission, freshness, occurrence identity, and purge fences. |
 | [ADR 010: Native dense surfaces](ADR-010-native-dense-surfaces.md) | Accepted | Own dense tables and scrolling directly in AppKit while preserving Spotify styling. |
 

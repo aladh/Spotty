@@ -77,6 +77,7 @@ jobs:
       - name: Build and validate release archive
         env:
           SPOTTY_SIGNING_IDENTITY: "-"
+          SPOTTY_RUNE_BUILD_NUMBER: ${{ github.run_number }}
           SPOTTY_RUNE_UPDATE_FEED_URL: ${{ vars.SPOTTY_RUNE_UPDATE_FEED_URL }}
           SPOTTY_RUNE_UPDATE_PUBLIC_KEY: ${{ vars.SPOTTY_RUNE_UPDATE_PUBLIC_KEY }}
         run: |

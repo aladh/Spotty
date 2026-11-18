@@ -40,7 +40,7 @@ Spotty screenshots for committed or published evidence.
 
 Without explicit playback permission, it is safe to:
 
-- run `./Scripts/check.sh` and the synthetic Rune acceptance checks;
+- run `python3 Scripts/verify.py acceptance` for the integrated checks and synthetic reference;
 - browse Home/Search/library/detail pages, sort tables, inspect devices and queue, and close/reopen
   the window in an existing live session;
 - launch or sign in to live Spotty when authorized for the task; live app replacement follows the

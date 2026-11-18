@@ -83,6 +83,7 @@ fi
 sparkle_framework="$app_path/Contents/Frameworks/Sparkle.framework"
 python3 - "$info_plist" "${0:A:h:h}/Packaging/Info.plist" "$sparkle_framework" <<'PYTHON'
 import base64
+import os
 import pathlib
 import plistlib
 import sys
@@ -92,11 +93,16 @@ plist, legacy, framework = map(pathlib.Path, sys.argv[1:])
 info = plistlib.loads(plist.read_bytes())
 upstream = plistlib.loads(legacy.read_bytes())
 if info.get("SpottyRuneUpdateChannel") == "rune":
-    feed = urlsplit(info.get("SUFeedURL", ""))
-    key = base64.b64decode(info.get("SUPublicEDKey", ""), validate=True)
+    try:
+        feed = urlsplit(info.get("SUFeedURL", ""))
+        key = base64.b64decode(info.get("SUPublicEDKey", ""), validate=True)
+    except (TypeError, ValueError):
+        raise SystemExit("Invalid Rune update feed or Ed25519 key")
     options = {"SURequireSignedFeed": True, "SUVerifyUpdateBeforeExtraction": True,
                "SUAllowsAutomaticUpdates": False, "SUEnableAutomaticChecks": True, "SUSendProfileInfo": False}
-    if (not (framework / "Sparkle").is_file() or feed.scheme != "https" or not feed.hostname
+    executable = framework / "Sparkle"
+    if (not executable.is_file() or not os.access(executable, os.X_OK)
+            or feed.scheme != "https" or not feed.hostname
             or feed.username is not None or feed.password is not None or feed.fragment
             or info["SUFeedURL"] == upstream["SUFeedURL"]
             or len(key) != 32 or key == base64.b64decode(upstream["SUPublicEDKey"])

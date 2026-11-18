@@ -33,7 +33,8 @@ For every changed Markdown file in the range under audit:
    Read the resulting document to catch newly duplicated procedures, added implementation/test
    inventories, and new pages without a distinct reader need. A size-limit pass is not a concision
    verdict. Request the smallest update to the canonical owner, not another summary or checklist.
-6. **Release-note audience.** For a new or changed `docs/releases/vX.Y.Z.md`, apply the audience
+6. **Release-note audience.** For a new or changed `docs/releases/rune-vX.Y.Z.md` or
+   `docs/releases/vX.Y.Z.md`, apply the audience
    and content test in `docs/development/releases.md#release-note-format`. Read the notes on their
    own, as a nontechnical Spotty listener will. Every summary and change bullet must describe an
    observable effect in plain language. Internal-only work and unexplained implementation terms

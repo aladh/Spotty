@@ -68,6 +68,7 @@ credentials, account snapshots, and Spotify cookies in the app's macOS cookie st
 used for sign-in manages its own cookies. Sign-out also removes the owned SQLite files from earlier
 Swift installations. Spotty reports cleanup errors. Empty directories and lock files can remain.
 An interrupted sign-out resumes cleanup before Spotty can restore an account.
+Sign-out logically deletes the records. Filesystem snapshots and backups may retain recoverable copies.
 Ordinary app termination retains the catalog for a later verified session. To invalidate
 previously issued credentials, revoke Spotify desktop access from your Spotify account.
 

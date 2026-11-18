@@ -94,6 +94,7 @@ fn resume_targets(
     track: Option<String>,
     position_ms: u32,
 ) -> Vec<ResumeLoadTarget> {
+    let track = nonempty_uri(track);
     let mut targets = Vec::with_capacity(2);
     if let Some(uri) = context {
         targets.push(ResumeLoadTarget::Context {
@@ -102,7 +103,7 @@ fn resume_targets(
             position_ms,
         });
     }
-    if let Some(uri) = nonempty_uri(track) {
+    if let Some(uri) = track {
         targets.push(ResumeLoadTarget::Track { uri, position_ms });
     }
     targets
@@ -242,7 +243,7 @@ mod native_resume_tests {
             resume_targets(Some(context.clone()), Some(String::new()), 500),
             [ResumeLoadTarget::Context {
                 uri: context,
-                track_hint: Some(String::new()),
+                track_hint: None,
                 position_ms: 500,
             }]
         );

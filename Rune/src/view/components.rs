@@ -263,7 +263,9 @@ pub fn time(seconds: f64) -> String {
 pub fn duration(seconds: f64) -> String {
     let seconds = seconds.max(0.0) as u64;
     let (hours, minutes) = (seconds / 3600, seconds % 3600 / 60);
-    if hours > 0 {
+    if hours > 0 && minutes == 0 {
+        format!("{hours} hr")
+    } else if hours > 0 {
         format!("{hours} hr {minutes} min")
     } else if minutes > 0 {
         format!("{minutes} min {} sec", seconds % 60)

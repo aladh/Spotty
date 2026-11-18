@@ -25,7 +25,7 @@ source check can own an exact boundary.
 
 ## Mechanically enforced families
 
-- [Build, ABI, and CI](enforcement/build-and-abi.md): toolchain, package graph, cross-language contracts, and workflows.
+- [Rune build and CI](enforcement/build-and-abi.md) covers the toolchain, Cargo build, and workflows.
 - [Deterministic behavior](enforcement/behavior.md): state, lifetimes, protocol projections, and mutations.
 - [Source and topology](enforcement/source-checks.md): lexical boundaries and their rule files.
 

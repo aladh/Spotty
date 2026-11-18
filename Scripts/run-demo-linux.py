@@ -4,7 +4,24 @@ import ctypes.util
 import errno
 import os
 import socket
+import stat
 import sys
+
+# Keep display sockets but close inherited network sockets before applying the creation filter.
+for name in os.listdir("/proc/self/fd"):
+    descriptor = int(name)
+    if descriptor <= 2:
+        continue
+    try:
+        mode = os.fstat(descriptor).st_mode
+    except OSError as error:
+        if error.errno != errno.EBADF:
+            raise
+        continue
+    if stat.S_ISSOCK(mode):
+        with socket.socket(fileno=os.dup(descriptor)) as probe:
+            if probe.family != socket.AF_UNIX:
+                os.close(descriptor)
 
 # libseccomp translates syscall numbers for the running architecture. Filtering socket()
 # leaves inherited Wayland/X11 and Vulkan access available to the renderer.

@@ -273,7 +273,10 @@ impl Pending {
         if !self.is_queue() || self.new_observation(queue.sequence).is_none() {
             return Match::Awaiting;
         }
-        if self.owner != *owner || playback.context != self.baseline.context {
+        if self.owner != *owner
+            || playback.uri != self.baseline.uri
+            || playback.context != self.baseline.context
+        {
             return Match::Superseded;
         }
         if queue.track != playback.uri

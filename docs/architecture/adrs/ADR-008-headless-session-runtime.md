@@ -1,9 +1,8 @@
 # ADR 008: Headless session runtime with an in-process desktop client
 
-The current Rune implementation follows [ADR 011](ADR-011-rune-playback-module.md). This record describes the earlier Swift boundary.
+Status: partially superseded by [ADR 011](ADR-011-rune-playback-module.md). The Swift implementation boundary is historical. Typed intent settlement, task ownership, and lifetime admission still apply.
 
-
-Status: accepted on 2026-09-12. Supersedes the `PlaybackStore` ownership and MainActor isolation
+The historical decision superseded the `PlaybackStore` ownership and MainActor isolation
 choices in [ADR 002](ADR-002-playback-state-and-dependencies.md) and
 [ADR 003](ADR-003-playback-command-effects.md); their reducer and command-settlement rules remain.
 

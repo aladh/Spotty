@@ -77,11 +77,16 @@ fn capture_local_playback(
             .clone()
             .unwrap_or_default();
         let (shuffle, repeat_track, repeat_context) = current_playback_options();
+        let duration_ms = if track.is_empty() {
+            0
+        } else {
+            CURRENT_DURATION_MS.load(Ordering::SeqCst)
+        };
         client::Playback {
             sequence: stamp.revision,
             generation: stamp.session_generation,
             position_ms,
-            duration_ms: CURRENT_DURATION_MS.load(Ordering::SeqCst),
+            duration_ms,
             timestamp_ms: current_timestamp_ms() as i64,
             playing,
             unavailable,
@@ -247,7 +252,10 @@ pub(crate) fn queue_replacement_disallowed(player_state: &PlayerState) -> (bool,
         !restrictions.disallow_set_queue_reasons.is_empty(),
         !restrictions
             .disallow_removing_from_next_tracks_reasons
-            .is_empty(),
+            .is_empty()
+            || !restrictions
+                .disallow_removing_from_context_tracks_reasons
+                .is_empty(),
     )
 }
 

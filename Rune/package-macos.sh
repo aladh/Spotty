@@ -18,6 +18,9 @@ fi
 project_root=${0:A:h:h}
 frontend="$project_root/Rune"
 out="$project_root/.build/rune-app"
+destination="${SPOTTY_APP_PATH:-$out/Spotty.app}"
+destination=${destination:a}
+[[ "${destination:t}" == Spotty.app ]] || { print -u2 "Destination must be a Spotty.app bundle"; exit 2; }
 mkdir -p "$out"
 
 cd "$frontend"
@@ -25,8 +28,6 @@ export MACOSX_DEPLOYMENT_TARGET=27.0
 cargo build --manifest-path "$frontend/Cargo.toml" --locked "${cargo_profile[@]}" --target aarch64-apple-darwin \
     --target-dir "$out/rust"
 
-destination="${SPOTTY_APP_PATH:-$out/Spotty.app}"
-[[ "${destination:t}" == Spotty.app ]] || { print -u2 "Destination must be a Spotty.app bundle"; exit 2; }
 mkdir -p "${destination:h}"
 staging=$(mktemp -d "${destination:h}/.spotty-package.XXXXXX")
 app="$staging/Spotty.app"

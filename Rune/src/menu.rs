@@ -32,7 +32,10 @@ pub fn update(state: &mut State) {
         toggle: player.can_toggle,
         skip: player.can_skip,
         start: player.can_start,
-        sign_out: !matches!(state.snapshot.phase.as_str(), "" | "signedOut"),
+        sign_out: !matches!(
+            state.snapshot.phase.as_str(),
+            "" | "signedOut" | "unavailable"
+        ),
         #[cfg(target_os = "macos")]
         updater: state
             .updater

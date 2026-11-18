@@ -19,6 +19,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check workflow and shell source policies
+        env:
+          npm_config_ignore_scripts: 'true'
+        run: |
+          version="$(cat Scripts/ast-grep/version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          rules='^(workflow-action-pins|workflow-checkout-credentials|workflow-explicit-permissions|workflow-shell-interpolation|ci-fail-closed|ci-read-permissions|script-no-xtrace)$'
+          npm exec --yes --package "@ast-grep/cli@$version" -- ast-grep test --filter "$rules" --skip-snapshot-tests
+          npm exec --yes --package "@ast-grep/cli@$version" -- ast-grep scan --filter "$rules" .github/workflows Scripts script Rune
       - name: Cache locked Cargo source dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

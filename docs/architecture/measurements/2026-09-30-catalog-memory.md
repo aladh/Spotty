@@ -19,7 +19,7 @@ No production candidate was tested. Swift 6.4/Xcode 27, macOS 27.0.1, ten logica
 locks, produced bundle, helper host, compiler metadata and scratch/cache context were bound and
 rechecked. No local engine override, live account, audio, application launch or release.
 
-The [supported native profile](../../development/runtime-acceptance.md#measurements) uses Debug
+The [historical native profile](https://github.com/aladh/Spotty/blob/9b5d72b686ac094148b395006918cc1215cbb8e3/docs/development/runtime-acceptance.md#measurements) uses Debug
 `-O -enable-testing -no-whole-module-optimization -DSPOTTY_BROWSING_OPTIMIZED`; actual
 metadata proved all twelve compiled modules' effective flags, including DEBUG. The fixture is not
 shipping WMO. Build and six-cell functional qualification preceded sampling.

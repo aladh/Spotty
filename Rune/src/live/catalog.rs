@@ -638,6 +638,7 @@ impl Catalog {
         let digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
         let id = uri
             .strip_prefix("spotify:track:")
+            .filter(|id| !id.is_empty() && id.len() <= 22)
             .ok_or(Failure::Response)?;
         let n = id
             .chars()

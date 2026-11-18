@@ -1,4 +1,4 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
-rune: 1 frames at 60 fps, gpu init 535.5 ms, first frame 1024.75 ms, frame cpu mean 1024.753 ms p50 1024.753 p95 1024.753 max 1024.753, 1064 instances
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.32s
+rune: 1 frames at 60 fps, gpu init 512.6 ms, first frame 998.45 ms, frame cpu mean 998.450 ms p50 998.450 p95 998.450 max 998.450, 1064 instances
 rune: animating frames 0 (cpu p50 0.000 p95 0.000 ms), at-rest frames 0 (the window draws none; forced cpu p50 0.000 p95 0.000 ms), layout nodes 742, glyphs 857
-/workspace/Spotty/.build/browsing-runs/run.gMojWsX0
+/workspace/Spotty/.build/browsing-runs/run.iUfuBKEM

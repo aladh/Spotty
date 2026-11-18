@@ -249,7 +249,7 @@ Input SHA-256:
 | `Rune/Cargo.lock` | `4411c466d6f1bcbc24de9c568a95c84d7f2c2e7d3d0224e39b055a12572b0077` |
 | `Scripts/playback-license-overrides.json` | `4e16766452cf8549ba0b39ad1d1c28fa9340b496615b36fd2150d374bdc3c316` |
 | `THIRD_PARTY_NOTICES.md` | `ee95784081bc356d4afdecb08bb22e63f24e9912bb25f32e26cde5e243eb0093` |
-| `Scripts/generate-rune-notices.py` | `c01d0869ee766159ec67ccb732a4772543f996a111bf5688ea48f1bb0d210fe1` |
+| `Scripts/generate-rune-notices.py` | `968e39c543c8f5ec299b33c51ddc5929bac6b2d50c3507045403ffe38b0226d0` |
 | `Backend/spotty-playback/vendor/librespot/UPSTREAM` | `934cf50cb111d27e0592db8d70e249c5684d2acfba9c56bc0492b2409b4fa67c` |
 | `Scripts/playback-license-overrides/accesskit-APACHE.txt` | `62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a` |
 | `Scripts/playback-license-overrides/accesskit-CHROMIUM.txt` | `845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308` |

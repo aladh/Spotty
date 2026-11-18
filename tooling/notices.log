@@ -1,10 +1,9 @@
-cd85a1510c292ebc4316b191edbb5ff74a1bf9ed
+f10d6bfad04b92083024b22e2a128a27aaa31d18
 generated 393 package notices and 272 unique license texts
 verified 393 package notices and 272 unique license texts
-generated 393 package notices and 272 unique license texts
 Two Apple-target generations yielded identical files.
 ....
 ----------------------------------------------------------------------
-Ran 4 tests in 0.003s
+Ran 4 tests in 0.008s
 
 OK

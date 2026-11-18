@@ -18,6 +18,14 @@
         "path": "accesskit-CHROMIUM.txt",
         "source_path": "LICENSE.chromium",
         "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE.chromium"
+      },
+      {
+        "license": "Apache-2.0",
+        "origin": "canonical SPDX license reference",
+        "path": "objc2-APACHE-2.0.txt",
+        "source_path": "text/Apache-2.0.txt",
+        "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+        "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
       }
     ],
     "source_repository": "https://github.com/AccessKit/accesskit",

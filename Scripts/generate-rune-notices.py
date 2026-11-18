@@ -32,6 +32,8 @@ LOCKFILE = ROOT / "Rune/Cargo.lock"
 OVERRIDES = ROOT / "Scripts/playback-license-overrides.json"
 OVERRIDE_DIR = ROOT / "Scripts/playback-license-overrides"
 PREAMBLE = ROOT / "THIRD_PARTY_NOTICES.md"
+RETAINED_LIBRESPOT = ROOT / "Backend/spotty-playback/vendor/librespot"
+REQUIRED_INPUTS = (MANIFEST, LOCKFILE, OVERRIDES, PREAMBLE, Path(__file__).resolve())
 INVENTORY_NAME = "ThirdPartyNotices.json"
 RUNE_REPOSITORY = "https://github.com/anomalyco/rune"
 RUNE_ASSET_LICENSES = {
@@ -475,7 +477,7 @@ def collect_package(
     elif kind == "path":
         retained = {"librespot-core": "core", "librespot-connect": "connect", "librespot-playback": "playback"}
         directory = retained.get(package["name"])
-        expected = ROOT / "Backend/spotty-playback/vendor/librespot" / (directory or "") / "Cargo.toml"
+        expected = RETAINED_LIBRESPOT / (directory or "") / "Cargo.toml"
         if directory is None or Path(package["manifest_path"]).resolve() != expected.resolve():
             fail(f"unsupported local dependency for {key}")
         record["source_path"] = expected.parent.relative_to(ROOT).as_posix()
@@ -641,7 +643,7 @@ def render_markdown(
                 f"v{root_package['version']}{tick}"
             ),
             f"- Third-party packages: {len(package_records)}",
-            f"- Unique full license texts: {len(documents)}",
+            f"- Unique license and notice files: {len(documents)}",
             f"- Machine-readable inventory: [{INVENTORY_NAME}]({INVENTORY_NAME})",
             "",
             (
@@ -699,7 +701,7 @@ def render_markdown(
     lines.extend(
         [
             "",
-            "### Full license text inventory",
+            "### License and notice files",
             "",
             "| Bundle path | SHA-256 | Bytes | Packages |",
             "| --- | --- | --- | --- |",
@@ -744,7 +746,7 @@ def write_output(
 
     input_hashes = {
         path.relative_to(ROOT).as_posix(): sha256_file(path)
-        for path in (MANIFEST, LOCKFILE, OVERRIDES, PREAMBLE, Path(__file__).resolve())
+        for path in REQUIRED_INPUTS
     }
     for path in sorted(override_inputs):
         try:
@@ -805,7 +807,7 @@ def write_output(
 def generate(target: str, output: Path) -> tuple[int, int]:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", target):
         fail(f"invalid Cargo target: {target!r}")
-    for path in (MANIFEST, LOCKFILE, OVERRIDES, PREAMBLE):
+    for path in REQUIRED_INPUTS:
         if not path.is_file():
             fail(f"required input is missing: {path}")
 
@@ -919,9 +921,25 @@ def verify_output(output: Path, target: str) -> tuple[int, int]:
             or not texts
         ):
             fail("bundle notice inventory has an unexpected target, root package, or count")
-        lock_record = {"path": LOCKFILE.relative_to(ROOT).as_posix(), "sha256": sha256_file(LOCKFILE)}
-        if lock_record not in inventory["inputs"]:
-            fail("bundle notice inventory does not match the current Rune lockfile")
+        required = set(REQUIRED_INPUTS)
+        checked_inputs = set()
+        for item in inventory["inputs"]:
+            name = item["path"]
+            path = (ROOT / name).resolve()
+            known = path in required or path == RETAINED_LIBRESPOT / "UPSTREAM"
+            if (
+                not path.is_relative_to(ROOT)
+                or path.relative_to(ROOT).as_posix() != name
+                or not (known or path.is_relative_to(OVERRIDE_DIR))
+                or path in checked_inputs
+            ):
+                fail(f"bundle notice inventory contains an invalid input path: {name!r}")
+            if sha256_file(path) != item["sha256"]:
+                fail(f"bundle notice inventory does not match the current input: {name}")
+            checked_inputs.add(path)
+        if missing := required - checked_inputs:
+            missing_names = ", ".join(sorted(path.relative_to(ROOT).as_posix() for path in missing))
+            fail(f"bundle notice inventory is missing required inputs: {missing_names}")
         if sha256_file(output / "ThirdPartyNotices.md") != inventory["outputs"]["notices_sha256"]:
             fail("bundle notice Markdown does not match the inventory")
         checked = set()
@@ -968,7 +986,7 @@ def main() -> int:
         return 1
     print(
         f"{verb} {package_count} package notices and "
-        f"{document_count} unique license texts"
+        f"{document_count} unique license and notice files"
     )
     return 0
 

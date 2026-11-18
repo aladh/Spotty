@@ -1,10 +1,10 @@
 """Check the shared notice preamble, dependency identity and bundle validation."""
 
+import json
 from pathlib import Path
 import runpy
 import tempfile
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 GENERATOR = runpy.run_path(str(ROOT / "Scripts/generate-rune-notices.py"))
@@ -55,12 +55,19 @@ class RuneNoticesTests(unittest.TestCase):
             )
             verifier = GENERATOR["verify_output"]
             self.assertEqual(verifier(output, target), (1, 1))
-            lockfile = output / "Rune" / "Cargo.lock"
-            with patch.dict(verifier.__globals__, {"ROOT": output, "LOCKFILE": lockfile}):
-                lockfile.parent.mkdir()
-                lockfile.write_text("# Another build")
-                with self.assertRaisesRegex(GENERATOR["GenerationError"], "current Rune lockfile"):
-                    verifier(output, target)
+            inventory = output / GENERATOR["INVENTORY_NAME"]
+            original_inventory = inventory.read_bytes()
+            stale = json.loads(original_inventory)
+            preamble = next(item for item in stale["inputs"] if item["path"] == "THIRD_PARTY_NOTICES.md")
+            preamble["sha256"] = "0" * 64
+            inventory.write_text(json.dumps(stale))
+            with self.assertRaisesRegex(GENERATOR["GenerationError"], "current input: THIRD_PARTY_NOTICES.md"):
+                verifier(output, target)
+            stale["inputs"].remove(preamble)
+            inventory.write_text(json.dumps(stale))
+            with self.assertRaisesRegex(GENERATOR["GenerationError"], "missing required inputs"):
+                verifier(output, target)
+            inventory.write_bytes(original_inventory)
             notices = output / "ThirdPartyNotices.md"
             original_notices = notices.read_bytes()
             notices.write_text("Stale notice index")

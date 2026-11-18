@@ -2,8 +2,9 @@
 set -euo pipefail
 
 project_root="${0:A:h:h}"
-version="${SPOTTY_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$project_root/Packaging/Info.plist")}"
-archive_path="$project_root/dist/Spotty-$version.zip"
+version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$project_root/Rune/Info.plist")"
+archive_directory="$project_root/dist"
+archive_path="$archive_directory/Spotty-Rune-$version.zip"
 notary_profile="${SPOTTY_NOTARY_PROFILE:-}"
 
 if [[ -z "${SPOTTY_SIGNING_IDENTITY:-}" ]]; then
@@ -15,13 +16,18 @@ if [[ -z "$notary_profile" ]]; then
     exit 2
 fi
 
-"$project_root/Scripts/archive-app.sh"
-xcrun notarytool submit "$archive_path" --keychain-profile "$notary_profile" --wait
-xcrun stapler staple "$project_root/Spotty.app"
-"$project_root/Scripts/validate-app.sh" --distribution "$project_root/Spotty.app"
+mkdir -p "$archive_directory"
+staging="$(mktemp -d "$archive_directory/.spotty-notary.XXXXXXXX")"
+trap 'rm -rf -- "$staging"' EXIT
+app="$staging/Spotty.app"
+SPOTTY_APP_PATH="$app" "$project_root/Scripts/package-app.sh" --release
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$staging/submission.zip"
+xcrun notarytool submit "$staging/submission.zip" --keychain-profile "$notary_profile" --wait
+xcrun stapler staple "$app"
+"$project_root/Scripts/validate-app.sh" --distribution "$app"
 
 # Restapling changes the app bundle, so produce the final distributable archive afterward.
-rm -f "$archive_path"
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$project_root/Spotty.app" "$archive_path"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$staging/Spotty.zip"
+mv -f -- "$staging/Spotty.zip" "$archive_path"
 
 print "Notarized and archived $archive_path"

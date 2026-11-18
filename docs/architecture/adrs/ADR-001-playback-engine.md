@@ -1,5 +1,8 @@
 # ADR 001: Playback engine boundary
 
+The current Rune implementation follows [ADR 011](ADR-011-rune-playback-module.md). This record describes the earlier Swift boundary.
+
+
 Status: accepted on 2026-08-18; the engine choice is reaffirmed by [ADR 005](ADR-005-retain-librespot.md).
 Runtime ownership and adapter dependency/access choices are superseded by
 [ADR 008](ADR-008-headless-session-runtime.md). The C and Swift containment decision remains.

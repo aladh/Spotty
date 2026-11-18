@@ -2,7 +2,8 @@
 set -euo pipefail
 
 if [[ "${1:-}" == "--demo" ]]; then
-    exec "${0:A:h:h}/Scripts/browse-synthetic.sh" --interactive "${@:2}"
+    shift
+    exec "${0:A:h:h}/Scripts/browse-synthetic.sh" --interactive "$@"
 fi
 
 mode="${1:-run}"

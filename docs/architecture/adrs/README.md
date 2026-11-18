@@ -5,7 +5,11 @@
 ADRs explain consequential choices and their tradeoffs. Read the relevant decision when changing a
 boundary; routine implementation work does not require reading the whole history.
 
-## Current decisions
+## Current app
+
+[ADR 011. Internal playback in the Rune app](ADR-011-rune-playback-module.md) owns the current build and runtime boundary. ADR 005’s librespot choice and ADR 007’s persistence rules also apply.
+
+## Swift architecture records
 
 The summary below identifies each decision's current scope. Partially superseded records retain
 their applicable rules and link to the successor that owns the replaced choices. Repository history

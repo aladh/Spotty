@@ -1,31 +1,15 @@
 # Deterministic behavior enforcement
 
-[Enforcement inventory](../enforcement.md)
+[Enforcement inventory](../enforcement.md) · [Rune verification](../../development/verification.md)
 
-## Deterministic behavior
-
-Use these families to find the relevant evidence. Individual cases and assertions belong in the
-[domain tests](../../../Tests/SpottyDomainTests), [boundary tests](../../../Tests/SpottyBoundaryTests),
-and [Rust suite](../../../Backend/spotty-playback/src). Passing a suite does not prove untested
-lifetime or ordering behavior.
-
-| Behavior to protect | Contract |
+| Behavior | Executable checks |
 | --- | --- |
-| Atomic presentation and a single mutation owner | [ADR 002](../adrs/ADR-002-playback-state-and-dependencies.md) |
-| Command acceptance, cancellation, reconciliation, and rollback | [ADR 003](../adrs/ADR-003-playback-command-effects.md) |
-| Generations, stale work, ordered delivery, and transactional engine lifetimes | [Engine contracts](../engine-contract.md) |
-| Panic containment, callback ownership, and bounded PCM delivery | [Engine boundary](../../../Backend/spotty-playback/AGENTS.md) |
-| Typed protocol intake and Swift-owned queue/device/connection/playback projections | [Engine ownership](../playback-engine-ownership.md) |
-| Resume target policy and reconnect readiness | [Engine contracts](../engine-contract.md) |
-| Occurrence-safe playlist writes and lifetime-safe transient feedback | [Playlists](../../product/playlists.md), [feedback](../../product/navigation.md#transient-mutation-feedback) |
-| Injected production boundaries | [ADR 002](../adrs/ADR-002-playback-state-and-dependencies.md) |
-| Synthetic, non-identifying fixtures | [Privacy](../../../PRIVACY.md) |
-| Retained protocol, recovery, and ABI behavior | [Engine boundary](../../../Backend/spotty-playback/AGENTS.md) |
-| Complete test discovery and bounded repeat execution | [Test guidance](../../../Tests/AGENTS.md), [verification](../../development/verification.md) |
+| Generation admission, rollback, stale work, and transactional playback lifetimes | [Playback tests](../../../Rune/src/playback) and [transport traces](../../../Scripts/check-transport-traces.sh) |
+| Resume target, freshness, connection ownership, and readiness | [Observed resume](../../../Rune/src/playback/observed_resume.rs) and [cluster application](../../../Rune/src/playback/connect_cluster_apply_tests.rs) |
+| Command admission, queue evidence, and retirement | [Session worker](../../../Rune/src/live/mod.rs) and [intent settlement](../../../Rune/src/live/intent.rs) |
+| Credential protection and grant rotation | [Storage and authorization tests](../../../Rune/src/live/auth.rs) |
+| Catalog decoding and UI interaction | [Catalog tests](../../../Rune/src/live/catalog.rs) and [Rune app tests](../../../Rune/src/main.rs) |
 
-## Reducer model check
+The [named acceptance scenarios](../../../Rune/acceptance.json) run tests and capture the synthetic reference. Use the [product contracts](../../product/README.md) for the intended behavior and [safe testing](../../product/safe-testing.md) for actions on a real account.
 
-[`PlaybackReducerModelChecks`](../../../Tests/SpottyDomainTests/PlaybackReducerModelChecks.swift)
-replays randomized event traces against state invariants after every accepted or rejected step.
-The test owns the event universe, invariants, and retention bounds; do not duplicate that changing
-catalog here. A reported SplitMix64 seed and step index reproduce the failing trace exactly.
+The archived Swift evidence includes the randomized [playback reducer model checks](../../../Tests/SpottyDomainTests/PlaybackReducerModelChecks.swift). The [historical enforcement guide](https://github.com/aladh/Spotty/blob/9b5d72b686ac094148b395006918cc1215cbb8e3/docs/architecture/enforcement/behavior.md) describes the full suite for that revision.

@@ -8,7 +8,7 @@ Spotify. Spotify is a trademark of Spotify AB.
 
 Third-party code and projects this repository builds on (see THIRD_PARTY_NOTICES.md):
 
-- Portions of `Backend/spotty-playback` and `Sources/Spotty/Spotify` are adapted from Spotifly
+- Portions of `Rune/src/playback` and `Sources/Spotty/Spotify` are adapted from Spotifly
   (https://github.com/ralph/Spotifly), MIT License, Copyright (c) 2026 Ralph von der Heyden.
-- The Rust bridge links librespot (https://github.com/librespot-org/librespot), MIT License.
+- The Rust app links librespot (https://github.com/librespot-org/librespot), MIT License.
 - Application updates use Sparkle (https://sparkle-project.org), MIT License.

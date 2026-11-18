@@ -6,7 +6,7 @@ Start with [AGENTS.md](AGENTS.md) for repository rules and the
 ## Verification commands
 
 Use the [verification guide](docs/development/verification.md#normal-verification) to choose a
-focused test, language gate, or complete check. It owns commands, prerequisites, and diagnostics.
+focused test, transport traces or the complete check. It owns commands, prerequisites, and diagnostics.
 Run `python3 Scripts/verify.py --help` for the command surface.
 
 ## Pull-request execution
@@ -18,7 +18,7 @@ request says so.
 Declare changes to product contracts, repository rules, and historical records in the PR description.
 For behavior changes, also name affected product contracts, representative scenario IDs run,
 scenario IDs added or changed, and unverified acceptance scope with reasons. Use the
-[acceptance manifest](Tests/BrowsingHarness/Scenarios/manifest.json) for stable IDs; explain when
+[acceptance manifest](Rune/acceptance.json) for stable IDs; explain when
 the change falls outside its coverage. [Thermos](docs/development/thermos-review.md) compares
 these declarations with the manifest and revision-matched evidence.
 

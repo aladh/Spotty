@@ -6,9 +6,10 @@ replacing Spotify styling with macOS defaults. Keep scope small using the
 
 ## Development
 
+Build Spotty from the Rune package. The app and playback engine share one Cargo target. [Playback ownership](docs/architecture/playback-engine-ownership.md)
+
 - Use the [documentation index](docs/README.md) for product contracts and procedures.
-- [Source policies](Scripts/ast-grep/rules) own enforceable syntax constraints and their exceptions;
-  use the [source-check guide](docs/architecture/enforcement/source-checks.md) when changing them.
+- Follow the [source-check guide](docs/architecture/enforcement/source-checks.md) for current and historical verification.
 - Spotty is maintained exclusively by agents. Finish authorized work and relevant verification;
   report blockers and unverified behavior.
 - Follow [PR execution and acceptance](CONTRIBUTING.md#pull-request-execution).

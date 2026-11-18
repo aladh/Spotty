@@ -81,33 +81,29 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$info_plist")" !=
 fi
 
 sparkle_framework="$app_path/Contents/Frameworks/Sparkle.framework"
-if [[ ! -x "$sparkle_framework/Sparkle" ]]; then
-    print -u2 "Missing embedded Sparkle framework"
-    exit 1
-fi
-python3 - "$info_plist" <<'PYTHON'
+python3 - "$info_plist" "${0:A:h:h}/Packaging/Info.plist" "$sparkle_framework" <<'PYTHON'
 import base64
-import binascii
+import pathlib
 import plistlib
 import sys
+from urllib.parse import urlsplit
 
-def require(condition, message):
-    if not condition:
-        raise SystemExit(message)
-
-with open(sys.argv[1], "rb") as source:
-    info = plistlib.load(source)
-try:
-    public_key = base64.b64decode(info.get("SUPublicEDKey", ""), validate=True)
-except (binascii.Error, ValueError, TypeError):
-    raise SystemExit("Invalid updater public key")
-require(len(public_key) == 32, "Invalid updater public key")
-require(info.get("SURequireSignedFeed") is True, "Update feed must require authentication")
-require(info.get("SUVerifyUpdateBeforeExtraction") is True, "Signed feeds require pre-extraction verification")
-require(info.get("SUAllowsAutomaticUpdates") is False, "Installation must require user action")
-require(info.get("SUEnableAutomaticChecks") is True, "Background update checking must be enabled")
-require(info.get("SUSendProfileInfo") is False, "Update system-profile reporting must be disabled")
-require(info.get("SUFeedURL") == "https://github.com/aladh/Spotty/releases/latest/download/appcast.xml", "Incorrect update feed")
+plist, legacy, framework = map(pathlib.Path, sys.argv[1:])
+info = plistlib.loads(plist.read_bytes())
+upstream = plistlib.loads(legacy.read_bytes())
+if info.get("SpottyRuneUpdateChannel") == "rune":
+    feed = urlsplit(info.get("SUFeedURL", ""))
+    key = base64.b64decode(info.get("SUPublicEDKey", ""), validate=True)
+    options = {"SURequireSignedFeed": True, "SUVerifyUpdateBeforeExtraction": True,
+               "SUAllowsAutomaticUpdates": False, "SUEnableAutomaticChecks": True, "SUSendProfileInfo": False}
+    if (not (framework / "Sparkle").is_file() or feed.scheme != "https" or not feed.hostname
+            or feed.username is not None or feed.password is not None or feed.fragment
+            or info["SUFeedURL"] == upstream["SUFeedURL"]
+            or len(key) != 32 or key == base64.b64decode(upstream["SUPublicEDKey"])
+            or any(info.get(k) is not v for k, v in options.items())):
+        raise SystemExit("Invalid Rune update configuration or embedded framework")
+elif framework.exists() or "SpottyRuneUpdateChannel" in info or any(k.startswith("SU") for k in info):
+    raise SystemExit("Incomplete Rune update configuration")
 PYTHON
 codesign --verify --deep --strict --verbose=2 "$app_path"
 signing_details="$(codesign --display --verbose=4 "$app_path" 2>&1)"

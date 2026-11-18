@@ -160,7 +160,8 @@ test('documentation review reaches the agent even when no documentation changed'
   const context = { steps: { eligibility: { outputs: { skip: 'false' } }, 'path-filter': { outputs: { skip: 'true' } } } };
   assert.equal(evaluate(steps.find(step => step.name === 'Prepare review inputs').if, context), 'true');
   assert.equal(evaluate(steps.find(step => step.name === 'Review').if, context), 'true');
-  assert.equal(Object.values(workflow('docs-review.yml').jobs)[0].with.can_approve, 'false');
+  assert.equal(Object.values(workflow('docs-review.yml').jobs)[0].with.can_approve, false);
+  assert.equal(Object.values(workflow('thermos-review.yml').jobs)[0].with.can_approve, true);
 });
 
 for (const includeDocs of [false, true]) {

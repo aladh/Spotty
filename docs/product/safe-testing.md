@@ -40,7 +40,7 @@ Spotty screenshots for committed or published evidence.
 
 Without explicit playback permission, it is safe to:
 
-- run `./Scripts/check.sh` and the non-shipping Swift test targets;
+- run `./Scripts/check.sh` and the synthetic Rune acceptance checks;
 - browse Home/Search/library/detail pages, sort tables, inspect devices and queue, and close/reopen
   the window in an existing live session;
 - launch or sign in to live Spotty when authorized for the task; live app replacement follows the

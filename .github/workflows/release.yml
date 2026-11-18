@@ -1,13 +1,13 @@
-name: Release
+name: Stage Rune release archive
 
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "rune-v*.*.*"
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -28,72 +28,25 @@ jobs:
       - name: Select Xcode 27.0
         run: |
           sudo xcode-select -s /Applications/Xcode_27.app
-          python3 Scripts/check_native_environment.py
-
-      - name: Install verification tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            brew install ripgrep
-          fi
-
-      - name: Show Swift toolchain
-        run: |
-          set -euo pipefail
-          {
-            swift --version
-            uname -m
-          } | tee "$RUNNER_TEMP/swift-toolchain.txt"
-          xcrun --find swift-format
-          xcrun swift-format --version
-          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
-          echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
-
-      - name: Block Rust tools
-        run: |
-          set -euo pipefail
-          blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
-          mkdir -p "$blocked_tools"
-          for tool in cargo rustc rustup cbindgen; do
-            printf '#!/bin/sh\necho "%s is blocked in the app release lane" >&2\nexit 127\n' "$tool" > "$blocked_tools/$tool"
-            chmod 755 "$blocked_tools/$tool"
-          done
-          echo "$blocked_tools" >> "$GITHUB_PATH"
-
-      - name: Cache SwiftPM release build directory
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build/*
-            !.build/spotty-signing
-            !.build/spotty-update-signing
-          key: macos-swiftpm-app-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
-          restore-keys: |
-            macos-swiftpm-app-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
-            macos-swiftpm-release-${{ runner.os }}-${{ runner.arch }}-${{ env.SWIFT_TOOLCHAIN_KEY }}-
+          test "$(uname -m)" = arm64
+          test "$(xcrun --sdk macosx --show-sdk-version)" = 27.0
 
       - name: Verify tag and runner
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$GITHUB_REF_NAME" =~ ^rune-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Tag $GITHUB_REF_NAME is not a semantic version tag" >&2
             exit 1
           fi
-          version="${GITHUB_REF_NAME#v}"
-          plist_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Packaging/Info.plist)"
+          version="${GITHUB_REF_NAME#rune-v}"
+          plist_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Rune/Info.plist)"
           if [[ "$version" != "$plist_version" ]]; then
             echo "Tag $GITHUB_REF_NAME does not match app version $plist_version" >&2
             exit 1
           fi
-          if [[ "$(uname -m)" != "arm64" ]]; then
-            echo "Release job must run on ARM64, not $(uname -m)" >&2
-            exit 1
-          fi
-
-          notes="docs/releases/$GITHUB_REF_NAME.md"
+          notes="docs/releases/rune-v$version.md"
           if [[ ! -s "$notes" ]]; then
             echo "Missing release notes: $notes" >&2
             exit 1
@@ -124,8 +77,10 @@ jobs:
       - name: Build and validate release archive
         env:
           SPOTTY_SIGNING_IDENTITY: "-"
+          SPOTTY_RUNE_UPDATE_FEED_URL: ${{ vars.SPOTTY_RUNE_UPDATE_FEED_URL }}
+          SPOTTY_RUNE_UPDATE_PUBLIC_KEY: ${{ vars.SPOTTY_RUNE_UPDATE_PUBLIC_KEY }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${GITHUB_REF_NAME#rune-v}"
           ./Scripts/archive-app.sh
           architectures="$(lipo -archs Spotty.app/Contents/MacOS/Spotty)"
           if [[ "$architectures" != "arm64" ]]; then
@@ -133,23 +88,11 @@ jobs:
             exit 1
           fi
           cd dist
-          shasum -a 256 "Spotty-$version.zip" > "Spotty-$version.zip.sha256"
+          shasum -a 256 "Spotty-Rune-$version.zip" > "Spotty-Rune-$version.zip.sha256"
 
-      - name: Generate signed update feed
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: ./Scripts/generate-update-feed.sh
-
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          notes="docs/releases/$GITHUB_REF_NAME.md"
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/Spotty-$version.zip" \
-            "dist/Spotty-$version.zip.sha256" \
-            "dist/appcast.xml" \
-            --verify-tag \
-            --title "Spotty $version" \
-            --notes-file "$notes"
+      - name: Retain the verified archive for release review
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: spotty-${{ github.ref_name }}
+          path: dist/Spotty-Rune-*.zip*
+          if-no-files-found: error

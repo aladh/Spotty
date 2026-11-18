@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {"id": "rune.integrated", "version": 1, "corpus": "representative", "contract": "App, session and playback regressions pass in the locked build."},
+    {"id": "playback.transport", "version": 1, "corpus": "representative", "contract": "All four named transport ordering and recovery traces pass."},
+    {"id": "rune.reference", "version": 1, "corpus": "representative", "contract": "The isolated synthetic playlist renders its screenshot and accessibility tree without layout warnings."}
+  ]
+}

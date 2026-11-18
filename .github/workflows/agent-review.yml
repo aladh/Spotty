@@ -27,12 +27,12 @@ on:
         type: string
       legacy_unmarked_threads:
         required: false
-        type: string
-        default: 'false'
+        type: boolean
+        default: false
       can_approve:
         required: false
-        type: string
-        default: 'false'
+        type: boolean
+        default: false
 
 jobs:
   review:

@@ -10,6 +10,11 @@ spotty_embed_sparkle() {
         shift 2
     fi
     local source_framework="$scratch_root/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+    if [[ "${1:-}" == "--framework" ]]; then
+        [[ $# -ge 2 ]] || { print -u2 "Sparkle embedding requires a framework path"; return 1; }
+        source_framework="$2"
+        shift 2
+    fi
     local framework="$destination_app/Contents/Frameworks/Sparkle.framework"
     [[ -d "$source_framework" ]] || { print -u2 "Missing resolved Sparkle framework"; return 1; }
     mkdir -p "$destination_app/Contents/Frameworks"

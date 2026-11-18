@@ -1,5 +1,8 @@
 # ADR 005: Retain librespot as the playback engine
 
+The current Rune implementation follows [ADR 011](ADR-011-rune-playback-module.md). This record describes the earlier Swift boundary.
+
+
 Status: accepted on 2026-09-04. Supersedes [ADR 004](ADR-004-swift-owned-playback-logic.md).
 [ADR 001](ADR-001-playback-engine.md)'s containment decision remains current.
 

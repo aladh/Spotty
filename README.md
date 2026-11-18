@@ -2,7 +2,7 @@
 
 These captures support [PR #627](https://github.com/aladh/Spotty/pull/627). The original README screenshot comes from [base commit 9b5d72b](https://github.com/aladh/Spotty/tree/9b5d72b686ac094148b395006918cc1215cbb8e3). Rune interaction captures and supplemental test logs come from [clean source commit b07f63e](https://github.com/aladh/Spotty/tree/b07f63e439ff2450babb0620f0ea0e0b8c7b4420).
 
-The [regular acceptance suite](acceptance/summary.json) passed on clean PR head [ad27bfa](https://github.com/aladh/Spotty/tree/ad27bfa151f60c996768f9de7de73035ecef7ad1) after review fixes. Its reference PNG matches the original Rune capture byte for byte.
+The [regular acceptance suite](acceptance/summary.json) passed on clean PR head [3dfd957](https://github.com/aladh/Spotty/tree/3dfd9570c145ef020f8f55bb31ec6db0f649dce9) after review fixes. Its reference PNG and accessibility tree match the original Rune captures byte for byte.
 
 ## Visual captures
 
@@ -19,9 +19,9 @@ The reference uses Rune’s 1720×1078 point scene at scale 2. Interaction captu
 ## Tests
 
 - All three acceptance scenarios passed from a clean tree. [Summary](acceptance/summary.json)
-- 192 regular Rust tests and all four separately named transport traces passed. [Integrated log](acceptance/rune.integrated.log) · [Trace log](acceptance/playback.transport.log)
+- 197 regular Rust tests and all four separately named transport traces passed. [Integrated log](acceptance/rune.integrated.log) · [Trace log](acceptance/playback.transport.log)
 - All three opt-in synthetic probes passed. The values describe injected fixtures. [Probe log](probes/tests.log) · [Probe receipts](probes/)
-- Review automation passed 28 Python and 12 Node tests. [Tooling logs](tooling/)
+- Review automation passed 28 Python and 12 Node tests. The current source policy run passed eight AST rule groups and 16 routing tests. Seven acceptance collector tests passed. [Tooling logs](tooling/)
 - The Linux binary has no exported Spotty playback C symbols. [Binary check](tooling/binary.log)
 
 ## Reproduce

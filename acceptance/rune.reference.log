@@ -1,4 +1,4 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
-rune: 1 frames at 60 fps, gpu init 488.7 ms, first frame 1052.63 ms, frame cpu mean 1052.634 ms p50 1052.634 p95 1052.634 max 1052.634, 1064 instances
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s
+rune: 1 frames at 60 fps, gpu init 474.1 ms, first frame 1249.27 ms, frame cpu mean 1249.271 ms p50 1249.271 p95 1249.271 max 1249.271, 1064 instances
 rune: animating frames 0 (cpu p50 0.000 p95 0.000 ms), at-rest frames 0 (the window draws none; forced cpu p50 0.000 p95 0.000 ms), layout nodes 742, glyphs 857
-.build/browsing-runs/run.zjwVWcJx
+.build/browsing-runs/run.UQYdmMmH

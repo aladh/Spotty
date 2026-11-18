@@ -1,5 +1,4 @@
-   Compiling spotty-rune v0.1.0 (Rune)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.28s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
      Running unittests src/main.rs (target/debug/deps/spotty_rune-c959a452d84adbfe)
 
 running 203 tests
@@ -8,34 +7,34 @@ test live::audio::tests::replaced_output_rejects_old_packets_and_resumes_on_the_
 test live::auth::retirement::tests::failed_catalog_publication_keeps_existing_entries ... ok
 test live::auth::tests::callback_validates_state_before_accepting_code_or_denial ... ok
 test live::auth::retirement::tests::purge_respects_main_database_locks_and_preserves_unrelated_files ... ok
-test live::auth::retirement::tests::catalog_eviction_counts_owned_records_and_bytes_and_preserves_history ... ok
 test live::auth::tests::explicit_signout_recovers_an_unreadable_retirement_value ... ok
 test live::auth::tests::failed_logout_retries_deletion_before_restoring_a_grant ... ok
-test live::auth::tests::grant_restores_swift_format_and_reclaims_only_private_staging_files ... ok
+test live::auth::retirement::tests::catalog_eviction_counts_owned_records_and_bytes_and_preserves_history ... ok
 test live::auth::tests::grant_store_refuses_linked_directories_and_credentials ... ok
+test live::auth::tests::grant_restores_swift_format_and_reclaims_only_private_staging_files ... ok
 test live::auth::tests::interrupted_retirement_preserves_the_strongest_intent_until_cleanup_succeeds ... ok
 test live::catalog::tests::collection_pages_reject_unknown_unions_and_malformed_counts ... ok
 test live::catalog::tests::decodes_main_fixtures_and_keeps_catalog_identity ... ok
 test live::catalog::tests::library_pages_reserve_capacity_and_refund_unused_rows ... ok
 test live::catalog::tests::pages_advance_by_observed_count_and_reject_partial_collections ... ok
-test live::catalog::tests::playlist_removal_uids_are_proven_against_all_returned_rows ... ok
+test live::auth::tests::late_token_rotation_cannot_recreate_or_replace_a_retired_grant ... ok
 test live::catalog::tests::saved_albums_and_artists_keep_their_independent_page_budget ... ok
 test live::catalog::tests::search_keeps_only_failed_categories_from_the_same_query ... ok
+test live::catalog::tests::playlist_removal_uids_are_proven_against_all_returned_rows ... ok
 test live::intent::tests::confirmation_never_retires_an_unsettled_write_permit ... ok
 test live::intent::tests::replacement_requires_the_requested_remaining_occurrences_in_order ... ok
 test live::intent::tests::resume_matches_contextless_cluster_and_rejects_old_or_local_only_evidence ... ok
-test live::playback_thread::tests::a_retirement_queued_behind_a_busy_engine_survives_a_dropped_reply ... ok
 test live::tests::a_forced_refresh_retires_saved_playlist_authority_until_success ... ok
 test live::tests::queue_admission_requires_current_protocol_occurrences ... ok
+test live::playback_thread::tests::a_retirement_queued_behind_a_busy_engine_survives_a_dropped_reply ... ok
 test live::tests::restored_startup_uses_bounded_delays_and_stops_on_retirement_or_refusal ... ok
 test live::tests::service_links_accept_only_expected_origins ... ok
 test live::tests::terminal_streaming_refusal_prompts_for_sign_in ... ok
-test live::auth::tests::late_token_rotation_cannot_recreate_or_replace_a_retired_grant ... ok
 test playback::audio_cache_evaluation::candidate_restart_follows_a_directory_symlink_and_prunes_its_owned_fixture_target ... ok
 test playback::audio_cache_evaluation::completed_candidate_saves_and_restart_enforce_the_trial_quota ... ok
 test playback::audio_cache_evaluation::delayed_candidate_clone_recreates_a_retired_partition_without_touching_replacement ... ok
-test playback::audio_cache_evaluation::disabled_audio_cache_retains_nothing_while_candidate_reuses_synthetic_bytes ... ok
 test playback::audio_cache_evaluation::failed_candidate_copy_leaves_readable_unaccounted_bytes_until_restart ... ok
+test playback::audio_cache_evaluation::disabled_audio_cache_retains_nothing_while_candidate_reuses_synthetic_bytes ... ok
 test playback::audio_cache_evaluation::record_synthetic_cold_and_warm_cache_io ... ignored, descriptive filesystem timing; run explicitly in an isolated process
 test playback::client::tests::repeat_preserves_both_observed_flags_and_changes_context_first ... ok
 test playback::connect_cluster_apply_tests::a_bootstrap_enqueues_when_no_push_has_been_seen ... ok
@@ -47,27 +46,27 @@ test playback::connect_cluster_apply_tests::a_push_always_enqueues_for_the_curre
 test playback::connect_cluster_apply_tests::a_push_discards_a_bootstrap_that_has_not_applied ... ok
 test playback::connect_cluster_apply_tests::a_prior_generation_push_does_not_apply_after_replacement ... ok
 test playback::connect_cluster_apply_tests::a_queued_offer_drains_after_the_claimant_unwinds ... ok
-test playback::connect_cluster_apply_tests::a_replacement_generation_still_drains_after_invalidation_wait ... ok
+test live::auth::tests::a_retired_grant_cannot_restart_catalog_writes_after_another_login ... ok
 test playback::connect_cluster_apply_tests::a_stale_generation_is_discarded_before_enqueue ... ok
 test playback::connect_cluster_apply_tests::a_stale_generation_enqueued_before_teardown_does_not_apply ... ok
+test playback::connect_cluster_apply_tests::a_replacement_generation_still_drains_after_invalidation_wait ... ok
 test playback::connect_cluster_apply_tests::a_superseded_offer_never_enqueues ... ok
 test playback::connect_cluster_apply_tests::bootstrap_before_push_leaves_the_push_as_last_writer ... ok
 test playback::connect_cluster_apply_tests::cleanup_drops_a_pending_bootstrap_instead_of_publishing_it ... ok
 test playback::connect_cluster_apply_tests::decide_then_apply_interleaving_keeps_the_push_as_last_writer ... ok
+test playback::device_identity::tests::installation_identity_is_validated_and_immutable ... ok
 test playback::connect_cluster_apply_tests::pop_then_generation_advance_does_not_apply ... ok
 test playback::connect_cluster_apply_tests::pushed_before_bootstrap_discards_the_bootstrap ... ok
-test playback::device_identity::tests::installation_identity_is_validated_and_immutable ... ok
 test playback::engine_resources::teardown_tests::cancellation_on_current_thread_aborts_children_and_invalidates_session ... ok
+test playback::engine_resources::teardown_tests::measure_stalled_spirc_task_deadline ... ignored, wall-clock measurement of the production four-second graceful deadline
 test playback::engine_resources::teardown_tests::graceful_teardown_requests_shutdown_before_joining_spirc ... ok
 test playback::engine_resources::teardown_tests::dropping_resources_outside_tokio_drains_before_returning ... ok
-test playback::engine_resources::teardown_tests::measure_stalled_spirc_task_deadline ... ignored, wall-clock measurement of the production four-second graceful deadline
 test playback::engine_resources::teardown_tests::spirc_retirement_keeps_children_and_session_until_grace_or_cancellation ... ok
-test playback::engine_resources::teardown_tests::unpolled_retirement_stops_tasks_and_invalidates_session ... ok
 test playback::lifecycle_measurements::named_lifecycle_fault_measurements ... ignored, wall-clock lifecycle measurement; run explicitly with --ignored
+test playback::engine_resources::teardown_tests::unpolled_retirement_stops_tasks_and_invalidates_session ... ok
 test playback::lifecycle_measurements::silent_session_fault_detection_uses_production_cadence ... ok
 test playback::lifecycle_serialization_tests::cancelled_recovery_backoff_settles_without_waiting_for_outage_delay ... ok
 test playback::lifecycle_serialization_tests::initialization_builds_when_the_recheck_still_sees_no_session ... ok
-test live::auth::tests::a_retired_grant_cannot_restart_catalog_writes_after_another_login ... ok
 test playback::lifecycle_serialization_tests::outage_retry_schedule_remains_bounded_without_a_terminal_attempt ... ok
 test live::auth::tests::rotated_refresh_token_survives_save_failure_without_another_exchange ... ok
 test playback::engine_resources::teardown_tests::stalled_spirc_teardown_aborts_and_joins_within_deadline ... ok
@@ -76,44 +75,44 @@ test playback::lifecycle_serialization_tests::overlapping_recovery_triggers_shar
 test playback::lifecycle_serialization_tests::queued_stale_reconnect_revalidates_and_skips_cleanup_and_build ... ok
 test playback::lifecycle_serialization_tests::reconnect_generation_is_captured_at_trigger_not_task_start ... ok
 test playback::lifecycle_serialization_tests::reconnect_unit_abandons_during_teardown_without_cleanup ... ok
-test playback::lifecycle_serialization_tests::reconnect_unit_runs_cleanup_and_build_when_generation_still_matches ... ok
 test playback::lifecycle_serialization_tests::recovery_attempt_does_not_require_a_registered_observer ... ok
 test playback::lifecycle_serialization_tests::retired_recovery_cannot_commit_a_late_credential_rejection ... ok
+test playback::lifecycle_serialization_tests::reconnect_unit_runs_cleanup_and_build_when_generation_still_matches ... ok
 test playback::lifecycle_serialization_tests::retired_recovery_does_not_begin_session_construction ... ok
-test playback::lifecycle_serialization_tests::retired_recovery_waiting_for_lifecycle_cannot_clean_or_build ... ok
+test playback::lifecycle_serialization_tests::recovery_reports_named_terminal_outcomes_and_attempt_count ... ok
 test playback::observed_resume::tests::cold_hydration_requires_matching_local_evidence_before_play ... ok
 test playback::observed_resume::tests::local_playing_without_new_protocol_ownership_cannot_confirm_resume ... ok
 test playback::observed_resume::tests::mismatched_track_position_context_and_remote_takeover_fail_closed ... ok
 test playback::observed_resume::tests::paused_local_playback_cannot_confirm_an_earlier_playing_event ... ok
 test playback::observed_resume::tests::paused_transfer_waits_for_converging_protocol_and_local_positions ... ok
-test playback::observed_resume::tests::local_delivery_cannot_replace_protocol_evidence_or_inherit_another_context ... ok
 test playback::lifecycle_serialization_tests::two_lifecycle_ops_never_enter_the_store_section_together ... ok
-test playback::observed_resume::tests::transport_trace_recovery_load_requires_fresh_target_and_ownership_evidence ... ok
-test playback::lifecycle_serialization_tests::recovery_reports_named_terminal_outcomes_and_attempt_count ... ok
-test playback::observed_resume::tests::rehydration_requires_a_current_playing_event_and_fresh_protocol_evidence ... ok
+test playback::observed_resume::tests::local_delivery_cannot_replace_protocol_evidence_or_inherit_another_context ... ok
+test playback::lifecycle_serialization_tests::retired_recovery_waiting_for_lifecycle_cannot_clean_or_build ... ok
+test playback::observed_resume::tests::protocol_snapshot_capture_is_ordered_and_generation_scoped ... ok
 test playback::player_event_pump::player_event_pump_policy::a_closed_channel_stops_even_if_the_generation_is_current ... ok
+test playback::observed_resume::tests::rehydration_requires_a_current_playing_event_and_fresh_protocol_evidence ... ok
 test playback::player_event_pump::player_event_pump_policy::a_closed_channel_stops_even_if_the_generation_is_superseded ... ok
+test playback::observed_resume::tests::transport_trace_recovery_load_requires_fresh_target_and_ownership_evidence ... ok
 test playback::player_event_pump::player_event_pump_policy::a_current_generation_event_is_applied ... ok
 test playback::player_event_pump::player_event_pump_policy::a_superseded_event_is_ignored ... ok
-test playback::observed_resume::tests::protocol_snapshot_capture_is_ordered_and_generation_scoped ... ok
-test playback::player_event_pump::player_event_pump_policy::current_loading_request_is_consumed_once_for_unavailable ... ok
 test playback::player_event_pump::player_event_pump_policy::a_playing_event_is_the_authoritative_playing_transition ... ok
-test playback::player_event_pump::player_event_pump_policy::deactivation_clears_pending_unavailable_identity ... ok
 test playback::player_event_pump::player_event_pump_policy::cleanup_still_clears_playing ... ok
-test playback::player_event_pump::player_event_pump_policy::deactivation_does_not_overwrite_with_a_zero_live_position ... ok
+test playback::player_event_pump::player_event_pump_policy::current_loading_request_is_consumed_once_for_unavailable ... ok
 test playback::player_event_pump::player_event_pump_policy::current_key_refusal_emits_one_native_failure_observation ... ok
 test playback::player_event_pump::player_event_pump_policy::current_unavailable_emits_one_flagged_local_snapshot ... ok
+test playback::player_event_pump::player_event_pump_policy::deactivation_clears_pending_unavailable_identity ... ok
+test playback::player_event_pump::player_event_pump_policy::deactivation_does_not_overwrite_with_a_zero_live_position ... ok
 test playback::player_event_pump::player_event_pump_policy::deactivation_saves_a_nonzero_live_position ... ok
-test playback::player_event_pump::player_event_pump_policy::invalid_session_deactivation_publishes_only_the_settled_failure ... ok
 test playback::player_event_pump::player_event_pump_policy::inactive_unavailable_consumes_request_without_mutating_playback ... ok
+test playback::player_event_pump::player_event_pump_policy::invalid_session_deactivation_publishes_only_the_settled_failure ... ok
 test playback::player_event_pump::player_event_pump_policy::key_refusal_rejects_remote_stale_preload_and_superseded_engine_events ... ok
 test playback::player_event_pump::player_event_pump_policy::loading_still_updates_track_position_and_resume_state ... ok
-test playback::player_event_pump::player_event_pump_policy::preload_failure_for_the_same_track_is_not_a_current_load_failure ... ok
 test playback::player_event_pump::player_event_pump_policy::mismatched_shared_track_leaves_playback_globals_untouched ... ok
-test playback::player_event_pump::player_event_pump_policy::session_role_changes_publish_one_connection_snapshot ... ok
-test playback::player_event_pump::player_event_pump_policy::stale_loading_does_not_disarm_the_newer_request ... ok
 test playback::player_event_pump::player_event_pump_policy::paused_stopped_and_end_of_track_still_clear_playing ... ok
+test playback::player_event_pump::player_event_pump_policy::preload_failure_for_the_same_track_is_not_a_current_load_failure ... ok
+test playback::player_event_pump::player_event_pump_policy::session_role_changes_publish_one_connection_snapshot ... ok
 test playback::player_event_pump::player_event_pump_policy::set_queue_still_updates_context ... ok
+test playback::player_event_pump::player_event_pump_policy::stale_loading_does_not_disarm_the_newer_request ... ok
 test playback::player_event_pump::player_event_pump_policy::stale_unavailable_does_not_consume_the_current_load ... ok
 test playback::player_event_pump::player_event_pump_policy::transport_trace_deactivation_before_stopped ... ok
 test playback::queue_tests::protocol_queue_tracks_keep_delimiter_and_occurrence_uids ... ok
@@ -132,37 +131,38 @@ test playback::retained_lifecycle_tests::teardown_engine_resources_awaits_every_
 test playback::session_lifecycle::session_construction::construction_tests::session_shutdown_guard_invalidates_an_unpublished_session_on_drop ... ok
 test playback::spirc_command_error_tests::add_to_queue_invalid_argument_maps_to_general ... ok
 test playback::spirc_command_error_tests::classification_uses_kind_not_debug_text ... ok
-test playback::spirc_command_error_tests::dropped_unbounded_command_receiver_maps_to_needs_reinit ... ok
 test playback::session_lifecycle::session_construction::construction_tests::refused_children_are_joined_and_stale_installation_cannot_retire_replacement ... ok
+test playback::spirc_command_error_tests::dropped_unbounded_command_receiver_maps_to_needs_reinit ... ok
+test playback::spirc_command_error_tests::initialization_errors_keep_credentials_rejection_terminal ... ok
 test playback::tests::a_paused_local_player_is_not_resumed ... ok
 test playback::tests::a_reconnect_loop_abandons_after_its_generation_moves ... ok
 test playback::tests::a_reconnect_loop_abandons_during_teardown ... ok
-test playback::tests::a_reconnect_loop_does_not_abandon_because_of_its_own_rebuild ... ok
 test playback::session_lifecycle::session_construction::construction_tests::publication_rejection_retires_candidate_and_preserves_installed_generation ... ok
-test playback::tests::a_reconnect_loop_proceeds_for_its_own_generation ... ok
 test playback::selection_load_policy::tests::selection_and_recovery_capture_modes_and_order_before_activation ... ok
-test playback::spirc_command_error_tests::initialization_errors_keep_credentials_rejection_terminal ... ok
+test playback::tests::a_reconnect_loop_does_not_abandon_because_of_its_own_rebuild ... ok
+test playback::tests::a_reconnect_loop_proceeds_for_its_own_generation ... ok
 test playback::tests::a_reconnect_loop_still_abandons_on_a_foreign_rebuild ... ok
 test playback::tests::a_rehydration_load_runs_only_for_the_current_generation_with_an_open_window ... ok
 test playback::tests::a_run_is_superseded_when_the_generation_moves ... ok
+test playback::tests::a_retired_generation_cancels_pending_network_work_and_refuses_new_work ... ok
 test playback::tests::a_superseded_listener_is_rejected ... ok
 test playback::tests::aggregate_connection_pins_cluster_role_and_device_identity ... ok
 test playback::tests::block_on_playback_refuses_a_tokio_owned_thread ... ok
 test playback::tests::block_on_playback_runs_on_a_non_runtime_thread ... ok
-test playback::tests::a_retired_generation_cancels_pending_network_work_and_refuses_new_work ... ok
 test playback::tests::clearing_credentials_that_are_not_there_is_fine ... ok
 test playback::tests::clearing_credentials_removes_the_directory ... ok
-test playback::tests::clearing_retired_credentials_removes_only_the_retired_directory ... ok
 test playback::tests::cluster_naming_another_device_makes_us_inactive ... ok
 test playback::tests::cluster_naming_us_makes_us_active ... ok
+test playback::tests::clearing_retired_credentials_removes_only_the_retired_directory ... ok
 test playback::tests::connect_config_advertises_configured_device_name ... ok
 test playback::tests::connect_config_uses_the_configured_device_name ... ok
 test playback::tests::connection_state_starts_without_an_open_rehydration_window ... ok
 test playback::tests::control_snapshot_stamps_are_monotonic_and_session_scoped ... ok
 test playback::tests::credentials_cache_dir_is_absolute_and_app_scoped ... ok
 test playback::tests::credentials_cache_dir_uses_injected_home_without_tmp_fallback ... ok
-test playback::tests::deactivation_alone_does_not_recover ... ok
 test playback::tests::credentials_cache_dir_is_created_private ... ok
+test playback::tests::deactivation_alone_does_not_recover ... ok
+test playback::tests::deactivation_during_teardown_never_recovers ... ok
 test playback::tests::deactivation_with_dead_session_recovers ... ok
 test playback::tests::displayed_position_advances_by_elapsed_time_while_playing ... ok
 test playback::tests::displayed_position_is_capped_at_one_update_interval ... ok
@@ -173,7 +173,6 @@ test playback::tests::health_check_defers_to_a_running_reconnect ... ok
 test playback::tests::health_check_leaves_a_healthy_session_alone ... ok
 test playback::tests::health_check_recovers_a_dead_session ... ok
 test playback::tests::health_check_recovers_a_session_that_never_connected ... ok
-test playback::tests::deactivation_during_teardown_never_recovers ... ok
 test playback::tests::health_check_stays_out_of_a_teardown ... ok
 test playback::tests::local_playback_is_resumed ... ok
 test playback::tests::no_local_device_id_is_never_active ... ok
@@ -184,10 +183,10 @@ test playback::tests::generation_owned_snapshot_keeps_its_callback_owner ... ok
 test playback::tests::playback_urls_leave_protocol_uri_forms_to_librespot ... ok
 test playback::tests::init_player_nested_runtime_does_not_clear_teardown_flags ... ok
 test playback::tests::playback_urls_are_rejected_before_session_admission ... ok
-test playback::tests::position_report_packs_position_and_arrival_as_one_word ... ok
 test playback::tests::playback_urls_reject_spoofed_hosts_and_malformed_resource_paths ... ok
-test playback::tests::remote_playback_is_left_alone ... ok
+test playback::tests::position_report_packs_position_and_arrival_as_one_word ... ok
 test playback::tests::playback_urls_preserve_spotify_resources_and_ignore_query_and_fragment ... ok
+test playback::tests::remote_playback_is_left_alone ... ok
 test playback::tests::protocol_context_clears_without_local_events_resurrecting_resume_context ... ok
 test playback::tests::resume_capture_uses_nonempty_sticky_identity_and_the_saved_position ... ok
 test playback::tests::routine_cleanup_does_not_supersede_a_grant ... ok
@@ -201,13 +200,12 @@ test tests::artwork_failures_cool_down_instead_of_permanently_preventing_retry .
 test tests::a_launch_link_waits_for_catalog_readiness ... ok
 test tests::card_playback_and_preview_artwork_act_independently_of_navigation_and_selection ... ok
 test tests::playlist_sort_and_filter_preserve_row_identity ... ok
-test tests::discography_list_loads_visible_albums_with_distinct_track_occurrences ... ok
 test tests::editing_and_queue_use_selected_occurrences_and_device_ownership ... ok
+test tests::discography_list_loads_visible_albums_with_distinct_track_occurrences ... ok
 test tests::queue_add_uses_visible_order_after_sorting ... ok
 test tests::search_filters_reuse_results_and_clearing_search_restores_all ... ok
 test tests::search_opens_a_detail_and_history_restores_the_query ... ok
 
-test result: ok. 200 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 3.02s
+test result: ok. 200 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 2.53s
 
-   Compiling spotty-rune v0.1.0 (Rune)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.05s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.36s

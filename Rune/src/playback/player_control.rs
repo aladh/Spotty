@@ -349,13 +349,13 @@ pub(crate) fn transfer_playback(generation: u64, to: &str) -> Result<(), Command
         return Err(CommandError::NotConnected);
     };
 
-    match block_on_playback(session.spclient().transfer(&from, to, None)) {
-        Ok(Ok(_)) => {}
-        Ok(Err(_)) => {
-            debug!("Spotify rejected the transfer request");
-            return Err(CommandError::Failed);
-        }
-        Err(error) => return Err(error),
+    let response = block_on_playback(run_while_current(
+        generation,
+        session.spclient().transfer(&from, to, None),
+    ))??;
+    if response.is_err() {
+        debug!("Spotify rejected the transfer request");
+        return Err(CommandError::Failed);
     }
 
     let notification = with_current_generation_mutation(generation, || {

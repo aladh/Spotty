@@ -8,6 +8,72 @@ module WorkflowPolicy
   PHASES = %w[engine contracts tests release].freeze
   QUALITY_JOBS = %w[policy domain_linux playback_python macos_verify].freeze
 
+  def self.validate_rune(workflow:, standalone:)
+    errors = []
+    check = ->(condition, message) { errors << message unless condition }
+    ref = '${{ github.event.pull_request.head.sha || github.sha }}'
+    run = <<~'BASH'.strip
+      export XDG_RUNTIME_DIR="$RUNNER_TEMP/spotty-runtime"
+      mkdir -m 700 "$XDG_RUNTIME_DIR"
+      python3 Scripts/verify.py acceptance --output "$RUNNER_TEMP/spotty-acceptance"
+    BASH
+    upload = {
+      'name' => 'acceptance-evidence-${{ github.run_id }}-${{ github.run_attempt }}',
+      'path' => '${{ runner.temp }}/spotty-acceptance',
+      'if-no-files-found' => 'error'
+    }
+    jobs = workflow.fetch('jobs', {})
+    check.call(jobs.keys.sort == %w[apple linux macos policy], 'CI must run source, Linux, Apple Silicon and aggregate jobs')
+    policy = jobs.fetch('policy', {})
+    check.call(policy['name'] == 'Source policies', 'source job must keep its required check name')
+    %w[apple linux].each do |id|
+      lane = jobs.fetch(id, {})
+      runner = id == 'apple' ? 'xcode-27' : 'ubuntu-latest'
+      check.call(lane['needs'] == 'policy' && lane['runs-on'] == runner,
+                 "CI #{id} must depend on source policy and use #{runner}")
+    end
+    aggregate = jobs.fetch('macos', {})
+    check.call(aggregate['name'] == 'macOS checks' && aggregate['if'] == 'always()' &&
+               Array(aggregate['needs']).sort == %w[apple linux policy],
+               'macOS checks must always join every required job')
+    status_step = Array(aggregate['steps']).first || {}
+    check.call(status_step['env'] == {
+      'POLICY' => '${{ needs.policy.result }}', 'LINUX' => '${{ needs.linux.result }}', 'APPLE' => '${{ needs.apple.result }}'
+    } && status_step['run'] == 'test "$POLICY" = success && test "$LINUX" = success && test "$APPLE" = success',
+               'macOS checks must explicitly require every job to succeed')
+
+    steps = Array(jobs.dig('linux', 'steps'))
+    linux_corpus = steps.find { |step| step['env']&.key?('SPOTTY_ACCEPTANCE_HEAD_SHA') } || {}
+    linux_upload = steps.find { |step| step.dig('with', 'name') == upload['name'] } || {}
+    triggers = standalone['on'] || standalone[true] || {}
+    check.call(triggers.keys.sort == %w[workflow_call workflow_dispatch], 'standalone acceptance must support dispatch and workflow reuse')
+    acceptance = standalone.dig('jobs', 'acceptance') || {}
+    check.call(acceptance['runs-on'] == 'ubuntu-latest' && acceptance['timeout-minutes'] == 60,
+               'standalone acceptance must use the bounded Linux runner')
+    steps = Array(acceptance['steps'])
+    corpus = steps.find { |step| step['id'] == 'acceptance' } || {}
+    artifacts = steps.find { |step| step['id'] == 'acceptance_upload' } || {}
+    gate = steps.find { |step| step['name'] == 'Require acceptance evidence' } || {}
+    check.call(acceptance['outputs'] == {
+      'evidence_artifact_url' => '${{ steps.acceptance_upload.outputs.artifact-url }}',
+      'outcome' => '${{ steps.acceptance.outcome }}'
+    } && gate['if'] == 'always()' && gate['env'] == {
+      'ACCEPTANCE_RESULT' => '${{ steps.acceptance.outcome }}',
+      'ACCEPTANCE_UPLOAD_RESULT' => '${{ steps.acceptance_upload.outcome }}'
+    } && gate['run'].to_s.strip == 'test "$ACCEPTANCE_RESULT" = success' + "\n" + 'test "$ACCEPTANCE_UPLOAD_RESULT" = success',
+               'standalone acceptance must publish and require both corpus and artifact outcomes')
+
+    [[linux_corpus, linux_upload], [corpus, artifacts]].each do |execution, artifact|
+      check.call(execution['run'].to_s.strip == run && execution.dig('env', 'SPOTTY_ACCEPTANCE_HEAD_SHA') == ref &&
+                 !execution.key?('if') && !execution['continue-on-error'],
+                 'Rune acceptance must run the full corpus and bind the PR head')
+      check.call(artifact['if'] == 'always()' && artifact['uses'] == "actions/upload-artifact@#{UPLOAD_SHA}" &&
+                 upload.all? { |key, value| artifact.dig('with', key) == value } && !artifact['continue-on-error'],
+                 'Rune acceptance must upload the run-attempt evidence even on failure')
+    end
+    errors
+  end
+
   # Required steps fail fast within their own phase, independent of earlier phase failures.
   SERIAL_STEPS = {
     'contracts' => [

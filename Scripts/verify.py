@@ -57,7 +57,9 @@ def acceptance(output):
     for name in ("summary.json", *REFERENCE_FILES):
         (output / name).unlink(missing_ok=True)
     before = source_identity(ROOT)
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT))
+    status_command = ["git", "status", "--porcelain"]
+    before_status = subprocess.check_output(status_command, cwd=ROOT)
+    dirty = bool(before_status)
     manifest = b""
     manifest_error = None
     try:
@@ -82,7 +84,8 @@ def acceptance(output):
         print(f"{key} {'passed' if passed else 'failed'}", flush=True)
         results.append({k: row[k] for k in ("id", "version", "corpus")} |
                        {"outcome": "passed" if passed else "failed"})
-    unchanged = before == source_identity(ROOT)
+    unchanged = (before == source_identity(ROOT)
+                 and before_status == subprocess.check_output(status_command, cwd=ROOT))
     passed = manifest_error is None and unchanged and not dirty and all(row["outcome"] == "passed" for row in results)
     summary = {"schemaVersion": 1, "manifestDigest": hashlib.sha256(manifest).hexdigest(),
                "source": {"revision": before["revision"], "trackedDiffDigest": before["diffSHA256"],

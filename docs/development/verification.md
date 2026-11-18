@@ -11,6 +11,8 @@ Run from the repository root. The locked test suite exercises app interaction, a
 
 The transport gate verifies all four named regressions are present and runs them in the default debug profile. Set `SPOTTY_BUILD_CONFIGURATION=release` when running `./Scripts/check.sh` to check the optimized profile. `./Scripts/check-clean.sh` verifies both profiles in a temporary target directory. CI runs Linux and Apple Silicon checks and packages the release configuration on macOS.
 
+For the same source checks as CI, install the [pinned ast-grep version](../../Scripts/ast-grep/version) and the [review test dependencies](agent-reviews.md#verifying-workflow-changes), then run `./Scripts/check-source-policy.sh`.
+
 ## Build and run
 
 ```sh

@@ -194,7 +194,7 @@ benefit justifies preserving the existing small retention owner, with no cache e
 After building the optimized Rune executable, run `./Scripts/report-size.sh` for the executable
 size and any available Mach-O segment sizes. The command prints Markdown and writes the version 2
 JSON report under `.build`. Compare measurements with the same target, profile and toolchain.
-Historical CI runs retain the version 1 report for the old executable and playback archive.
+Historical CI retained the report for the earlier executable and playback archive for 30 days.
 [Report command](../../Scripts/report-size.sh) · [Historical CI](https://github.com/aladh/Spotty/blob/9b5d72b686ac094148b395006918cc1215cbb8e3/.github/workflows/ci.yml)
 
 ## Command outcome trace (2026-09-10)

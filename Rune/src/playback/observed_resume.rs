@@ -863,6 +863,47 @@ mod tests {
         replace_playing_event_stamp_for_test(saved_stamp);
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn rehydration_requires_a_current_playing_event_and_fresh_protocol_evidence() {
+        let _fixture = ObservationFixture::new();
+        let generation = 7;
+        set_session_generation_for_test(generation);
+        with_connection(|connection| connection.resume_pending = true);
+        let expected = target("current", 152_000);
+        with_engine(|engine| {
+            engine.observed_resume = ObservedResumeState {
+                revision: 10,
+                observed: Some(expected.clone()),
+                local: Some(expected.clone()),
+                local_context_known: true,
+                protocol_active: true,
+                protocol_playing: true,
+                ..Default::default()
+            };
+        });
+        let watermark = playing_event_stamp().sequence;
+        assert!(arm_load_observation(
+            generation,
+            ResumeLoadTarget::Context {
+                uri: expected.context_uri.unwrap(),
+                track_hint: Some(expected.track_uri),
+                position_ms: expected.position_ms,
+            }
+        ));
+        let window = Duration::from_millis(20);
+        with_engine(|engine| engine.observed_resume.revision = 11);
+        publish_playing_event(generation - 1);
+        assert_eq!(
+            wait_for_rehydration(generation, watermark, window).await,
+            RehydrationOutcome::TimedOut
+        );
+        publish_playing_event(generation);
+        assert_eq!(
+            wait_for_rehydration(generation, watermark, window).await,
+            RehydrationOutcome::Playing
+        );
+    }
+
     #[test]
     fn local_playing_without_new_protocol_ownership_cannot_confirm_resume() {
         let expected = target("current", 152_000);

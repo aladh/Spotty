@@ -17,7 +17,7 @@ rule:
         pattern: python3 -B Scripts/documentation_policy.py
   - not:
       has:
-        pattern: python3 -B Scripts/script_tests.py policy
+        pattern: python3 -B Scripts/test_source_policy.py
   - not:
       has:
         pattern: npm test --prefix Scripts/agent-review-tests

@@ -25,6 +25,7 @@ while IFS= read -r owner; do
 done < Scripts/ast-grep/required-files.txt
 
 python3 -B Scripts/documentation_policy.py
+ruby Scripts/check-ci-workflow.rb .github/workflows/ci.yml
 
 if grep -nE "MockCatalog|PlaybackController|demo catalog" \
     "README.md" >&2; then
@@ -40,10 +41,17 @@ if grep -nE 'security@example\.com|replace this placeholder' \
     exit 1
 fi
 
-"$ast_grep" test --config sgconfig.yml --skip-snapshot-tests
-python3 -B Scripts/script_tests.py policy
+rules='^(workflow-action-pins|workflow-checkout-credentials|workflow-explicit-permissions|workflow-shell-interpolation|ci-fail-closed|ci-read-permissions|script-no-xtrace|development-signing-input|source-gate-tests)$'
+"$ast_grep" test --filter "$rules" --skip-snapshot-tests
+python3 -B Scripts/test_source_policy.py
+python3 -B Scripts/test_rune_workflow_policy.py
+python3 -B -m unittest discover -s Scripts -p test_source_gate_policy.py
+python3 -B Scripts/test_notices_policy.py
+python3 -B Scripts/test_verify.py
+python3 -B Scripts/test_harness_ui_smoke.py
+python3 -B Scripts/test_report_size.py
+python3 -B Scripts/test_ci_timings.py
 npm test --prefix Scripts/agent-review-tests
-# CI's ast-grep action already scans production and emits GitHub annotations.
 if [[ "${1:-}" != --test-only ]]; then
-    "$ast_grep" scan --config sgconfig.yml Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift
+    "$ast_grep" scan --filter "$rules" .github/workflows Scripts script Rune
 fi

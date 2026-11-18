@@ -1554,21 +1554,19 @@ impl Worker {
         match event {
             engine::Observation::Cluster(snapshot) if snapshot.sequence > self.cluster_sequence => {
                 self.cluster_sequence = snapshot.sequence;
-                if snapshot.connection.sequence < self.connection_sequence
-                    && snapshot.connection.local != self.local_active
-                {
-                    return;
+                let stale_owner = snapshot.connection.sequence < self.connection_sequence
+                    && snapshot.connection.local != self.local_active;
+                if !stale_owner {
+                    self.local = snapshot.local.or_else(|| self.local.clone());
+                    self.active = snapshot.active;
+                    if let Some(id) = &self.active
+                        && self.local.as_ref().is_some_and(|local| local != id)
+                        && Some(id) != self.last_remote.as_ref()
+                    {
+                        self.last_remote = Some(id.clone());
+                        self.save("last-remote-device", id);
+                    }
                 }
-                self.local = snapshot.local.or_else(|| self.local.clone());
-                self.active = snapshot.active;
-                if let Some(id) = &self.active
-                    && self.local.as_ref().is_some_and(|local| local != id)
-                    && Some(id) != self.last_remote.as_ref()
-                {
-                    self.last_remote = Some(id.clone());
-                    self.save("last-remote-device", id);
-                }
-                let is_local = snapshot.connection.local;
                 self.snapshot.devices = snapshot
                     .devices
                     .into_iter()
@@ -1596,9 +1594,15 @@ impl Worker {
                             id: id.clone(),
                             name: "This computer".into(),
                             detail: "Computer".into(),
-                            active: is_local,
+                            active: self.active.as_ref() == Some(id),
                         },
                     );
+                }
+                if stale_owner {
+                    // A newer direct connection observation owns playback and queue.
+                    // The cluster still supplies the newest device membership.
+                    self.resolve_owner();
+                    return;
                 }
                 self.apply_connection(snapshot.connection);
                 self.resolve_owner();

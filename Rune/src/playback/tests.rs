@@ -112,10 +112,14 @@ fn connect_config_advertises_configured_device_name() {
 
 #[test]
 fn connect_config_uses_the_configured_device_name() {
+    let _guard = lock_global_state();
+    let previous = CONNECT_DEVICE_NAME_SETTING.lock().unwrap().take();
     let expected = "Studio Mac (Spotty)";
     set_connect_device_name(expected);
 
-    let configured = configured_connect_device_name().expect("device name was stored");
+    let configured = configured_connect_device_name();
+    *CONNECT_DEVICE_NAME_SETTING.lock().unwrap() = previous;
+    let configured = configured.expect("device name was stored");
     assert_eq!(create_connect_config(&configured).name, expected);
 }
 
@@ -356,34 +360,22 @@ fn resume_capture_uses_nonempty_sticky_identity_and_the_saved_position() {
 }
 
 #[test]
-fn rehydration_wait_requires_playback_evidence_from_the_current_generation() {
-    let _guard = lock_global_state();
-    let previous_generation = set_session_generation_for_test(7);
-    let previous_pending = with_connection(|c| std::mem::replace(&mut c.resume_pending, true));
-    let previous_playing = playing_event_stamp();
-    let was_playing = engine_is_playing();
-
-    for generation in [6, 7] {
-        publish_playing_event(generation);
-        assert_eq!(
-            RUNTIME.block_on(wait_for_rehydration(
-                7,
-                previous_playing.sequence,
-                Duration::ZERO
-            )),
-            RehydrationOutcome::TimedOut,
-            "a Playing event needs current protocol evidence for the requested load"
-        );
-    }
-    set_session_generation_for_test(previous_generation);
-    replace_playing_event_stamp_for_test(previous_playing);
-    set_engine_playing_for_test(was_playing);
-    with_connection(|connection| connection.resume_pending = previous_pending);
-}
-
-#[test]
 fn connection_state_starts_without_an_open_rehydration_window() {
     assert!(!ConnectionState::default().resume_pending);
+}
+
+#[tokio::test]
+async fn a_retired_generation_cancels_pending_network_work_and_refuses_new_work() {
+    let _fixture = ObservationFixture::new();
+    set_session_generation_for_test(7);
+    let ongoing = run_while_current(7, std::future::pending::<()>());
+    tokio::pin!(ongoing);
+    assert!(futures_util::poll!(&mut ongoing).is_pending());
+    set_session_generation_for_test(8);
+    assert_eq!(ongoing.await, Err(CommandError::Superseded));
+    let stale = run_while_current(7, async { panic!("a retired request must never start") });
+    assert_eq!(stale.await, Err(CommandError::Superseded));
+    assert_eq!(run_while_current(8, std::future::ready(())).await, Ok(()));
 }
 
 #[test]
@@ -786,9 +778,7 @@ fn init_player_nested_runtime_does_not_clear_teardown_flags() {
 
 #[test]
 fn protocol_context_clears_without_local_events_resurrecting_resume_context() {
-    let _guard = lock_lifecycle_test_globals();
-    let context = CURRENT_CONTEXT_URI.lock().unwrap().clone();
-    let options = current_playback_options();
+    let _fixture = ObservationFixture::new();
     let copied = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let observed = copied.clone();
     let _observer = client::TestObserver::install(move |notice| match notice {
@@ -816,8 +806,9 @@ fn protocol_context_clears_without_local_events_resurrecting_resume_context() {
     );
     state.context_uri.clear();
     apply_cluster(generation, ClusterOrigin::PushedUpdate, cluster(state));
+    let sticky_context = CURRENT_CONTEXT_URI.lock().unwrap().clone();
     assert_eq!(
-        CURRENT_CONTEXT_URI.lock().unwrap().as_deref(),
+        sticky_context.as_deref(),
         Some("spotify:playlist:authoritative")
     );
     let local = capture_local_playback_state(true, 42, generation);
@@ -830,8 +821,6 @@ fn protocol_context_clears_without_local_events_resurrecting_resume_context() {
             None,
         ]
     );
-    *CURRENT_CONTEXT_URI.lock().unwrap() = context;
-    update_playback_options(options.0, options.1, options.2);
 }
 
 // The display getter advances the last Player report by the time since it arrived, bounded to

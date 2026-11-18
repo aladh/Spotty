@@ -83,40 +83,44 @@ const MAX_LIBRARY_NODES: usize = 10_000;
 struct LibraryBudget {
     pages: AtomicUsize,
     consumed: AtomicUsize,
-    entries: Semaphore,
+    entries: Option<Semaphore>,
 }
 
 impl LibraryBudget {
-    fn new() -> Self {
+    fn new(cap_playlist_rows: bool) -> Self {
         Self {
             pages: AtomicUsize::new(0),
             consumed: AtomicUsize::new(0),
-            entries: Semaphore::new(MAX_LIBRARY_NODES),
+            entries: cap_playlist_rows.then(|| Semaphore::new(MAX_LIBRARY_NODES)),
         }
     }
 
-    async fn reserve_page(&self, limit: usize) -> Result<SemaphorePermit<'_>> {
+    async fn reserve_page(&self, limit: usize) -> Result<Option<SemaphorePermit<'_>>> {
         if self.pages.fetch_add(1, Ordering::Relaxed) >= MAX_PAGES {
             return Err(Failure::Response);
         }
-        let mut page = self
-            .entries
-            .acquire()
-            .await
-            .map_err(|_| Failure::Response)?;
-        let additional = self.entries.available_permits().min(limit - 1);
+        let Some(entries) = &self.entries else {
+            return Ok(None);
+        };
+        let mut page = entries.acquire().await.map_err(|_| Failure::Response)?;
+        let additional = entries.available_permits().min(limit - 1);
         if additional > 0
-            && let Ok(extra) = self.entries.try_acquire_many(additional as u32)
+            && let Ok(extra) = entries.try_acquire_many(additional as u32)
         {
             page.merge(extra);
         }
-        Ok(page)
+        Ok(Some(page))
     }
 
-    fn consume_page(&self, mut page: SemaphorePermit<'_>, rows: usize) -> Result<()> {
+    fn consume_page(&self, page: Option<SemaphorePermit<'_>>, rows: usize) -> Result<()> {
+        let Some(mut page) = page else {
+            return Ok(());
+        };
         page.split(rows).ok_or(Failure::Response)?.forget();
-        if self.consumed.fetch_add(rows, Ordering::Relaxed) + rows == MAX_LIBRARY_NODES {
-            self.entries.close();
+        if self.consumed.fetch_add(rows, Ordering::Relaxed) + rows == MAX_LIBRARY_NODES
+            && let Some(entries) = &self.entries
+        {
+            entries.close();
         }
         Ok(())
     }
@@ -174,7 +178,7 @@ impl Catalog {
 
     pub async fn playlists(&self) -> Result<Vec<Item>> {
         // Each traversal shares a global page and entry budget. Four requests can run at once.
-        let budget = Arc::new(LibraryBudget::new());
+        let budget = Arc::new(LibraryBudget::new(true));
         let mut frontier = VecDeque::from([(String::new(), 0)]);
         let mut seen = HashSet::new();
         let mut children = HashMap::new();
@@ -235,11 +239,13 @@ impl Catalog {
         budget: &LibraryBudget,
     ) -> Result<Vec<Value>> {
         let (_, rows) = collect(|offset| async move {
-            let capacity = budget
-                .reserve_page(if folder.is_some() { 200 } else { 50 })
-                .await?;
+            let page_size = if folder.is_some() { 200 } else { 50 };
+            let capacity = budget.reserve_page(page_size).await?;
+            let limit = capacity
+                .as_ref()
+                .map_or(page_size, SemaphorePermit::num_permits);
             let mut vars = json!({
-                "filters": [filter], "offset": offset, "limit": capacity.num_permits(),
+                "filters": [filter], "offset": offset, "limit": limit,
                 "textFilter": "", "flatten": folder.is_none(), "expandedFolders": [],
                 "includeFoldersWhenFlattening": false
             });
@@ -259,7 +265,7 @@ impl Catalog {
     }
 
     async fn library(&self) -> Result<Page> {
-        let budget = LibraryBudget::new();
+        let budget = LibraryBudget::new(false);
         let (albums, artists) = tokio::try_join!(
             self.library_rows("Albums", None, &budget),
             self.library_rows("Artists", None, &budget),
@@ -1179,10 +1185,10 @@ mod tests {
 
     #[tokio::test]
     async fn library_pages_reserve_capacity_and_refund_unused_rows() {
-        let budget = LibraryBudget::new();
+        let budget = LibraryBudget::new(true);
         let first = budget.reserve_page(MAX_LIBRARY_NODES - 2).await.unwrap();
         let second = budget.reserve_page(200).await.unwrap();
-        assert_eq!(second.num_permits(), 2);
+        assert_eq!(second.as_ref().unwrap().num_permits(), 2);
         let waiter = budget.reserve_page(200);
         tokio::pin!(waiter);
         assert!(matches!(
@@ -1191,10 +1197,21 @@ mod tests {
         ));
         budget.consume_page(first, MAX_LIBRARY_NODES - 3).unwrap();
         let final_page = waiter.await.unwrap();
-        assert_eq!(final_page.num_permits(), 1);
+        assert_eq!(final_page.as_ref().unwrap().num_permits(), 1);
         budget.consume_page(second, 2).unwrap();
         budget.consume_page(final_page, 1).unwrap();
         assert!(budget.reserve_page(200).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn saved_albums_and_artists_keep_their_independent_page_budget() {
+        let budget = LibraryBudget::new(false);
+        for _ in 0..MAX_PAGES {
+            let page = budget.reserve_page(50).await.unwrap();
+            assert!(page.is_none());
+            budget.consume_page(page, 50).unwrap();
+        }
+        assert!(budget.reserve_page(50).await.is_err());
     }
 
     #[test]

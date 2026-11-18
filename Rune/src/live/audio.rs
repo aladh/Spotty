@@ -15,6 +15,30 @@ struct Frame {
     samples: [f32; 2],
 }
 
+fn discard_retired_frames(read: &mut Consumer<Frame>, generation: u64) {
+    let retired = |frame: &Frame| {
+        let age = generation.wrapping_sub(frame.generation);
+        age > 0 && age < (1 << 63)
+    };
+    if read.peek().is_ok_and(retired)
+        && let Ok(chunk) = read.read_chunk(read.slots())
+    {
+        let (first, second) = chunk.as_slices();
+        // The writer serializes insertion, so retired epochs occupy one ordered prefix.
+        let mut discard = first.partition_point(retired);
+        if discard == first.len() {
+            discard += second.partition_point(retired);
+        }
+        chunk.commit(discard);
+    }
+}
+
+fn take_current_frame(read: &mut Consumer<Frame>, generation: u64) -> Option<[f32; 2]> {
+    (read.peek().ok()?.generation == generation)
+        .then(|| read.pop().ok().map(|frame| frame.samples))
+        .flatten()
+}
+
 #[derive(Default)]
 pub struct Audio {
     write: Mutex<Option<Producer<Frame>>>,
@@ -227,12 +251,8 @@ impl Audio {
                         position = 0.0;
                         last_generation = generation;
                     }
-                    let mut take = || loop {
-                        let frame = read.pop().ok()?;
-                        if frame.generation == generation {
-                            return Some(frame.samples);
-                        }
-                    };
+                    discard_retired_frames(&mut read, generation);
+                    let mut take = || take_current_frame(&mut read, generation);
                     for frame in buffer.chunks_mut(channels) {
                         if playing && samples.is_none() {
                             samples = take();
@@ -267,6 +287,10 @@ impl Audio {
                                 position -= 1.0;
                             }
                         }
+                    }
+                    // Stop and clear can run while this callback holds decoded samples.
+                    if render.generation.load(Ordering::Acquire) != generation {
+                        buffer.fill(T::EQUILIBRIUM);
                     }
                 },
                 move |_| {
@@ -330,5 +354,27 @@ mod tests {
         audio.control(AudioControl::Stop);
         audio.write(&[0.9, 1.0]);
         assert!(current.pop().is_err());
+    }
+
+    #[test]
+    fn a_wrapped_audio_ring_retires_old_frames_and_keeps_a_newer_epoch() {
+        let (mut write, mut read) = RingBuffer::new(4);
+        let frame = |generation, sample| Frame {
+            generation,
+            samples: [sample, sample],
+        };
+        for _ in 0..3 {
+            assert!(write.push(frame(5, 0.0)).is_ok());
+            assert!(read.pop().is_ok());
+        }
+        assert!(write.push(frame(6, 0.1)).is_ok());
+        assert!(write.push(frame(6, 0.2)).is_ok());
+        assert!(write.push(frame(7, 0.3)).is_ok());
+        assert!(write.push(frame(8, 0.4)).is_ok());
+        discard_retired_frames(&mut read, 7);
+        assert_eq!(read.slots(), 2);
+        assert_eq!(take_current_frame(&mut read, 7), Some([0.3, 0.3]));
+        assert_eq!(take_current_frame(&mut read, 7), None);
+        assert_eq!(take_current_frame(&mut read, 8), Some([0.4, 0.4]));
     }
 }

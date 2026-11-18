@@ -78,3 +78,50 @@ mod retained_lifecycle_tests;
 mod spirc_command_error_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+struct ObservationFixture {
+    _guard: std::sync::MutexGuard<'static, ()>,
+    generation: u64,
+    connection: ConnectionState,
+    observed_resume: ObservedResumeState,
+    playing: bool,
+    stamp: PlayingEventStamp,
+    context: Option<String>,
+    options: (bool, bool, bool),
+}
+
+#[cfg(test)]
+impl ObservationFixture {
+    fn new() -> Self {
+        let guard = lock_lifecycle_test_globals();
+        Self {
+            _guard: guard,
+            generation: SESSION_GENERATION.load(Ordering::SeqCst),
+            connection: with_connection(|connection| connection.clone()),
+            observed_resume: with_engine(|engine| std::mem::take(&mut engine.observed_resume)),
+            playing: engine_is_playing(),
+            stamp: playing_event_stamp(),
+            context: CURRENT_CONTEXT_URI.lock().unwrap().clone(),
+            options: current_playback_options(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ObservationFixture {
+    fn drop(&mut self) {
+        if SESSION_GENERATION.load(Ordering::SeqCst) != self.generation {
+            set_session_generation_for_test(self.generation);
+        }
+        with_connection(|connection| *connection = std::mem::take(&mut self.connection));
+        with_engine(|engine| engine.observed_resume = std::mem::take(&mut self.observed_resume));
+        replace_playing_event_stamp_for_test(self.stamp);
+        set_engine_playing_for_test(self.playing);
+        *CURRENT_CONTEXT_URI
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = self.context.take();
+        let (shuffle, track, context) = self.options;
+        update_playback_options(shuffle, track, context);
+    }
+}

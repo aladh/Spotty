@@ -13,7 +13,7 @@ use log::debug;
 pub struct ProxySink;
 
 impl ProxySink {
-    /// Flush the renderer buffer synchronously.
+    /// Invalidate buffered samples by epoch. The device drains its own submitted buffers.
     #[cfg(target_os = "macos")]
     pub fn clear_buffer() {
         debug!("ProxySink: Sending clear command");

@@ -138,6 +138,39 @@ function temporary(run) {
   try { run(directory); } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
+test('provider failure diagnostics classify CLI errors and exclude review output', () => temporary(directory => {
+  const source = join(directory, 'reviewer', 'config');
+  const bin = join(directory, 'review-cli', 'node_modules', '.bin');
+  const input = join(directory, 'review', 'in');
+  const output = join(directory, 'github-output');
+  for (const folder of [source, bin, input]) mkdirSync(folder, { recursive: true });
+  writeFileSync(join(source, 'task.md'), 'Fixture prompt\n');
+  writeFileSync(join(input, 'context.json'), '{}');
+  writeFileSync(join(bin, 'timeout'), '#!/bin/bash\nshift 2\nexec "$@"\n', { mode: 0o755 });
+  writeFileSync(join(bin, 'opencode'), '#!/bin/bash\nprintf "%s\\n" "$FIXTURE_STDOUT"\nprintf "%s\\n" "$FIXTURE_STDERR" >&2\nexit 124\n',
+    { mode: 0o755 });
+  const step = workflow('agent-review.yml').jobs.review.steps.find(step => step.id === 'review');
+  const rateLimit = 'timestamp=2026-11-18T00:00:00Z level=ERROR run=fixture message="stream error" providerID=opencode modelID=fixture error.error="AI_APICallError: Free usage limit reached."';
+  for (const genuine of [false, true]) {
+    writeFileSync(output, '');
+    const result = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: {
+        ...process.env, GITHUB_WORKSPACE: directory, RUNNER_TEMP: directory,
+        REVIEW_IN: input, CONFIG_DIRECTORY: 'config', PRIMARY_AGENT: 'fixture',
+        GITHUB_OUTPUT: output, PATH: `${bin}:${process.env.PATH}`,
+        FIXTURE_STDOUT: rateLimit,
+        FIXTURE_STDERR: genuine ? rateLimit : 'Unclassified fixture error',
+      },
+    });
+    assert.equal(result.status, 124, result.stderr);
+    assert.equal(readFileSync(output, 'utf8'), genuine ? 'provider_limited=true\n' : '');
+    const detail = genuine ? /reported that its free usage limit/ : /did not finish the review within 20 minutes/;
+    assert.match(result.stdout, detail);
+    assert.match(readFileSync(join(directory, 'review.log'), 'utf8'), detail);
+  }
+}));
+
 test('both published review bodies include the trusted-collaborator rerun hint', () => temporary(directory => {
   writeFileSync(join(directory, 'summary.md'), 'No findings. Literal $(touch unexpected).');
   const publisher = join(root, '.github/agent-review/publish.py');

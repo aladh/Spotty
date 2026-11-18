@@ -104,6 +104,16 @@ class AcceptanceEvidenceTests(unittest.TestCase):
         self.assertEqual(self.acceptance(), 1)
         self.assertTrue(json.loads((self.output / "summary.json").read_text())["source"]["dirty"])
 
+    def test_new_untracked_files_invalidate_evidence(self):
+        self.script("rune.integrated", "from pathlib import Path; Path('generated').touch()")
+        for name in verify.REFERENCE_FILES:
+            (self.capture / name).write_text("synthetic")
+        self.commit()
+        self.assertEqual(self.acceptance(), 1)
+        summary = json.loads((self.output / "summary.json").read_text())
+        self.assertFalse(summary["source"]["dirty"])
+        self.assertFalse(summary["sourceUnchanged"])
+
     def test_manifest_schema_version_must_be_an_integer(self):
         document = json.loads(self.manifest.read_text())
         for version in (True, 1.0):

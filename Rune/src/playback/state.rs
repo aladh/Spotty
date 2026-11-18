@@ -621,6 +621,30 @@ pub(crate) fn elapsed_since_wake_ms() -> u64 {
 // check unreachable. Now that a rebuild replaces the listener along with its session, the
 // listener captures the value directly and the check does what it claims.
 pub(crate) static SESSION_GENERATION: AtomicU64 = AtomicU64::new(0);
+static GENERATION_UPDATES: Lazy<tokio::sync::watch::Sender<u64>> =
+    Lazy::new(|| tokio::sync::watch::channel(0).0);
+
+/// Cancel pending request work when its owner retires. Remote receipt still needs observation.
+pub(crate) async fn run_while_current<T>(
+    generation: u64,
+    request: impl std::future::Future<Output = T>,
+) -> Result<T, CommandError> {
+    if generation == 0 || SESSION_GENERATION.load(Ordering::SeqCst) != generation {
+        return Err(CommandError::Superseded);
+    }
+    let mut updates = GENERATION_UPDATES.subscribe();
+    tokio::select! {
+        biased;
+        _ = updates.wait_for(|owner| *owner != generation) => Err(CommandError::Superseded),
+        response = request => {
+            if SESSION_GENERATION.load(Ordering::SeqCst) == generation {
+                Ok(response)
+            } else {
+                Err(CommandError::Superseded)
+            }
+        }
+    }
+}
 
 /// Serializes short, synchronous mutations against the generation invalidation point.
 ///
@@ -665,6 +689,7 @@ pub(crate) fn advance_session_generation() -> u64 {
         with_engine(|engine| {
             let invalidated = SESSION_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
             engine.session_generation = invalidated;
+            GENERATION_UPDATES.send_replace(invalidated);
             engine.observed_resume = ObservedResumeState::default();
             engine.release_resume();
             invalidated
@@ -682,6 +707,7 @@ pub(crate) fn set_session_generation_for_test(generation: u64) -> u64 {
         with_engine(|engine| {
             let previous = SESSION_GENERATION.swap(generation, Ordering::SeqCst);
             engine.session_generation = generation;
+            GENERATION_UPDATES.send_replace(generation);
             engine.observed_resume = ObservedResumeState::default();
             previous
         })

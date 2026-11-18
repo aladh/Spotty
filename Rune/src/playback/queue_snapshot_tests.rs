@@ -3,11 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 
 #[test]
 fn cluster_delivers_an_owned_queue_and_connection_at_the_same_revision() {
-    let _guard = lock_lifecycle_test_globals();
-    let connection = with_connection(|connection| connection.clone());
-    let resume = with_engine(|engine| std::mem::take(&mut engine.observed_resume));
-    let saved_context = CURRENT_CONTEXT_URI.lock().unwrap().clone();
-    let options = current_playback_options();
+    let _fixture = ObservationFixture::new();
     let generation = SESSION_GENERATION.load(Ordering::SeqCst);
 
     let captured = Rc::new(RefCell::new(Vec::new()));
@@ -97,9 +93,4 @@ fn cluster_delivers_an_owned_queue_and_connection_at_the_same_revision() {
     assert_eq!(queue.previous[0].removed, ["removed-reason"]);
     assert_eq!(queue.previous[0].blocked, ["blocked-reason"]);
     assert!(queue.removal_disallowed);
-
-    with_connection(|c| *c = connection);
-    with_engine(|engine| engine.observed_resume = resume);
-    *CURRENT_CONTEXT_URI.lock().unwrap() = saved_context;
-    update_playback_options(options.0, options.1, options.2);
 }

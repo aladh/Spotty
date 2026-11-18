@@ -8,6 +8,11 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+SWIFT_BASELINE = "9b5d72b686ac094148b395006918cc1215cbb8e3"
+
+
+def historical_file(path):
+    return subprocess.check_output(["git", "show", f"{SWIFT_BASELINE}:{path}"], cwd=ROOT)
 
 
 @dataclass(frozen=True)
@@ -32,16 +37,21 @@ class WorkflowFixtureMixin:
         cls.fixture_root = Path(temporary.name)
         cls.scripts = cls.fixture_root / 'Scripts'
         cls.scripts.mkdir()
-        for name in ('check-ci-workflow.rb', 'workflow_policy.rb', 'check-source-policy.sh',
-                     'playback-candidate-needed.sh', 'agent-review-tests/package.json'):
+        for name in ('check-ci-workflow.rb', 'workflow_policy.rb'):
+            target = cls.scripts / name
+            shutil.copy2(ROOT / 'Scripts' / name, target)
+        for name in ('check-source-policy.sh', 'playback-candidate-needed.sh', 'agent-review-tests/package.json'):
             target = cls.scripts / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / 'Scripts' / name, target)
+            target.write_bytes(historical_file(f"Scripts/{name}"))
+        workflows = cls.fixture_root / 'baseline'
+        workflows.mkdir()
+        for name in ('ci.yml', 'acceptance-scenarios.yml'):
+            (workflows / name).write_bytes(historical_file(f".github/workflows/{name}"))
         cls.workflow, cls.acceptance_workflow = json.loads(subprocess.check_output([
             'ruby', '-ryaml', '-rjson', '-e',
             'puts JSON.generate(ARGV.map { |path| YAML.safe_load(File.read(path), aliases: true) })',
-            str(ROOT / '.github/workflows/ci.yml'),
-            str(ROOT / '.github/workflows/acceptance-scenarios.yml')], text=True))
+            str(workflows / 'ci.yml'), str(workflows / 'acceptance-scenarios.yml')], text=True))
         # Ruby's YAML 1.1 loader reads unquoted "on" as true; JSON retains the intended key.
         for workflow in (cls.workflow, cls.acceptance_workflow):
             workflow['on'] = workflow.pop('true')

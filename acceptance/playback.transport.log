@@ -1,17 +1,17 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
      Running unittests src/main.rs (target/debug/deps/spotty_rune-c959a452d84adbfe)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
      Running unittests src/main.rs (target/debug/deps/spotty_rune-c959a452d84adbfe)
-synthetic transport_trace=play-before-old-paused command_first=true elapsed_us=296
-synthetic transport_trace=play-before-old-paused command_first=false elapsed_us=114
-synthetic transport_trace=pause-before-old-playing command_first=true elapsed_us=102
-synthetic transport_trace=pause-before-old-playing command_first=false elapsed_us=102
+synthetic transport_trace=play-before-old-paused command_first=true elapsed_us=153
+synthetic transport_trace=play-before-old-paused command_first=false elapsed_us=99
+synthetic transport_trace=pause-before-old-playing command_first=true elapsed_us=92
+synthetic transport_trace=pause-before-old-playing command_first=false elapsed_us=89
 
 running 4 tests
 test playback::observed_resume::tests::transport_trace_recovery_load_requires_fresh_target_and_ownership_evidence ... ok
+test playback::player_event_pump::player_event_pump_policy::transport_trace_replacement_before_old_position_events ... ok
 test playback::player_event_pump::player_event_pump_policy::transport_trace_deactivation_before_stopped ... ok
 test playback::player_event_pump::player_event_pump_policy::transport_trace_play_before_old_paused_and_pause_before_old_playing ... ok
-test playback::player_event_pump::player_event_pump_policy::transport_trace_replacement_before_old_position_events ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 191 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 191 filtered out; finished in 0.00s
 

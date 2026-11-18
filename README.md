@@ -2,7 +2,7 @@
 
 These captures support [PR #627](https://github.com/aladh/Spotty/pull/627). The original README screenshot comes from [base commit 9b5d72b](https://github.com/aladh/Spotty/tree/9b5d72b686ac094148b395006918cc1215cbb8e3). Rune interaction captures and supplemental test logs come from [clean source commit b07f63e](https://github.com/aladh/Spotty/tree/b07f63e439ff2450babb0620f0ea0e0b8c7b4420).
 
-The [regular acceptance suite](acceptance/summary.json) passed on clean PR head [3c7a19f](https://github.com/aladh/Spotty/tree/3c7a19f6ac9009e556eae81af74fdefc6bb2fff9) after review fixes. Its reference PNG and accessibility tree match the original Rune captures byte for byte.
+The [regular acceptance suite](acceptance/summary.json) passed on clean PR head [cd85a15](https://github.com/aladh/Spotty/tree/cd85a1510c292ebc4316b191edbb5ff74a1bf9ed) after review fixes. Its reference PNG and accessibility tree match the original Rune captures byte for byte.
 
 ## Visual captures
 
@@ -25,7 +25,7 @@ The reference uses Rune’s 1720×1078 point scene at scale 2. Interaction captu
 - Review automation passed 32 Python and 13 Node tests. The current source policy run passed nine AST rule groups and 16 routing tests. Eight acceptance collector tests passed. [Tooling logs](tooling/) · [Pagination and approval recheck regressions](tooling/review-pagination.log) · [37 historical workflow fixture tests](tooling/historical-workflow-fixtures.log)
 - The Linux binary has no exported Spotty playback C symbols. [Binary check](tooling/binary.log)
 
-- The Apple-target dependency notice audit accounted for 352 of 393 dependencies. It records 41 entries that need pinned license files or fork provenance. [Audit data](tooling/notice-audit.json)
+- The Apple-target notices cover 393 locked dependencies and 272 unique license or notice files. Two generations yielded identical outputs. The bundle verifier rejects missing or altered license files. This Linux run cross-resolves the Apple Silicon graph. [Inventory and texts](notices/ThirdPartyNotices.md) · [Machine-readable inventory](notices/ThirdPartyNotices.json) · [Verification log](tooling/notices.log) · [Earlier gap audit](tooling/notice-audit.json)
 
 ## Reproduce
 

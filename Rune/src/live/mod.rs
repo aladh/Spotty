@@ -1602,6 +1602,7 @@ impl Worker {
                     // A newer direct connection observation owns playback and queue.
                     // The cluster still supplies the newest device membership.
                     self.resolve_owner();
+                    self.rebuild_queue();
                     return;
                 }
                 self.apply_connection(snapshot.connection);
@@ -1640,6 +1641,7 @@ impl Worker {
             engine::Observation::Connection(snapshot) => {
                 self.apply_connection(snapshot);
                 self.resolve_owner();
+                self.rebuild_queue();
             }
             engine::Observation::Playback(snapshot) => {
                 // Direct player callbacks never supersede an active remote member.

@@ -8,26 +8,15 @@ use librespot_playback::config::AudioFormat;
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
 use log::debug;
+use std::sync::atomic::Ordering;
 
 /// The single PCM sink for the librespot player.
 pub struct ProxySink;
 
 impl ProxySink {
-    /// Invalidate buffered samples by epoch. The device drains its own submitted buffers.
-    #[cfg(target_os = "macos")]
-    pub fn clear_buffer() {
-        debug!("ProxySink: Sending clear command");
-        client::publish_audio_control(AudioControl::Clear);
-    }
-
-    /// Tell the renderer that playback has ended because the Player is going away.
-    ///
-    /// `Sink::stop` only runs when librespot stops the sink itself. Dropping the Player
-    /// during a rebuild does not do that, so without this the renderer keeps believing it
-    /// is rendering for a Player that no longer exists — and the next `Sink::start` finds
-    /// it already rendering and skips resetting its real-time throttle.
-    pub fn notify_player_gone() {
-        debug!("ProxySink: Player torn down, sending stop");
+    /// Reject further PCM and retire the queued software frames until the next Start.
+    /// This takes effect without waiting for the player to process a pause or stop.
+    pub fn stop_rendering() {
         client::publish_audio_control(AudioControl::Stop);
     }
 }
@@ -35,13 +24,20 @@ impl ProxySink {
 impl Sink for ProxySink {
     fn start(&mut self) -> SinkResult<()> {
         debug!("ProxySink: Start");
-        client::publish_audio_control(AudioControl::Start);
+        if !super::SLEEPING.load(Ordering::SeqCst) {
+            client::publish_audio_control(AudioControl::Start);
+            // Suspend may have retired this player's output while Start was in flight.
+            // Recheck before returning control to the same thread that writes PCM.
+            if super::SLEEPING.load(Ordering::SeqCst) {
+                Self::stop_rendering();
+            }
+        }
         Ok(())
     }
 
     fn stop(&mut self) -> SinkResult<()> {
         debug!("ProxySink: Stop");
-        client::publish_audio_control(AudioControl::Stop);
+        Self::stop_rendering();
         Ok(())
     }
 

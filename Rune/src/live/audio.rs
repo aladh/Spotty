@@ -148,10 +148,6 @@ impl Audio {
                 self.playing.store(false, Ordering::Release);
                 self.generation.fetch_add(1, Ordering::AcqRel);
             }
-            #[cfg(target_os = "macos")]
-            AudioControl::Clear => {
-                self.generation.fetch_add(1, Ordering::AcqRel);
-            }
         }
     }
 
@@ -288,7 +284,7 @@ impl Audio {
                             }
                         }
                     }
-                    // Stop and clear can run while this callback holds decoded samples.
+                    // An epoch can end while this callback holds decoded samples.
                     if render.generation.load(Ordering::Acquire) != generation {
                         buffer.fill(T::EQUILIBRIUM);
                     }
@@ -354,6 +350,27 @@ mod tests {
         audio.control(AudioControl::Stop);
         audio.write(&[0.9, 1.0]);
         assert!(current.pop().is_err());
+    }
+
+    #[test]
+    fn stopped_output_retires_queued_frames_and_rejects_late_pcm_until_restart() {
+        let audio = Audio::default();
+        let (producer, mut consumer) = RingBuffer::new(2);
+        audio.attach(producer);
+        audio.control(AudioControl::Start);
+        audio.write(&[0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(consumer.slots(), 2);
+
+        audio.control(AudioControl::Stop);
+        let stopped_generation = audio.generation.load(Ordering::Acquire);
+        discard_retired_frames(&mut consumer, stopped_generation);
+        assert_eq!(consumer.slots(), 0);
+        audio.write(&[0.5, 0.6]);
+        assert!(consumer.pop().is_err());
+
+        audio.control(AudioControl::Start);
+        audio.write(&[0.7, 0.8]);
+        assert_eq!(consumer.pop().unwrap().samples, [0.7, 0.8]);
     }
 
     #[test]

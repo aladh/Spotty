@@ -108,8 +108,9 @@ struct Client {
 
 static CLIENT: OnceLock<Client> = OnceLock::new();
 
-/// Installs the process player output. Observations are owned and PCM is borrowed for
-/// the duration of the call. Receivers run on engine threads and must return promptly.
+/// Installs the process player output. Observation and control receivers run on engine
+/// threads and must return promptly. Borrowed PCM is delivered on the librespot producer
+/// thread, where the receiver can pace decoding against the device ring.
 pub fn install(
     observe: impl Fn(Observation) + Send + Sync + 'static,
     audio: impl Fn(&[f32]) + Send + Sync + 'static,
@@ -150,8 +151,6 @@ pub(crate) fn publish_observation(observation: Observation) {
 pub enum AudioControl {
     Stop,
     Start,
-    #[cfg(target_os = "macos")]
-    Clear,
 }
 
 pub(crate) fn publish_audio(samples: &[f32]) {

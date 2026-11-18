@@ -197,7 +197,7 @@ impl GenerationContents {
         if let Some(pump) = &self.tasks.player_events {
             pump.signal_stop();
         }
-        proxy_sink::ProxySink::notify_player_gone();
+        proxy_sink::ProxySink::stop_rendering();
     }
 
     async fn shutdown(mut self, context: &str) {

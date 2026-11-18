@@ -167,25 +167,21 @@ pub(crate) fn disconnect_player() -> Result<(), CommandError> {
     SLEEPING.store(true, Ordering::SeqCst);
     cancel_recovery();
 
+    // Retire queued software frames and stop accepting PCM before asking Spirc to
+    // pause. CoreAudio may still have samples from buffers already submitted.
+    proxy_sink::ProxySink::stop_rendering();
     let Some(spirc) = current_spirc("Disconnect") else {
         return Err(CommandError::NotConnected);
     };
 
-    // First pause playback to stop producing new audio
+    // Ask the player to stop producing audio as well.
     let _ = spirc.pause();
-    debug!("disconnect_player: paused playback");
-
-    // Clear the audio buffer synchronously to flush any remaining samples.
-    // This must complete before we return, otherwise stale audio plays on wake — and it
-    // blocks, which is the second reason `current_spirc` hands out a clone rather than a
-    // guard.
-    proxy_sink::ProxySink::clear_buffer();
-    debug!("disconnect_player: audio buffer cleared");
+    debug!("disconnect_player: requested playback pause");
 
     // Now shutdown Spirc (disconnect from Spotify Connect)
     match spirc.shutdown() {
         Ok(()) => {
-            debug!("disconnect_player: spirc shutdown complete");
+            debug!("disconnect_player: requested spirc shutdown");
             Ok(())
         }
         Err(error) => Err(spirc_error("Disconnect", &error)),

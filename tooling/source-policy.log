@@ -16,42 +16,42 @@ PASS development-signing-input  .....
 test result: ok. 9 passed; 0 failed;
 ................
 ----------------------------------------------------------------------
-Ran 16 tests in 8.593s
+Ran 16 tests in 9.008s
 
 OK
 ......
 ----------------------------------------------------------------------
-Ran 6 tests in 0.680s
+Ran 6 tests in 0.840s
 
 OK
 ..
 ----------------------------------------------------------------------
-Ran 2 tests in 5.470s
+Ran 2 tests in 5.659s
 
 OK
 ....
 ----------------------------------------------------------------------
-Ran 4 tests in 0.004s
+Ran 4 tests in 0.007s
 
 OK
 ........
 ----------------------------------------------------------------------
-Ran 8 tests in 0.682s
+Ran 8 tests in 0.739s
 
 OK
 ...
 ----------------------------------------------------------------------
-Ran 3 tests in 0.143s
+Ran 3 tests in 0.154s
 
 OK
 ....
 ----------------------------------------------------------------------
-Ran 4 tests in 0.247s
+Ran 4 tests in 0.208s
 
 OK
 ............
 ----------------------------------------------------------------------
-Ran 12 tests in 0.817s
+Ran 12 tests in 0.668s
 
 OK
 
@@ -332,7 +332,7 @@ Evidence source_and_history: missing
 Evidence acceptance_manifest: missing
 Evidence branch_rules: present
 Evidence check_runs: present
-Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=d09d8774787ba15d76770a08a37ae3e3746cb49c&per_page=10: response unavailable, invalid, or timed out)
+Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=cfab203ae31e4fea9d3e349c0c59d8ab1c1afc4c&per_page=10: response unavailable, invalid, or timed out)
 Evidence acceptance_scenarios: not_supplied
 Evidence ui_runtime_report: not_supplied
 Evidence app_installation_permissions: not_collected
@@ -344,7 +344,7 @@ Evidence source_and_history: missing
 Evidence acceptance_manifest: missing
 Evidence branch_rules: present
 Evidence check_runs: present
-Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=d09d8774787ba15d76770a08a37ae3e3746cb49c&per_page=10: response unavailable, invalid, or timed out)
+Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=cfab203ae31e4fea9d3e349c0c59d8ab1c1afc4c&per_page=10: response unavailable, invalid, or timed out)
 Evidence acceptance_scenarios: not_supplied
 Evidence ui_runtime_report: not_supplied
 Evidence app_installation_permissions: not_collected
@@ -416,7 +416,7 @@ Evidence source_and_history: present
 Evidence acceptance_manifest: missing
 Evidence branch_rules: present
 Evidence check_runs: present
-Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=d09d8774787ba15d76770a08a37ae3e3746cb49c&per_page=10: response unavailable, invalid, or timed out)
+Evidence ci_runtime: unavailable (repos/owner/repo/actions/workflows/ci.yml/runs?head_sha=cfab203ae31e4fea9d3e349c0c59d8ab1c1afc4c&per_page=10: response unavailable, invalid, or timed out)
 Evidence acceptance_scenarios: not_supplied
 Evidence ui_runtime_report: not_supplied
 Evidence app_installation_permissions: not_collected
@@ -482,23 +482,23 @@ test_unseen_reply_edit_or_removal_withholds_approval_and_all_resolutions (script
 test_verified_disposition_allows_approval_but_docs_never_approves (script_test_publication_test.PublicationTests.test_verified_disposition_allows_approval_but_docs_never_approves) ... ok
 
 ----------------------------------------------------------------------
-Ran 32 tests in 0.455s
+Ran 32 tests in 0.403s
 
 OK
-review: 32 Python tests in 0.60s (4 workers)
-✔ thermos-review.yml: caller allows only read access to acceptance artifacts (100.571156ms)
-✔ thermos-review.yml: valid reruns and newer heads share only their PR's group (7.843075ms)
-✔ thermos-review.yml: ignored events cannot cancel running or evict pending reviews (8.276829ms)
-✔ docs-review.yml: caller allows only read access to acceptance artifacts (61.961148ms)
-✔ docs-review.yml: valid reruns and newer heads share only their PR's group (2.095694ms)
-✔ docs-review.yml: ignored events cannot cancel running or evict pending reviews (4.492252ms)
-✔ reviewers do not cancel each other for the same PR (127.758496ms)
-✔ provider failure diagnostics classify CLI errors and exclude review output (100.651237ms)
-✔ both published review bodies include the trusted-collaborator rerun hint (63.981794ms)
-✔ documentation review reaches the agent even when no documentation changed (163.818416ms)
-✔ review inputs retain implementation changes (docs changed: false) (96.738267ms)
-✔ review inputs retain implementation changes (docs changed: true) (91.327226ms)
-✔ range selection ignores pending reviews and retains dismissed published approvals (22.687261ms)
+review: 32 Python tests in 0.58s (4 workers)
+✔ thermos-review.yml: caller allows only read access to acceptance artifacts (69.78774ms)
+✔ thermos-review.yml: valid reruns and newer heads share only their PR's group (12.865148ms)
+✔ thermos-review.yml: ignored events cannot cancel running or evict pending reviews (8.877746ms)
+✔ docs-review.yml: caller allows only read access to acceptance artifacts (75.188287ms)
+✔ docs-review.yml: valid reruns and newer heads share only their PR's group (1.681846ms)
+✔ docs-review.yml: ignored events cannot cancel running or evict pending reviews (6.497958ms)
+✔ reviewers do not cancel each other for the same PR (140.557484ms)
+✔ provider failure diagnostics classify CLI errors and exclude review output (94.743772ms)
+✔ both published review bodies include the trusted-collaborator rerun hint (66.386451ms)
+✔ documentation review reaches the agent even when no documentation changed (126.366697ms)
+✔ review inputs retain implementation changes (docs changed: false) (77.339817ms)
+✔ review inputs retain implementation changes (docs changed: true) (92.185505ms)
+✔ range selection ignores pending reviews and retains dismissed published approvals (19.941047ms)
 ℹ tests 13
 ℹ suites 0
 ℹ pass 13
@@ -506,7 +506,7 @@ review: 32 Python tests in 0.60s (4 workers)
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 1197.6802
+ℹ duration_ms 1092.208698
 npm notice
 npm notice New major version of npm available! 11.9.0 -> 12.2.3
 npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.3

@@ -1,9 +1,12 @@
-f10d6bfad04b92083024b22e2a128a27aaa31d18
-generated 393 package notices and 272 unique license texts
-verified 393 package notices and 272 unique license texts
+085ba4ef8987700fe55289197d8a4488127dc62a
+generated 393 package notices and 272 unique license and notice files
+verified 393 package notices and 272 unique license and notice files
+generated 393 package notices and 272 unique license and notice files
 Two Apple-target generations yielded identical files.
 ....
 ----------------------------------------------------------------------
-Ran 4 tests in 0.008s
+Ran 4 tests in 0.009s
 
 OK
+
+All 26 pinned license source claims matched their upstream bytes.

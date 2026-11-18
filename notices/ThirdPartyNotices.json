@@ -11,7 +11,7 @@
     },
     {
       "path": "Scripts/playback-license-overrides.json",
-      "sha256": "4e16766452cf8549ba0b39ad1d1c28fa9340b496615b36fd2150d374bdc3c316"
+      "sha256": "f229fc51731d1c8581f5f37ea097ecc2fca13ef5736812b13ba081923b583aa5"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -19,7 +19,7 @@
     },
     {
       "path": "Scripts/generate-rune-notices.py",
-      "sha256": "968e39c543c8f5ec299b33c51ddc5929bac6b2d50c3507045403ffe38b0226d0"
+      "sha256": "65354cc6d9b83b32ee8f3879f5887f33e2c3621ef765c0b912f49ca632726a2d"
     },
     {
       "path": "Backend/spotty-playback/vendor/librespot/UPSTREAM",
@@ -87,7 +87,7 @@
     },
     {
       "path": "Scripts/playback-license-overrides/symphonia-LICENSE.txt",
-      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+      "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30"
     },
     {
       "path": "Scripts/playback-license-overrides/taffy-LICENSE.txt",
@@ -102,7 +102,7 @@
       "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
     }
   ],
-  "license_text_bytes": 840798,
+  "license_text_bytes": 840797,
   "license_text_count": 272,
   "license_texts": [
     {
@@ -345,6 +345,30 @@
       "bytes": 10280,
       "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
       "sources": [
+        {
+          "license": "Apache-2.0",
+          "origin": "canonical SPDX license reference",
+          "package": "accesskit@0.25.2",
+          "source_path": "text/Apache-2.0.txt",
+          "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+          "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
+        },
+        {
+          "license": "Apache-2.0",
+          "origin": "canonical SPDX license reference",
+          "package": "accesskit_consumer@0.39.2",
+          "source_path": "text/Apache-2.0.txt",
+          "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+          "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
+        },
+        {
+          "license": "Apache-2.0",
+          "origin": "canonical SPDX license reference",
+          "package": "accesskit_macos@0.27.2",
+          "source_path": "text/Apache-2.0.txt",
+          "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+          "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
+        },
         {
           "license": "Apache-2.0",
           "origin": "canonical SPDX license reference",
@@ -6823,6 +6847,77 @@
       ]
     },
     {
+      "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+      "bytes": 16725,
+      "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
+      "sources": [
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia-bundle-flac@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        },
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia-bundle-mp3@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        },
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia-codec-vorbis@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        },
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia-core@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        },
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia-format-ogg@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        },
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia-metadata@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        },
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia-utils-xiph@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        },
+        {
+          "license": "MPL-2.0",
+          "origin": "checked-in upstream override",
+          "package": "symphonia@0.5.5",
+          "source_path": "LICENSE",
+          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+        }
+      ]
+    },
+    {
       "bundle_path": "licenses/sha256-c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3.txt",
       "bytes": 1036,
       "sha256": "c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3",
@@ -7951,77 +8046,6 @@
       ]
     },
     {
-      "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-      "bytes": 16726,
-      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
-      "sources": [
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia-bundle-flac@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        },
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia-bundle-mp3@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        },
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia-codec-vorbis@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        },
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia-core@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        },
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia-format-ogg@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        },
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia-metadata@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        },
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia-utils-xiph@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        },
-        {
-          "license": "MPL-2.0",
-          "origin": "checked-in upstream override",
-          "package": "symphonia@0.5.5",
-          "source_path": "LICENSE",
-          "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
-          "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
-        }
-      ]
-    },
-    {
       "bundle_path": "licenses/sha256-fb77f0a9c53e473abe5103c8632ef9f0f2874d4fb3f17cb2d8c661aab9cee9d7.txt",
       "bytes": 1097,
       "sha256": "fb77f0a9c53e473abe5103c8632ef9f0f2874d4fb3f17cb2d8c661aab9cee9d7",
@@ -8079,7 +8103,7 @@
     "license_directory": "licenses",
     "manifest": "ThirdPartyNotices.json",
     "notices": "ThirdPartyNotices.md",
-    "notices_sha256": "6f7dd2949473ba2ed0cc9a992cbea8fdd300662fa5ec9ebd2f3ea6a6e0038f89"
+    "notices_sha256": "b848a85b96ecc57339fa8b69a4ab48f0e770b9ed596bafcbbf11e44f5bde44cd"
   },
   "package_count": 393,
   "packages": [
@@ -8090,6 +8114,16 @@
       "checksum": "4e883d1d28c5fd5568c79ed2d2bd48d9f2fd3945c8974ed0f53690ceddb051be",
       "license_expression": "MIT OR Apache-2.0",
       "license_files": [
+        {
+          "bundle_path": "licenses/sha256-074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt",
+          "bytes": 10280,
+          "license": "Apache-2.0",
+          "origin": "canonical SPDX license reference",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+          "source_path": "text/Apache-2.0.txt",
+          "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+          "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
+        },
         {
           "bundle_path": "licenses/sha256-23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
           "bytes": 1023,
@@ -8121,7 +8155,7 @@
           "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE.chromium"
         }
       ],
-      "license_origin": "checked-in upstream override",
+      "license_origin": "canonical SPDX license reference + checked-in upstream override",
       "license_override": "accesskit",
       "license_override_note": "Override selected for upstream commit f3026222559c7f5f46d8f25cb7404de68eb149f0. Each text has its own source URL and revision.",
       "name": "accesskit",
@@ -8141,6 +8175,16 @@
       "license_expression": "MIT OR Apache-2.0",
       "license_files": [
         {
+          "bundle_path": "licenses/sha256-074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt",
+          "bytes": 10280,
+          "license": "Apache-2.0",
+          "origin": "canonical SPDX license reference",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+          "source_path": "text/Apache-2.0.txt",
+          "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+          "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
+        },
+        {
           "bundle_path": "licenses/sha256-23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
           "bytes": 1023,
           "license": "MIT",
@@ -8171,7 +8215,7 @@
           "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE.chromium"
         }
       ],
-      "license_origin": "checked-in upstream override",
+      "license_origin": "canonical SPDX license reference + checked-in upstream override",
       "license_override": "accesskit",
       "license_override_note": "Override selected for upstream commit f3026222559c7f5f46d8f25cb7404de68eb149f0. Each text has its own source URL and revision.",
       "name": "accesskit_consumer",
@@ -8193,6 +8237,16 @@
       "license_expression": "MIT OR Apache-2.0",
       "license_files": [
         {
+          "bundle_path": "licenses/sha256-074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt",
+          "bytes": 10280,
+          "license": "Apache-2.0",
+          "origin": "canonical SPDX license reference",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
+          "source_path": "text/Apache-2.0.txt",
+          "source_revision": "279b7e997a87c09be00dd6bdda189519ade502cf",
+          "source_url": "https://github.com/spdx/license-list-data/blob/279b7e997a87c09be00dd6bdda189519ade502cf/text/Apache-2.0.txt"
+        },
+        {
           "bundle_path": "licenses/sha256-23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3.txt",
           "bytes": 1023,
           "license": "MIT",
@@ -8223,7 +8277,7 @@
           "source_url": "https://github.com/AccessKit/accesskit/blob/f3026222559c7f5f46d8f25cb7404de68eb149f0/LICENSE.chromium"
         }
       ],
-      "license_origin": "checked-in upstream override",
+      "license_origin": "canonical SPDX license reference + checked-in upstream override",
       "license_override": "accesskit",
       "license_override_note": "Override selected for upstream commit f3026222559c7f5f46d8f25cb7404de68eb149f0. Each text has its own source URL and revision.",
       "name": "accesskit_macos",
@@ -19654,11 +19708,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
@@ -19684,11 +19738,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
@@ -19714,11 +19768,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
@@ -19744,11 +19798,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
@@ -19774,11 +19828,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
@@ -19804,11 +19858,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
@@ -19834,11 +19888,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
@@ -19864,11 +19918,11 @@
       "license_expression": "MPL-2.0",
       "license_files": [
         {
-          "bundle_path": "licenses/sha256-fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85.txt",
-          "bytes": 16726,
+          "bundle_path": "licenses/sha256-c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30.txt",
+          "bytes": 16725,
           "license": "MPL-2.0",
           "origin": "checked-in upstream override",
-          "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30",
           "source_path": "LICENSE",
           "source_revision": "6d533f26150953a882a6a111ebd13f0abf7129d5",
           "source_url": "https://github.com/pdeljanov/Symphonia/blob/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"

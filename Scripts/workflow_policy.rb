@@ -23,6 +23,12 @@ module WorkflowPolicy
       'if-no-files-found' => 'error'
     }
     jobs = workflow.fetch('jobs', {})
+    ci_triggers = workflow['on'] || workflow[true] || {}
+    check.call(ci_triggers == {'push' => {'branches' => ['main']}, 'pull_request' => nil},
+               'CI must run for main pushes and pull requests')
+    check.call(workflow['permissions'] == {'contents' => 'read'} &&
+               jobs.values.all? { |job| !job.key?('permissions') || job['permissions'] == {'contents' => 'read'} },
+               'CI must keep the repository token read-only')
     check.call(jobs.keys.sort == %w[apple linux macos policy], 'CI must run source, Linux, Apple Silicon and aggregate jobs')
     policy = jobs.fetch('policy', {})
     check.call(policy['name'] == 'Source policies', 'source job must keep its required check name')
@@ -47,7 +53,11 @@ module WorkflowPolicy
     linux_upload = steps.find { |step| step.dig('with', 'name') == upload['name'] } || {}
     triggers = standalone['on'] || standalone[true] || {}
     check.call(triggers.keys.sort == %w[workflow_call workflow_dispatch], 'standalone acceptance must support dispatch and workflow reuse')
-    acceptance = standalone.dig('jobs', 'acceptance') || {}
+    standalone_jobs = standalone.fetch('jobs', {})
+    check.call(standalone['permissions'] == {'contents' => 'read'} &&
+               standalone_jobs.values.all? { |job| !job.key?('permissions') || job['permissions'] == {'contents' => 'read'} },
+               'standalone acceptance must keep the repository token read-only')
+    acceptance = standalone_jobs.fetch('acceptance', {})
     check.call(acceptance['runs-on'] == 'ubuntu-latest' && acceptance['timeout-minutes'] == 60,
                'standalone acceptance must use the bounded Linux runner')
     steps = Array(acceptance['steps'])

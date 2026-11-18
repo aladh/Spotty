@@ -29,9 +29,27 @@ class RuneWorkflowPolicyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_linux_and_apple_cannot_drop_the_required_source_job(self):
-        result = self.check(workflow_edit=("needs: policy", "needs: []"))
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("CI linux must depend on source policy", result.stderr)
+        for lane, name in (("linux", "Linux tests and synthetic UI"), ("apple", "Apple Silicon verification")):
+            with self.subTest(lane=lane):
+                prefix = f"name: {name}\n    needs: "
+                result = self.check(workflow_edit=(prefix + "policy", prefix + "[]"))
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(f"CI {lane} must depend on source policy", result.stderr)
+
+    def test_ci_keeps_the_main_push_and_pull_request_triggers(self):
+        for edit in (("branches: [main]", "branches: [preview]"), ("  pull_request:\n", "")):
+            with self.subTest(edit=edit):
+                result = self.check(workflow_edit=edit)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("CI must run for main pushes and pull requests", result.stderr)
+
+    def test_standalone_permission_cannot_allow_writes(self):
+        for edit in (("contents: read", "contents: write"),
+                     ("    runs-on: ubuntu-latest", "    permissions: { contents: write }\n    runs-on: ubuntu-latest")):
+            with self.subTest(edit=edit):
+                result = self.check(acceptance_edit=edit)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("standalone acceptance must keep the repository token read-only", result.stderr)
 
     def test_the_standalone_workflow_requires_the_real_artifact_upload_result(self):
         result = self.check(acceptance_edit=('test "$ACCEPTANCE_UPLOAD_RESULT" = success', "true"))

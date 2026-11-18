@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SWIFT_BASELINE = "9b5d72b686ac094148b395006918cc1215cbb8e3"
@@ -32,6 +33,12 @@ class WorkflowCheck:
 class WorkflowFixtureMixin:
     @classmethod
     def setUpClass(cls):
+        revision = subprocess.run(
+            ["git", "cat-file", "-e", f"{SWIFT_BASELINE}^{{commit}}"], cwd=ROOT,
+            capture_output=True, check=False,
+        )
+        if revision.returncode != 0:
+            raise unittest.SkipTest(f"Historical Swift fixtures require git history at {SWIFT_BASELINE}")
         temporary = tempfile.TemporaryDirectory(prefix='spotty-workflow-policy-')
         cls.addClassCleanup(temporary.cleanup)
         cls.fixture_root = Path(temporary.name)

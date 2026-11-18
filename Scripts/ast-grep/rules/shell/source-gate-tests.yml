@@ -20,6 +20,9 @@ rule:
         pattern: python3 -B Scripts/test_source_policy.py
   - not:
       has:
+        pattern: python3 -B -m unittest discover -s Scripts -p test_source_gate_policy.py
+  - not:
+      has:
         pattern: npm test --prefix Scripts/agent-review-tests
   - has:
       kind: command

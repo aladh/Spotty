@@ -343,6 +343,7 @@ class SourcePolicyRoutingTests(unittest.TestCase):
         guard = 'if [[ "${1:-}" != --test-only ]]; then'
         for command in ("python3 -B Scripts/documentation_policy.py",
                         "python3 -B Scripts/test_source_policy.py",
+                        "python3 -B -m unittest discover -s Scripts -p test_source_gate_policy.py",
                         "npm test --prefix Scripts/agent-review-tests"):
             with self.subTest(command=command):
                 hidden = source.replace(command + "\n", "").replace(guard, guard + "\n    " + command)

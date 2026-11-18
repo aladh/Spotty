@@ -975,9 +975,11 @@ mod tests {
         });
         let staging = storage.session.join(".session.pending");
         std::fs::create_dir(&staging).unwrap();
+        // Removing a directory without AT_REMOVEDIR gives EISDIR on Linux and
+        // EPERM on macOS. Either storage failure must preserve the new token pair.
         assert!(matches!(
             session.access_from(&endpoint, None).await,
-            Err(Failure::Storage)
+            Err(Failure::Storage | Failure::StorageDenied)
         ));
         exchange.await.unwrap();
         std::fs::remove_dir(&staging).unwrap();

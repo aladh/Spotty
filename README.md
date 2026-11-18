@@ -2,7 +2,7 @@
 
 These captures support [PR #627](https://github.com/aladh/Spotty/pull/627). The original README screenshot comes from [base commit 9b5d72b](https://github.com/aladh/Spotty/tree/9b5d72b686ac094148b395006918cc1215cbb8e3). Rune interaction captures and supplemental test logs come from [clean source commit b07f63e](https://github.com/aladh/Spotty/tree/b07f63e439ff2450babb0620f0ea0e0b8c7b4420).
 
-The [regular acceptance suite](acceptance/summary.json) passed on clean PR head [085ba4e](https://github.com/aladh/Spotty/tree/085ba4ef8987700fe55289197d8a4488127dc62a) after review fixes. Its reference PNG and accessibility tree match the original Rune captures byte for byte.
+The [regular acceptance suite](acceptance/summary.json) passed on clean PR head [5c2b1c5](https://github.com/aladh/Spotty/tree/5c2b1c5a2bd4ff81b04c772068b4f04b6ce9c66f) after review fixes. Its reference PNG and accessibility tree match the original Rune captures byte for byte.
 
 ## Visual captures
 
@@ -20,12 +20,13 @@ The reference uses Rune’s 1720×1078 point scene at scale 2. Interaction captu
 ## Tests
 
 - All three acceptance scenarios passed from a clean tree. [Summary](acceptance/summary.json)
-- 200 regular Rust tests and all four separately named transport traces passed. [Integrated log](acceptance/rune.integrated.log) · [Trace log](acceptance/playback.transport.log)
+- 201 regular Rust tests and all four separately named transport traces passed. [Integrated log](acceptance/rune.integrated.log) · [Trace log](acceptance/playback.transport.log)
+- The software ring test covers retirement of pending PCM, late packets received during suspension, and playback admission after Start. [Integrated log](acceptance/rune.integrated.log)
 - All three opt-in synthetic probes passed. The values describe injected fixtures. [Probe log](probes/tests.log) · [Probe receipts](probes/)
 - Review automation passed 32 Python and 13 Node tests. The current source policy run passed nine AST rule groups and 16 routing tests. Eight acceptance collector tests passed. [Tooling logs](tooling/) · [Pagination and approval recheck regressions](tooling/review-pagination.log) · [37 historical workflow fixture tests](tooling/historical-workflow-fixtures.log)
 - The Linux binary has no exported Spotty playback C symbols. [Binary check](tooling/binary.log)
 
-- The Apple-target notices cover 393 locked dependencies and 272 unique license or notice files. Two generations yielded identical outputs. The bundle verifier checks all recorded inputs, the Markdown digest, and every referenced license file. All 26 pinned source claims matched their upstream bytes. This Linux run cross-resolves the Apple Silicon graph. [Inventory and texts](notices/ThirdPartyNotices.md) · [Machine-readable inventory](notices/ThirdPartyNotices.json) · [Verification log](tooling/notices.log) · [Earlier gap audit](tooling/notice-audit.json)
+- The Apple-target notices cover 393 locked dependencies and 272 unique license or notice files. Two generations yielded identical outputs. The bundle verifier checks all recorded inputs, the Markdown digest, and every referenced license file. All 26 pinned source claims matched their upstream bytes. This Linux run cross-resolves the Apple Silicon graph. [Inventory and texts](notices/ThirdPartyNotices.md) · [Machine-readable inventory](notices/ThirdPartyNotices.json) · [Verification log](tooling/notices.log) · [Earlier gap audit](tooling/notice-audit.json) · [Native bundle notices on 085ba4e](https://github.com/aladh/Spotty/actions/runs/44248412317/artifacts/14403825279)
 
 ## Reproduce
 

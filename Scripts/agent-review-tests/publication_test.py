@@ -83,11 +83,14 @@ class PublicationTests(unittest.TestCase):
                 thread = {'id': 'thread', 'isResolved': self.thread_resolved, 'comments': {
                     'nodes': self.live_comments + staged}}
                 threads = json.loads(json.dumps([thread] + self.extra))
-                limit = int(re.search(r'comments\(first: (\d+)\)', payload['query'])[1])
+                limit = int(re.search(r'comments\(first: (\d+)', payload['query'])[1])
                 for item in threads:
                     comments = item['comments']
                     comments['pageInfo'] = {'hasNextPage': len(comments['nodes']) > limit or self.comments_truncated}
                     comments['nodes'] = comments['nodes'][:limit]
+                if 'node(id: $id)' in payload['query']:
+                    current = next((item for item in threads if item['id'] == payload['variables']['id']), None)
+                    return {'data': {'node': current}}
                 return {'data': {'repository': {'pullRequest': {'reviewThreads': {
                     'pageInfo': {'hasNextPage': self.truncated}, 'nodes': threads}}}}}
             if 'addPullRequestReviewThreadReply' in payload['query']:
@@ -198,9 +201,12 @@ class PublicationTests(unittest.TestCase):
             comments = self.live_comments + [dict(c, pullRequestReview={'id': 'pending-review'})
                                              for c in self.staged_comments]
             if 'reviewThreads' not in payload['query']:
-                self.assertEqual((variables['id'], after), ('thread', 'comments-50'))
-                return {'data': {'node': {'comments': {
-                    'nodes': comments[50:], 'pageInfo': {'hasNextPage': False}}}}}
+                self.assertEqual(variables['id'], 'thread')
+                self.assertIn(after, (None, 'comments-50'))
+                page = {'nodes': comments[:50], 'pageInfo': {'hasNextPage': True, 'endCursor': 'comments-50'}}
+                if after == 'comments-50':
+                    page = {'nodes': comments[50:], 'pageInfo': {'hasNextPage': False}}
+                return {'data': {'node': {'id': 'thread', 'isResolved': False, 'comments': page}}}
             if after is None:
                 # One hundred resolved threads precede the relevant one.
                 nodes = [{'id': f'resolved-{number}', 'isResolved': True} for number in range(100)]
@@ -231,6 +237,31 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(followup=followup):
                 _, complete = publisher.paginated_nodes(page(['same'], 'cursor'), lambda _: followup, 'id')
                 self.assertFalse(complete)
+
+    def test_an_empty_continuation_cannot_approve(self):
+        first = {'nodes': [{'id': 'first'}], 'pageInfo': {'hasNextPage': True, 'endCursor': 'next'}}
+        empty = {'nodes': [], 'pageInfo': {'hasNextPage': False}}
+        self.assertEqual(publisher.paginated_nodes(empty, lambda _: None, 'id'), ([], True))
+        self.assertFalse(publisher.paginated_nodes(first, lambda _: empty, 'id')[1])
+
+    def test_reply_added_while_another_thread_page_loads_withholds_approval(self):
+        def changing(method, endpoint, payload=None):
+            if endpoint != 'graphql' or 'reviewThreads' not in payload['query']:
+                return self.request(method, endpoint, payload)
+            if payload['variables']['after'] is None:
+                result = self.request(method, endpoint, payload)
+                page = result['data']['repository']['pullRequest']['reviewThreads']
+                page['pageInfo'] = {'hasNextPage': True, 'endCursor': 'next'}
+                return result
+            self.live_comments.append({'author': {'login': 'author'}, 'body': 'Late objection',
+                                       'url': 'https://example.invalid/late'})
+            return {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': [{'id': 'later', 'isResolved': True}], 'pageInfo': {'hasNextPage': False}}}}}}
+
+        publisher.publish(self.env, changing, lambda _: None)
+        self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
+        self.assertIn('Thread state is incomplete', self.submitted()[0]['body'])
+        self.assertEqual(self.resolved(), [])
 
     def test_external_resolution_with_unchanged_history_allows_approval(self):
         self.thread_resolved = True

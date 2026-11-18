@@ -1,0 +1,8 @@
+test_an_empty_continuation_cannot_approve (script_test_publication_test.PublicationTests.test_an_empty_continuation_cannot_approve) ... ok
+test_duplicate_thread_ids_and_repeated_cursors_are_incomplete (script_test_publication_test.PublicationTests.test_duplicate_thread_ids_and_repeated_cursors_are_incomplete) ... ok
+test_reads_the_101st_thread_and_its_later_replies_before_approval (script_test_publication_test.PublicationTests.test_reads_the_101st_thread_and_its_later_replies_before_approval) ... ok
+test_reply_added_while_another_thread_page_loads_withholds_approval (script_test_publication_test.PublicationTests.test_reply_added_while_another_thread_page_loads_withholds_approval) ... ok
+Ran 32 tests in 0.404s
+ℹ tests 13
+ℹ pass 13
+ℹ fail 0

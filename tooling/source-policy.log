@@ -9,15 +9,15 @@ PASS script-no-xtrace  ...........
 PASS source-gate-tests  .........................
 PASS development-signing-input  .....
 test result: ok. 9 passed; 0 failed;
-Ran 16 tests in 8.181s
-Ran 6 tests in 0.688s
-Ran 2 tests in 5.031s
-Ran 1 test in 0.001s
-Ran 8 tests in 0.657s
-Ran 3 tests in 0.125s
-Ran 4 tests in 0.177s
-Ran 12 tests in 0.599s
-Ran 28 tests in 0.376s
+Ran 16 tests in 8.284s
+Ran 6 tests in 0.650s
+Ran 2 tests in 5.300s
+Ran 1 test in 0.000s
+Ran 8 tests in 0.749s
+Ran 3 tests in 0.141s
+Ran 4 tests in 0.189s
+Ran 12 tests in 0.669s
+Ran 32 tests in 0.438s
 ℹ tests 13
 ℹ pass 13
 ℹ fail 0

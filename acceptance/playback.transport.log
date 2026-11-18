@@ -1,17 +1,17 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
      Running unittests src/main.rs (target/debug/deps/spotty_rune-c959a452d84adbfe)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
      Running unittests src/main.rs (target/debug/deps/spotty_rune-c959a452d84adbfe)
 
 running 4 tests
-test playback::observed_resume::tests::transport_trace_recovery_load_requires_fresh_target_and_ownership_evidence ... ok
-test playback::player_event_pump::player_event_pump_policy::transport_trace_replacement_before_old_position_events ... ok
-synthetic transport_trace=play-before-old-paused command_first=true elapsed_us=169
-synthetic transport_trace=play-before-old-paused command_first=false elapsed_us=111
-synthetic transport_trace=pause-before-old-playing command_first=true elapsed_us=116
-synthetic transport_trace=pause-before-old-playing command_first=false elapsed_us=98
-test playback::player_event_pump::player_event_pump_policy::transport_trace_play_before_old_paused_and_pause_before_old_playing ... ok
 test playback::player_event_pump::player_event_pump_policy::transport_trace_deactivation_before_stopped ... ok
+synthetic transport_trace=play-before-old-paused command_first=true elapsed_us=131
+synthetic transport_trace=play-before-old-paused command_first=false elapsed_us=155
+synthetic transport_trace=pause-before-old-playing command_first=true elapsed_us=97
+synthetic transport_trace=pause-before-old-playing command_first=false elapsed_us=106
+test playback::player_event_pump::player_event_pump_policy::transport_trace_play_before_old_paused_and_pause_before_old_playing ... ok
+test playback::player_event_pump::player_event_pump_policy::transport_trace_replacement_before_old_position_events ... ok
+test playback::observed_resume::tests::transport_trace_recovery_load_requires_fresh_target_and_ownership_evidence ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 199 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 199 filtered out; finished in 0.00s
 

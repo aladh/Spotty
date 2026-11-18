@@ -26,7 +26,7 @@ passing tests. Read failures expose only the endpoint and sanitized status, with
 or credentials.
 
 The collector reads the latest completed, head-matched CI attempt's `acceptance-evidence-RUN-ATTEMPT`
-artifact against the [head manifest](../../Tests/BrowsingHarness/Scenarios/manifest.json). Coverage
+artifact against the [head manifest](../../Rune/acceptance.json). Coverage
 requires passing nested outcomes, matching identities/digests, clean unchanged source, and the
 complete scenario set. Checkout and PR-head revisions remain separate because CI may test a merge
 revision. Old, expired, malformed, dirty, or mismatched evidence cannot establish coverage. Artifact
@@ -61,15 +61,17 @@ App token for reviews, replies, and resolutions. Comment-only behavior is workfl
 credential restriction. Resolutions follow successful submission; cleanup removes only that run's
 unsubmitted review when GitHub and the runner remain available.
 
-Incomplete or changing PR/thread history prevents approval and resolution. Publication rechecks
-history after submission and stops remaining resolutions on changes. These snapshots are not atomic.
+Collection and publication follow GitHub's thread and reply cursors. Incomplete or changing
+history prevents approval and resolution. Publication rechecks after submission and stops
+remaining resolutions when it detects changes between snapshots.
 The [shared workflow](../../.github/workflows/agent-review.yml) owns exact safeguards and output schemas.
 
 PR-triggered runs use configuration from the PR merge revision. Agents retain shell, edit, and web
 tools; untrusted-input instructions do not enforce isolation. Author replies are untrusted too.
 This is an accepted risk for this personal repository. A summarizer without the App token writes
-workflow logs; raw traces remain temporary and are not uploaded. The contributor-free provider may
-use submitted public source for Meta training.
+workflow logs. Raw traces remain temporary. The reviewers and summarizer send prompts and relevant
+public repository and review content to OpenCode Zen through the LongCat 2.5 Free model from
+Meituan. Keep private material and credentials out of review inputs. [OpenCode Zen provider terms](https://opencode.ai/docs/zen/#privacy)
 
 ## Verifying workflow changes
 
@@ -80,7 +82,7 @@ npm ci --ignore-scripts --prefix Scripts/agent-review-tests
 npm test --prefix Scripts/agent-review-tests
 ```
 
-Local and CI Source policies run this suite through [script-test discovery](../../Scripts/script_tests.py).
+The CI Source policies job runs the same commands.
 The tests own event, publication, history, cleanup, and evidence cases.
 
 ## Adding a reviewer

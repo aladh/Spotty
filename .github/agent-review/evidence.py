@@ -13,7 +13,7 @@ import zipfile
 import zlib
 
 
-SCENARIO_MANIFEST = "Tests/BrowsingHarness/Scenarios/manifest.json"
+SCENARIO_MANIFEST = "Rune/acceptance.json"
 MAX_ARTIFACT_BYTES = 20 * 1024 * 1024
 MAX_SUMMARY_BYTES = 512 * 1024
 

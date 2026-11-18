@@ -1,6 +1,6 @@
 # ADR 006: Consume a prebuilt playback engine through SwiftPM
 
-Status: accepted on 2026-09-04.
+Status: superseded for the current app by [ADR 011](ADR-011-rune-playback-module.md). This record applies to historical Swift releases.
 
 ## Context
 
@@ -37,6 +37,6 @@ inputs. Adopting an engine change in the app requires a validated artifact and e
 Rust debugging still needs the source toolchain. Apple SDK and signing requirements are unchanged.
 
 CI verifies source-built candidates before publication and published artifacts before merge, with
-Rust blocked in app lanes. See [playback artifact workflow](../../development/playback-artifacts.md#playback-binary-artifacts) for
+Rust blocked in app lanes. See [historical playback artifact workflow](../../development/playback-artifacts.md) for
 commands and the [enforcement inventory](../enforcement.md) for coverage.
 [ADR 005](ADR-005-retain-librespot.md) still owns engine choice and runtime ownership.

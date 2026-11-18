@@ -11,10 +11,18 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 GATES = {
     "python3 -B Scripts/documentation_policy.py": "documentation",
-    "ast-grep test --config sgconfig.yml --skip-snapshot-tests": "source-fixtures",
-    "python3 -B Scripts/script_tests.py policy": "policy",
+    "ruby Scripts/check-ci-workflow.rb .github/workflows/ci.yml": "workflow",
+    "ast-grep test --filter <rules> --skip-snapshot-tests": "source-fixtures",
+    "python3 -B Scripts/test_source_policy.py": "routing",
+    "python3 -B Scripts/test_rune_workflow_policy.py": "workflow-fixtures",
+    "python3 -B -m unittest discover -s Scripts -p test_source_gate_policy.py": "gate",
+    "python3 -B Scripts/test_notices_policy.py": "notices",
+    "python3 -B Scripts/test_verify.py": "acceptance",
+    "python3 -B Scripts/test_harness_ui_smoke.py": "smoke",
+    "python3 -B Scripts/test_report_size.py": "size",
+    "python3 -B Scripts/test_ci_timings.py": "timing",
     "npm test --prefix Scripts/agent-review-tests": "review",
-    "ast-grep scan --config sgconfig.yml Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift": "scan",
+    "ast-grep scan --filter <rules> .github/workflows Scripts script Rune": "scan",
 }
 
 
@@ -40,14 +48,17 @@ name = Path(sys.argv[0]).name
 if name == "ast-grep" and sys.argv[1:] == ["--version"]:
     print("ast-grep " + Path("Scripts/ast-grep/version").read_text().strip())
     raise SystemExit(0)
-gate = {GATES!r}.get(" ".join([name, *sys.argv[1:]]))
+args = sys.argv[1:]
+if name == "ast-grep" and len(args) >= 3 and args[1] == "--filter":
+    args[2] = "<rules>"
+gate = {GATES!r}.get(" ".join([name, *args]))
 if gate is None:
     raise SystemExit("Unexpected gate invocation")
 with Path(os.environ["SPOTTY_GATE_LOG"]).open("a") as output:
     output.write(gate + "\\n")
 raise SystemExit(17 if gate == os.environ["SPOTTY_FAILING_GATE"] else 0)
 """
-            for name in ("python3", "npm", "ast-grep"):
+            for name in ("python3", "npm", "ast-grep", "ruby"):
                 path = tools / name
                 path.write_text(stub)
                 path.chmod(0o755)
@@ -67,11 +78,11 @@ raise SystemExit(17 if gate == os.environ["SPOTTY_FAILING_GATE"] else 0)
             with self.subTest(ci=ci):
                 result, ran = self.run_gate(ci=ci)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(ran, list(GATES.values())[:4 if ci else 5])
+                self.assertEqual(ran, list(GATES.values())[:(-1 if ci else None)])
 
     def test_each_failure_stops_local_and_ci_execution(self):
         for ci in (False, True):
-            gates = list(GATES.values())[:4 if ci else 5]
+            gates = list(GATES.values())[:(-1 if ci else None)]
             for index, failing in enumerate(gates):
                 with self.subTest(ci=ci, failing=failing):
                     result, ran = self.run_gate(ci=ci, failing=failing)

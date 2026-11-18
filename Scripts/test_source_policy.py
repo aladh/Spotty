@@ -131,7 +131,8 @@ class SourcePolicyRoutingTests(unittest.TestCase):
             (".github/workflows/ci.yml", "env: {SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK: /tmp/local}", {"ci-published-engine"}),
             ("Scripts/compile-release-spotty.sh", "cargo build", {"app-script-rust-free"}),
             ("Scripts/browse-synthetic.sh", "cargo build", {"app-script-rust-free"}),
-            ("Scripts/package-app.sh", "tool='cbindgen'", {"app-script-rust-free", "development-signing-input"}),
+            ("Scripts/package-app.sh", "tool='cbindgen'", {"app-script-rust-free"}),
+            ("Rune/package-macos.sh", "identity=adhoc", {"development-signing-input"}),
             ("Backend/spotty-playback/build-xcframework.sh", "cargo build", set()),
             ("Sources/Spotty/Example.swift", "let catalog = MockCatalog()", {"retired-mock-symbols"}),
             ("Tests/Example.swift", "let catalog = MockCatalog()", set()),
@@ -341,7 +342,8 @@ class SourcePolicyRoutingTests(unittest.TestCase):
         self.assertEqual(self.scan(path, source), set())
         guard = 'if [[ "${1:-}" != --test-only ]]; then'
         for command in ("python3 -B Scripts/documentation_policy.py",
-                        "python3 -B Scripts/script_tests.py policy",
+                        "python3 -B Scripts/test_source_policy.py",
+                        "python3 -B -m unittest discover -s Scripts -p test_source_gate_policy.py",
                         "npm test --prefix Scripts/agent-review-tests"):
             with self.subTest(command=command):
                 hidden = source.replace(command + "\n", "").replace(guard, guard + "\n    " + command)

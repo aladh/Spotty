@@ -125,7 +125,9 @@ That signed 0.5.6(23) artifact has no established source revision or admission t
 not establish candidate live performance. Its first AX observation includes tool overhead and is not
 first-visible latency. The record contains sanitized counts and artifact identity.
 
-Reproduce the current admission probe with a new absolute JSON path and 12 or 120 sections:
+To reproduce the historical admission probe, use its Swift-era checkout and a new absolute JSON
+path with 12 or 120 sections. That checkout owns the Swift test-selection command.
+[Swift-era verification source](https://github.com/aladh/Spotty/tree/9b5d72b686ac094148b395006918cc1215cbb8e3)
 
 ```bash
 SPOTTY_HOME_EXTENT_REPORT=/tmp/home-new.json SPOTTY_HOME_EXTENT_SECTIONS=12 \
@@ -189,10 +191,11 @@ benefit justifies preserving the existing small retention owner, with no cache e
 
 ## Binary size
 
-CI reports release sizes for comparison, not as a pass/fail budget. Read the run summary with
-`gh run view <run-id>` or download the report with `gh run download <run-id> -n size-report`.
-[report-size.sh](../../Scripts/report-size.sh) owns the measurements; retention is configured in
-[CI](../../.github/workflows/ci.yml).
+After building the optimized Rune executable, run `./Scripts/report-size.sh` for the executable
+size and any available Mach-O segment sizes. The command prints Markdown and writes the version 2
+JSON report under `.build`. Compare measurements with the same target, profile and toolchain.
+Historical CI retained the report for the earlier executable and playback archive for 30 days.
+[Report command](../../Scripts/report-size.sh) · [Historical CI](https://github.com/aladh/Spotty/blob/9b5d72b686ac094148b395006918cc1215cbb8e3/.github/workflows/ci.yml)
 
 ## Command outcome trace (2026-09-10)
 

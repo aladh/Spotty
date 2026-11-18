@@ -9,7 +9,11 @@ and artifact admission under the safe testing and launch contracts. Preparation 
 account/device changes or live-app replacement permission.
 
 Before a run, identify a clean source revision and exact optimized signed Release executable,
-record its build flags and SHA256, verify consumed engine provenance and pin checksum, and record
+record its build flags, SHA256 and Cargo lockfile digest, and capture the resolved Rune and
+librespot revisions. Verify the dependency graph against the lockfile and include the applied
+librespot patch provenance. [Cargo manifest](../../Rune/Cargo.toml) · [Vendored librespot provenance](../../Backend/spotty-playback/vendor/librespot/UPSTREAM)
+
+Record
 OS version, processor class, memory, output device, window dimensions, display rate and scale.
 Keep machine/account identifiers and media names out of public receipts. Record whether the app,
 engine, catalog and audio paths are cold or warm; audio caching is disabled unless the recorded
@@ -25,15 +29,11 @@ Record physical footprint separately from RSS. Capture process wakeup counter de
 supported native profiler; report the profiler's counter definition and sampling overhead. A
 resource snapshot does not establish output latency.
 
-The current [renderer](../../Sources/SpottyEngineAdapter/AudioRenderer.swift) emits its metrics only
-at stop: lifetime underrun count, dropped sample count, producer throttle seconds, and a single
-buffered sample count (frames × channels). Preserve that summary with its actual stop boundary;
-it includes settling and transitions and cannot establish individual 60-second interval deltas or
-occupancy history. Mark those interval measurements unmeasured unless an admitted snapshot source
-exists; do not insert extra stops merely to obtain counters. Separate intentional producer pacing
-and explicit seek/stop discards from underruns. Native time profiling must attribute engine/decode/network,
-UI/main thread and renderer work separately; whole-process CPU cannot perform that split.
-Do not infer network bytes from cache-layer synthetic input counts.
+The [Rune audio output](../../Rune/src/live/audio.rs) does not expose the previous renderer's
+stop-time summary. Record missing underrun, drop, throttle and occupancy metrics as unmeasured.
+Separate intentional producer pacing and explicit seek/stop discards from underruns. Native time
+profiling must attribute engine/decode/network, UI/main thread and renderer work separately. Keep
+network byte counts tied to the actual network boundary. [Historical Swift measurement procedure](https://github.com/aladh/Spotty/blob/9b5d72b686ac094148b395006918cc1215cbb8e3/docs/development/playback-measurements.md)
 
 Startup-to-ready needs an observed launch boundary and the actual readiness event for that signed
 artifact. Play-to-output needs an authorized control boundary and an observed output boundary;

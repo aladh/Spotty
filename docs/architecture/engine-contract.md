@@ -1,6 +1,6 @@
 # Playback engine contracts
 
-[Engine ownership](playback-engine-ownership.md) · [Enforcement inventory](enforcement.md)
+This record describes the Swift-era boundary and its generation, lifecycle and evidence guarantees. The [Rune ownership guide](playback-engine-ownership.md) names current owners.
 
 ## Retained-engine guarantees
 
@@ -46,9 +46,8 @@
 ## FFI surface
 
 Checked-in [declarations](../../Sources/SpottyPlaybackCore/include/spotty_playback_generated.h)
-and [annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h) own producer
-types and ownership. [check.sh](../../Scripts/check.sh) validates the headers actually compiled from
-[Package.swift](../../Package.swift)'s pinned XCFramework. The boundary carries typed protocol snapshots.
+and [annotations](../../Sources/SpottyPlaybackCore/include/spotty_playback_annotations.h) describe
+the historical Swift boundary and its typed protocol snapshots.
 
 The aggregate callback carries local identity, devices, connection, and optional playback/queue
 facts under one generation/revision with bootstrap/dealer-push provenance. It replaces only

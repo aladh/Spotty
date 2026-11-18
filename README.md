@@ -33,8 +33,7 @@ Requires **macOS 27 or newer**, an **Apple Silicon Mac**, and **Spotify Premium*
 2. Unzip it and drag **Spotty.app** into **Applications**.
 3. Open Spotty, choose **Connect Spotify**, and finish signing in through your browser.
 
-Already using Spotty? Choose **Spotty → Check for Updates…**.
-You can also [verify the download's checksum](docs/development/releases.md#verify-a-download).
+The linked releases contain the earlier Swift app. In that app, choose **Spotty → Check for Updates…** to check its release channel. The current source builds Spotty with Rust and Rune. [Verify a download’s checksum](docs/development/releases.md#verify-a-download).
 
 ### First launch on macOS
 
@@ -57,5 +56,5 @@ trademarks, or private interfaces. Review Spotify's [Developer Policy](https://d
 before considering distribution. Credits and dependency notices are in [NOTICE](NOTICE) and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-[Build from source](docs/development/setup.md#fresh-clone) · [Documentation](docs/README.md) ·
+[Build Spotty from source](Rune/README.md) · [Documentation](docs/README.md) ·
 [Report a security issue privately](SECURITY.md)

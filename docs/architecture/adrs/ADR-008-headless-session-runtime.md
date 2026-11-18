@@ -1,6 +1,8 @@
 # ADR 008: Headless session runtime with an in-process desktop client
 
-Status: accepted on 2026-09-12. Supersedes the `PlaybackStore` ownership and MainActor isolation
+Status: partially superseded by [ADR 011](ADR-011-rune-playback-module.md). The Swift implementation boundary is historical. Typed intent settlement, task ownership, and lifetime admission still apply.
+
+The historical decision superseded the `PlaybackStore` ownership and MainActor isolation
 choices in [ADR 002](ADR-002-playback-state-and-dependencies.md) and
 [ADR 003](ADR-003-playback-command-effects.md); their reducer and command-settlement rules remain.
 

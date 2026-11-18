@@ -1,8 +1,6 @@
 # ADR 001: Playback engine boundary
 
-Status: accepted on 2026-08-18; the engine choice is reaffirmed by [ADR 005](ADR-005-retain-librespot.md).
-Runtime ownership and adapter dependency/access choices are superseded by
-[ADR 008](ADR-008-headless-session-runtime.md). The C and Swift containment decision remains.
+Status: superseded for the current app by [ADR 011](ADR-011-rune-playback-module.md). The C and Swift boundary below applies to historical builds. The librespot choice is recorded in [ADR 005](ADR-005-retain-librespot.md).
 
 ## Context and decision
 

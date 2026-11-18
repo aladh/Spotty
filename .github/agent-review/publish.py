@@ -51,30 +51,112 @@ def owns(thread, env):
         env["LEGACY_UNMARKED_THREADS"] == "true" and not body.startswith("<!-- spotty-"))
 
 
-def thread_state(env, pending_review, snapshots, request):
-    connection = graphql('''query($owner: String!, $name: String!, $number: Int!) {
+def paginated_nodes(page, fetch_next, key):
+    nodes = []
+    seen_keys = set()
+    seen_cursors = set()
+    while True:
+        if not page or (seen_cursors and not page["nodes"]):
+            return nodes, False
+        for node in page["nodes"]:
+            identity = node.get(key)
+            if not identity or identity in seen_keys:
+                return nodes, False
+            seen_keys.add(identity)
+            nodes.append(node)
+        info = page["pageInfo"]
+        if info["hasNextPage"] is False:
+            return nodes, True
+        cursor = info.get("endCursor")
+        if info["hasNextPage"] is not True or not page["nodes"] or not cursor or cursor in seen_cursors:
+            return nodes, False
+        seen_cursors.add(cursor)
+        page = fetch_next(cursor)
+
+
+def review_threads(env, request):
+    owner, name = env["GITHUB_REPOSITORY"].split("/")
+    query = '''query($owner: String!, $name: String!, $number: Int!, $after: String) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-        reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
-          id isResolved comments(first: 50) { pageInfo { hasNextPage } nodes { author { login } body url pullRequestReview { id state } } } } } } } }''',
-        {"owner": env["GITHUB_REPOSITORY"].split('/')[0], "name": env["GITHUB_REPOSITORY"].split('/')[1],
-         "number": int(env["PR_NUMBER"])}, request)["repository"]["pullRequest"]["reviewThreads"]
-    threads = connection["nodes"]
-    unresolved = [thread for thread in threads if not thread["isResolved"]]
-    owned = [thread for thread in unresolved if owns(thread, env)
-             and (thread["comments"]["nodes"][0].get("pullRequestReview") or {}).get("state") != "PENDING"
-             and (thread["comments"]["nodes"][0].get("pullRequestReview") or {}).get("id") != pending_review]
-    complete = not connection["pageInfo"]["hasNextPage"] and all(thread["comments"]["nodes"] for thread in unresolved)
-    complete = complete and snapshots.keys() <= {thread["id"] for thread in threads}
-    # Compare identity, author and body; ignore only replies this publication itself staged.
-    # Check every snapshot thread, including changed ownership markers or external resolutions.
+        reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes {
+          id isResolved isOutdated path line originalLine diffSide
+          comments(first: 50) { pageInfo { hasNextPage endCursor } nodes {
+            author { login } body url pullRequestReview { id state } } } } } } } }'''
+
+    def page(after):
+        data = graphql(query, {"owner": owner, "name": name, "number": int(env["PR_NUMBER"]),
+                               "after": after}, request)
+        return data["repository"]["pullRequest"]["reviewThreads"]
+
+    return paginated_nodes(page(None), page, "id")
+
+
+def thread_record(thread_id, after, request):
+    query = '''query($id: ID!, $after: String) {
+      node(id: $id) { ... on PullRequestReviewThread {
+        id isResolved
+        comments(first: 50, after: $after) { pageInfo { hasNextPage endCursor } nodes {
+          author { login } body url pullRequestReview { id state } } } } } }'''
+    return graphql(query, {"id": thread_id, "after": after}, request)["node"]
+
+
+def thread_history(thread, request, exclude_review=None):
+    def page(after):
+        record = thread_record(thread["id"], after, request)
+        return record["comments"] if record and record.get("id") == thread["id"] else None
+
+    comments, complete = paginated_nodes(thread["comments"], page, "url")
+    history = [{"author": (comment["author"] or {}).get("login"),
+                "body": comment["body"], "url": comment["url"]}
+               for comment in comments
+               if exclude_review is None or (comment.get("pullRequestReview") or {}).get("id") != exclude_review]
+    return history, complete
+
+
+def collect_threads(env, request=github):
+    threads, complete = review_threads(env, request)
+    owned = []
     for thread in threads:
-        if thread["id"] not in snapshots and thread not in owned:
+        if thread["isResolved"]:
             continue
-        comments = thread["comments"]
-        history = [{"author": (comment["author"] or {}).get("login"), "body": comment["body"], "url": comment["url"]}
-                   for comment in comments["nodes"]
-                   if (comment.get("pullRequestReview") or {}).get("id") != pending_review]
-        complete = complete and not comments["pageInfo"]["hasNextPage"] and history == snapshots.get(thread["id"])
+        if not thread["comments"]["nodes"]:
+            complete = False
+        if owns(thread, env):
+            comments, ready = thread_history(thread, request)
+            complete = complete and ready
+            owned.append({"id": thread["id"], "path": thread["path"],
+                          "line": thread["line"] if thread["line"] is not None else thread["originalLine"],
+                          "originalLine": thread["originalLine"], "diffSide": thread["diffSide"],
+                          "isOutdated": thread["isOutdated"], "comments": comments})
+    if not complete:
+        raise RuntimeError("Could not read the complete PR review thread history")
+    (Path(env["REVIEW_IN"]) / "threads.json").write_text(json.dumps(owned) + "\n")
+
+
+def thread_state(env, pending_review, snapshots, request):
+    threads, complete = review_threads(env, request)
+    unresolved = [thread for thread in threads if not thread["isResolved"]]
+    def owned_unresolved(thread):
+        if thread["isResolved"] or not owns(thread, env):
+            return False
+        review = thread["comments"]["nodes"][0].get("pullRequestReview") or {}
+        return review.get("state") != "PENDING" and review.get("id") != pending_review
+
+    tracked = snapshots.keys() | {thread["id"] for thread in unresolved if owned_unresolved(thread)}
+    complete = complete and all(thread["comments"]["nodes"] for thread in unresolved)
+    complete = complete and snapshots.keys() <= {thread["id"] for thread in threads}
+    owned = []
+    # The first page may have changed while later pages loaded. Re-read every relevant
+    # thread by ID before comparing history, including externally resolved snapshot threads.
+    for thread_id in sorted(tracked):
+        thread = thread_record(thread_id, None, request)
+        if not thread or thread.get("id") != thread_id:
+            complete = False
+            continue
+        history, ready = thread_history(thread, request, pending_review)
+        complete = complete and ready and history == snapshots.get(thread_id)
+        if owned_unresolved(thread):
+            owned.append(thread)
     return owned, complete
 
 
@@ -187,5 +269,7 @@ def publish(env, request=github, sleep=time.sleep):
 if __name__ == "__main__":
     if sys.argv[1:] == ["--cleanup"]:
         cleanup(os.environ)
+    elif sys.argv[1:] == ["--collect-threads"]:
+        collect_threads(os.environ)
     else:
         publish(os.environ)

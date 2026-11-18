@@ -5,7 +5,7 @@ on:
   workflow_call:
     outputs:
       evidence_artifact_url:
-        description: Normalized scenario evidence and compact failure packet for this attempt
+        description: Synthetic test log, Rune accessibility tree and screenshot
         value: ${{ jobs.acceptance.outputs.evidence_artifact_url }}
       outcome:
         description: The single corpus execution outcome
@@ -14,13 +14,11 @@ on:
 permissions:
   contents: read
 
-# Standalone/reusable entrypoint only. CI runs this same corpus inside its existing macOS job.
-# One attempt ends in success or a bounded failure packet; another implementation pass is explicit.
 jobs:
   acceptance:
     name: Acceptance scenario corpus
-    runs-on: xcode-27
-    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     outputs:
       evidence_artifact_url: ${{ steps.acceptance_upload.outputs.artifact-url }}
       outcome: ${{ steps.acceptance.outcome }}
@@ -29,25 +27,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Select Xcode 27.0
-        run: |
-          sudo xcode-select -s /Applications/Xcode_27.app
-          python3 Scripts/check_native_environment.py
-
-      # Injected state boundaries only: no live credentials, GUI, or sandbox attestation.
-      - name: Run acceptance scenarios
+      - name: Install build and graphics dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libssl-dev libseccomp2 mesa-vulkan-drivers
+      - name: Exercise Rune interactions and render the reference
         id: acceptance
-        timeout-minutes: 10
         env:
-          SPOTTY_ACCEPTANCE_HEAD_SHA: ${{ github.sha }}
-        run: python3 Scripts/acceptance_scenarios.py run --corpus all --output "$RUNNER_TEMP/spotty-acceptance"
-
-      - name: Summarize acceptance evidence
-        id: acceptance_summary
-        if: always()
-        run: python3 Scripts/acceptance_scenarios.py summary --output "$RUNNER_TEMP/spotty-acceptance" >> "$GITHUB_STEP_SUMMARY"
-
+          SPOTTY_ACCEPTANCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/spotty-runtime"
+          mkdir -m 700 "$XDG_RUNTIME_DIR"
+          python3 Scripts/verify.py acceptance --output "$RUNNER_TEMP/spotty-acceptance"
       - name: Upload acceptance evidence
         id: acceptance_upload
         if: always()
@@ -62,9 +51,7 @@ jobs:
         if: always()
         env:
           ACCEPTANCE_RESULT: ${{ steps.acceptance.outcome }}
-          ACCEPTANCE_SUMMARY_RESULT: ${{ steps.acceptance_summary.outcome }}
           ACCEPTANCE_UPLOAD_RESULT: ${{ steps.acceptance_upload.outcome }}
         run: |
           test "$ACCEPTANCE_RESULT" = success
-          test "$ACCEPTANCE_SUMMARY_RESULT" = success
           test "$ACCEPTANCE_UPLOAD_RESULT" = success

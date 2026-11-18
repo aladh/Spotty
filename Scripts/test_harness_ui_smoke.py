@@ -1,81 +1,60 @@
-"""Exercise the UI smoke wrapper's single attempt and retained timeout evidence."""
-from contextlib import redirect_stdout
-import io
+"""Exercise the Rune UI smoke wrapper through its two executable entry points."""
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 
 
 class UISmokeWrapperChecks(unittest.TestCase):
-    def invoke(self, root, result):
-        wrapper = Path(__file__).with_name("smoke-synthetic-ui.sh").read_text()
-        program = wrapper.split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-        with patch.object(sys, "argv", ["wrapper", "/synthetic/driver", str(root)]):
-            with patch.object(subprocess, "run", side_effect=result) as run:
-                with self.assertRaises(SystemExit) as finished, redirect_stdout(io.StringIO()):
-                    exec(compile(program, "smoke-synthetic-ui.sh:python", "exec"), {"__name__": "__main__"})
-        return finished.exception.code, run
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="spotty smoke ")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        scripts = self.root / "Scripts"
+        tools = self.root / "bin"
+        for directory in (scripts, tools, self.root / "Rune"):
+            directory.mkdir()
+        self.command = scripts / "smoke-synthetic-ui.sh"
+        shutil.copy2(Path(__file__).with_name(self.command.name), self.command)
+        self.trace = self.root / "trace.jsonl"
+        for name, path in (("cargo", tools / "cargo"), ("browse", scripts / "browse-synthetic.sh")):
+            path.write_text(f"""#!{sys.executable}
+import json, os, sys
+from pathlib import Path
+with open(os.environ['SPOTTY_SMOKE_TRACE'], 'a') as out:
+    out.write(json.dumps([{name!r}, Path.cwd().name, *sys.argv[1:]]) + '\\n')
+sys.exit(int(os.environ.get('SPOTTY_SMOKE_{name.upper()}_STATUS', '0')))
+""")
+            path.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
+                    "SPOTTY_SMOKE_TRACE": str(self.trace)}
 
-    def test_completed_driver_is_invoked_once(self):
-        for code in (0, 1):
-            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                result, run = self.invoke(root, lambda *args, **kwargs: subprocess.CompletedProcess(args[0], code))
-                self.assertEqual(result, code)
-                run.assert_called_once_with(["/synthetic/driver", str(root.resolve())], timeout=135)
+    def run_wrapper(self, cargo=0, browse=0):
+        process = subprocess.run([str(self.command), "--size", "960x640"], capture_output=True,
+                                 env={**self.env, "SPOTTY_SMOKE_CARGO_STATUS": str(cargo),
+                                      "SPOTTY_SMOKE_BROWSE_STATUS": str(browse)}, timeout=10)
+        calls = [json.loads(line) for line in self.trace.read_text().splitlines()]
+        return process.returncode, calls
 
-    def test_prior_evidence_rejects_another_attempt_without_launch(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            evidence = root / "ui-smoke.json"
-            original = b'{"passed": false, "checkpoints": ["home.ready"]}\n'
-            evidence.write_bytes(original)
-            code, run = self.invoke(root, AssertionError("a second attempt must not launch"))
-            self.assertIsInstance(code, str)
-            run.assert_not_called()
-            self.assertEqual(evidence.read_bytes(), original)
+    def test_runs_the_locked_suite_then_forwards_render_arguments_once(self):
+        status, calls = self.run_wrapper()
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [["cargo", "Rune", "test", "--locked", "--bin", "spotty-rune", "tests::"],
+                                 ["browse", "Rune", "--size", "960x640"]])
 
-    def test_timeout_retains_completed_checkpoints_and_identity(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+    def test_failed_tests_prevent_rendering(self):
+        status, calls = self.run_wrapper(cargo=37)
+        self.assertEqual(status, 37)
+        self.assertEqual([call[0] for call in calls], ["cargo"])
 
-            def timeout(*args, **kwargs):
-                (root / "ui-smoke.json").write_text(json.dumps({
-                    "passed": False, "category": "running", "runID": "owned-run", "pid": 42,
-                    "checkpoints": ["home.content-ready", "search.all-results"],
-                    "baseline": {"commandCount": 0, "mutationAttempts": 0},
-                    "observed": {"commandCount": 0, "mutationAttempts": 0},
-                }))
-                raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
-
-            code, run = self.invoke(root, timeout)
-            self.assertEqual(code, 1)
-            run.assert_called_once()
-            evidence = json.loads((root / "ui-smoke.json").read_text())
-            self.assertFalse(evidence["passed"])
-            self.assertEqual(evidence["category"], "timeout")
-            self.assertEqual(evidence["runID"], "owned-run")
-            self.assertEqual(evidence["checkpoints"], ["home.content-ready", "search.all-results"])
-            self.assertEqual(evidence["observed"], evidence["baseline"])
-
-    def test_timeout_preserves_malformed_partial_bytes(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            original = b'{"passed":false,"checkpoints":['
-
-            def timeout(*args, **kwargs):
-                (root / "ui-smoke.json").write_bytes(original)
-                raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
-
-            code, run = self.invoke(root, timeout)
-            self.assertEqual(code, 1)
-            run.assert_called_once()
-            self.assertEqual((root / "ui-smoke.partial.json").read_bytes(), original)
-            self.assertFalse(json.loads((root / "ui-smoke.json").read_text())["passed"])
+    def test_failed_renderer_returns_its_status_without_a_retry(self):
+        status, calls = self.run_wrapper(browse=41)
+        self.assertEqual(status, 41)
+        self.assertEqual([call[0] for call in calls], ["cargo", "browse"])
 
 
 if __name__ == "__main__":

@@ -1,14 +1,7 @@
-# GitHub automation agent guidance
+# GitHub automation
 
-Follow [PR acceptance](../CONTRIBUTING.md#pr-acceptance) and the
-[enforcement inventory](../docs/architecture/enforcement.md) for workflows and PR metadata.
+CI verifies the integrated Rust app on Linux and Apple Silicon. The required macOS checks aggregate must fail if either platform fails. Keep action revisions pinned, provide read-only permissions for untrusted PR code, and scope release staging to verified Rune tags on main. Historical Swift releases use their own update channel.
 
-- Keep a readable version comment beside action pins.
-- Use least permissions and never expose credentials to untrusted pull-request code or logs.
-- Preserve the [required CI aggregate](../docs/architecture/enforcement/build-and-abi.md#ci-and-release-workflow),
-  the fail-closed change classification in [`ci_rust_policy.py`](../Scripts/ci_rust_policy.py), and
-  separation of published app pins from engine production.
-- Preserve content-keyed Rust archive reuse and configuration-safe SwiftPM cache isolation. Treat
-  cache contents, restore prefixes, and timestamp refreshes as correctness-sensitive build behavior.
-- Inspect workflow diffs for permissions, pins, trigger trust boundaries, shell interpolation, cache
-  poisoning, and accidental coverage reduction.
+Keep credentials out of untrusted pull-request code and logs. Unset `ACTIONS_ID_TOKEN_REQUEST_TOKEN` and `ACTIONS_ID_TOKEN_REQUEST_URL` before installing untrusted dependencies or running agents. Use the trusted reviewer configuration for privileged publication.
+
+Inspect workflow changes for event trust boundaries, shell interpolation, cache poisoning, and reduced test coverage. Key source caches by the inputs they can restore and verify builds against the locked dependencies.

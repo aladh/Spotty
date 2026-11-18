@@ -138,6 +138,39 @@ function temporary(run) {
   try { run(directory); } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
+test('provider failure diagnostics classify CLI errors and exclude review output', () => temporary(directory => {
+  const source = join(directory, 'reviewer', 'config');
+  const bin = join(directory, 'review-cli', 'node_modules', '.bin');
+  const input = join(directory, 'review', 'in');
+  const output = join(directory, 'github-output');
+  for (const folder of [source, bin, input]) mkdirSync(folder, { recursive: true });
+  writeFileSync(join(source, 'task.md'), 'Fixture prompt\n');
+  writeFileSync(join(input, 'context.json'), '{}');
+  writeFileSync(join(bin, 'timeout'), '#!/bin/bash\nshift 2\nexec "$@"\n', { mode: 0o755 });
+  writeFileSync(join(bin, 'opencode'), '#!/bin/bash\nprintf "%s\\n" "$FIXTURE_STDOUT"\nprintf "%s\\n" "$FIXTURE_STDERR" >&2\nexit 124\n',
+    { mode: 0o755 });
+  const step = workflow('agent-review.yml').jobs.review.steps.find(step => step.id === 'review');
+  const rateLimit = 'timestamp=2026-11-18T00:00:00Z level=ERROR run=fixture message="stream error" providerID=opencode modelID=fixture error.error="AI_APICallError: Free usage limit reached."';
+  for (const genuine of [false, true]) {
+    writeFileSync(output, '');
+    const result = spawnSync('bash', ['-c', step.run], {
+      encoding: 'utf8',
+      env: {
+        ...process.env, GITHUB_WORKSPACE: directory, RUNNER_TEMP: directory,
+        REVIEW_IN: input, CONFIG_DIRECTORY: 'config', PRIMARY_AGENT: 'fixture',
+        GITHUB_OUTPUT: output, PATH: `${bin}:${process.env.PATH}`,
+        FIXTURE_STDOUT: rateLimit,
+        FIXTURE_STDERR: genuine ? rateLimit : 'Unclassified fixture error',
+      },
+    });
+    assert.equal(result.status, 124, result.stderr);
+    assert.equal(readFileSync(output, 'utf8'), genuine ? 'provider_limited=true\n' : '');
+    const detail = genuine ? /reported that its free usage limit/ : /did not finish the review within 20 minutes/;
+    assert.match(result.stdout, detail);
+    assert.match(readFileSync(join(directory, 'review.log'), 'utf8'), detail);
+  }
+}));
+
 test('both published review bodies include the trusted-collaborator rerun hint', () => temporary(directory => {
   writeFileSync(join(directory, 'summary.md'), 'No findings. Literal $(touch unexpected).');
   const publisher = join(root, '.github/agent-review/publish.py');
@@ -160,7 +193,8 @@ test('documentation review reaches the agent even when no documentation changed'
   const context = { steps: { eligibility: { outputs: { skip: 'false' } }, 'path-filter': { outputs: { skip: 'true' } } } };
   assert.equal(evaluate(steps.find(step => step.name === 'Prepare review inputs').if, context), 'true');
   assert.equal(evaluate(steps.find(step => step.name === 'Review').if, context), 'true');
-  assert.equal(Object.values(workflow('docs-review.yml').jobs)[0].with.can_approve, 'false');
+  assert.equal(Object.values(workflow('docs-review.yml').jobs)[0].with.can_approve, false);
+  assert.equal(Object.values(workflow('thermos-review.yml').jobs)[0].with.can_approve, true);
 });
 
 for (const includeDocs of [false, true]) {
@@ -180,9 +214,12 @@ for (const includeDocs of [false, true]) {
     const head = git('rev-parse', 'HEAD');
     const bin = join(directory, 'bin');
     mkdirSync(bin);
+    const reviewer = join(directory, 'reviewer', '.github', 'agent-review');
+    mkdirSync(reviewer, { recursive: true });
+    writeFileSync(join(reviewer, 'publish.py'), readFileSync(join(root, '.github/agent-review/publish.py')));
     writeFileSync(join(bin, 'gh'), `#!/bin/sh
 case "$*" in
-  'api graphql '*) printf '%s' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"id":"earlier","isResolved":false,"isOutdated":true,"path":"Sources/Feature.swift","line":null,"originalLine":7,"diffSide":"LEFT","comments":{"pageInfo":{"hasNextPage":false},"nodes":[{"author":{"login":"opencode-agent"},"body":"<!-- spotty-docs-review --> finding","url":"https://example.invalid/1"},{"author":{"login":"author"},"body":"Fixed in current head","url":"https://example.invalid/2"}]}}]}}}}}' ;;
+  'api --method POST graphql '*) printf '%s' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"id":"earlier","isResolved":false,"isOutdated":true,"path":"Sources/Feature.swift","line":null,"originalLine":7,"diffSide":"LEFT","comments":{"pageInfo":{"hasNextPage":false},"nodes":[{"author":{"login":"opencode-agent"},"body":"<!-- spotty-docs-review --> finding","url":"https://example.invalid/1"},{"author":{"login":"author"},"body":"Fixed in current head","url":"https://example.invalid/2"}]}}]}}}}}' ;;
   *) printf '%s' '{"title":"Fixture","body":"Implementation change"}' ;;
 esac
 `, { mode: 0o755 });
@@ -190,6 +227,7 @@ esac
     const result = spawnSync('bash', ['-eu', '-c', steps.find(step => step.name === 'Prepare review inputs').run], {
       cwd: directory, encoding: 'utf8', env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, GITHUB_REPOSITORY: 'aladh/Spotty',
+        GITHUB_WORKSPACE: directory,
         GITHUB_ENV: join(directory, 'env'), PR_NUMBER: '472', BASE_SHA: base, BASE_BRANCH: 'main', HEAD_SHA: head,
         PREVIOUS_HEAD: '', REVIEW_MODE: 'full', REVIEW_REASON: 'fixture', REVIEWER_LOGIN: 'opencode-agent',
         REVIEW_MARKER: '<!-- spotty-docs-review -->', REVIEWER_NAME: 'Documentation review',

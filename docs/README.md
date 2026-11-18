@@ -8,15 +8,15 @@ Product contracts define behavior, ADRs record decisions, and development guides
 
 ## Development
 
-- [Setup](development/setup.md): prerequisites and app/engine toolchains.
+- [Setup](development/setup.md): prerequisites and the integrated Rust toolchain.
 - [Development signing](development/signing.md): signing identities and credential recovery.
 - [Generated local state](development/local-state.md): build outputs and artwork regeneration.
 - [Build and verification](development/verification.md): launch, formatting, tests, and diagnostics.
-- [Swift test-host diagnostics](development/test-host-diagnostics.md): attribution, owned sampling, and cleanup evidence.
+- Historical Swift [test-host diagnostics](development/test-host-diagnostics.md): attribution, owned sampling, and cleanup evidence.
 - [Runtime acceptance and measurements](development/runtime-acceptance.md): evidence requirements, synthetic workloads, and profiling.
 - [Release playback measurements](development/playback-measurements.md): repeated CPU, footprint, wakeup and output-boundary samples.
-- [Synthetic acceptance](development/synthetic-acceptance.md): named corpora, failure evidence, and semantic UI smoke.
-- [Playback binary artifacts](development/playback-artifacts.md): local candidates, publication, and app pins.
+- [Synthetic acceptance](development/synthetic-acceptance.md): scripted input, screenshots and accessibility trees.
+- [Historical playback artifact](development/playback-artifacts.md) for the Swift source reference.
 - [Packaging and releases](development/releases.md): packaging, signing, notarization, and app releases.
 - [Agent reviews](development/agent-reviews.md): shared review pipeline, approval, thread handling, and trust.
 - [Thermos review](development/thermos-review.md): correctness and quality review of every ready PR.
@@ -30,7 +30,7 @@ Product contracts define behavior, ADRs record decisions, and development guides
 ## Architecture
 
 - [Architecture decisions](architecture/adrs/README.md): current and superseded ADRs.
-- [Playback engine ownership](architecture/playback-engine-ownership.md): Swift/Rust responsibilities.
-- [Engine contracts](architecture/engine-contract.md): lifecycle guarantees, FFI, and boundary constraints.
+- [Playback engine ownership](architecture/playback-engine-ownership.md): internal engine and app responsibilities.
+- [Engine contracts](architecture/engine-contract.md): historical Swift boundary and retained lifecycle guarantees.
 - [Performance baseline](architecture/performance-baseline.md): historical measurements and size reporting.
 - [Enforcement inventory](architecture/enforcement.md): rule owners and verification coverage.

@@ -25,34 +25,22 @@ class SizeReportTests(unittest.TestCase):
         scripts.mkdir(parents=True)
         self.command = scripts / "report-size.sh"
         shutil.copy2(ROOT / "Scripts/report-size.sh", self.command)
-        (scripts / "swiftpm-env.sh").write_text('export SPOTTY_PACKAGE_GRAPH=full\n')
-        (scripts / "playback-xcframework.sh").write_text("""
-spotty_playback_resolve_xcframework() { printf '%s\\n' "$SIZE_TEST_FRAMEWORK"; }
-spotty_playback_validate_xcframework() { test -d "$1"; }
-spotty_playback_slice_path() { printf '%s\\n' "$1/macos-arm64"; }
-spotty_playback_archive_path() { printf '%s\\n' "$1/libtest.a"; }
-""")
-        self.framework = self.root / "selected.xcframework"
-        self.archive = self.framework / "macos-arm64/libtest.a"
-        self.archive.parent.mkdir(parents=True)
-        self.archive.write_bytes(b"archive" * 5)
-        self.binary = self.root / "Spotty"
+        self.binary = self.root / "Rune" / "target" / "release" / "spotty-rune"
+        self.binary.parent.mkdir(parents=True)
         self.binary.write_bytes(b"binary" * 7)
         self.tools = self.root / "tools"
         self.tools.mkdir()
-        for name in ("dirname", "basename", "mkdir", "awk", "grep", "cat"):
+        for name in ("dirname", "mkdir"):
             (self.tools / name).symlink_to(shutil.which(name))
         (self.tools / "python3").symlink_to(sys.executable)
-        self.tool("stat", "from pathlib import Path\nprint(Path(sys.argv[-1]).stat().st_size)")
         self.tool("size", "print('Segment __TEXT: 12\\nSegment __DATA: 34\\nSegment __LINKEDIT: 56')")
-        self.tool("nm", "print('00000001 T _one\\n00000002 T _two')")
         self.output = self.root / "reports"
         self.summary = self.root / "summary.md"
         self.environment = {
-            **os.environ, "PATH": str(self.tools), "SIZE_TEST_FRAMEWORK": str(self.framework),
+            **os.environ, "PATH": str(self.tools),
             "GITHUB_STEP_SUMMARY": str(self.summary),
         }
-        self.environment.pop("SPOTTY_PLAYBACK_LOCAL_XCFRAMEWORK", None)
+        self.environment.pop("CARGO_TARGET_DIR", None)
 
     def tool(self, name, body):
         path = self.tools / name
@@ -68,10 +56,8 @@ spotty_playback_archive_path() { printf '%s\\n' "$1/libtest.a"; }
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads((self.output / "size-report.json").read_text()), result
 
-    def test_default_binary_lookup_uses_the_app_graph(self):
+    def test_default_binary_lookup_uses_the_rune_release_target(self):
         self.prepare()
-        self.environment["SPOTTY_PACKAGE_GRAPH"] = "engine-free"
-        self.tool("swift", f"import os\nassert os.environ['SPOTTY_PACKAGE_GRAPH'] == 'full'\nprint({str(self.root)!r})")
         report, _ = self.report(locate_binary=True)
         self.assertEqual(report["binary_path"], str(self.binary))
 
@@ -79,26 +65,21 @@ spotty_playback_archive_path() { printf '%s\\n' "$1/libtest.a"; }
         self.prepare('quoted " checkout\\name\nwith unicode é')
         report, result = self.report()
         self.assertEqual(report["binary_path"], str(self.binary))
-        self.assertEqual(report["xcframework_path"], str(self.framework))
-        self.assertEqual(report["archive_path"], str(self.archive))
+        self.assertEqual(report["schema_version"], 2)
         self.assertEqual(report["binary_bytes"], 42)
-        self.assertEqual(report["archive_bytes"], 35)
         self.assertEqual(report["binary_segments"], {
             "available": True, "text_bytes": 12, "data_bytes": 34, "linkedit_bytes": 56,
         })
-        self.assertEqual(report["archive_exported_symbols"], {"available": True, "count": 2})
         self.assertIn("| App binary | 42 bytes", result.stdout)
         self.assertIn("| Binary __TEXT | 12 bytes", self.summary.read_text())
 
     def test_missing_optional_tools_leave_valid_unavailable_measurements(self):
         self.prepare()
         (self.tools / "size").unlink()
-        (self.tools / "nm").unlink()
         report, result = self.report()
         self.assertEqual(report["binary_segments"], {
             "available": False, "text_bytes": None, "data_bytes": None, "linkedit_bytes": None,
         })
-        self.assertEqual(report["archive_exported_symbols"], {"available": False, "count": None})
         self.assertIn("unavailable", result.stdout)
 
     def test_malformed_optional_size_output_is_unavailable(self):

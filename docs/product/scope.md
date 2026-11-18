@@ -18,7 +18,7 @@ while using macOS controls for input, selection, focus, and windowing.
   and ongoing cost. This principle never relaxes account/privacy/session safety, playback and
   lifetime correctness, truthful state, Spotify familiarity, or native macOS interaction.
 - Spotty is a focused native macOS client for personal Spotify Premium use; macOS is its only
-  target. Use SwiftUI and AppKit for Spotify-familiar surfaces and native interaction. Do not add
+  product target. Use Rune for the Spotify-familiar interface and macOS APIs for native integration. Do not add
   a WebView, Chromium runtime,
   cross-platform shell, or second UI framework. Do not add a supported Spotify API fallback.
 - Match the official Spotify desktop app as closely as practical for supported workflows:

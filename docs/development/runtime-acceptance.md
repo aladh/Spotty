@@ -2,163 +2,25 @@
 
 [Verification](verification.md) · [Architecture decisions](../architecture/adrs/README.md)
 
-Apply [product contracts](../product/README.md) and
-[PR acceptance](../../CONTRIBUTING.md#pr-acceptance).
+Apply the [product contracts](../product/README.md) and [PR acceptance criteria](../../CONTRIBUTING.md#pr-acceptance). Exercise account and playback generation changes, cancellation during I/O, retirement, late publications, and corrupt retained data. A stored identity cannot authorize a fresh mutation. Catalog changes also need route restoration, write invalidation, and account-scoped metadata and artwork checks.
 
-## Evidence for the implemented scope
+Exercise changed controls in the isolated Rune demo and record the relevant screenshots, accessibility tree, or test assertions. The reference capture checks the README scene and exposes renderer warnings. Dedicated tests cover individual interactions. Live account, audio, and native macOS behavior have separate proof requirements. [Synthetic acceptance](synthetic-acceptance.md) · [Safe testing](../product/safe-testing.md)
 
-Independently verify admission, account/engine replacement, cancellation, retirement during I/O,
-late publications, and corrupt retained data. Stored identities never authorize fresh mutations.
-For catalog changes, include route restoration, write invalidation, shared enrichment, and artwork
-retirement under [ADR 009](../architecture/adrs/ADR-009-account-catalog-retention.md#decision).
+## Quit and playback position
 
-Inspect UI changes with synthetic fixtures under the
-[visual fidelity contract](../product/scope.md#visual-fidelity-and-interaction).
-Tests establish neither visual parity nor [live-account permissions](../product/safe-testing.md).
+With playback-test permission, record the paused position, the destination's prior open state, and fresh Connect observations after quit. An open Spotify client can observe the position before disconnection. Closed Spotify clients may restore their own cached sessions. Quit stops the Spotty runtime. Closing the window leaves it running. [Playback measurements](playback-measurements.md)
 
-## Production process
+## Offline lifecycle measurements
 
-Verify runtime admission, account/engine identity, and settlement: expiration differs from
-confirmation; late observations still update playback truth.
-[PRIVACY.md](../../PRIVACY.md#local-storage) owns OAuth storage. A future Keychain migration needs
-recoverable grant migration and evidence for updates, developer builds, lock/unlock, and reinstall;
-old Keychain entries remain untouched.
-
-### Quit and playback position
-
-With playback-test permission, record the paused position, destination's prior open state,
-and fresh Connect observations after quit. Shutdown cannot prove Spotify's
-restored position: closed apps restore their
-[cached sessions](https://community.spotify.com/t5/Other-Podcasts-Partners-etc/Sync-player-progress-between-devices/m-p/5515721/redirect_from_archived_page/true).
-An open Spotify can observe the position before disconnection. Never retain a phantom device or
-modify Spotify's files to bypass caching. Quit stops the runtime; window closure does not.
-
-## Measurements
-
-Record source/engine, system, display/window and workload identities. Match optimized builds;
-exclude concurrent compilation/UI inspection.
-
-```bash
-./Scripts/browse-synthetic.sh --optimized Tests/BrowsingHarness/queue-rendering.json
-./Scripts/browse-synthetic.sh Tests/BrowsingHarness/measurement.json
+```sh
+measurement_dir=$(mktemp -d)
+SPOTTY_LIFECYCLE_REPORT="$measurement_dir/lifecycle.json" cargo test --locked \
+  --manifest-path Rune/Cargo.toml named_lifecycle_fault_measurements -- --ignored
+SPOTTY_STALLED_SHUTDOWN_REPORT="$measurement_dir/stalled-shutdown.json" cargo test --locked \
+  --manifest-path Rune/Cargo.toml measure_stalled_spirc_task_deadline -- --ignored
+SPOTTY_AUDIO_CACHE_REPORT="$measurement_dir/cache.json" \
+  SPOTTY_AUDIO_CACHE_SOURCE_REVISION="$(git rev-parse HEAD)" cargo test --locked \
+  --manifest-path Rune/Cargo.toml record_synthetic_cold_and_warm_cache_io -- --ignored
 ```
 
-`--optimized` uses instrumented, testable Release with synthetic dependencies. `report.json` records
-CPU/memory, hydration, and publications. Callback gaps measure display opportunities, not presentation
-or input-to-pixel latency. Subtract initial cumulative CPU counters to exclude startup. Occluded runs
-cannot measure rendered-frame budgets. Cold-process visits may use filesystem caches; later cycles
-measure reuse. The workload suppresses App Nap but allows idle sleep.
-
-Queue-rendering uses `forceSynchronousLayout: false` for normal AppKit scheduling; omission retains
-synchronous stress. Compare identical modes. A verified sandbox, zero unexpected mutations, and
-completed workload establish functional acceptance, not speed.
-
-Opt-in probes:
-
-| Output variable | Filter | Measurement |
-| --- | --- | --- |
-| `SPOTTY_CATALOG_MEASUREMENT_REPORT` | `CatalogMetadataMeasurementTests` | Catalog publication CPU |
-| `SPOTTY_CATALOG_PREPARATION_REPORT` | `CatalogPreparationMeasurementTests` | Preparation CPU and peak RSS |
-| `SPOTTY_CATALOG_MEMORY_REPORT` | `CatalogRetainedMemoryMeasurementTests` | [Owned retention investigation](../architecture/measurements/2026-09-30-catalog-memory.md) |
-| `SPOTTY_PATHFINDER_DECODING_REPORT` | `PathfinderDecodingMeasurementTests` | Gateway decoding CPU and peak RSS |
-| `SPOTTY_METADATA_EXCHANGE_REPORT` | `CatalogMetadataExchangeMeasurementTests` | Metadata exchange CPU and admission latency |
-| `SPOTTY_TRACK_SORT_REPORT` | `measureTrackTableSorting` | Track sorting CPU |
-| `SPOTTY_TRACK_ENRICHMENT_REPORT` | `measureTrackCollectionEnrichment` | Collection enrichment CPU |
-| `SPOTTY_NATIVE_TRACK_UPDATE_REPORT` | `NativeTrackUpdateMeasurementTests` | Offscreen table-update CPU |
-| `SPOTTY_ENTITY_OBSERVATION_REPORT` | `measureUnchangedEntitySubscriptions` | Subscription admission CPU |
-| `SPOTTY_ENTITY_PAGING_REPORT` | `CatalogEntityQueryMeasurementTests` | Bounded storage paging CPU |
-| `SPOTTY_ARTWORK_DECODE_REPORT` | `ArtworkDecoderMeasurementTests` | Decoder CPU and asset bytes |
-| `SPOTTY_ARTWORK_MEASUREMENT_REPORT` | `ArtworkSourceLoaderMeasurementTests` | Idle loader process footprint |
-
-Boundary diagnostic (6.3.3/6.4):
-
-```bash
-SPOTTY_CATALOG_MEASUREMENT_REPORT=/tmp/catalog.json python3 Scripts/verify.py test --target SpottyBoundaryTests --build-system native \
-  -c debug --scratch-path .build/browsing-optimized -Xswiftc -O -Xswiftc -enable-testing \
-  -Xswiftc -no-whole-module-optimization \
-  -Xswiftc -DSPOTTY_BROWSING_OPTIMIZED --filter CatalogMetadataMeasurementTests
-```
-
-Domain Release (both): `verify.py test --target SpottyDomainTests --build-system native -c release -Xswiftc -O -Xswiftc -enable-testing --filter FILTER`.
-Gateway optimized diagnostic (both, engine free):
-`verify.py test --target SpottyGatewayTests --build-system native -c debug --scratch-path .build/gateway-optimized -Xswiftc -O -Xswiftc -enable-testing -Xswiftc -no-whole-module-optimization --filter FILTER`.
-Domain: WMO Release; Gateway/Boundary compile DEBUG hooks. Swift 6.4 deprecates native.
-Require completion and unchanged inputs/artifacts for `--skip-build`. No shipping gain is established.
-Failures are terminal.
-
-### Visible Instruments captures
-
-`--profile` uses Xcode's Animation Hitches template. Read-only preflight checks Xcode/SDK,
-recorder/template, console session, and lock/display state before building, without unlocking or
-requesting grants. Unknown session state fails closed; an absent lock flag in an active logged-in
-session is labeled an inference.
-
-Keep the window unoccluded. `--profile --interactive` lets you prepare the inspector before choosing
-**Demo → Run Measurement**. The workload waits for the exact-PID recorder handshake and refreshed
-session/window/process admission. Unusable tracing grants fail before measurement starts.
-
-The [manifest](../../Scripts/browsing_provenance.py), [process record](../../Scripts/browsing_process.py),
-and [readiness report](../../Tests/BrowsingHarness/Support/BrowsingRunStatus.swift) bind source/build,
-process, and window/display evidence. Source identity includes
-untracked inputs, and readiness excludes account/catalog content.
-
-Wait for `profiler-state.json` to reach `complete` or `failed`; a passing workload report precedes
-trace saving and cannot establish capture completion. The workload deadline is 600 seconds, with
-another 180 for saving. Completion requires a matching successful workload, saved trace, required
-exports, and complete application frames. Malformed or interrupted runs fail closed with stable
-reason codes. [Synthetic acceptance](synthetic-acceptance.md#evidence-and-review) explains early-failure artifacts.
-
-The launcher writes `trace-summary.json`; the [summarizer](../../Scripts/summarize_synthetic_trace.py)
-filters exports to the Demo workload/process. Pipelined frame lifetime is not a one-refresh deadline. Keep host-bearing traces local; publish reviewed aggregates.
-
-Compare completed captures:
-
-```bash
-python3 Scripts/compare_synthetic_profiles.py RUN_A RUN_B
-```
-
-Comparison commands report:
-
-| Exit | Classification | Meaning |
-| --- | --- | --- |
-| 0 | `comparable` | Valid captures with matching conditions. |
-| 1 | `descriptive-only` | Valid captures with differing conditions or unknown inspector state. |
-| 2 | `invalid` | Failed capture or missing/malformed evidence. |
-
-`--allow-descriptive` exits zero without accepting a performance comparison. Existing controls/native
-tables provide inspector evidence; unobserved does not mean closed. Maximum refresh is display
-capability; observed cadence uses one-percent tolerance. Compare profiled runs only with profiled runs.
-
-Compare two layouts from identical source:
-
-```bash
-python3 Scripts/profile_synthetic.py --compare-layouts Tests/BrowsingHarness/queue-rendering.json \
-  --output .build/layout-comparison
-```
-
-Use a new output directory. The command prepares both fixtures before building, records sequentially,
-closes each owned Demo, and writes `comparison.json`, including run directories on failure.
-Only `forceSynchronousLayout` and its full fixture digest may differ; source, workload digest,
-and other conditions must match. For existing variants, pass
-`--variant-field layout.forceSynchronousLayout` to the comparator.
-
-For a matched publication control, apply
-[queue-unbatched.patch](../../Tests/BrowsingHarness/Baselines/queue-unbatched.patch) in a disposable
-checkout of the same revision. It changes publication frequency while preserving hydration inputs
-and ordering. Repeat the same scenario/configuration, record actual sample rates, and reverse the
-patch before normal checks or delivery.
-
-### Credential-free lifecycle measurements
-
-```bash
-SPOTTY_LIFECYCLE_REPORT=/tmp/spotty-lifecycle.json cargo test --locked \
-  --manifest-path Backend/spotty-playback/Cargo.toml named_lifecycle_fault_measurements -- --ignored
-SPOTTY_STALLED_SHUTDOWN_REPORT=/tmp/spotty-stalled-shutdown.json cargo test --locked \
-  --manifest-path Backend/spotty-playback/Cargo.toml measure_stalled_spirc_task_deadline -- --ignored
-SPOTTY_SWIFT_LIFECYCLE_REPORT=/tmp/spotty-swift-drain.json \
-  python3 Scripts/verify.py test --filter SpottySessionRuntimeTests.PlaybackEffectDrainTests
-```
-
-These probes measure synthetic recovery and task drains without Spotify or audio.
-Paused-time checks and injected construction do not measure network readiness; parked shutdown
-constructs no Spirc/Dealer. Swift probes retain production grace periods and release/join fenced work.
+These probes measure injected lifecycle faults, a stalled shutdown task, and synthetic cache I/O. Real Spotify readiness, audible output, and renderer timings need their own measurements. Record the source and executable, hardware and OS, output route, window state, workload, and sample conditions. Review machine-bearing profiler output locally. [Historical Swift profiling and fixture commands](https://github.com/aladh/Spotty/blob/9b5d72b686ac094148b395006918cc1215cbb8e3/docs/development/runtime-acceptance.md)

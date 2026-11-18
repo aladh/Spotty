@@ -3,7 +3,7 @@ Describe the concrete problem and resulting behavior. Link the issues this chang
 Validation performed:
 
 For behavior changes, complete these declarations using
-`Tests/BrowsingHarness/Scenarios/manifest.json`:
+`Rune/acceptance.json`:
 
 - Product contracts affected:
 - Representative scenario IDs run (with revision-matched evidence):

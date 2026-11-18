@@ -1,5 +1,4 @@
 name: CI
-
 on:
   push:
     branches: [main]
@@ -7,7 +6,6 @@ on:
 
 permissions:
   contents: read
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,978 +14,104 @@ jobs:
   policy:
     name: Source policies
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      rust_needed: ${{ steps.rust-scope.outputs.rust_needed }}
-      macos_needed: ${{ steps.rust-scope.outputs.macos_needed != 'false' }}
-
+    timeout-minutes: 15
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Select Rust verification
-        id: rust-scope
+      - name: Verify source, scripts and review automation
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          npm_config_ignore_scripts: 'true'
         run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" != pull_request ]]; then
-            echo "rust_needed=true" >> "$GITHUB_OUTPUT"
-            echo "macos_needed=true" >> "$GITHUB_OUTPUT"
-          else
-            if [[ ! "$INPUT_BASE_SHA" =~ ^[0-9a-f]{40}$ || "$INPUT_BASE_SHA" == 0000000000000000000000000000000000000000 ]]; then
-              echo "Rust selection requires a valid PR base SHA" >&2
-              exit 1
-            fi
-            git fetch --no-tags --depth=1 origin "$INPUT_BASE_SHA"
-            if git cat-file -e "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py"; then
-              trusted_policy="$(mktemp "$RUNNER_TEMP/spotty-rust-policy.XXXXXX")"
-              trap 'rm -f "$trusted_policy"' EXIT
-              git show "$INPUT_BASE_SHA:Scripts/ci_rust_policy.py" > "$trusted_policy"
-              python3 "$trusted_policy" --event "$EVENT_NAME" --base "$INPUT_BASE_SHA" >> "$GITHUB_OUTPUT"
-            else
-              # The first PR introducing this policy must verify Rust too.
-              echo "rust_needed=true" >> "$GITHUB_OUTPUT"
-              echo "macos_needed=true" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-
-      - name: Validate verification selection
-        env:
-          RUST_NEEDED: ${{ steps.rust-scope.outputs.rust_needed }}
-          MACOS_NEEDED: ${{ steps.rust-scope.outputs.macos_needed }}
-        run: |
-          set -euo pipefail
-          # An older base policy has no macOS output; it must keep compiler verification.
-          case "$RUST_NEEDED:$MACOS_NEEDED" in
-            true:true|false:true|false:false|true:|false:) ;;
-            *) echo "Invalid compiler verification selection" >&2; exit 1 ;;
-          esac
-
-      - name: Read ast-grep version
-        id: ast-grep
-        run: |
-          set -euo pipefail
           version="$(cat Scripts/ast-grep/version)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          npm ci --ignore-scripts --prefix Scripts/agent-review-tests
+          npm exec --yes --package "@ast-grep/cli@$version" -- bash Scripts/check-source-policy.sh
 
-      - name: Check source policies
-        uses: ast-grep/action@d9518f632658f9c7c4b4dd4df22e98388a0d2c68 # Node 24
-        with:
-          version: ${{ steps.ast-grep.outputs.version }}
-          config: sgconfig.yml
-          paths: Sources Backend/spotty-playback Scripts script Tests .github/workflows Package.swift
-
-      - name: Install reviewer test dependencies
-        run: npm ci --ignore-scripts --prefix Scripts/agent-review-tests
-
-      - name: Run source and script tests
-        run: ./Scripts/check-source-policy.sh --test-only
-
-  # SpottyDomain is portable, Foundation-only policy. Compiling and testing it on Linux is what
-  # makes an AppKit, SwiftUI, AVFoundation, or playback-FFI import a compiler error instead of a
-  # source-policy snapshot. The Linux package graph declares only this target and its tests.
-  domain_linux:
-    name: Linux domain
+  linux:
+    name: Linux tests and synthetic UI
+    needs: policy
     runs-on: ubuntu-latest
-    container: swift:6.4-noble
-    timeout-minutes: 20
-
+    timeout-minutes: 60
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Build the portable domain
-        id: domain_build
-        run: swift build --target SpottyDomain
-
-      - name: Run domain tests
-        id: domain_tests
-        run: swift test --filter SpottyDomainTests
-
-  # These source-level playback checks are portable Python and do not need an expensive macOS
-  # runner. Keep them independent so they overlap the Linux domain build and source policies.
-  playback_python:
-    name: Playback script checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Run Swift test watchdog checks
-        run: python3 -B Scripts/script_tests.py watchdog
-
-      - name: Install playback script dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes zsh
-          zsh --version
-
-      - name: Run playback script checks
-        run: python3 -B Scripts/script_tests.py playback
-
-      - name: Run harness script checks
-        run: python3 -B Scripts/script_tests.py harness
-
-      - name: Run Swift formatter wrapper checks
-        run: ./Scripts/format-swift-self-test.sh
-
-  # One sequential native suite limits this CI run to one macOS runner at a time.
-  # Pinned clean checkouts isolate each configuration; the fresh cache publisher follows quality.
-  macos_verify:
-    name: macOS verification
-    needs: [policy]
-    if: needs.policy.result == 'success' && needs.policy.outputs.macos_needed == 'true'
-    runs-on: xcode-27
-    timeout-minutes: 240
-    outputs:
-      engine_result: ${{ steps.engine_gate.outcome }}
-      contracts_result: ${{ steps.contracts.outcome }}
-      swift_result: ${{ steps.debug.outcome }}
-      release_result: ${{ steps.release.outcome }}
-      contracts_key: ${{ steps.contracts_cache.outputs.cache-primary-key }}
-      tests_key: ${{ steps.tests_cache.outputs.cache-primary-key }}
-      release_key: ${{ steps.release_cache.outputs.cache-primary-key }}
-      candidate_needed: ${{ steps.inputs.outputs.candidate_needed }}
-      rust_result: ${{ steps.rust.outcome }}
-      candidate_selection_result: ${{ steps.inputs.outcome }}
-      candidate_build_result: ${{ steps.candidate_build.outcome }}
-      candidate_upload_result: ${{ steps.candidate_upload.outcome }}
-      cbindgen_key: ${{ steps.cbindgen_cache.outputs.cache-primary-key }}
-      rust_debug_key: ${{ steps.rust_debug_cache.outputs.cache-primary-key }}
-      rust_release_key: ${{ steps.rust_release_cache.outputs.cache-primary-key }}
-    env:
-      CBINDGEN_VERSION: 0.29.4
-      CARGO_INCREMENTAL: "0"
-      CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
-      CARGO_PROFILE_TEST_DEBUG: "line-tables-only"
-    steps:
-      - name: Check out engine source
-        if: needs.policy.outputs.rust_needed == 'true'
-        id: engine_checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          clean: true
-      - name: Initialize timing evidence
-        if: needs.policy.outputs.rust_needed == 'true'
-        run: |
-          mkdir -p "$RUNNER_TEMP/spotty-timings/engine"
-          echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/engine/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 27.0
-        if: needs.policy.outputs.rust_needed == 'true'
-        run: |
-          sudo xcode-select -s /Applications/Xcode_27.app
-          python3 Scripts/check_native_environment.py
-      - name: Show Rust toolchain
-        if: needs.policy.outputs.rust_needed == 'true'
-        run: |
-          set -euo pipefail
-          rustc --version
-          echo "RUST_TOOLCHAIN_KEY=$(rustc --version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_ENV"
-      - name: Restore pinned cbindgen
-        id: cbindgen_cache
-        if: needs.policy.outputs.rust_needed == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/spotty-cbindgen
-          key: xcode-27-cbindgen-parser-v1-${{ runner.arch }}-${{ env.CBINDGEN_VERSION }}
-      - name: Install pinned cbindgen
-        if: needs.policy.outputs.rust_needed == 'true'
-        run: |
-          set -euo pipefail
-          cbindgen_bin="$RUNNER_TEMP/spotty-cbindgen/bin/cbindgen"
-          if [[ "$("$cbindgen_bin" --version 2>/dev/null || true)" != "cbindgen $CBINDGEN_VERSION" ]]; then
-            CARGO_HOME="$RUNNER_TEMP/spotty-cbindgen-cargo" \
-              cargo install cbindgen --locked --version "$CBINDGEN_VERSION" --force --root "$RUNNER_TEMP/spotty-cbindgen"
-          fi
-          test "$("$cbindgen_bin" --version)" = "cbindgen $CBINDGEN_VERSION"
-          echo "$RUNNER_TEMP/spotty-cbindgen/bin" >> "$GITHUB_PATH"
-      - name: Identify playback inputs
-        if: needs.policy.outputs.rust_needed == 'true'
-        id: inputs
-        env:
-          INPUT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: ./Scripts/playback-candidate-needed.sh
-      - name: Identify Rust cache compatibility
-        if: needs.policy.outputs.rust_needed == 'true'
-        run: |
-          python3 Scripts/ci_cache_keys.py rust --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/engine/toolchain.json"
-      - name: Identify Rust Debug cache compatibility
-        if: needs.policy.outputs.rust_needed == 'true'
-        shell: zsh {0}
-        run: |
-          set -euo pipefail
-          project_root="$PWD"
-          source Scripts/swiftpm-env.sh
-          python3 Scripts/ci_cache_keys.py rust --revision "$GITHUB_SHA" --report "$RUNNER_TEMP/spotty-timings/engine/debug-toolchain.json"
-          python3 -c 'import json, sys; print("RUST_DEBUG_TOOLCHAIN_KEY=" + json.load(open(sys.argv[1]))["RUST_TOOLCHAIN_KEY"])' "$RUNNER_TEMP/spotty-timings/engine/debug-toolchain.json" >> "$GITHUB_ENV"
-      - name: Restore Rust verification products
-        id: rust_debug_cache
-        if: needs.policy.outputs.rust_needed == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Cache locked Cargo source dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-            Backend/spotty-playback/target/debug
-            Backend/spotty-playback/target/.rustc_info.json
-          key: macos-rust-debug-lean-v3-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-${{ env.RUST_CACHE_TRANSFER_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: macos-rust-debug-lean-v3-${{ runner.arch }}-${{ env.RUST_DEBUG_TOOLCHAIN_KEY }}-${{ env.RUST_CACHE_TRANSFER_KEY }}-${{ hashFiles('Backend/spotty-playback/Cargo.lock') }}-
-      - name: Run Rust checks
-        id: rust
-        if: needs.policy.outputs.rust_needed == 'true'
-        run: SPOTTY_CHECK_SCOPE=rust-compiled ./Scripts/check.sh
-      - name: Preflight public Cargo source proof
-        id: source_proof
-        if: needs.policy.outputs.rust_needed == 'true'
-        run: python3 Scripts/ci_cache_bundle.py preflight --scope rust-debug --revision "$GITHUB_SHA" --cargo-home "${CARGO_HOME:-$HOME/.cargo}"
-      - name: Restore Rust release build products
-        id: rust_release_cache
-        if: needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            Backend/spotty-playback/target/aarch64-apple-darwin/release
-            Backend/spotty-playback/target/release
-          key: ${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-${{ env.PLAYBACK_INPUT_DIGEST }}
-          restore-keys: ${{ env.RUST_RELEASE_COMPATIBILITY_KEY }}-
-      - name: Restore unchanged Rust release input timestamps
-        if: needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        run: python3 Scripts/ci_source_mtimes.py restore --scope rust
-      - name: Snapshot Rust release input timestamps
-        if: needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        run: python3 Scripts/ci_source_mtimes.py save --scope rust
-      - name: Build candidate playback XCFramework
-        id: candidate_build
-        env:
-          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        if: needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        run: |
-          set -euo pipefail
-          candidate_root="$RUNNER_TEMP/spotty-playback-candidate"
-          framework_path="$candidate_root/SpottyPlaybackCore.xcframework"
-          archive_path="$candidate_root/SpottyPlaybackCore.xcframework.zip"
-          rm -rf "$candidate_root"
-          mkdir -p "$candidate_root"
-
-          ./Backend/spotty-playback/build-xcframework.sh \
-            --output "$framework_path" \
-            --archive "$archive_path"
-          ./Backend/spotty-playback/validate-xcframework.sh \
-            "$framework_path" \
-            --archive "$archive_path" \
-            --for-publish
-
-          (cd "$candidate_root" && shasum -a 256 "$(basename "$archive_path")" > "$(basename "$archive_path").sha256")
-          printf 'source_sha=%s\nsource_ref=%s\nsource_input_digest=%s\n' \
-            "$(git rev-parse HEAD)" \
-            "$SOURCE_HEAD_SHA" \
-            "$PLAYBACK_INPUT_DIGEST" > "$candidate_root/source-provenance.txt"
-          cp LICENSE NOTICE THIRD_PARTY_NOTICES.md "$candidate_root/"
-          cp "$framework_path/spotty_playback_provenance.json" "$candidate_root/"
-          (cd "$framework_path" && zip -X -q -r "$candidate_root/SpottyPlaybackCore-notices.zip" Notices)
-      - name: Upload candidate playback artifact
-        id: candidate_upload
-        if: needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: playback-candidate-${{ github.sha }}
-          path: ${{ runner.temp }}/spotty-playback-candidate
-          if-no-files-found: error
-          retention-days: 7
-      - name: Require engine results
-        id: engine_gate
-        if: always() && needs.policy.outputs.rust_needed == 'true'
-        env:
-          RUST_RESULT: ${{ steps.rust.outcome }}
-          SOURCE_PROOF_RESULT: ${{ steps.source_proof.outcome }}
-          SELECTION_RESULT: ${{ steps.inputs.outcome }}
-          CANDIDATE_NEEDED: ${{ steps.inputs.outputs.candidate_needed }}
-          BUILD_RESULT: ${{ steps.candidate_build.outcome }}
-          UPLOAD_RESULT: ${{ steps.candidate_upload.outcome }}
-        run: |
-          test "$RUST_RESULT" = success
-          test "$SOURCE_PROOF_RESULT" = success
-          case "$SELECTION_RESULT:$CANDIDATE_NEEDED:$BUILD_RESULT:$UPLOAD_RESULT" in
-            success:true:success:success|success:false:skipped:skipped) ;;
-            *) echo "Engine candidate results disagree with selection" >&2; exit 1 ;;
-          esac
-      - name: Preserve Cargo timing evidence
-        if: always() && needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        env:
-          CANDIDATE_BUILD_RESULT: ${{ steps.candidate_build.outcome }}
-        run: |
-          set -euo pipefail
-          if [[ -d Backend/spotty-playback/target/cargo-timings ]]; then
-            cp -R Backend/spotty-playback/target/cargo-timings "$RUNNER_TEMP/spotty-timings/engine/cargo"
-          elif [[ "$CANDIDATE_BUILD_RESULT" == success ]]; then
-            echo "Successful timed Cargo build has no compiler timing report" >&2
-            exit 1
-          fi
-      - name: Upload engine timing evidence
-        if: always() && needs.policy.outputs.rust_needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: timings-engine-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-timings/engine
-          if-no-files-found: error
-          retention-days: 7
-      - name: Export cbindgen cache products
-        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true'
-        run: |
-          python3 Scripts/ci_cache_bundle.py export --scope cbindgen --archive "$RUNNER_TEMP/spotty-cache/cbindgen.tar.gz" --revision "$GITHUB_SHA" --runner-temp "$RUNNER_TEMP"
-      - name: Upload cbindgen cache products
-        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-cbindgen-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/cbindgen.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-      - name: Export rust-debug cache products
-        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true'
-        run: |
-          python3 Scripts/ci_cache_bundle.py export --scope rust-debug --archive "$RUNNER_TEMP/spotty-cache/rust-debug.tar.gz" --revision "$GITHUB_SHA" --cargo-home "${CARGO_HOME:-$HOME/.cargo}"
-      - name: Upload rust-debug cache products
-        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-rust-debug-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/rust-debug.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-      - name: Export rust-release cache products
-        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        run: |
-          python3 Scripts/ci_cache_bundle.py export --scope rust-release --archive "$RUNNER_TEMP/spotty-cache/rust-release.tar.gz" --revision "$GITHUB_SHA"
-      - name: Upload rust-release cache products
-        if: success() && github.ref == 'refs/heads/main' && needs.policy.outputs.rust_needed == 'true' && steps.inputs.outputs.candidate_needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-rust-release-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/rust-release.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Check out contracts source
-        if: "!cancelled()"
-        id: contracts_checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          clean: true
-      - name: Initialize timing evidence
-        if: "!cancelled() && steps.contracts_checkout.outcome == 'success'"
-        id: contracts_initialize_timing_evidence
-        run: |
-          mkdir -p "$RUNNER_TEMP/spotty-timings/contracts"
-          echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/contracts/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 27.0
-        if: "!cancelled() && steps.contracts_initialize_timing_evidence.outcome == 'success'"
-        id: contracts_select_xcode_27_0
-        run: |
-          sudo xcode-select -s /Applications/Xcode_27.app
-          python3 Scripts/check_native_environment.py
-      - name: Install verification tools
-        if: "!cancelled() && steps.contracts_select_xcode_27_0.outcome == 'success'"
-        id: contracts_install_verification_tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            brew install ripgrep
-          fi
-      - name: Show toolchains
-        if: "!cancelled() && steps.contracts_install_verification_tools.outcome == 'success'"
-        id: contracts_show_toolchains
-        run: |
-          set -euo pipefail
-          {
-            swift --version
-            uname -m
-          } | tee "$RUNNER_TEMP/swift-toolchain.txt"
-          xcrun --find swift-format
-          xcrun swift-format --version
-          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
-          echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
-      - name: Block Rust tools
-        if: "!cancelled() && steps.contracts_show_toolchains.outcome == 'success'"
-        id: contracts_block_rust_tools
-        run: |
-          set -euo pipefail
-          blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
-          mkdir -p "$blocked_tools"
-          for tool in cargo rustc rustup; do
-            printf '#!/bin/sh\necho "%s is blocked in the Swift lane" >&2\nexit 127\n' "$tool" > "$blocked_tools/$tool"
-            chmod 755 "$blocked_tools/$tool"
-          done
-          echo "$blocked_tools" >> "$GITHUB_PATH"
-      - name: Identify Swift cache compatibility
-        if: "!cancelled() && steps.contracts_block_rust_tools.outcome == 'success'"
-        id: contracts_identify_swift_cache_compatibility
-        run: |
-          python3 Scripts/ci_cache_keys.py swift --lane contracts --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/contracts/toolchain.json"
-      - name: Restore SwiftPM build directory
-        if: "!cancelled() && steps.contracts_identify_swift_cache_compatibility.outcome == 'success'"
-        id: contracts_cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build/*
-            !.build/spotty-signing
-          key: ${{ env.SWIFT_CACHE_KEY }}
-          restore-keys: ${{ env.SWIFT_CACHE_PREFIX }}
-      - name: Restore unchanged Swift input timestamps
-        if: "!cancelled() && steps.contracts_cache.outcome == 'success'"
-        id: contracts_restore_unchanged_swift_input_timestamps
-        run: python3 Scripts/ci_source_mtimes.py restore
-      - name: Snapshot Swift input timestamps
-        if: "!cancelled() && steps.contracts_restore_unchanged_swift_input_timestamps.outcome == 'success'"
-        id: contracts_snapshot_swift_input_timestamps
-        run: python3 Scripts/ci_source_mtimes.py save
-      - name: Run Swift contracts
-        if: "!cancelled() && steps.contracts_snapshot_swift_input_timestamps.outcome == 'success'"
-        id: contracts
-        timeout-minutes: 15
-        run: |
-          SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=contracts ./Scripts/check.sh
-      - name: Upload contracts timing evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: timings-contracts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-timings/contracts
-          if-no-files-found: error
-          retention-days: 7
-      - name: Export contracts cache products
-        if: success() && github.ref == 'refs/heads/main'
-        run: |
-          python3 Scripts/ci_cache_bundle.py export --scope swift --archive "$RUNNER_TEMP/spotty-cache/contracts.tar.gz" --revision "$GITHUB_SHA"
-      - name: Upload contracts cache products
-        if: success() && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-contracts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/contracts.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Check out tests source
-        if: "!cancelled()"
-        id: tests_checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          clean: true
-      - name: Initialize timing evidence
-        if: "!cancelled() && steps.tests_checkout.outcome == 'success'"
-        id: tests_initialize_timing_evidence
-        run: |
-          mkdir -p "$RUNNER_TEMP/spotty-timings/tests"
-          echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/tests/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 27.0
-        if: "!cancelled() && steps.tests_initialize_timing_evidence.outcome == 'success'"
-        id: tests_select_xcode_27_0
-        run: |
-          sudo xcode-select -s /Applications/Xcode_27.app
-          python3 Scripts/check_native_environment.py
-      - name: Install verification tools
-        if: "!cancelled() && steps.tests_select_xcode_27_0.outcome == 'success'"
-        id: tests_install_verification_tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            brew install ripgrep
-          fi
-      - name: Show toolchains
-        if: "!cancelled() && steps.tests_install_verification_tools.outcome == 'success'"
-        id: tests_show_toolchains
-        run: |
-          set -euo pipefail
-          {
-            swift --version
-            uname -m
-          } | tee "$RUNNER_TEMP/swift-toolchain.txt"
-          xcrun --find swift-format
-          xcrun swift-format --version
-          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
-          echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
-      - name: Block Rust tools
-        if: "!cancelled() && steps.tests_show_toolchains.outcome == 'success'"
-        id: tests_block_rust_tools
-        run: |
-          set -euo pipefail
-          blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
-          mkdir -p "$blocked_tools"
-          for tool in cargo rustc rustup; do
-            printf '#!/bin/sh\necho "%s is blocked in the Swift lane" >&2\nexit 127\n' "$tool" > "$blocked_tools/$tool"
-            chmod 755 "$blocked_tools/$tool"
-          done
-          echo "$blocked_tools" >> "$GITHUB_PATH"
-      - name: Identify Swift cache compatibility
-        if: "!cancelled() && steps.tests_block_rust_tools.outcome == 'success'"
-        id: tests_identify_swift_cache_compatibility
-        run: |
-          python3 Scripts/ci_cache_keys.py swift --lane tests --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/tests/toolchain.json"
-      - name: Restore SwiftPM build directory
-        if: "!cancelled() && steps.tests_identify_swift_cache_compatibility.outcome == 'success'"
-        id: tests_cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build/*
-            !.build/spotty-signing
-          key: ${{ env.SWIFT_CACHE_KEY }}
-          restore-keys: ${{ env.SWIFT_CACHE_PREFIX }}
-      - name: Restore unchanged Swift input timestamps
-        if: "!cancelled() && steps.tests_cache.outcome == 'success'"
-        id: tests_restore_unchanged_swift_input_timestamps
-        run: python3 Scripts/ci_source_mtimes.py restore
-      - name: Snapshot Swift input timestamps
-        if: "!cancelled() && steps.tests_restore_unchanged_swift_input_timestamps.outcome == 'success'"
-        id: tests_snapshot_swift_input_timestamps
-        run: python3 Scripts/ci_source_mtimes.py save
-      - name: Run checks
-        if: "!cancelled() && steps.tests_snapshot_swift_input_timestamps.outcome == 'success'"
-        id: debug
-        timeout-minutes: 15
-        env:
-          SPOTTY_CHECK_REPEATS: ${{ github.ref == 'refs/heads/main' && '3' || '1' }}
-          HOST_OBSERVATION_REQUESTED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence') }}
-        run: |
-          case "$HOST_OBSERVATION_REQUESTED" in
-            true)
-              SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests python3 Scripts/swift_test_host_observation.py --timeout-seconds 840 --output-dir "$RUNNER_TEMP/spotty-host-observation" --build-root "$GITHUB_WORKSPACE/.build" -- ./Scripts/check.sh
-              ;;
-            false) SPOTTY_CHECK_SCOPE=swift-compiled SPOTTY_CHECK_PHASE=tests ./Scripts/check.sh ;;
-            *) echo "Unknown host observation request" >&2; exit 1 ;;
-          esac
-
-      - name: Prove focused test selection
-        if: "!cancelled() && steps.debug.outcome == 'success'"
-        id: focused_smoke
-        timeout-minutes: 5
-        run: python3 Scripts/focused_selection_evidence.py smoke --output "$RUNNER_TEMP/spotty-selection/smoke" --swift-version 6.4
-
-      # This credential-free state-boundary corpus does not launch a GUI or attest a sandbox.
-      - name: Run acceptance scenarios
-        if: "!cancelled() && steps.focused_smoke.outcome == 'success'"
-        id: acceptance
-        timeout-minutes: 10
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+          key: cargo-sources-${{ runner.os }}-${{ hashFiles('Rune/Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Install build and graphics dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libssl-dev libseccomp2 mesa-vulkan-drivers
+      - name: Verify the integrated app, named traces and synthetic reference
         env:
           SPOTTY_ACCEPTANCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python3 Scripts/acceptance_scenarios.py run --corpus all --output "$RUNNER_TEMP/spotty-acceptance"
-      - name: Summarize acceptance evidence
-        id: acceptance_summary
-        if: always()
-        run: python3 Scripts/acceptance_scenarios.py summary --output "$RUNNER_TEMP/spotty-acceptance" >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload acceptance evidence
-        id: acceptance_upload
+        run: |
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/spotty-runtime"
+          mkdir -m 700 "$XDG_RUNTIME_DIR"
+          python3 Scripts/verify.py acceptance --output "$RUNNER_TEMP/spotty-acceptance"
+      - name: Upload synthetic evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: acceptance-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/spotty-acceptance
           if-no-files-found: error
-          retention-days: 7
-      # The shared production scene supplies native toolbar and compositor evidence without sign-in.
-      - name: Run Demo GUI regression
-        if: "!cancelled() && steps.acceptance.outcome == 'success'"
-        id: gui
-        timeout-minutes: 6
-        env:
-          GUI_REVISION: ${{ github.sha }}
-        run: ./Scripts/check-gui-regression.sh --output "$RUNNER_TEMP/spotty-gui-regression" --expected-head "$GUI_REVISION" --qualify-hosted-display
-      - name: Upload Demo GUI evidence
-        id: gui_upload
-        if: always() && steps.gui.outcome != 'skipped'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: gui-regression-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-gui-regression
-          if-no-files-found: error
-          retention-days: 7
-      - name: Collect supported-toolchain selection evidence
-        id: selection_experiment
-        if: "!cancelled() && steps.gui.outcome == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence') && steps.acceptance.outcome == 'success' && steps.acceptance_summary.outcome == 'success' && steps.acceptance_upload.outcome == 'success'"
-        timeout-minutes: 20
-        env:
-          SELECTION_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 Scripts/focused_selection_evidence.py compatibility --source "$GITHUB_WORKSPACE" --head "$SELECTION_HEAD_SHA" --output "$RUNNER_TEMP/spotty-selection/compatibility" --swift-version 6.4
-      - name: Upload focused selection evidence
-        id: selection_upload
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: focused-selection-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-selection
-          if-no-files-found: error
-          retention-days: 7
-      - name: Upload Swift test diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: swift-test-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-swift-test-diagnostics
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload executing-host observation
-        id: host_observation_upload
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: test-host-observation-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-host-observation
-          if-no-files-found: error
-          retention-days: 7
-      - name: Require Swift test evidence
-        if: always()
-        env:
-          CHECKS_RESULT: ${{ steps.debug.outcome }}
-          ACCEPTANCE_RESULT: ${{ steps.acceptance.outcome }}
-          ACCEPTANCE_SUMMARY_RESULT: ${{ steps.acceptance_summary.outcome }}
-          ACCEPTANCE_UPLOAD_RESULT: ${{ steps.acceptance_upload.outcome }}
-          GUI_RESULT: ${{ steps.gui.outcome }}
-          GUI_UPLOAD_RESULT: ${{ steps.gui_upload.outcome }}
-          FOCUSED_SMOKE_RESULT: ${{ steps.focused_smoke.outcome }}
-          SELECTION_UPLOAD_RESULT: ${{ steps.selection_upload.outcome }}
-          SELECTION_EXPERIMENT_REQUESTED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'focused-selection-evidence') }}
-          SELECTION_EXPERIMENT_RESULT: ${{ steps.selection_experiment.outcome }}
-          HOST_OBSERVATION_REQUESTED: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'host-observation-evidence') }}
-          HOST_OBSERVATION_UPLOAD_RESULT: ${{ steps.host_observation_upload.outcome }}
-        run: |
-          test "$CHECKS_RESULT" = success
-          test "$ACCEPTANCE_RESULT" = success
-          test "$ACCEPTANCE_SUMMARY_RESULT" = success
-          test "$ACCEPTANCE_UPLOAD_RESULT" = success
-          test "$GUI_RESULT" = success
-          test "$GUI_UPLOAD_RESULT" = success
-          test "$FOCUSED_SMOKE_RESULT" = success
-          test "$SELECTION_UPLOAD_RESULT" = success
-          case "$SELECTION_EXPERIMENT_REQUESTED:$SELECTION_EXPERIMENT_RESULT" in
-            true:success|false:skipped) ;;
-            *) echo "Focused selection evidence disagrees with request" >&2; exit 1 ;;
-          esac
-          case "$HOST_OBSERVATION_REQUESTED:$HOST_OBSERVATION_UPLOAD_RESULT" in
-            true:success|false:skipped) ;;
-            *) echo "Host observation evidence disagrees with request" >&2; exit 1 ;;
-          esac
-      - name: Upload Swift timing evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: timings-tests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-timings/tests
-          if-no-files-found: error
-          retention-days: 7
-      - name: Export tests cache products
-        if: success() && github.ref == 'refs/heads/main'
-        run: |
-          python3 Scripts/ci_cache_bundle.py export --scope swift --archive "$RUNNER_TEMP/spotty-cache/tests.tar.gz" --revision "$GITHUB_SHA"
-      - name: Upload tests cache products
-        if: success() && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-tests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/tests.tar.gz
-          if-no-files-found: error
-          retention-days: 7
 
-      - name: Check out release source
-        if: "!cancelled()"
-        id: release_checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          clean: true
-      - name: Initialize timing evidence
-        if: "!cancelled() && steps.release_checkout.outcome == 'success'"
-        id: release_initialize_timing_evidence
-        run: |
-          mkdir -p "$RUNNER_TEMP/spotty-timings/release"
-          echo "SPOTTY_CI_TIMINGS_REPORT=$RUNNER_TEMP/spotty-timings/release/phases.jsonl" >> "$GITHUB_ENV"
-      - name: Select Xcode 27.0
-        if: "!cancelled() && steps.release_initialize_timing_evidence.outcome == 'success'"
-        id: release_select_xcode_27_0
-        run: |
-          sudo xcode-select -s /Applications/Xcode_27.app
-          python3 Scripts/check_native_environment.py
-      - name: Install verification tools
-        if: "!cancelled() && steps.release_select_xcode_27_0.outcome == 'success'"
-        id: release_install_verification_tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            brew install ripgrep
-          fi
-      - name: Show toolchains
-        if: "!cancelled() && steps.release_install_verification_tools.outcome == 'success'"
-        id: release_show_toolchains
-        run: |
-          set -euo pipefail
-          {
-            swift --version
-            uname -m
-          } | tee "$RUNNER_TEMP/swift-toolchain.txt"
-          xcrun --find swift-format
-          xcrun swift-format --version
-          grep -q 'Apple Swift version 6.4' "$RUNNER_TEMP/swift-toolchain.txt"
-          echo "SWIFT_TOOLCHAIN_KEY=$(shasum -a 256 "$RUNNER_TEMP/swift-toolchain.txt" | awk '{print $1}')" >> "$GITHUB_ENV"
-      - name: Block Rust tools
-        if: "!cancelled() && steps.release_show_toolchains.outcome == 'success'"
-        id: release_block_rust_tools
-        run: |
-          set -euo pipefail
-          blocked_tools="$RUNNER_TEMP/spotty-no-rust-tools"
-          mkdir -p "$blocked_tools"
-          for tool in cargo rustc rustup; do
-            printf '#!/bin/sh\necho "%s is blocked in the Swift lane" >&2\nexit 127\n' "$tool" > "$blocked_tools/$tool"
-            chmod 755 "$blocked_tools/$tool"
-          done
-          echo "$blocked_tools" >> "$GITHUB_PATH"
-      - name: Identify Swift cache compatibility
-        if: "!cancelled() && steps.release_block_rust_tools.outcome == 'success'"
-        id: release_identify_swift_cache_compatibility
-        run: |
-          python3 Scripts/ci_cache_keys.py swift --lane release --revision "$GITHUB_SHA" --github-env "$GITHUB_ENV" --report "$RUNNER_TEMP/spotty-timings/release/toolchain.json"
-      - name: Restore SwiftPM build directory
-        if: "!cancelled() && steps.release_identify_swift_cache_compatibility.outcome == 'success'"
-        id: release_cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build/*
-            !.build/spotty-signing
-          key: ${{ env.SWIFT_CACHE_KEY }}
-          restore-keys: ${{ env.SWIFT_CACHE_PREFIX }}
-      - name: Restore unchanged Swift input timestamps
-        if: "!cancelled() && steps.release_cache.outcome == 'success'"
-        id: release_restore_unchanged_swift_input_timestamps
-        run: python3 Scripts/ci_source_mtimes.py restore
-      - name: Snapshot Swift input timestamps
-        if: "!cancelled() && steps.release_restore_unchanged_swift_input_timestamps.outcome == 'success'"
-        id: release_snapshot_swift_input_timestamps
-        run: python3 Scripts/ci_source_mtimes.py save
-      - name: Compile release Spotty with SPOTTY_DISTRIBUTION
-        if: "!cancelled() && steps.release_snapshot_swift_input_timestamps.outcome == 'success'"
-        id: release
-        run: ./Scripts/compile-release-spotty.sh
-      - name: Report release build size
-        if: "!cancelled() && steps.release.outcome == 'success'"
-        id: release_report_release_build_size
-        run: |
-          set -euo pipefail
-          ./Scripts/report-size.sh --out-dir "$RUNNER_TEMP"
-      - name: Upload size report
-        if: "!cancelled() && steps.release_report_release_build_size.outcome == 'success'"
-        id: release_upload_size_report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: size-report
-          path: ${{ runner.temp }}/size-report.json
-          retention-days: 30
-      - name: Upload Release timing evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: timings-release-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-timings/release
-          if-no-files-found: error
-          retention-days: 7
-      - name: Export release cache products
-        if: success() && github.ref == 'refs/heads/main'
-        run: |
-          python3 Scripts/ci_cache_bundle.py export --scope swift --archive "$RUNNER_TEMP/spotty-cache/release.tar.gz" --revision "$GITHUB_SHA"
-      - name: Upload release cache products
-        if: success() && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cache-release-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/release.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-
-  quality_gate:
-    name: Quality lane results
-    needs: [policy, domain_linux, playback_python, macos_verify]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - name: Require every quality lane
-        env:
-          POLICY_RESULT: ${{ needs.policy.result }}
-          DOMAIN_LINUX_RESULT: ${{ needs.domain_linux.result }}
-          PLAYBACK_PYTHON_RESULT: ${{ needs.playback_python.result }}
-          MACOS_NEEDED: ${{ needs.policy.outputs.macos_needed }}
-          RUST_NEEDED: ${{ needs.policy.outputs.rust_needed }}
-          MACOS_RESULT: ${{ needs.macos_verify.result }}
-          CONTRACTS_RESULT: ${{ needs.macos_verify.outputs.contracts_result }}
-          SWIFT_RESULT: ${{ needs.macos_verify.outputs.swift_result }}
-          RELEASE_RESULT: ${{ needs.macos_verify.outputs.release_result }}
-          ENGINE_RESULT: ${{ needs.macos_verify.outputs.engine_result }}
-          RUST_RESULT: ${{ needs.macos_verify.outputs.rust_result }}
-          CANDIDATE_SELECTION_RESULT: ${{ needs.macos_verify.outputs.candidate_selection_result }}
-          CANDIDATE_NEEDED: ${{ needs.macos_verify.outputs.candidate_needed }}
-          CANDIDATE_BUILD_RESULT: ${{ needs.macos_verify.outputs.candidate_build_result }}
-          CANDIDATE_UPLOAD_RESULT: ${{ needs.macos_verify.outputs.candidate_upload_result }}
-        run: |
-          test "$POLICY_RESULT" = success
-          test "$DOMAIN_LINUX_RESULT" = success
-          test "$PLAYBACK_PYTHON_RESULT" = success
-          case "$MACOS_NEEDED:$RUST_NEEDED" in
-            true:true|true:false|false:false) ;;
-            *) echo "Invalid compiler verification selection" >&2; exit 1 ;;
-          esac
-          case "$MACOS_NEEDED:$MACOS_RESULT" in
-            true:success|false:skipped) ;;
-            *) echo "macOS results disagree with verification selection" >&2; exit 1 ;;
-          esac
-          case "$MACOS_NEEDED:$CONTRACTS_RESULT:$SWIFT_RESULT:$RELEASE_RESULT" in
-            true:success:success:success|false:::) ;;
-            *) echo "Swift lane results disagree with verification selection" >&2; exit 1 ;;
-          esac
-          case "$MACOS_NEEDED:$RUST_NEEDED:$ENGINE_RESULT:$RUST_RESULT:$CANDIDATE_SELECTION_RESULT:$CANDIDATE_NEEDED:$CANDIDATE_BUILD_RESULT:$CANDIDATE_UPLOAD_RESULT" in
-            true:true:success:success:success:true:success:success|true:true:success:success:success:false:skipped:skipped|true:false:skipped:skipped:skipped::skipped:skipped|false:false::::::) ;;
-            *) echo "Rust or candidate results disagree with verification selection" >&2; exit 1 ;;
-          esac
-
-  cache_publisher:
-    name: Validated main caches
-    needs: [quality_gate, macos_verify]
-    if: github.ref == 'refs/heads/main' && needs.quality_gate.result == 'success'
+  apple:
+    name: Apple Silicon verification
+    needs: policy
     runs-on: xcode-27
-    timeout-minutes: 120
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '27.0'
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Download contracts cache products
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cache-contracts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/contracts
-      - name: Restore contracts owned cache products
-        run: |
-          python3 Scripts/ci_cache_bundle.py restore --scope swift --archive "$RUNNER_TEMP/spotty-cache/contracts/contracts.tar.gz" --revision "$GITHUB_SHA" --replace-owned-scope
-      - name: Save contracts validated cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Cache locked Cargo source dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            .build/*
-            !.build/spotty-signing
-          key: ${{ needs.macos_verify.outputs.contracts_key }}
-      - name: Download tests cache products
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cache-tests-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/tests
-      - name: Restore tests owned cache products
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/index
+            ~/.cargo/git/db
+          key: cargo-sources-${{ runner.os }}-${{ hashFiles('Rune/Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Select Apple Silicon SDK
         run: |
-          python3 Scripts/ci_cache_bundle.py restore --scope swift --archive "$RUNNER_TEMP/spotty-cache/tests/tests.tar.gz" --revision "$GITHUB_SHA" --replace-owned-scope
-      - name: Save tests validated cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+          test "$(uname -m)" = arm64
+          sudo xcode-select -s /Applications/Xcode_27.app
+          test "$(xcrun --sdk macosx --show-sdk-version)" = 27.0
+      - name: Build and test the native app
+        run: ./Scripts/check.sh
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
+          python-version: '3.12'
+      - name: Package and verify the release bundle
+        run: ./Scripts/package-app.sh --release
+      - name: Upload verified bundle notice inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundle-notices-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            .build/*
-            !.build/spotty-signing
-          key: ${{ needs.macos_verify.outputs.tests_key }}
-      - name: Download release cache products
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cache-release-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/release
-      - name: Restore release owned cache products
-        run: |
-          python3 Scripts/ci_cache_bundle.py restore --scope swift --archive "$RUNNER_TEMP/spotty-cache/release/release.tar.gz" --revision "$GITHUB_SHA" --replace-owned-scope
-      - name: Save release validated cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .build/*
-            !.build/spotty-signing
-          key: ${{ needs.macos_verify.outputs.release_key }}
-      - name: Download cbindgen cache products
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cache-cbindgen-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/cbindgen
-      - name: Restore cbindgen owned cache products
-        run: |
-          python3 Scripts/ci_cache_bundle.py restore --scope cbindgen --archive "$RUNNER_TEMP/spotty-cache/cbindgen/cbindgen.tar.gz" --revision "$GITHUB_SHA" --replace-owned-scope --runner-temp "$RUNNER_TEMP"
-      - name: Save cbindgen validated cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/spotty-cbindgen
-          key: ${{ needs.macos_verify.outputs.cbindgen_key }}
-      - name: Download rust-debug cache products
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cache-rust-debug-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/rust-debug
-      - name: Restore rust-debug owned cache products
-        run: |
-          mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
-          python3 Scripts/ci_cache_bundle.py restore --scope rust-debug --archive "$RUNNER_TEMP/spotty-cache/rust-debug/rust-debug.tar.gz" --revision "$GITHUB_SHA" --replace-owned-scope --cargo-home "${CARGO_HOME:-$HOME/.cargo}"
-      - name: Save rust-debug validated cache
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-            Backend/spotty-playback/target/debug
-            Backend/spotty-playback/target/.rustc_info.json
-          key: ${{ needs.macos_verify.outputs.rust_debug_key }}
-      - name: Download rust-release cache products
-        if: needs.macos_verify.outputs.candidate_needed == 'true'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cache-rust-release-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/spotty-cache/rust-release
-      - name: Restore rust-release owned cache products
-        if: needs.macos_verify.outputs.candidate_needed == 'true'
-        run: |
-          python3 Scripts/ci_cache_bundle.py restore --scope rust-release --archive "$RUNNER_TEMP/spotty-cache/rust-release/rust-release.tar.gz" --revision "$GITHUB_SHA" --replace-owned-scope
-      - name: Save rust-release validated cache
-        if: needs.macos_verify.outputs.candidate_needed == 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            Backend/spotty-playback/target/aarch64-apple-darwin/release
-            Backend/spotty-playback/target/release
-          key: ${{ needs.macos_verify.outputs.rust_release_key }}
+            Spotty.app/Contents/Resources/ThirdPartyNotices.md
+            Spotty.app/Contents/Resources/ThirdPartyNotices.json
+            Spotty.app/Contents/Resources/licenses
+          if-no-files-found: error
 
   macos:
     name: macOS checks
-    needs: [quality_gate, cache_publisher]
     if: always()
+    needs: [policy, linux, apple]
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     steps:
-      - name: Require completed verification and cache publication
+      - name: Require source policy and both platforms
         env:
-          QUALITY_RESULT: ${{ needs.quality_gate.result }}
-          CACHE_RESULT: ${{ needs.cache_publisher.result }}
-          MAIN_REF: ${{ github.ref }}
-        run: |
-          test "$QUALITY_RESULT" = success
-          case "$MAIN_REF:$CACHE_RESULT" in
-            refs/heads/main:success) ;;
-            refs/pull/*:skipped) ;;
-            *) echo "Cache publication disagrees with verified event" >&2; exit 1 ;;
-          esac
+          POLICY: ${{ needs.policy.result }}
+          LINUX: ${{ needs.linux.result }}
+          APPLE: ${{ needs.apple.result }}
+        run: test "$POLICY" = success && test "$LINUX" = success && test "$APPLE" = success

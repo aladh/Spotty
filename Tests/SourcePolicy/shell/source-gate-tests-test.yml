@@ -169,6 +169,7 @@ invalid:
   python3 -B Scripts/documentation_policy.py
   python3 -B Scripts/test_source_policy.py &
   wait
+  python3 -B -m unittest discover -s Scripts -p test_source_gate_policy.py
   npm test --prefix Scripts/agent-review-tests
 - |
   set -euo pipefail

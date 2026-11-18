@@ -11,7 +11,7 @@ Run from the repository root. The locked test suite exercises app interaction, a
 
 The transport gate verifies all four named regressions are present and runs them in the default debug profile. Set `SPOTTY_BUILD_CONFIGURATION=release` when running `./Scripts/check.sh` to check the optimized profile. `./Scripts/check-clean.sh` verifies both profiles in a temporary target directory. CI runs Linux and Apple Silicon checks and packages the release configuration on macOS.
 
-For the same source checks as CI, use Node.js, Python 3, Ruby, Git, and jq. The second command places the pinned ast-grep version on the script's path.
+For the same source checks as CI, use Node.js 20+, Python 3.10+, Ruby, Git, and jq. The second command places the pinned ast-grep version on the script's path.
 
 ```sh
 npm ci --ignore-scripts --prefix Scripts/agent-review-tests

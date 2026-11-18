@@ -1,6 +1,4 @@
-Running 8 tests
-
------------ Case Details -----------
+CI workflow invariants passed
 PASS workflow-shell-interpolation  .......
 PASS workflow-explicit-permissions  ........
 PASS workflow-checkout-credentials  .............
@@ -8,11 +6,18 @@ PASS ci-fail-closed  .......
 PASS workflow-action-pins  ........
 PASS ci-read-permissions  ..................
 PASS script-no-xtrace  ...........
+PASS source-gate-tests  .........................
 PASS development-signing-input  .....
-
-test result: ok. 8 passed; 0 failed;
-................
-----------------------------------------------------------------------
-Ran 16 tests in 7.768s
-
-OK
+test result: ok. 9 passed; 0 failed;
+Ran 16 tests in 8.424s
+Ran 4 tests in 0.350s
+Ran 2 tests in 5.634s
+Ran 1 test in 0.000s
+Ran 8 tests in 0.811s
+Ran 3 tests in 0.137s
+Ran 4 tests in 0.344s
+Ran 12 tests in 0.620s
+Ran 28 tests in 0.410s
+ℹ tests 13
+ℹ pass 13
+ℹ fail 0

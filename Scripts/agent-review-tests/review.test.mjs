@@ -214,9 +214,12 @@ for (const includeDocs of [false, true]) {
     const head = git('rev-parse', 'HEAD');
     const bin = join(directory, 'bin');
     mkdirSync(bin);
+    const reviewer = join(directory, 'reviewer', '.github', 'agent-review');
+    mkdirSync(reviewer, { recursive: true });
+    writeFileSync(join(reviewer, 'publish.py'), readFileSync(join(root, '.github/agent-review/publish.py')));
     writeFileSync(join(bin, 'gh'), `#!/bin/sh
 case "$*" in
-  'api graphql '*) printf '%s' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"id":"earlier","isResolved":false,"isOutdated":true,"path":"Sources/Feature.swift","line":null,"originalLine":7,"diffSide":"LEFT","comments":{"pageInfo":{"hasNextPage":false},"nodes":[{"author":{"login":"opencode-agent"},"body":"<!-- spotty-docs-review --> finding","url":"https://example.invalid/1"},{"author":{"login":"author"},"body":"Fixed in current head","url":"https://example.invalid/2"}]}}]}}}}}' ;;
+  'api --method POST graphql '*) printf '%s' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"id":"earlier","isResolved":false,"isOutdated":true,"path":"Sources/Feature.swift","line":null,"originalLine":7,"diffSide":"LEFT","comments":{"pageInfo":{"hasNextPage":false},"nodes":[{"author":{"login":"opencode-agent"},"body":"<!-- spotty-docs-review --> finding","url":"https://example.invalid/1"},{"author":{"login":"author"},"body":"Fixed in current head","url":"https://example.invalid/2"}]}}]}}}}}' ;;
   *) printf '%s' '{"title":"Fixture","body":"Implementation change"}' ;;
 esac
 `, { mode: 0o755 });
@@ -224,6 +227,7 @@ esac
     const result = spawnSync('bash', ['-eu', '-c', steps.find(step => step.name === 'Prepare review inputs').run], {
       cwd: directory, encoding: 'utf8', env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, GITHUB_REPOSITORY: 'aladh/Spotty',
+        GITHUB_WORKSPACE: directory,
         GITHUB_ENV: join(directory, 'env'), PR_NUMBER: '472', BASE_SHA: base, BASE_BRANCH: 'main', HEAD_SHA: head,
         PREVIOUS_HEAD: '', REVIEW_MODE: 'full', REVIEW_REASON: 'fixture', REVIEWER_LOGIN: 'opencode-agent',
         REVIEW_MARKER: '<!-- spotty-docs-review -->', REVIEWER_NAME: 'Documentation review',

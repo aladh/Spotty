@@ -61,8 +61,9 @@ App token for reviews, replies, and resolutions. Comment-only behavior is workfl
 credential restriction. Resolutions follow successful submission; cleanup removes only that run's
 unsubmitted review when GitHub and the runner remain available.
 
-Incomplete or changing PR/thread history prevents approval and resolution. Publication rechecks
-history after submission and stops remaining resolutions on changes. These snapshots are not atomic.
+Collection and publication follow GitHub's thread and reply cursors. Incomplete or changing
+history prevents approval and resolution. Publication rechecks after submission and stops
+remaining resolutions when it detects changes between snapshots.
 The [shared workflow](../../.github/workflows/agent-review.yml) owns exact safeguards and output schemas.
 
 PR-triggered runs use configuration from the PR merge revision. Agents retain shell, edit, and web

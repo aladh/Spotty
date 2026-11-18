@@ -184,6 +184,54 @@ class PublicationTests(unittest.TestCase):
                 self.assertEqual(self.submitted()[0]['event'], 'COMMENT')
                 self.assertEqual(self.resolved(), [])
 
+    def test_reads_the_101st_thread_and_its_later_replies_before_approval(self):
+        self.live_comments.extend(
+            {'author': {'login': 'author'}, 'body': f'Reply {number}', 'url': f'https://example.invalid/{number}'}
+            for number in range(51)
+        )
+
+        def paginated(method, endpoint, payload=None):
+            if endpoint != 'graphql' or not payload['query'].startswith('query'):
+                return self.request(method, endpoint, payload)
+            variables = payload['variables']
+            after = variables.get('after')
+            comments = self.live_comments + [dict(c, pullRequestReview={'id': 'pending-review'})
+                                             for c in self.staged_comments]
+            if 'reviewThreads' not in payload['query']:
+                self.assertEqual((variables['id'], after), ('thread', 'comments-50'))
+                return {'data': {'node': {'comments': {
+                    'nodes': comments[50:], 'pageInfo': {'hasNextPage': False}}}}}
+            if after is None:
+                # One hundred resolved threads precede the relevant one.
+                nodes = [{'id': f'resolved-{number}', 'isResolved': True} for number in range(100)]
+                info = {'hasNextPage': True, 'endCursor': 'threads-100'}
+            else:
+                self.assertEqual(after, 'threads-100')
+                nodes = [{'id': 'thread', 'isResolved': False, 'path': 'Rune/src/demo.rs',
+                          'line': None, 'originalLine': 4, 'diffSide': 'LEFT', 'isOutdated': True,
+                          'comments': {'nodes': comments[:50],
+                                       'pageInfo': {'hasNextPage': True, 'endCursor': 'comments-50'}}}]
+                info = {'hasNextPage': False}
+            return {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': nodes, 'pageInfo': info}}}}}
+
+        publisher.collect_threads(self.env, paginated)
+        [thread] = json.loads((self.directory / 'threads.json').read_text())
+        self.assertEqual((thread['id'], thread['line'], len(thread['comments'])), ('thread', 4, 52))
+        publisher.publish(self.env, paginated, lambda _: None)
+        self.assertEqual(self.submitted()[0]['event'], 'APPROVE')
+        self.assertEqual(len(self.resolved()), 1)
+
+    def test_duplicate_thread_ids_and_repeated_cursors_are_incomplete(self):
+        def page(items, cursor):
+            return {'nodes': [{'id': item} for item in items],
+                    'pageInfo': {'hasNextPage': True, 'endCursor': cursor}}
+
+        for followup in (page(['same'], 'another'), page(['new'], 'cursor')):
+            with self.subTest(followup=followup):
+                _, complete = publisher.paginated_nodes(page(['same'], 'cursor'), lambda _: followup, 'id')
+                self.assertFalse(complete)
+
     def test_external_resolution_with_unchanged_history_allows_approval(self):
         self.thread_resolved = True
         self.run_publish()

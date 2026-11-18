@@ -159,32 +159,8 @@ jobs:
           # The PR title and description, so reviewers can check declared intent against the diff.
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
             | jq -r '"# " + .title + "\n\n" + (.body // "")' > "$REVIEW_IN/pr.md"
-          # Unresolved threads opened by earlier reviews from this reviewer, with the author's replies.
-          gh api graphql -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
-            -f query='query($owner: String!, $name: String!, $number: Int!) {
-              repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-                reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
-                  id isResolved isOutdated path line originalLine diffSide
-                  comments(first: 50) { pageInfo { hasNextPage } nodes { author { login } body url } } } } } } }' \
-            > "$REVIEW_IN/threads-response.json"
-          # Fail closed rather than review against a truncated thread history.
-          if jq -e --arg login "$REVIEWER_LOGIN" '.data.repository.pullRequest.reviewThreads
-              | .pageInfo.hasNextPage or any(.nodes[];
-                  .isResolved == false and .comments.nodes[0].author.login == $login and .comments.pageInfo.hasNextPage)' \
-              "$REVIEW_IN/threads-response.json" > /dev/null; then
-            echo '::error::PR has more review threads or replies than one page; refusing to review a truncated history.'
-            exit 1
-          fi
-          jq --arg login "$REVIEWER_LOGIN" --arg marker "$REVIEW_MARKER" --arg legacy "$LEGACY_UNMARKED_THREADS" \
-            '[.data.repository.pullRequest.reviewThreads.nodes[]
-              | select(.isResolved == false
-                  and .comments.nodes[0].author.login == $login
-                  and (.comments.nodes[0].body as $body
-                    | ($body | startswith($marker))
-                      or ($legacy == "true" and ($body | startswith("<!-- spotty-") | not))))
-              | {id, path, line: (.line // .originalLine), originalLine, diffSide, isOutdated,
-                 comments: [.comments.nodes[] | {author: .author.login, body, url}]}]' \
-            "$REVIEW_IN/threads-response.json" > "$REVIEW_IN/threads.json"
+          # Reuse the publication path's cursor and history validation.
+          python3 -I "$GITHUB_WORKSPACE/reviewer/.github/agent-review/publish.py" --collect-threads
           jq -n --arg repository "$GITHUB_REPOSITORY" --argjson pr "$PR_NUMBER" \
             --arg base "$BASE_SHA" --arg base_branch "$BASE_BRANCH" --arg head "$HEAD_SHA" --arg previous_head "$PREVIOUS_HEAD" \
             --arg mode "$REVIEW_MODE" --arg reason "$REVIEW_REASON" --arg in "$REVIEW_IN" --arg out "$REVIEW_OUT" \

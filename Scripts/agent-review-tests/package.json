@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "scripts": { "test": "python3 -B ../script_tests.py review" },
-  "devDependencies": { "@actions/expressions": "0.3.61" }
+  "devDependencies": { "@actions/expressions": "0.3.62" }
 }
